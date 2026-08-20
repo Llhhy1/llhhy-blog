@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>我的博客</title>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+  <script>
+    // 防闪烁：CSS 生效前先定好主题
+    (function () {
+      try {
+        var t = localStorage.getItem("theme");
+        var dark = t === "dark" ||
+          (!t && window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches);
+        if (dark) document.documentElement.setAttribute("data-theme", "dark");
+      } catch (e) {}
+    })();
+  </script>
+</head>
+<body>
+  <div id="app"></div>
+  <script type="module" src="/src/main.js"></script>
+</body>
+</html>

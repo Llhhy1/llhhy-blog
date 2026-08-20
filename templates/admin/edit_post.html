@@ -1,0 +1,46 @@
+{% extends "admin/base.html" %}
+{% block title %}{% if post %}编辑文章{% else %}写新文章{% endif %}{% endblock %}
+{% block content %}
+  <h1 class="page-title">{% if post %}编辑文章{% else %}写新文章{% endif %}</h1>
+  <form method="post" action="" class="edit-form">
+    <label>标题 *</label>
+    <input type="text" name="title" value="{{ post.title if post else '' }}" required>
+
+    <label>摘要（可选）</label>
+    <input type="text" name="summary" value="{{ post.summary if post else '' }}">
+
+    <label>分类</label>
+    <select name="category_id">
+      <option value="">— 无 —</option>
+      {% for c in cats %}
+        <option value="{{ c.id }}" {% if post and post.category_id == c.id %}selected{% endif %}>{{ c.name }}</option>
+      {% endfor %}
+    </select>
+
+    <label>标签（逗号分隔，如：生活, 技术）</label>
+    <input type="text" name="tags" value="{{ tag_names if tag_names else '' }}">
+
+    <label>封面图（URL，可填外链或点下面按钮上传）</label>
+    <div class="upload-row">
+      <input type="text" name="cover" id="cover" value="{{ post.cover if post else '' }}" placeholder="https://… 或上传后自动填入">
+      <button type="button" class="btn" id="cover-upload-btn">📤 上传封面</button>
+      <input type="file" id="cover-image-input" accept="image/*" hidden>
+    </div>
+    {% if post and post.cover %}<img id="cover-preview" class="cover-preview" src="{{ post.cover }}" alt="封面预览">{% else %}<img id="cover-preview" class="cover-preview" alt="" style="display:none">{% endif %}
+
+    <label>正文（支持 Markdown）</label>
+    <div class="upload-row">
+      <button type="button" class="btn" id="upload-btn">📷 插入图片</button>
+      <span id="upload-status" class="upload-status"></span>
+      <input type="file" id="image-input" accept="image/*" hidden>
+    </div>
+    <textarea name="content" id="content" rows="18">{{ post.content if post else '' }}</textarea>
+
+    <label class="checkbox">
+      <input type="checkbox" name="published" {% if not post or post.published %}checked{% endif %}> 立即发布
+    </label>
+
+    <button type="submit" class="btn">保存</button>
+    <a class="btn" href="{{ url_for('admin.dashboard') }}">返回</a>
+  </form>
+{% endblock %}

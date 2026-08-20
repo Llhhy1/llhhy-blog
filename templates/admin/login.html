@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>登录后台 · {{ settings.site_name or settings.site_title or '博客后台' }}</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='admin.css') }}?v={{ admin_css_v }}">
+  <style>
+    :root { --accent: {{ settings.accent_color or '#1a73e8' }}; }
+  </style>
+  <script>
+    (function () {
+      try {
+        var t = localStorage.getItem('theme');
+        var dark = t === 'dark' ||
+          (!t && window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches);
+        if (dark) document.documentElement.setAttribute('data-theme', 'dark');
+      } catch (e) {}
+    })();
+  </script>
+</head>
+<body class="admin">
+  <div class="admin-auth-wrap">
+    <div class="admin-auth-card">
+      <div class="auth-logo">{{ settings.site_name or settings.site_title or '博客后台' }}</div>
+      <div class="auth-sub">管理后台 · 与前台同一套账号体系</div>
+
+      {% with messages = get_flashed_messages() %}
+        {% for m in messages %}<div class="flash">{{ m }}</div>{% endfor %}
+      {% endwith %}
+
+      <form method="post" action="{{ url_for('admin.login') }}">
+        <label>用户名</label>
+        <input type="text" name="username" autocomplete="username" required autofocus>
+        <label>密码</label>
+        <input type="password" name="password" autocomplete="current-password" required>
+        <button type="submit" class="btn">登 录</button>
+      </form>
+      <p class="auth-tip">
+        <a href="{{ url_for('main.index') }}">← 返回博客首页</a>
+      </p>
+    </div>
+  </div>
+</body>
+</html>

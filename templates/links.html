@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% block title %}友情链接 - {{ site_title }}{% endblock %}
+{% block content %}
+  <h1 class="page-title">友情链接</h1>
+  <ul class="friend-links">
+    {% for l in links %}
+      <li>
+        <a href="{{ l.url }}" target="_blank" rel="noopener">{{ l.name }}</a>
+        {% if l.description %}<span class="desc">— {{ l.description }}</span>{% endif %}
+      </li>
+    {% else %}
+      <li>暂无友情链接。</li>
+    {% endfor %}
+  </ul>
+{% endblock %}

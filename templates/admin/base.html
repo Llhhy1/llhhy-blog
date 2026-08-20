@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{% block title %}后台管理{% endblock %} · {{ settings.site_name or settings.site_title or '博客后台' }}</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='admin.css') }}?v={{ admin_css_v }}">
+  <style>
+    :root { --accent: {{ settings.accent_color or '#1a73e8' }}; {{ theme_css }} }
+  </style>
+  {% if custom_css %}<style id="site-custom-css">{{ custom_css | safe }}</style>{% endif %}
+  <script>
+    /* 防闪烁：进入页面先定好主题 */
+    (function () {
+      try {
+        var t = localStorage.getItem('theme');
+        var dark = t === 'dark' ||
+          (!t && window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches);
+        if (dark) document.documentElement.setAttribute('data-theme', 'dark');
+      } catch (e) {}
+    })();
+  </script>
+</head>
+<body class="admin">
+  <div class="admin-shell">
+    <aside class="admin-sidebar">
+      <a class="side-logo" href="{{ url_for('admin.dashboard') }}">
+        <span class="logo-dot"></span>{{ settings.site_name or settings.site_title or '博客后台' }}
+      </a>
+      <nav class="side-nav">
+        {% set ep = request.endpoint or '' %}
+        {% if current_user and current_user.is_admin_role %}
+        <p class="side-group">内容管理</p>
+        <a href="{{ url_for('admin.dashboard') }}" class="{{ 'active' if ep == 'admin.dashboard' }}"><span class="nav-emoji">📊</span>仪表盘</a>
+        <a href="{{ url_for('admin.new_post') }}" class="{{ 'active' if ep in ('admin.new_post', 'admin.edit_post') }}"><span class="nav-emoji">✏️</span>写新文章</a>
+        <a href="{{ url_for('admin.categories') }}" class="{{ 'active' if ep == 'admin.categories' }}"><span class="nav-emoji">🗂️</span>分类管理</a>
+        <a href="{{ url_for('admin.tags') }}" class="{{ 'active' if ep == 'admin.tags' }}"><span class="nav-emoji">🏷️</span>标签管理</a>
+        <a href="{{ url_for('admin.comments') }}" class="{{ 'active' if ep == 'admin.comments' }}"><span class="nav-emoji">💬</span>评论管理{% if pending is defined and pending %} <span class="nav-badge">{{ pending }}</span>{% endif %}</a>
+        <a href="{{ url_for('admin.links') }}" class="{{ 'active' if ep == 'admin.links' }}"><span class="nav-emoji">🔗</span>友链管理</a>
+        <p class="side-group">系统设置</p>
+        <a href="{{ url_for('admin.stats') }}" class="{{ 'active' if ep == 'admin.stats' }}"><span class="nav-emoji">📈</span>访问统计</a>
+        {% if current_user.is_super %}
+        <a href="{{ url_for('admin.settings') }}" class="{{ 'active' if ep == 'admin.settings' }}"><span class="nav-emoji">⚙️</span>站点设置</a>
+        <a href="{{ url_for('admin.users') }}" class="{{ 'active' if ep == 'admin.users' }}"><span class="nav-emoji">👥</span>用户管理</a>
+        {% endif %}
+        {% else %}
+        <p class="side-group">我的创作</p>
+        <a href="{{ url_for('admin.new_post') }}" class="{{ 'active' if ep in ('admin.new_post', 'admin.edit_post') }}"><span class="nav-emoji">✏️</span>写新文章</a>
+        <a href="{{ url_for('admin.my_posts') }}" class="{{ 'active' if ep == 'admin.my_posts' }}"><span class="nav-emoji">📄</span>我的文章</a>
+        {% endif %}
+      </nav>
+      <div class="side-user-card">
+        <div class="side-avatar">{{ (current_user.username[0] if current_user else '?') | upper }}</div>
+        <div class="side-user-info">
+          <span class="side-user-name">{{ current_user.username if current_user else '未登录' }}</span>
+          <span class="side-user-role">{{ current_user.role_label if current_user else '—' }}</span>
+        </div>
+        <a class="side-logout" href="{{ url_for('admin.logout') }}" title="退出登录">⏻</a>
+      </div>
+    </aside>
+
+    <main class="admin-main">
+      {% with messages = get_flashed_messages() %}
+        {% if messages %}
+          {% for m in messages %}<div class="flash">{{ m }}</div>{% endfor %}
+        {% endif %}
+      {% endwith %}
+      {% block content %}{% endblock %}
+    </main>
+  </div>
+
+  <button id="back-to-top" title="回到顶部" aria-label="回到顶部">↑</button>
+  <script src="{{ url_for('static', filename='script.js') }}"></script>
+</body>
+</html>

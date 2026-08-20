@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block title %}{{ site_title }} - 首页{% endblock %}
+{% block content %}
+  <h1 class="page-title">最新文章</h1>
+  {% for p in posts %}
+    <article class="post-card">
+      {% if p.cover %}<a class="post-cover" href="{{ url_for('main.post', slug=p.slug) }}"><img src="{{ p.cover }}" alt="{{ p.title }}封面"></a>{% endif %}
+      <h2><a href="{{ url_for('main.post', slug=p.slug) }}">{{ p.title }}</a></h2>
+      <div class="post-meta">
+        <span>{{ p.created_at.strftime('%Y-%m-%d') }}</span>
+        {% if p.category %}<span>· <a href="{{ url_for('main.category', slug=p.category.slug) }}">{{ p.category.name }}</a></span>{% endif %}
+        <span>· {{ p.views }} 阅读</span>
+      </div>
+      {% if p.summary %}<p class="post-summary">{{ p.summary }}</p>{% endif %}
+      <a class="read-more" href="{{ url_for('main.post', slug=p.slug) }}">阅读全文 →</a>
+    </article>
+  {% else %}
+    <p class="empty">还没有文章，去后台写一篇吧。</p>
+  {% endfor %}
+
+  {% if pagination.pages > 1 %}
+  <nav class="pagination">
+    {% if pagination.has_prev %}
+      <a href="{{ url_for('main.index', page=pagination.prev_num) }}">←</a>
+    {% else %}
+      <span class="page-disabled">←</span>
+    {% endif %}
+    {% for p in pagination.iter_pages() %}
+      {% if p %}
+        {% if p == pagination.page %}
+          <span class="page-current">{{ p }}</span>
+        {% else %}
+          <a href="{{ url_for('main.index', page=p) }}">{{ p }}</a>
+        {% endif %}
+      {% else %}
+        <span class="page-ellipsis">…</span>
+      {% endif %}
+    {% endfor %}
+    {% if pagination.has_next %}
+      <a href="{{ url_for('main.index', page=pagination.next_num) }}">→</a>
+    {% else %}
+      <span class="page-disabled">→</span>
+    {% endif %}
+  </nav>
+  {% endif %}
+{% endblock %}

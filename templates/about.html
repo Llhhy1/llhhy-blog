@@ -1,0 +1,8 @@
+{% extends "base.html" %}
+{% block title %}关于本站 - {{ site_title }}{% endblock %}
+{% block content %}
+  <article class="post-detail">
+    <h1>关于本站</h1>
+    <div class="post-body">{{ settings.about_content | safe }}</div>
+  </article>
+{% endblock %}

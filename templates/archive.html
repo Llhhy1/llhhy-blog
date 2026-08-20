@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block title %}{{ kind }}：{{ title }} - {{ site_title }}{% endblock %}
+{% block content %}
+  <h1 class="page-title">{{ kind }}：{{ title }}</h1>
+  {% for p in posts %}
+    <article class="post-card">
+      <h2><a href="{{ url_for('main.post', slug=p.slug) }}">{{ p.title }}</a></h2>
+      <div class="post-meta">
+        <span>{{ p.created_at.strftime('%Y-%m-%d') }}</span>
+        <span>· {{ p.views }} 阅读</span>
+      </div>
+      {% if p.summary %}<p class="post-summary">{{ p.summary }}</p>{% endif %}
+    </article>
+  {% else %}
+    <p class="empty">这个{{ kind }}下还没有文章。</p>
+  {% endfor %}
+{% endblock %}

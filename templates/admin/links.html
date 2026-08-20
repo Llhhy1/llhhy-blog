@@ -1,0 +1,32 @@
+{% extends "admin/base.html" %}
+{% block title %}友链管理{% endblock %}
+{% block content %}
+  <h1 class="page-title">友情链接管理</h1>
+  <form method="post" action="{{ url_for('admin.links') }}" class="link-form">
+    <input type="text" name="name" placeholder="名称" required>
+    <input type="text" name="url" placeholder="https://..." required>
+    <input type="text" name="description" placeholder="描述（可选）">
+    <input type="number" name="sort" value="0" title="排序，越小越靠前">
+    <button type="submit" class="btn">添加</button>
+  </form>
+  <table class="admin-table">
+    <thead><tr><th>名称</th><th>链接</th><th>描述</th><th>操作</th></tr></thead>
+    <tbody>
+      {% for l in links %}
+        <tr>
+          <td>{{ l.name }}</td>
+          <td><a href="{{ l.url }}" target="_blank" rel="noopener">{{ l.url }}</a></td>
+          <td>{{ l.description }}</td>
+          <td>
+            <form method="post" action="{{ url_for('admin.delete_link', lid=l.id) }}" class="inline-form" onsubmit="return confirm('确定删除？');">
+              <button type="submit" class="link-danger">删除</button>
+            </form>
+          </td>
+        </tr>
+      {% else %}
+        <tr><td colspan="4">暂无友链</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  <a class="btn" href="{{ url_for('admin.dashboard') }}">返回仪表盘</a>
+{% endblock %}

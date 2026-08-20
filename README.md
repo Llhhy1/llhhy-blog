@@ -1,0 +1,115 @@
+# 我的博客（Flask + SQLite + Vue3 前端）
+
+一个适合新手自己搭建、维护和部署的博客系统，采用 **方案 B：前后端分离**（默认且唯一推荐方案）：
+
+- **后端 `myblog/`**：Flask + SQLite，提供 `/api/*` JSON 接口与 `/admin` 后台管理（服务端渲染，含用户系统与权限）。
+- **前端 `vue-frontend/`**：Vue3 + Vite，构建成静态站，由 Nginx 直接托管，页面通过 `/api/*` 拉取数据。
+- 部署最省心：Nginx 托管静态文件 + 反代 `/api` 与 `/admin` 到 Flask，**服务器不需要 Node**（前端在本地构建好再上传）。
+
+## 功能
+- 写文章（后台在线编辑，支持 Markdown 语法，代码高亮）
+- 分类与标签 / 站内搜索 / 评论区 / 阅读量统计
+- **访问统计**（前台「统计」页 + 后台「📊 访问统计」）：
+  - 累计 / 今日访问次数
+  - 访客区域排行榜（今日 + 累计 TOP10，IP 属地异步识别）
+  - 最受关注（反复阅读）的文章、常搜词汇 TOP10、24 小时访问时段分布
+- **天气小组件**：wttr.in 主源 + Open-Meteo 兜底（免费无需 Key；支持浏览器定位 + 城市名查询；失败自动回退默认城市）
+- **博客名称 / 浏览器便签**：后台可编辑，前台 Logo、浏览器标签标题、顶部公告条跟随
+- **前后台统一登录**：一个 `/login` 入口（访问 `/admin` 自动跳转），登录后按角色鉴权分流
+- **精美管理后台**（inis 风格）：分组侧边栏 + 用户卡片 + 渐变欢迎卡 + 双栏仪表盘 + 统计图表，明暗双主题
+- 关于本站 / 友情链接 / 底部备案号（ICP 备案码后台可编辑）
+- 暗色模式（右上角切换，自动记忆）
+- 图片上传（后台插图 + 文章封面图）
+- RSS 订阅（`/feed.xml`）、SEO 优化（`sitemap.xml` / `robots.txt`）
+- 文章目录 TOC + 阅读进度条 + 首页数字分页 + 回到顶部
+- **自定义主题色**（后台取色器，全站跟随）
+- **归档时间线**（导航「归档」按年/月汇总）
+- **文章点赞**（同一浏览器去重计一次）
+- **用户系统与权限**：访客注册/登录（评论自动用用户名）；三级权限——超级管理员（管理用户，不可被删/降级）/ 管理员（管理内容）/ 普通用户
+- **后台修改密码** + **用户管理**（超级管理员专属：新增用户、调整角色、重置密码、删除用户）
+- **上线安全**：首次进入后台强制设置管理员用户名与密码，未设置前默认密码无法看到后台内容
+- 简约清爽的响应式界面（手机也能看）
+
+## 目录结构
+```
+myblog/             # 后端（Flask + SQLite，两套方案共用）
+├── app.py          # 应用入口（工厂函数 + 全局变量 + CLI 命令）
+├── config.py       # 配置（密钥、数据库路径、管理员初始账号）
+├── models.py       # 数据库表结构（文章/评论/用户/设置/访问统计等）
+├── stats.py        # 访问统计：IP 属地解析（缓存+在线接口）、埋点记录、汇总
+├── utils.py        # 小工具（生成网址 slug）
+├── routes.py       # 前台页面 + 注册/登录 + 评论提交 + 天气接口
+├── admin.py        # 后台管理（登录/写文章/分类/标签/评论/设置/统计/用户管理）
+├── api.py          # 前后端分离用的 JSON 接口（/api/*，含 /api/stats/* 埋点与汇总）
+├── requirements.txt
+├── deploy_guide.md # 宝塔部署手册（点按式，含 Nginx 反代配置）
+├── templates/      # 页面模板（含后台：admin/base.html 管理外壳、admin/stats.html 统计页）
+├── static/         # 样式与脚本（admin.css 后台样式、script.js、上传图片在 static/uploads/）
+└── data/           # 运行时自动生成的 SQLite 数据库 blog.db
+
+vue-frontend/       # 前端（Vue3 + Vite，构建成静态站）
+├── vite.config.js  # Vite 配置（/api 开发代理到 8080）
+├── package.json
+├── index.html
+└── src/
+    ├── main.js / App.vue / router.js / store.js
+    ├── lib/api.js          # fetch 封装
+    ├── components/         # PostCard / Sidebar / WeatherWidget / LikeButton / CommentForm
+    ├── views/              # 首页/文章/分类/标签/归档/统计/关于/友链/搜索/登录/注册
+    └── styles/global.css   # 整套样式（含暗色模式）
+```
+
+## 本地运行
+1. 先启动后端（含 API）：
+   ```bash
+   cd myblog
+   python -m venv venv
+   # Windows：venv\Scripts\activate   |   macOS/Linux：source venv/bin/activate
+   pip install -r requirements.txt
+   flask --app app init-db
+   flask --app app seed          # 可选：填充示例文章
+   python app.py                 # 或 python -m flask --app app run -p 8080
+   ```
+   确认 http://127.0.0.1:8080/api/site 返回 JSON。
+2. 再启动 Vue3 开发服务器（自动把 `/api` 代理到 8080）：
+   ```bash
+   cd vue-frontend
+   npm install
+   npm run dev                  # 打开 http://localhost:5173
+   ```
+3. 前台在 http://localhost:5173/ ；后台在 http://localhost:8080/admin（初始 admin / admin123，首次登录强制设置新账号）。
+
+## 用户与权限
+- **注册**：前台导航「注册」（或 `/register`），注册即登录，评论自动显示用户名。
+- **统一登录**：前台 `/login` 与后台共用同一套账号体系、同一个登录入口。访问 `/admin` 未登录会自动跳到 `/login?next=/admin`，登录成功后按权限自动回到后台。
+- **登录/登出**：导航「登录」/「退出」（退出走接口清会话，前端任意页面可退）。
+- **角色**：
+  - `super` 超级管理员：全部权限；后台可见「用户管理」「站点设置」；**不可被删除、不可被降级**。
+  - `admin` 管理员：可管理内容（文章/分类/标签/评论/友链/统计），**不能管理用户、不能改站点设置**。
+  - `user` 普通用户：可登录、评论；**可发表文章**（导航「✏️ 写文章」进入，只能编辑/删除自己发表的文章）；访问后台管理页会被引导到写文章。
+- **改密码**：后台 →「修改密码」（需原密码）；超级管理员可在用户管理里重置他人密码。
+- 首次运行自动用 `config.py` 的 `ADMIN_USERNAME` / `ADMIN_PASSWORD`（默认 admin / admin123）创建超级管理员。
+
+## 上线安全：首次进入后台设置管理员
+上线后第一次访问 `/admin`，用初始账号登录（默认 `admin` / `admin123`，可被环境变量 `ADMIN_PASSWORD` 覆盖），系统会**强制进入「设置管理员账号」页面**：
+1. 填你自己的用户名（可沿用 admin）；
+2. 设置新密码（至少 6 位）；
+3. 保存后进入后台，旧密码立即失效，之后不再出现本页。
+
+> 未设置前，任何人用默认密码登录也只能看到设置页，看不到后台内容。
+
+## 部署到宝塔面板（Debian 13）
+**完整、逐步的点击式部署教程见同目录 `deploy_guide.md`**（全程用宝塔界面操作，不需要 SSH，不需要在服务器装 Node）。需要两个文件：
+- `myblog-backend.zip` —— 后端（上传后由宝塔 Python 项目管理器启动）；
+- `vue-frontend-dist.zip` —— 前端构建产物（上传解压即网站根目录）。
+
+> 如需重新构建前端（修改过 `vue-frontend/` 源码后）：本地执行 `npm install && npm run build`，把生成的 `dist/` 内容打成 zip 再上传覆盖。
+
+## 常见问题
+- **502**：gunicorn 没起来，去项目管理器看「运行中」与日志（端口冲突/依赖缺失最常见）。
+- **后台能打开但完全没有样式（全文本）**：Nginx 少了 `location /static/ { proxy_pass ... }` 反代，`/static/admin.css` 返回 404。详见 `deploy_guide.md` 第 4 步（宝塔不会自动加这段）。
+- **改了后台样式不生效**：admin.css 引用带自动版本戳（按文件 mtime），重启 Python 项目 + 浏览器强刷（Ctrl+F5）即可。
+- **天气组件不显示 / 定位报错**：wttr.in 主源 + Open-Meteo 兜底。定位被拒或接口失败会自动回退默认城市；访客也可手动输入城市名查询，无需 Key。
+- **点赞数不增加**：同一浏览器已点过会显示已赞（localStorage 去重）。
+- **RSS/sitemap 里链接是 localhost 或 IP**：在宝塔项目「环境变量」里加 `SITE_URL=https://你的域名` 并重启项目。
+- **部署包与数据库**：`myblog-backend.zip` 不包含 `data/` 目录，解压覆盖不会动服务器上已有的 `blog.db`；新增表（统计相关）在重启时自动创建。

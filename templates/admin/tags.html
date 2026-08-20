@@ -1,0 +1,28 @@
+{% extends "admin/base.html" %}
+{% block title %}标签管理{% endblock %}
+{% block content %}
+  <h1 class="page-title">标签管理</h1>
+  <form method="post" action="{{ url_for('admin.tags') }}" class="inline-form">
+    <input type="text" name="name" placeholder="新标签名称" required>
+    <button type="submit" class="btn">添加</button>
+  </form>
+  <table class="admin-table">
+    <thead><tr><th>名称</th><th>slug</th><th>操作</th></tr></thead>
+    <tbody>
+      {% for t in tags %}
+        <tr>
+          <td>{{ t.name }}</td>
+          <td>{{ t.slug }}</td>
+          <td>
+            <form method="post" action="{{ url_for('admin.delete_tag', tid=t.id) }}" class="inline-form" onsubmit="return confirm('确定删除？');">
+              <button type="submit" class="link-danger">删除</button>
+            </form>
+          </td>
+        </tr>
+      {% else %}
+        <tr><td colspan="3">暂无标签</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  <a class="btn" href="{{ url_for('admin.dashboard') }}">返回仪表盘</a>
+{% endblock %}

@@ -1,0 +1,84 @@
+{% extends "base.html" %}
+{% block title %}{{ post.title }} - {{ site_title }}{% endblock %}
+{% block content %}
+  <article class="post-detail">
+    <h1>{{ post.title }}</h1>
+    <div class="post-meta">
+      <span>{{ post.created_at.strftime('%Y-%m-%d %H:%M') }}</span>
+      {% if post.category %}<span>· <a href="{{ url_for('main.category', slug=post.category.slug) }}">{{ post.category.name }}</a></span>{% endif %}
+      <span>· {{ post.views }} 阅读</span>
+    </div>
+    {% if post.cover %}<img class="post-cover-img" src="{{ post.cover }}" alt="{{ post.title }}封面">{% endif %}
+    <nav class="toc" id="toc" aria-label="文章目录"></nav>
+    <div class="post-body">{{ post.html | safe }}</div>
+
+    {% if post.tags %}
+      <div class="post-tags">
+        标签：
+        {% for t in post.tags %}<a class="tag" href="{{ url_for('main.tag', slug=t.slug) }}">{{ t.name }}</a>{% endfor %}
+      </div>
+    {% endif %}
+
+    <button id="like-btn" class="like-btn" data-slug="{{ post.slug }}">👍 点赞 <span id="like-count" class="like-count">{{ post.likes or 0 }}</span></button>
+  </article>
+
+  <section id="comments" class="comments">
+    <h3>评论（{{ comments | length }}）</h3>
+    {% for c in comments %}
+      <div class="comment">
+        <div class="comment-meta"><strong>{{ c.author }}</strong> · <span>{{ c.created_at.strftime('%Y-%m-%d %H:%M') }}</span></div>
+        <p>{{ c.content }}</p>
+      </div>
+    {% else %}
+      <p class="empty">还没有评论，来抢沙发～</p>
+    {% endfor %}
+
+    <form class="comment-form" method="post" action="{{ url_for('main.add_comment', slug=post.slug) }}">
+      <input type="text" name="author" placeholder="昵称（可留空）" maxlength="80">
+      <textarea name="content" rows="3" placeholder="说点什么…" required></textarea>
+      <button type="submit">提交评论</button>
+    </form>
+  </section>
+
+  <link id="hljs-theme" rel="stylesheet" href="https://cdn.bootcdn.net/ajax/libs/highlight.js/11.9.0/styles/github.min.css">
+  <script src="https://cdn.bootcdn.net/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+  <script>
+    // 根据当前主题切换代码高亮配色（亮/暗）
+    window.applyHighlightTheme = function () {
+      var dark = document.documentElement.getAttribute("data-theme") === "dark";
+      var link = document.getElementById("hljs-theme");
+      if (link) {
+        link.href = dark
+          ? "https://cdn.bootcdn.net/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css"
+          : "https://cdn.bootcdn.net/ajax/libs/highlight.js/11.9.0/styles/github.min.css";
+      }
+    };
+    applyHighlightTheme();
+    if (window.hljs) hljs.highlightAll();
+
+    // 自动生成文章目录 TOC（取正文的 h2/h3）
+    (function () {
+      var body = document.querySelector(".post-body");
+      var toc = document.getElementById("toc");
+      if (!body || !toc) return;
+      var heads = body.querySelectorAll("h2, h3");
+      if (heads.length === 0) { toc.style.display = "none"; return; }
+      var ul = document.createElement("ul");
+      heads.forEach(function (h, i) {
+        if (!h.id) h.id = "sec-" + i;
+        var li = document.createElement("li");
+        li.className = h.tagName === "H3" ? "toc-sub" : "toc-top";
+        var a = document.createElement("a");
+        a.href = "#" + h.id;
+        a.textContent = h.textContent;
+        li.appendChild(a);
+        ul.appendChild(li);
+      });
+      var title = document.createElement("p");
+      title.className = "toc-title";
+      title.textContent = "目录";
+      toc.appendChild(title);
+      toc.appendChild(ul);
+    })();
+  </script>
+{% endblock %}

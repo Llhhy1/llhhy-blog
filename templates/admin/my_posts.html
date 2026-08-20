@@ -1,0 +1,36 @@
+{% extends "admin/base.html" %}
+{% block title %}我的文章{% endblock %}
+{% block content %}
+  <h1 class="page-title">📄 我的文章（{{ posts | length }}）</h1>
+
+  <div class="admin-actions">
+    <a class="btn" href="{{ url_for('admin.new_post') }}">✏️ 写新文章</a>
+    <a class="btn ghost" href="{{ url_for('main.index') }}" target="_blank">🌐 查看前台</a>
+  </div>
+
+  <div class="panel">
+    <table class="admin-table">
+      <thead>
+        <tr><th>标题</th><th>状态</th><th>阅读</th><th>发布时间</th><th>操作</th></tr>
+      </thead>
+      <tbody>
+        {% for p in posts %}
+          <tr>
+            <td><a href="{{ url_for('admin.edit_post', post_id=p.id) }}">{{ p.title }}</a></td>
+            <td>{{ '已发布' if p.published else '草稿' }}</td>
+            <td>{{ p.views }}</td>
+            <td>{{ p.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
+            <td>
+              <a href="{{ url_for('admin.edit_post', post_id=p.id) }}">编辑</a>
+              <form method="post" action="{{ url_for('admin.delete_post', post_id=p.id) }}" class="inline-form" onsubmit="return confirm('确定删除？');">
+                <button type="submit" class="link-danger">删除</button>
+              </form>
+            </td>
+          </tr>
+        {% else %}
+          <tr><td colspan="5">还没有发表过文章，点「写新文章」开始吧～</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+{% endblock %}

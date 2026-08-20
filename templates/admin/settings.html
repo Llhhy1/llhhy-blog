@@ -1,0 +1,73 @@
+{% extends "admin/base.html" %}
+{% block title %}站点设置{% endblock %}
+{% block content %}
+  <h1 class="page-title">站点设置</h1>
+  <form method="post" action="{{ url_for('admin.settings') }}" class="edit-form">
+    <label>博客名称（前台顶部 Logo 与浏览器标签页显示的名字，如「XX 的博客」）</label>
+    <input type="text" name="site_name" value="{{ settings.site_name or settings.site_title }}">
+
+    <label>站点标题（SEO 用的标题，一般与博客名称一致）</label>
+    <input type="text" name="site_title" value="{{ settings.site_title }}">
+
+    <label>浏览器便签（显示在前台顶部的一条可关闭公告/便签，如「📌 本站已开通 SSL，欢迎留言」；留空则不显示）</label>
+    <input type="text" name="site_note" value="{{ settings.site_note }}" placeholder="例如：📌 正在更新中，评论功能已恢复">
+
+    <label>站点描述（用于 SEO，搜索引擎展示的简介）</label>
+    <input type="text" name="site_description" value="{{ settings.site_description }}">
+
+    <label>关于本站内容（支持简单 HTML）</label>
+    <textarea name="about_content" rows="6">{{ settings.about_content }}</textarea>
+
+    <label>页脚文字</label>
+    <input type="text" name="footer_text" value="{{ settings.footer_text }}">
+
+    <label>页脚备案号（ICP 备案码，如「京ICP备12345678号-1」；留空则不显示）</label>
+    <input type="text" name="beian_code" value="{{ settings.beian_code }}">
+
+    <label>站点主题色（导航高亮、按钮、链接、时间线圆点等都会跟随这个颜色）</label>
+    <input type="color" name="accent_color" value="{{ settings.accent_color or '#1a73e8' }}" style="width:60px;height:38px;padding:2px;cursor:pointer;">
+
+    <label>天气默认城市名（天气组件在没有访客定位时显示的名字，如「北京」）</label>
+    <input type="text" name="weather_city" value="{{ settings.weather_city }}">
+
+    <label>天气默认纬度（weather_lat）</label>
+    <input type="text" name="weather_lat" value="{{ settings.weather_lat }}">
+
+    <label>天气默认经度（weather_lon）</label>
+    <input type="text" name="weather_lon" value="{{ settings.weather_lon }}">
+
+    <label style="margin-top:24px;font-size:15px;color:var(--accent);">🎨 主题美化（前后台同时生效）</label>
+
+    <label>默认主题模式（用户没手动切过时生效）</label>
+    <select name="theme_mode">
+      <option value="system" {{ 'selected' if (settings.theme_mode or 'system') == 'system' }}>跟随系统</option>
+      <option value="light" {{ 'selected' if settings.theme_mode == 'light' }}>浅色</option>
+      <option value="dark" {{ 'selected' if settings.theme_mode == 'dark' }}>深色</option>
+    </select>
+
+    <label>圆角风格（卡片/按钮/输入框的圆角大小）</label>
+    <select name="theme_radius">
+      <option value="sm" {{ 'selected' if (settings.theme_radius or 'md') == 'sm' }}>小圆角（8px）</option>
+      <option value="md" {{ 'selected' if (settings.theme_radius or 'md') == 'md' }}>标准圆角（12px）</option>
+      <option value="lg" {{ 'selected' if settings.theme_radius == 'lg' }}>大圆角（20px）</option>
+    </select>
+
+    <label>全局字号</label>
+    <select name="theme_font">
+      <option value="sm" {{ 'selected' if (settings.theme_font or 'md') == 'sm' }}>小（14px）</option>
+      <option value="md" {{ 'selected' if (settings.theme_font or 'md') == 'md' }}>标准（15px）</option>
+      <option value="lg" {{ 'selected' if settings.theme_font == 'lg' }}>大（17px）</option>
+    </select>
+
+    <label>前台导航栏样式</label>
+    <select name="nav_style">
+      <option value="light" {{ 'selected' if (settings.nav_style or 'light') == 'light' }}>浅色</option>
+      <option value="dark" {{ 'selected' if settings.nav_style == 'dark' }}>深色</option>
+    </select>
+
+    <label>自定义 CSS（进阶：粘贴你想覆盖的样式，前后台都会注入；留空不注入）</label>
+    <textarea name="custom_css" rows="5" placeholder="例：.site-header { box-shadow: 0 2px 12px rgba(0,0,0,0.08); }&#10;.post-card { border: 0; box-shadow: 0 4px 16px rgba(0,0,0,0.06); }">{{ settings.custom_css }}</textarea>
+
+    <button type="submit" class="btn">保存设置</button>
+  </form>
+{% endblock %}

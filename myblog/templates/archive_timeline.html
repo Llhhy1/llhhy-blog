@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block title %}归档 - {{ site_title }}{% endblock %}
+{% block content %}
+  <h1 class="page-title">文章归档（共 {{ total }} 篇）</h1>
+  <div class="timeline">
+    {% for year in timeline %}
+      <div class="tl-year">{{ year.year }}</div>
+      {% for month in year.months %}
+        <div class="tl-month">{{ month.month }} 月</div>
+        {% for p in month.posts %}
+          <div class="tl-item">
+            <a href="{{ url_for('main.post', slug=p.slug) }}">{{ p.title }}</a>
+            <span class="tl-date">{{ p.created_at.strftime('%m-%d') }}</span>
+          </div>
+        {% endfor %}
+      {% endfor %}
+    {% else %}
+      <p class="empty">还没有文章，去后台写一篇吧。</p>
+    {% endfor %}
+  </div>
+{% endblock %}

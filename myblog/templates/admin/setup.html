@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>设置管理员账号 · {{ settings.site_name or settings.site_title or '博客后台' }}</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='admin.css') }}?v={{ admin_css_v }}">
+  <style>
+    :root { --accent: {{ settings.accent_color or '#1a73e8' }}; }
+  </style>
+  <script>
+    (function () {
+      try {
+        var t = localStorage.getItem('theme');
+        var dark = t === 'dark' ||
+          (!t && window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches);
+        if (dark) document.documentElement.setAttribute('data-theme', 'dark');
+      } catch (e) {}
+    })();
+  </script>
+</head>
+<body class="admin">
+  <div class="admin-auth-wrap">
+    <div class="admin-auth-card">
+      <div class="auth-logo">👋 欢迎使用</div>
+      <div class="auth-sub">首次进入后台，请设置管理员用户名和密码</div>
+
+      {% with messages = get_flashed_messages() %}
+        {% for m in messages %}<div class="flash">{{ m }}</div>{% endfor %}
+      {% endwith %}
+
+      <form method="post" action="{{ url_for('admin.setup') }}">
+        <label>新用户名（2-20 个字符）</label>
+        <input type="text" name="username" autocomplete="username" required autofocus>
+        <label>新密码（至少 6 位）</label>
+        <input type="password" name="password" autocomplete="new-password" required>
+        <label>确认新密码</label>
+        <input type="password" name="confirm_password" autocomplete="new-password" required>
+        <button type="submit" class="btn">保存并进入后台</button>
+      </form>
+      <p class="auth-tip">设置后旧密码立即失效，之后每次登录都用这套新账号密码。</p>
+    </div>
+  </div>
+</body>
+</html>

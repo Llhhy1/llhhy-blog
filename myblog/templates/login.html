@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block title %}登录{% endblock %}
+{% block content %}
+  <div class="auth-box">
+    <h1 class="page-title">登录</h1>
+    <form method="post" action="{{ url_for('main.login') }}">
+      <label>用户名</label>
+      <input type="text" name="username" required>
+      <label>密码</label>
+      <input type="password" name="password" required>
+      <button type="submit">登录</button>
+    </form>
+    <p class="auth-tip">还没有账号？<a href="{{ url_for('main.register') }}">注册一个</a></p>
+    <p class="auth-tip">管理员请从导航「后台」入口登录。</p>
+  </div>
+{% endblock %}

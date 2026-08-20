@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{% block title %}{{ site_title }}{% endblock %}</title>
+  <meta name="description" content="{% block description %}{{ settings.site_description or '' }}{% endblock %}">
+  <link rel="alternate" type="application/rss+xml" title="{{ site_title }}" href="{{ url_for('main.feed') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+  <style>
+    /* 站点主题色：可被后台「站点设置」中的 accent_color 覆盖 */
+    :root { --accent: {{ settings.accent_color or '#1a73e8' }}; {{ theme_css }} }
+  </style>
+  {% if custom_css %}<style id="site-custom-css">{{ custom_css | safe }}</style>{% endif %}
+  <script>
+    /* 防闪烁：在 CSS 生效前就定好主题，避免亮色闪一下变暗 */
+    (function () {
+      try {
+        var t = localStorage.getItem('theme');
+        var dark = t === 'dark' ||
+          (!t && window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches);
+        if (dark) document.documentElement.setAttribute('data-theme', 'dark');
+      } catch (e) {}
+    })();
+  </script>
+</head>
+<body>
+  <div class="reading-progress" id="reading-progress"></div>
+  <header class="site-header">
+    <div class="container header-inner">
+      <a class="logo" href="{{ url_for('main.index') }}">{{ site_title }}</a>
+      <nav>
+        <a href="{{ url_for('main.index') }}">首页</a>
+        <a href="{{ url_for('main.archive') }}">归档</a>
+        <a href="{{ url_for('main.about') }}">关于</a>
+        <a href="{{ url_for('main.links') }}">友链</a>
+        {% if current_user %}
+          <span class="nav-user">👤 {{ current_user.username }}{% if current_user.is_admin_role %} · <a href="{{ url_for('admin.dashboard') }}">后台</a>{% endif %}</span>
+          <a href="{{ url_for('main.logout') }}">退出</a>
+        {% else %}
+          <a href="{{ url_for('main.login') }}">登录</a>
+          <a href="{{ url_for('main.register') }}">注册</a>
+          <a href="{{ url_for('admin.login') }}">后台</a>
+        {% endif %}
+        <button id="theme-toggle" type="button" class="theme-toggle" aria-label="切换亮暗主题">🌙</button>
+      </nav>
+    </div>
+  </header>
+
+  {% with messages = get_flashed_messages() %}
+    {% if messages %}
+      <div class="container">
+        {% for m in messages %}<div class="flash">{{ m }}</div>{% endfor %}
+      </div>
+    {% endif %}
+  {% endwith %}
+
+  <main class="container layout">
+    <div class="content">
+      {% block content %}{% endblock %}
+    </div>
+
+    <aside class="sidebar">
+      <div class="widget">
+        <form action="{{ url_for('main.search') }}" method="get" class="search-box">
+          <input type="text" name="q" placeholder="搜索文章…" value="{{ request.args.get('q','') }}">
+          <button type="submit">搜索</button>
+        </form>
+      </div>
+
+      <div class="widget">
+        <h3>天气</h3>
+        <div id="weather" class="weather-widget"
+             data-lat="{{ settings.weather_lat }}" data-lon="{{ settings.weather_lon }}"
+             data-city="{{ settings.weather_city or '本地' }}">
+          <p id="w-text" class="w-text">加载中…</p>
+          <div class="w-actions">
+            <button id="locate-btn" type="button" class="w-btn" title="使用我的定位刷新天气">📍 定位</button>
+            <form id="city-form" class="w-city">
+              <input id="city-input" type="text" placeholder="输入城市" aria-label="输入城市查询天气">
+              <button type="submit" class="w-btn">查询</button>
+            </form>
+          </div>
+        </div>
+      </div>
+
+      <div class="widget">
+        <h3>分类</h3>
+        <ul class="cat-list">
+          {% for c in cats %}
+            <li><a href="{{ url_for('main.category', slug=c.slug) }}">{{ c.name }}</a></li>
+          {% else %}
+            <li>暂无分类</li>
+          {% endfor %}
+        </ul>
+      </div>
+
+      <div class="widget">
+        <h3>标签</h3>
+        <div class="tag-cloud">
+          {% for t in tags %}
+            <a class="tag" href="{{ url_for('main.tag', slug=t.slug) }}">{{ t.name }}</a>
+          {% else %}
+            <span>暂无标签</span>
+          {% endfor %}
+        </div>
+      </div>
+
+      <div class="widget">
+        <h3>最新文章</h3>
+        <ul class="recent-list">
+          {% for p in recent %}
+            <li><a href="{{ url_for('main.post', slug=p.slug) }}">{{ p.title }}</a></li>
+          {% else %}
+            <li>暂无文章</li>
+          {% endfor %}
+        </ul>
+      </div>
+
+      <div class="widget stats">
+        <h3>站点统计</h3>
+        <p>文章 {{ total_posts }} 篇 · 评论 {{ total_comments }} 条</p>
+        <p>总阅读量 {{ total_views }}</p>
+      </div>
+
+      <div class="widget">
+        <h3>友情链接</h3>
+        <ul class="link-list">
+          {% for l in links %}
+            <li><a href="{{ l.url }}" target="_blank" rel="noopener">{{ l.name }}</a></li>
+          {% else %}
+            <li>暂无友链</li>
+          {% endfor %}
+        </ul>
+      </div>
+    </aside>
+  </main>
+
+  <footer class="site-footer">
+    <div class="container">
+      <p>{{ settings.footer_text }}</p>
+      {% if settings.beian_code %}
+      <p class="beian"><a href="https://beian.miit.gov.cn" target="_blank" rel="noopener">{{ settings.beian_code }}</a></p>
+      {% endif %}
+    </div>
+  </footer>
+
+  <button id="back-to-top" title="回到顶部" aria-label="回到顶部">↑</button>
+
+  <script src="{{ url_for('static', filename='script.js') }}"></script>
+</body>
+</html>

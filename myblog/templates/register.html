@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% block title %}注册账号{% endblock %}
+{% block content %}
+  <div class="auth-box">
+    <h1 class="page-title">注册账号</h1>
+    <p class="auth-tip">注册后可登录评论，昵称会显示在评论里。</p>
+    <form method="post" action="{{ url_for('main.register') }}">
+      <label>用户名</label>
+      <input type="text" name="username" minlength="2" maxlength="20" required>
+      <label>邮箱（可选）</label>
+      <input type="email" name="email">
+      <label>密码（至少 6 位）</label>
+      <input type="password" name="password" minlength="6" required>
+      <label>确认密码</label>
+      <input type="password" name="confirm_password" minlength="6" required>
+      <button type="submit">注册</button>
+    </form>
+    <p class="auth-tip">已有账号？<a href="{{ url_for('main.login') }}">去登录</a></p>
+  </div>
+{% endblock %}

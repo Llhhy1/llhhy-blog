@@ -1,0 +1,13 @@
+__pycache__/
+*.pyc
+data/
+venv/
+.venv/
+.env
+*.zip
+.idea/
+.vscode/
+
+# 用户上传的图片不入库，仅保留目录占位
+static/uploads/*
+!static/uploads/.gitkeep

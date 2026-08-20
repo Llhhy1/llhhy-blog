@@ -1,0 +1,117 @@
+{% extends "admin/base.html" %}
+{% block title %}访问统计{% endblock %}
+{% block content %}
+  <h1 class="page-title">📊 访问统计
+    <span class="stats-updated">更新于 {{ summary.updated_at }}</span>
+  </h1>
+
+  <div class="stat-cards">
+    <div class="stat-card">
+      <span class="stat-num">{{ summary.total_visits }}</span>
+      <span class="stat-label">累计访问次数</span>
+    </div>
+    <div class="stat-card">
+      <span class="stat-num">{{ summary.today_visits }}</span>
+      <span class="stat-label">今日访问（{{ summary.today_date }}）</span>
+    </div>
+    <div class="stat-card">
+      <span class="stat-num">{{ summary.hot_posts | length }}</span>
+      <span class="stat-label">热读文章上榜</span>
+    </div>
+    <div class="stat-card">
+      <span class="stat-num">{{ summary.hot_searches | length }}</span>
+      <span class="stat-label">常搜词汇上榜</span>
+    </div>
+  </div>
+
+  <div class="stats-grid">
+    <!-- 访客区域排行榜 -->
+    <div class="stats-card">
+      <h3>🌏 访客区域排行榜</h3>
+      {% if summary.regions_all %}
+        <table class="rank-table">
+          <thead>
+            <tr><th>排名</th><th>地区</th><th style="width:55%;">占比</th><th>次数</th></tr>
+          </thead>
+          <tbody>
+            {% for r in summary.regions_all %}
+            <tr>
+              <td class="rank-no">{{ loop.index }}</td>
+              <td>{{ r.region }}</td>
+              <td>
+                <div class="bar-track"><div class="bar-fill" style="width:{{ r.pct }}%"></div></div>
+              </td>
+              <td class="rank-count">{{ r.count }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      {% else %}
+        <p class="stats-empty">暂无数据，等访客来逛逛吧～（属地会在访问后异步解析）</p>
+      {% endif %}
+    </div>
+
+    <!-- 访客最关注 / 反复阅读的文章 -->
+    <div class="stats-card">
+      <h3>📖 最受关注的文章（反复阅读）</h3>
+      {% if summary.hot_posts %}
+        <table class="rank-table">
+          <thead>
+            <tr><th>排名</th><th>文章</th><th style="width:45%;">阅读热度</th><th>次数</th></tr>
+          </thead>
+          <tbody>
+            {% for p in summary.hot_posts %}
+            <tr>
+              <td class="rank-no">{{ loop.index }}</td>
+              <td class="rank-title">
+                <a href="{{ url_for('main.post', slug=p.slug) }}" target="_blank">{{ p.title }}</a>
+                <span class="rank-sub">回访读者 {{ p.readers }} 人</span>
+              </td>
+              <td><div class="bar-track"><div class="bar-fill bar-accent" style="width:{{ p.pct }}%"></div></div></td>
+              <td class="rank-count">{{ p.reads }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      {% else %}
+        <p class="stats-empty">暂无阅读记录</p>
+      {% endif %}
+    </div>
+
+    <!-- 常搜词汇 -->
+    <div class="stats-card">
+      <h3>🔍 常搜词汇</h3>
+      {% if summary.hot_searches %}
+        <ul class="search-tags">
+          {% for s in summary.hot_searches %}
+          <li class="search-tag" style="--w:{{ s.pct }}%">
+            <a href="{{ url_for('main.search', q=s.keyword) }}" target="_blank">{{ s.keyword }}</a>
+            <span class="search-count">{{ s.count }} 次</span>
+          </li>
+          {% endfor %}
+        </ul>
+      {% else %}
+        <p class="stats-empty">暂无搜索记录</p>
+      {% endif %}
+    </div>
+
+    <!-- 时段分布 -->
+    <div class="stats-card">
+      <h3>🕐 访客时段分布（24 小时）</h3>
+      {% if summary.total_visits %}
+        <div class="hour-bars">
+          {% for b in summary.hourly %}
+          <div class="hour-col" title="{{ b.hour }} 时 · {{ b.count }} 次">
+            <div class="hour-bar" style="height:{{ b.pct }}%"></div>
+            <span class="hour-label">{{ "%02d"|format(b.hour) }}</span>
+          </div>
+          {% endfor %}
+        </div>
+      {% else %}
+        <p class="stats-empty">暂无访问数据</p>
+      {% endif %}
+    </div>
+  </div>
+
+  <p class="stats-tip">数据来源：前端页面每次路由切换上报一次访问；区域属地由后台异步解析（缓存 30 天）。</p>
+{% endblock %}

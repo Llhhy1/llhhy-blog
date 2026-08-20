@@ -1,0 +1,32 @@
+{% extends "admin/base.html" %}
+{% block title %}评论管理{% endblock %}
+{% block content %}
+  <h1 class="page-title">💬 评论管理（{{ comments | length }}）</h1>
+  <table class="admin-table">
+    <thead><tr><th>文章</th><th>昵称</th><th>内容</th><th>归属地 / 设备</th><th>IP</th><th>时间</th><th>操作</th></tr></thead>
+    <tbody>
+      {% for c in comments %}
+        <tr>
+          <td><a href="{{ url_for('main.post', slug=c.post.slug) }}">{{ c.post.title }}</a></td>
+          <td>{{ c.author }}</td>
+          <td>{{ c.content }}</td>
+          <td>
+            {% if c.region %}<span class="muted">📍 {{ c.region }}</span>{% endif %}
+            {% if c.device %}<br><span class="muted">{{ c.device }}</span>{% endif %}
+            {% if not c.region and not c.device %}<span class="muted">—</span>{% endif %}
+          </td>
+          <td><code>{{ c.ip or '—' }}</code></td>
+          <td>{{ c.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
+          <td>
+            <form method="post" action="{{ url_for('admin.delete_comment', cid=c.id) }}" class="inline-form" onsubmit="return confirm('确定删除？');">
+              <button type="submit" class="link-danger">删除</button>
+            </form>
+          </td>
+        </tr>
+      {% else %}
+        <tr><td colspan="7">暂无评论</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  <p class="stats-tip">IP / 归属地 / 设备为评论时自动采集；归属地异步解析，缓存命中即时显示，新访客稍后回填。</p>
+{% endblock %}

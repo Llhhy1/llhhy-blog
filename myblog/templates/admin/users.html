@@ -1,0 +1,68 @@
+{% extends "admin/base.html" %}
+{% block title %}用户管理{% endblock %}
+{% block content %}
+  <h1 class="page-title">用户管理（超级管理员）</h1>
+  <div class="admin-actions">
+    <a class="btn" href="{{ url_for('admin.dashboard') }}">← 仪表盘</a>
+    <a class="btn" href="{{ url_for('admin.change_password') }}">修改我的密码</a>
+  </div>
+
+  <h3>新增用户</h3>
+  <form method="post" action="{{ url_for('admin.add_user') }}" class="user-add-form">
+    <input type="text" name="username" placeholder="用户名（2-20 字符）" minlength="2" maxlength="20" required>
+    <input type="email" name="email" placeholder="邮箱（可选）">
+    <input type="password" name="password" placeholder="密码（至少 6 位）" minlength="6" required>
+    <select name="role">
+      <option value="user">普通用户</option>
+      <option value="admin">管理员（可进后台管理内容）</option>
+    </select>
+    <button type="submit">创建用户</button>
+  </form>
+
+  <h3>全部用户（{{ users | length }}）</h3>
+  <table class="admin-table">
+    <thead>
+      <tr><th>ID</th><th>用户名</th><th>邮箱</th><th>角色</th><th>注册时间</th><th>操作</th></tr>
+    </thead>
+    <tbody>
+      {% for u in users %}
+        <tr>
+          <td>{{ u.id }}</td>
+          <td>{{ u.username }}{% if u.id == current_user.id %}（我）{% endif %}</td>
+          <td>{{ u.email or '—' }}</td>
+          <td>
+            {% if u.is_super %}
+              <span class="role-tag role-super">超级管理员</span>
+            {% else %}
+              <form method="post" action="{{ url_for('admin.set_role', uid=u.id) }}" class="inline-form">
+                <select name="role" onchange="this.form.submit()">
+                  <option value="admin" {{ 'selected' if u.role == 'admin' }}>管理员</option>
+                  <option value="user" {{ 'selected' if u.role == 'user' }}>普通用户</option>
+                </select>
+              </form>
+            {% endif %}
+          </td>
+          <td>{{ u.created_at.strftime('%Y-%m-%d') if u.created_at else '—' }}</td>
+          <td>
+            {% if u.is_super %}
+              <span class="muted">不可操作</span>
+            {% else %}
+              <form method="post" action="{{ url_for('admin.reset_password', uid=u.id) }}" class="inline-form"
+                    onsubmit="var p=prompt('输入该用户的新密码（至少 6 位）：'); if(!p||p.length<6){alert('密码无效');return false;} this.new_password.value=p;">
+                <input type="hidden" name="new_password">
+                <button type="submit" class="link-btn">重置密码</button>
+              </form>
+              <form method="post" action="{{ url_for('admin.delete_user', uid=u.id) }}" class="inline-form"
+                    onsubmit="return confirm('确定删除用户 {{ u.username }}？其历史评论会保留。');">
+                <button type="submit" class="link-danger">删除</button>
+              </form>
+            {% endif %}
+          </td>
+        </tr>
+      {% else %}
+        <tr><td colspan="6">暂无用户</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  <p class="muted" style="margin-top: 10px;">安全规则：超级管理员拥有最高权限，不可被删除、不可被降级；管理员可进入后台管理内容但不能管理用户。</p>
+{% endblock %}

@@ -273,7 +273,7 @@ def upload():
     if not file or file.filename == "":
         return jsonify({"error": "没有选择文件"}), 400
     if not allowed_file(file.filename):
-        return jsonify({"error": "只支持 png/jpg/jpeg/gif/webp/svg 图片"}), 400
+        return jsonify({"error": "只支持 png/jpg/jpeg/gif/webp 图片"}), 400
     filename = secure_filename(file.filename)
     # 用时间戳前缀避免重名覆盖
     filename = f"{int(time.time())}-{filename}"

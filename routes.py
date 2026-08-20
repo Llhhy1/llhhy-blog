@@ -7,9 +7,8 @@ from flask import (Blueprint, render_template, request, redirect, url_for,
                    abort, flash, current_app, Response, jsonify, session)
 from markupsafe import escape
 
-from markdown import markdown
 from models import db, Post, Category, Tag, Comment, Setting, User, ROLE_USER
-from utils import make_slug
+from utils import make_slug, render_markdown, safe_redirect, rate_limit, client_key
 
 main_bp = Blueprint("main", __name__)
 
@@ -21,6 +20,14 @@ def register():
     if session.get("user_id"):
         return redirect(url_for("main.index"))
     if request.method == "POST":
+        # 限流：同一 IP 60 秒内最多 10 次注册尝试
+        if not rate_limit(client_key("register"), limit=10, window=60):
+            flash("操作过于频繁，请稍后再试")
+            return redirect(url_for("main.register"))
+        # 注册开关：生产可设 BLOG_OPEN_REGISTER=false 关闭公开注册
+        if not current_app.config.get("BLOG_OPEN_REGISTER"):
+            flash("本站已关闭公开注册")
+            return redirect(url_for("main.register"))
         username = (request.form.get("username") or "").strip()
         email = (request.form.get("email") or "").strip()
         password = request.form.get("password", "")
@@ -58,7 +65,7 @@ def login():
         if u and u.check_password(password):
             session["user_id"] = u.id
             flash(f"欢迎回来，{u.username}！")
-            nxt = request.args.get("next") or url_for("main.index")
+            nxt = safe_redirect(request.args.get("next"), url_for("main.index"))
             return redirect(nxt)
         flash("用户名或密码错误")
     return render_template("login.html")
@@ -71,8 +78,8 @@ def logout():
 
 
 def _render(post):
-    """把文章的 Markdown 正文渲染成 HTML，挂到 post.html 上。"""
-    post.html = markdown(post.content or "", extensions=["fenced_code", "tables"])
+    """把文章的 Markdown 正文渲染成 HTML（已做 XSS 白名单清理），挂到 post.html 上。"""
+    post.html = render_markdown(post.content)
     return post
 
 
@@ -102,6 +109,10 @@ def post(slug):
 @main_bp.route("/post/<slug>/comment", methods=["POST"])
 def add_comment(slug):
     p = Post.query.filter_by(slug=slug, published=True).first_or_404()
+    # 限流：同一 IP 60 秒内最多 10 条评论
+    if not rate_limit(client_key("comment"), limit=10, window=60):
+        flash("评论过于频繁，请稍后再试")
+        return redirect(url_for("main.post", slug=slug) + "#comments")
     # 已登录用户自动用其用户名，否则用表单里的昵称
     author = ""
     uid = session.get("user_id")
@@ -129,6 +140,9 @@ def add_comment(slug):
 def like_post(slug):
     """文章点赞：服务端计数 +1（前端用 localStorage 去重，防止同一浏览器重复点）。"""
     p = Post.query.filter_by(slug=slug, published=True).first_or_404()
+    # 限流：同一 IP 对单篇文章 60 秒内最多 20 次点赞（防刷量）
+    if not rate_limit(client_key("like:" + slug), limit=20, window=60):
+        return jsonify(likes=p.likes)
     p.likes = (p.likes or 0) + 1
     db.session.commit()
     return jsonify(likes=p.likes)

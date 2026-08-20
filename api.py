@@ -7,9 +7,9 @@ import json
 
 from flask import Blueprint, request, jsonify, current_app, session
 from markupsafe import escape
-from markdown import markdown
 
 from models import db, Post, Category, Tag, Comment, FriendLink, Setting, User, ROLE_USER
+from utils import render_markdown, clean_html, rate_limit, client_key
 import stats
 
 api_bp = Blueprint("api", __name__, url_prefix="/api")
@@ -37,6 +37,12 @@ def _login_user(u):
 @api_bp.route("/auth/register", methods=["POST"])
 def auth_register():
     data = request.get_json(silent=True) or request.form
+    # 限流：同一 IP 60 秒内最多 10 次注册尝试
+    if not rate_limit(client_key("api_register"), limit=10, window=60):
+        return jsonify({"error": "操作过于频繁，请稍后再试"}), 429
+    # 注册开关：生产可设 BLOG_OPEN_REGISTER=false 关闭公开注册
+    if not current_app.config.get("BLOG_OPEN_REGISTER"):
+        return jsonify({"error": "本站已关闭公开注册"}), 403
     username = (data.get("username") or "").strip()
     email = (data.get("email") or "").strip()
     password = data.get("password") or ""
@@ -58,6 +64,9 @@ def auth_register():
 @api_bp.route("/auth/login", methods=["POST"])
 def auth_login():
     data = request.get_json(silent=True) or request.form
+    # 限流：同一 IP 60 秒内最多 10 次登录尝试，缓解暴力破解
+    if not rate_limit(client_key("api_login"), limit=10, window=60):
+        return jsonify({"error": "尝试过于频繁，请稍后再试"}), 429
     username = (data.get("username") or "").strip()
     password = data.get("password") or ""
     u = User.query.filter_by(username=username).first()
@@ -86,8 +95,8 @@ def auth_me():
 
 # ---------- 小工具 ----------
 def _render_html(content):
-    """把 Markdown 正文渲染成 HTML（与 routes.py 保持一致）。"""
-    return markdown(content or "", extensions=["fenced_code", "tables"])
+    """把 Markdown 正文渲染成 HTML（已做 XSS 白名单清理）。"""
+    return render_markdown(content)
 
 
 def _settings_map():
@@ -129,7 +138,7 @@ def site():
         "site_title": s.get("site_title", "我的博客"),
         "site_note": s.get("site_note", ""),
         "site_description": s.get("site_description", ""),
-        "about_content": s.get("about_content", ""),
+        "about_content": clean_html(s.get("about_content", "")),
         "footer_text": s.get("footer_text", ""),
         "beian_code": s.get("beian_code", ""),
         "accent_color": s.get("accent_color", "#1a73e8"),
@@ -269,6 +278,9 @@ def links():
 @api_bp.route("/post/<slug>/like", methods=["POST"])
 def like(slug):
     p = Post.query.filter_by(slug=slug, published=True).first_or_404()
+    # 限流：同一 IP 对单篇文章 60 秒内最多 20 次点赞（防刷量）
+    if not rate_limit(client_key("api_like:" + slug), limit=20, window=60):
+        return jsonify({"likes": p.likes})
     p.likes += 1
     db.session.commit()
     return jsonify({"likes": p.likes})
@@ -278,6 +290,9 @@ def like(slug):
 @api_bp.route("/post/<slug>/comment", methods=["POST"])
 def comment(slug):
     p = Post.query.filter_by(slug=slug, published=True).first_or_404()
+    # 限流：同一 IP 60 秒内最多 10 条评论
+    if not rate_limit(client_key("api_comment"), limit=10, window=60):
+        return jsonify({"error": "评论过于频繁，请稍后再试"}), 429
     data = request.get_json(silent=True) or request.form
     content = (data.get("content") or "").strip()
     # 已登录用户自动用其用户名；否则需填昵称

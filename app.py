@@ -6,7 +6,7 @@ import os
 import re
 import datetime
 
-from flask import Flask, render_template, request, session
+from flask import Flask, render_template, request, session, jsonify
 from werkzeug.security import generate_password_hash
 
 from models import db, Post, Category, Tag, Comment, FriendLink, Setting, User, ROLE_SUPER
@@ -131,6 +131,19 @@ def _ensure_super_admin(app):
 def create_app():
     app = Flask(__name__)
     app.config.from_object("config.Config")
+
+    # 安全启动校验：缺少关键密钥/管理员密码则直接拒绝启动，禁止使用弱默认值。
+    if not app.config.get("SECRET_KEY"):
+        raise RuntimeError(
+            "缺少环境变量 SECRET_KEY。请设置随机长字符串后再启动，例如：\n"
+            "  export SECRET_KEY=$(python -c 'import secrets;print(secrets.token_hex(32))')"
+        )
+    if not app.config.get("ADMIN_PASSWORD"):
+        raise RuntimeError(
+            "缺少环境变量 ADMIN_PASSWORD。请设置初始管理员密码后再启动，例如：\n"
+            "  export ADMIN_PASSWORD=$(python -c 'import secrets;print(secrets.token_hex(16))')"
+        )
+
     # 把管理员密码预先哈希，登录时比对哈希值（不存明文）——旧版兼容保留
     app.config["ADMIN_HASH"] = generate_password_hash(app.config["ADMIN_PASSWORD"])
 
@@ -139,18 +152,34 @@ def create_app():
     app.register_blueprint(admin_bp)
     app.register_blueprint(api_bp)
 
-    # 前后端分离：允许前端站点跨域调用 /api 接口
+    # 前后端分离：仅在显式配置了 CORS_ORIGIN 时才允许跨域，且精确匹配来源（默认同源，不开通配）
     @app.after_request
     def add_cors_headers(resp):
-        origin = request.headers.get("Origin")
-        allowed = app.config.get("CORS_ORIGIN", "*")
-        if allowed == "*":
-            resp.headers["Access-Control-Allow-Origin"] = "*"
-        elif origin and origin in allowed.split(","):
-            resp.headers["Access-Control-Allow-Origin"] = origin
-        resp.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
-        resp.headers["Access-Control-Allow-Headers"] = "Content-Type"
+        allowed = (app.config.get("CORS_ORIGIN") or "").strip()
+        if allowed:
+            origin = request.headers.get("Origin")
+            origins = [o.strip() for o in allowed.split(",") if o.strip()]
+            if origin and origin in origins:
+                resp.headers["Access-Control-Allow-Origin"] = origin
+                resp.headers["Vary"] = "Origin"
+            resp.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
+            resp.headers["Access-Control-Allow-Headers"] = "Content-Type"
         return resp
+
+    # 同源校验（CSRF 纵深防御）：对会改变数据的请求，若带 Origin 头则必须同源或已配置的跨域来源。
+    # 同源的 fetch/表单提交 Origin 等于本站；跨站攻击请求会被 403 拒绝。
+    # 缺失 Origin 头的旧浏览器请求由 SameSite=Lax 的会话 Cookie 兜底防护。
+    @app.before_request
+    def enforce_same_origin():
+        if request.method in ("POST", "PUT", "DELETE", "PATCH"):
+            origin = request.headers.get("Origin")
+            if origin:
+                allowed = {f"{request.scheme}://{request.host}"}
+                cfg = (app.config.get("CORS_ORIGIN") or "").strip()
+                if cfg:
+                    allowed.update(o.strip() for o in cfg.split(",") if o.strip())
+                if origin not in allowed:
+                    return jsonify({"error": "跨站请求被拒绝"}), 403
 
     # 跨域预检（OPTIONS）直接放行，否则浏览器 POST 会被拦
     @app.before_request
@@ -266,6 +295,6 @@ def create_app():
 app = create_app()
 
 
-# 直接运行 `python app.py` 可在本地预览（仅开发用）
+# 直接运行 `python app.py` 仅用于本地开发预览；生产请用 gunicorn 启动（不启用 debug）。
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000, debug=True)
+    app.run(host="127.0.0.1", port=5000, debug=False)

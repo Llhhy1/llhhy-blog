@@ -63,7 +63,7 @@ def _lookup_region(ip):
         pass
     # 2) ip-api.com（国际通用，status=success，lang=zh-CN）
     try:
-        d = _fetch_json("http://ip-api.com/json/" + urllib.parse.quote(ip) + "?lang=zh-CN")
+        d = _fetch_json("https://ip-api.com/json/" + urllib.parse.quote(ip) + "?lang=zh-CN")
         if isinstance(d, dict) and d.get("status") == "success":
             country = (d.get("country") or "").strip()
             region = (d.get("regionName") or "").strip()

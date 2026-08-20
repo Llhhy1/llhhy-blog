@@ -66,6 +66,9 @@ vue-frontend/       # 前端（Vue3 + Vite，构建成静态站）
    python -m venv venv
    # Windows：venv\Scripts\activate   |   macOS/Linux：source venv/bin/activate
    pip install -r requirements.txt
+   # 安全启动前置：设置随机会话密钥与初始管理员密码（缺失则程序拒绝启动）
+   export SECRET_KEY=$(python -c "import secrets;print(secrets.token_hex(32))")
+   export ADMIN_PASSWORD=$(python -c "import secrets;print(secrets.token_hex(16))")
    flask --app app init-db
    flask --app app seed          # 可选：填充示例文章
    python app.py                 # 或 python -m flask --app app run -p 8080
@@ -77,7 +80,7 @@ vue-frontend/       # 前端（Vue3 + Vite，构建成静态站）
    npm install
    npm run dev                  # 打开 http://localhost:5173
    ```
-3. 前台在 http://localhost:5173/ ；后台在 http://localhost:8080/admin（初始 admin / admin123，首次登录强制设置新账号）。
+3. 前台在 http://localhost:5173/ ；后台在 http://localhost:8080/admin（初始账号：`ADMIN_USERNAME` 默认 `admin` + 上一步设置的 `ADMIN_PASSWORD`；首次登录强制设置新账号密码）。
 
 ## 用户与权限
 - **注册**：前台导航「注册」（或 `/register`），注册即登录，评论自动显示用户名。
@@ -88,15 +91,24 @@ vue-frontend/       # 前端（Vue3 + Vite，构建成静态站）
   - `admin` 管理员：可管理内容（文章/分类/标签/评论/友链/统计），**不能管理用户、不能改站点设置**。
   - `user` 普通用户：可登录、评论；**可发表文章**（导航「✏️ 写文章」进入，只能编辑/删除自己发表的文章）；访问后台管理页会被引导到写文章。
 - **改密码**：后台 →「修改密码」（需原密码）；超级管理员可在用户管理里重置他人密码。
-- 首次运行自动用 `config.py` 的 `ADMIN_USERNAME` / `ADMIN_PASSWORD`（默认 admin / admin123）创建超级管理员。
+- 首次运行自动用环境变量 `ADMIN_USERNAME`（默认 admin）/ `ADMIN_PASSWORD`（必填）创建唯一超级管理员；启动时若缺少 `SECRET_KEY` 或 `ADMIN_PASSWORD` 环境变量，程序直接拒绝启动（源码不内置任何弱默认密钥）。
 
-## 上线安全：首次进入后台设置管理员
-上线后第一次访问 `/admin`，用初始账号登录（默认 `admin` / `admin123`，可被环境变量 `ADMIN_PASSWORD` 覆盖），系统会**强制进入「设置管理员账号」页面**：
+## 上线安全：环境变量与管理员账号
+程序启动时必须存在两个环境变量（缺失即拒绝启动）：
+- `SECRET_KEY`：随机长字符串（会话签名密钥）。生成：`python -c "import secrets;print(secrets.token_hex(32))"`
+- `ADMIN_PASSWORD`：首次创建超级管理员的初始密码。生成：`python -c "import secrets;print(secrets.token_hex(16))"`
+
+上线后第一次访问 `/admin`，用 `ADMIN_USERNAME`（默认 `admin`）+ `ADMIN_PASSWORD` 登录，系统会**强制进入「设置管理员账号」页面**：
 1. 填你自己的用户名（可沿用 admin）；
 2. 设置新密码（至少 6 位）；
 3. 保存后进入后台，旧密码立即失效，之后不再出现本页。
 
-> 未设置前，任何人用默认密码登录也只能看到设置页，看不到后台内容。
+其他可选环境变量：
+- `COOKIE_SECURE`：默认 `true`（生产 HTTPS 推荐）；本地纯 HTTP 开发可设 `false`。
+- `BLOG_OPEN_REGISTER`：默认 `true`；设为 `false` 可关闭公开注册。
+- `CORS_ORIGIN`：默认空（不开启跨域）；前后端分离时才填允许的前端域名列表（逗号分隔）。
+
+> 安全设计：源码开源后，以上密钥不会以任何弱默认值出现在代码里，请在部署环境通过环境变量注入。
 
 ## 部署到宝塔面板（Debian 13）
 **完整、逐步的点击式部署教程见同目录 `deploy_guide.md`**（全程用宝塔界面操作，不需要 SSH，不需要在服务器装 Node）。需要两个文件：

@@ -43,6 +43,26 @@ import { onMounted, ref, watch, nextTick } from "vue";
 import { useRoute } from "vue-router";
 import { apiGet, apiPost } from "../lib/api.js";
 import { state } from "../store.js";
+import hljs from "highlight.js/lib/core";
+import "highlight.js/styles/github.css";
+import bash from "highlight.js/lib/languages/bash";
+import css from "highlight.js/lib/languages/css";
+import javascript from "highlight.js/lib/languages/javascript";
+import json from "highlight.js/lib/languages/json";
+import markdown from "highlight.js/lib/languages/markdown";
+import python from "highlight.js/lib/languages/python";
+import sql from "highlight.js/lib/languages/sql";
+import typescript from "highlight.js/lib/languages/typescript";
+import xml from "highlight.js/lib/languages/xml";
+hljs.registerLanguage("bash", bash);
+hljs.registerLanguage("css", css);
+hljs.registerLanguage("javascript", javascript);
+hljs.registerLanguage("json", json);
+hljs.registerLanguage("markdown", markdown);
+hljs.registerLanguage("python", python);
+hljs.registerLanguage("sql", sql);
+hljs.registerLanguage("typescript", typescript);
+hljs.registerLanguage("xml", xml);
 import Sidebar from "../components/Sidebar.vue";
 import LikeButton from "../components/LikeButton.vue";
 import CommentForm from "../components/CommentForm.vue";
@@ -89,14 +109,11 @@ function buildToc() {
 }
 
 function highlight() {
-  if (!window.hljs) {
-    const s = document.createElement("script");
-    s.src = "https://cdn.bootcdn.net/ajax/libs/highlight.js/11.9.0/highlight.min.js";
-    s.onload = () => { try { window.hljs && window.hljs.highlightAll(); } catch (e) {} };
-    document.head.appendChild(s);
-  } else {
-    try { window.hljs.highlightAll(); } catch (e) {}
-  }
+  // 使用本地打包的 highlight.js（不再依赖外部 CDN，避免供应链劫持风险）
+  if (!bodyEl.value) return;
+  bodyEl.value.querySelectorAll("pre code").forEach((block) => {
+    try { hljs.highlightElement(block); } catch (e) {}
+  });
 }
 
 onMounted(load);

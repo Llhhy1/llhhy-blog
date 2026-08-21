@@ -535,7 +535,16 @@
     transition: transform .3s cubic-bezier(.4,0,.2,1); }
   body.drawer-open .admin-main { transform: scale(.985); transform-origin: center; }
   body.drawer-open { overflow: hidden; }
-  .dash-grid { grid-template-columns: 1fr; }
+  .dash-grid { grid-template-columns: repeat(2, 1fr); gap: 12px; }  /* v2.6.9: 手机端下面 4 面板 2x2 对齐统计卡 */
+  .dash-grid .dash-main-panel { grid-column: auto; }  /* 全部文章也参与自动 2x2 */
+  .dash-grid .dash-panel-side { grid-column: auto; }
+  .dash-side { display: contents; }  /* dash-side 的 3 个 panel 直接参与父网格，与全部文章共 4 个 2x2 */
+  .dash-side .panel { margin-bottom: 0; }
+  .dash-grid .panel { margin-bottom: 0; }
+  /* 窄面板内元素适配 */
+  .quick-links { display: flex; flex-direction: column; gap: 8px; }
+  .quick-links a { text-align: center; padding: 10px 8px; font-size: 13px; }
+  .panel h3 { font-size: 14px; margin-bottom: 10px; }
   /* 抽屉内菜单纵向、精致 hover */
   .side-nav { display: flex; flex-direction: column; gap: 3px; padding: 12px; }
   .side-nav a {

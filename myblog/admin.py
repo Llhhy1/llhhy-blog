@@ -894,3 +894,24 @@ def delete_guestbook(gid):
 def manage_subscribers():
     rows = Subscriber.query.order_by(Subscriber.created_at.desc()).all()
     return render_template("admin/subscribers.html", rows=rows)
+
+
+@admin_bp.route("/subscribers/delete/<int:sid>", methods=["POST"])
+@admin_required
+def delete_subscriber(sid):
+    sub = Subscriber.query.get_or_404(sid)
+    email = sub.email
+    db.session.delete(sub)
+    db.session.commit()
+    flash(f"已删除订阅者：{email}")
+    return redirect(url_for("admin.manage_subscribers"))
+
+
+@admin_bp.route("/subscribers/toggle/<int:sid>", methods=["POST"])
+@admin_required
+def toggle_subscriber(sid):
+    sub = Subscriber.query.get_or_404(sid)
+    sub.active = not sub.active
+    db.session.commit()
+    flash(f"已{'启用' if sub.active else '停用'}订阅者：{sub.email}")
+    return redirect(url_for("admin.manage_subscribers"))

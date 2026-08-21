@@ -2,17 +2,32 @@
 {% block title %}订阅者管理{% endblock %}
 {% block content %}
   <h1 class="page-title">邮件订阅者（{{ rows|length }}）</h1>
-  <table class="admin-table">
-    <thead><tr><th>#</th><th>邮箱</th><th>订阅时间</th></tr></thead>
+  <table class="admin-table subscribers-table">
+    <thead><tr><th>#</th><th>邮箱</th><th>状态</th><th>订阅时间</th><th>操作</th></tr></thead>
     <tbody>
       {% for s in rows %}
         <tr>
           <td>{{ loop.index }}</td>
-          <td>{{ s.email }}</td>
+          <td class="sub-email">{{ s.email }}</td>
+          <td>
+            {% if s.active %}
+              <span class="badge badge-on">已启用</span>
+            {% else %}
+              <span class="badge badge-off">已停用</span>
+            {% endif %}
+          </td>
           <td>{{ s.created_at.strftime('%Y-%m-%d %H:%M') if s.created_at else '' }}</td>
+          <td class="sub-actions">
+            <form method="post" action="{{ url_for('admin.toggle_subscriber', sid=s.id) }}" class="inline-form">
+              <button type="submit" class="btn-mini">{{ '停用' if s.active else '启用' }}</button>
+            </form>
+            <form method="post" action="{{ url_for('admin.delete_subscriber', sid=s.id) }}" class="inline-form" onsubmit="return confirm('确定删除订阅者 {{ s.email }}？');">
+              <button type="submit" class="btn-mini danger">删除</button>
+            </form>
+          </td>
         </tr>
       {% else %}
-        <tr><td colspan="3">暂无订阅者。</td></tr>
+        <tr><td colspan="5">暂无订阅者。</td></tr>
       {% endfor %}
     </tbody>
   </table>

@@ -96,6 +96,16 @@
 .admin-table a { color: var(--accent, #1a73e8); text-decoration: none; }
 .admin-table a:hover { text-decoration: underline; }
 .admin-table .sticky-right { position: sticky; right: 0; background: inherit; z-index: 1; box-shadow: -4px 0 8px -4px rgba(0,0,0,.06); }
+/* 订阅者管理页（v2.6.10）：状态徽标 + 行内操作按钮 */
+.badge { display: inline-block; padding: 2px 9px; border-radius: 999px; font-size: 12px; line-height: 1.6; }
+.badge-on { background: #eaf3de; color: #3b6d11; }
+.badge-off { background: #f1efea; color: #888780; }
+.btn-mini { padding: 4px 10px; font-size: 12px; border: 1px solid #e0e4ea; border-radius: 8px; background: #fff; color: #444; cursor: pointer; }
+.btn-mini:hover { border-color: var(--accent, #1a73e8); color: var(--accent, #1a73e8); }
+.btn-mini.danger { color: #a32d2d; border-color: #f09595; }
+.btn-mini.danger:hover { background: #fcebeb; border-color: #e24b4a; }
+.sub-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+.sub-email { word-break: break-all; white-space: normal; }
 /* 表格容器滚动阴影（v2.6.1） */
 .admin-table-wrap { position: relative; }
   .admin-table-wrap::before, .admin-table-wrap::after {

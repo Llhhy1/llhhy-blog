@@ -45,7 +45,7 @@
 ### 模块 D：运营与分发 ✅
 - **D1 一键分享卡片（OG 标签）** ✅
 - **D2 微信 / Telegram 新文推送**：`notify.py`（Telegram + 企业微信）✅
-- **D3 Webhook 自动部署**：`/api/webhook/deploy`（HMAC 校验）+ **`DEPLOY_SCRIPT` 自动执行部署脚本**（`deploy.sh` 模板随仓库发布）✅
+- **D3 Webhook 自动部署**：`/api/webhook/deploy`（HMAC 校验）+ **`DEPLOY_SCRIPT` 自动执行部署脚本**（`deploy.sh` 模板随仓库发布）+ **后台一键在线更新**（v2.5.0：登录检测→确认→静默更新→完成刷新）✅
 - **D4 站点公告 / 置顶动态**：全局可关闭横幅 ✅
 
 ---

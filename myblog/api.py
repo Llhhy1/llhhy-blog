@@ -4,6 +4,7 @@
 所有返回均为 JSON；跨域头由 app.py 的 after_request 统一加。
 """
 import json
+import os
 
 from flask import Blueprint, request, jsonify, current_app, session
 from markupsafe import escape
@@ -730,6 +731,104 @@ def read_all_notifications():
     Notification.query.filter_by(user_id=uid, is_read=False).update({"is_read": True})
     db.session.commit()
     return jsonify({"ok": True})
+
+
+# ---------- 版本自检与在线更新（后台一键更新，v2.5.0）----------
+_VER_CHECK_CACHE = {"ts": 0, "latest": ""}  # 进程内缓存 GitHub 最新版本（10 分钟）
+
+
+@api_bp.route("/version/check")
+def version_check():
+    """后台登录后检测是否有新版本：对比 GitHub latest tag 与本地 APP_VERSION。
+    仅查询 GitHub（10 分钟缓存），不做任何写操作；未配置 WH_DEPLOY_SECRET 也能查。
+    """
+    import json as _json
+    import urllib.request
+    import time as _time
+    from config import APP_VERSION as _VER
+
+    latest = ""
+    now = _time.time()
+    # 命中缓存直接返回（避免每次登录都请求 GitHub）
+    if _VER_CHECK_CACHE["latest"] and (now - _VER_CHECK_CACHE["ts"]) < 600:
+        latest = _VER_CHECK_CACHE["latest"]
+    else:
+        try:
+            req = urllib.request.Request(
+                "https://api.github.com/repos/Llhhy1/llhhy-blog/releases/latest",
+                headers={"Accept": "application/vnd.github+json", "User-Agent": "llhhy-blog"},
+            )
+            with urllib.request.urlopen(req, timeout=8) as resp:
+                data = _json.loads(resp.read().decode("utf-8"))
+            latest = (data.get("tag_name") or "").strip()
+            _VER_CHECK_CACHE["latest"] = latest
+            _VER_CHECK_CACHE["ts"] = now
+        except Exception:
+            latest = _VER_CHECK_CACHE.get("latest", "")  # 网络失败回退缓存
+    current = _VER or ""
+    return jsonify({
+        "current": current,
+        "latest": latest,
+        "update_available": bool(latest and current and latest != current and latest > current),
+        "check_ok": True,
+    })
+
+
+@api_bp.route("/version/update", methods=["POST"])
+def version_update():
+    """触发在线更新：异步执行 update.sh（下载→备份→覆盖→自动重启）。
+    仅超管/管理员可触发（后台界面才有入口）；正在更新时拒绝重复触发（防重入锁）。
+    """
+    uid = session.get("user_id")
+    if not uid:
+        return jsonify({"error": "请先登录"}), 401
+    u = db.session.get(User, uid) if uid else None
+    if not u or not u.is_admin_role:
+        return jsonify({"error": "没有权限执行更新"}), 403
+    if not rate_limit(client_key("api_version_update"), limit=3, window=3600):
+        return jsonify({"error": "更新触发过于频繁，请稍后再试"}), 429
+    # 防重入：状态文件存在且 status=started/downloading/backing_up/deploying/restarting 时拒绝
+    import config as _cfg_mod
+    script = _cfg_mod.Config.DEPLOY_SCRIPT or os.path.join(_cfg_mod.BASE_DIR, "update.sh")
+    script = os.path.normpath(script)
+    if not os.path.exists(script):
+        return jsonify({"error": f"未找到更新脚本 {script}，请先上传 update.sh 到服务器"}), 400
+    try:
+        import json as _json
+        status_file = os.path.join(_cfg_mod.DATA_DIR, "update_status.json")
+        if os.path.exists(status_file):
+            with open(status_file, "r", encoding="utf-8") as f:
+                st = _json.load(f).get("status", "")
+            if st in ("started", "downloading", "backing_up", "deploying", "restarting"):
+                return jsonify({"error": "更新正在进行中，请稍候"}), 409
+    except Exception:
+        pass
+    # 异步执行（nohup 风格：脱离父进程，输出重定向到日志，不阻塞请求）
+    try:
+        import subprocess
+        log_path = os.path.join(_cfg_mod.DATA_DIR, "update_log.txt")
+        with open(log_path, "ab") as logf:
+            subprocess.Popen(["bash", script], stdout=logf, stderr=logf,
+                             start_new_session=True, close_fds=True)
+    except Exception as e:
+        return jsonify({"error": f"更新脚本启动失败: {e}"}), 500
+    return jsonify({"ok": True, "message": "已开始后台更新，完成后会提示刷新"})
+
+
+@api_bp.route("/version/status")
+def version_status():
+    """读取在线更新状态（后台轮询用）。"""
+    import config as _cfg_mod
+    status_file = os.path.join(_cfg_mod.DATA_DIR, "update_status.json")
+    default = {"status": "idle", "version": "", "ts": "", "message": ""}
+    try:
+        import json as _json
+        if os.path.exists(status_file):
+            with open(status_file, "r", encoding="utf-8") as f:
+                return jsonify(_json.load(f))
+    except Exception:
+        pass
+    return jsonify(default)
 
 
 # ---------- Webhook 自动部署（GitHub push → 服务器自动更新，D3）----------

@@ -80,5 +80,88 @@
 
   <button id="back-to-top" title="回到顶部" aria-label="回到顶部">↑</button>
   <script src="{{ url_for('static', filename='script.js') }}"></script>
+  {% if current_user and current_user.is_super %}
+  <!-- 后台在线更新（v2.5.0）：检测新版本 → 确认 → 静默更新 → 完成提醒 -->
+  <div id="update-banner" style="display:none;position:fixed;left:0;right:0;bottom:0;z-index:9999;background:linear-gradient(90deg,#1a73e8,#5b8def);color:#fff;padding:12px 20px;font-size:14px;box-shadow:0 -4px 20px rgba(0,0,0,.15);">
+    <span id="update-msg"></span>
+    <span style="float:right;">
+      <button id="update-yes" style="background:#fff;color:#1a73e8;border:none;padding:6px 16px;border-radius:6px;cursor:pointer;font-size:13px;margin-left:10px;">立即更新</button>
+      <button id="update-no" style="background:rgba(255,255,255,.2);color:#fff;border:1px solid rgba(255,255,255,.6);padding:6px 14px;border-radius:6px;cursor:pointer;font-size:13px;margin-left:8px;">暂不</button>
+    </span>
+  </div>
+  <script>
+  (function () {
+    var banner = document.getElementById('update-banner');
+    var msg = document.getElementById('update-msg');
+    var yes = document.getElementById('update-yes');
+    var no = document.getElementById('update-no');
+    if (!banner) return;
+    var polling = false;
+    function show(text, withBtns) {
+      msg.textContent = text;
+      yes.style.display = withBtns ? '' : 'none';
+      no.style.display = withBtns ? '' : 'none';
+      banner.style.display = 'block';
+    }
+    function hide() { banner.style.display = 'none'; }
+    function checkVersion() {
+      fetch('/api/version/check', { headers: { Accept: 'application/json' } })
+        .then(function (r) { return r.json(); })
+        .then(function (d) {
+          if (d.update_available) {
+            show('发现新版本 ' + d.latest + '（当前 ' + d.current + '），是否立即在线更新？（将自动备份数据库并重启）', true);
+          } else if (d.latest && polling === false) {
+            hide();
+          }
+        }).catch(function () {});
+    }
+    yes.addEventListener('click', function () {
+      yes.disabled = true;
+      show('正在触发更新，请稍候…', false);
+      fetch('/api/version/update', { method: 'POST', headers: { Accept: 'application/json' } })
+        .then(function (r) { return r.json().then(function (d) { return { ok: r.ok, d: d }; }); })
+        .then(function (res) {
+          if (!res.ok) { yes.disabled = false; show('更新触发失败：' + (res.d.error || ''), true); return; }
+          show('🔄 后台正在更新…（自动备份→覆盖→重启，请勿关闭本页）', false);
+          polling = true;
+          pollStatus();
+        })
+        .catch(function () { yes.disabled = false; show('网络错误，请重试', true); });
+    });
+    no.addEventListener('click', function () { hide(); });
+    function pollStatus() {
+      fetch('/api/version/status', { headers: { Accept: 'application/json' } })
+        .then(function (r) { return r.json(); })
+        .then(function (s) {
+          if (s.status === 'done') {
+            show('✅ 更新完成（' + (s.version || '') + '），请刷新页面！', false);
+            setTimeout(function () { location.reload(); }, 2500);
+          } else if (s.status === 'failed' || s.status === 'partial') {
+            show('⚠️ 更新未完全成功：' + (s.message || '') + '。请查看宝塔日志，或手动上传更新。', false);
+            polling = false;
+          } else if (s.status === 'idle' || s.status === '') {
+            // 脚本可能刚开始写状态文件，稍等再查
+            setTimeout(pollStatus, 2000);
+          } else {
+            show('🔄 ' + (s.message || '更新中…'), false);
+            setTimeout(pollStatus, 2500);
+          }
+        }).catch(function () { setTimeout(pollStatus, 3000); });
+    }
+    // 页面加载后检测一次；若已有更新在进行（刷新页面场景），直接进入轮询
+    fetch('/api/version/status', { headers: { Accept: 'application/json' } })
+      .then(function (r) { return r.json(); })
+      .then(function (s) {
+        if (['started','downloading','backing_up','deploying','restarting'].indexOf(s.status) >= 0) {
+          show('🔄 更新正在进行中：' + (s.message || '…'), false);
+          polling = true;
+          pollStatus();
+        } else {
+          setTimeout(checkVersion, 1200);
+        }
+      }).catch(function () { setTimeout(checkVersion, 1200); });
+  })();
+  </script>
+  {% endif %}
 </body>
 </html>

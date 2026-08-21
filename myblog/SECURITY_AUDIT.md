@@ -129,6 +129,30 @@
 
 - SMTP 授权码**明文存储**于数据库 Setting 表（与站点其他配置同级）。依赖「仅超管可访问后台 + 数据库文件在服务器本地」的边界；如需更强保护，可改为仅用环境变量 `SMTP_PASSWORD`（后台留空即可）。
 
+## 四·补三、第五轮安全审计（2026-08-21 · v2.5.0 后台一键在线更新）
+
+> 本轮新增：后台登录后自动检测新版本 → 超管确认 → 后台静默执行 `update.sh`（下载→备份→覆盖→自动重启）→ 完成提醒刷新。
+
+### 5.1 发现的缺陷与修复
+
+| # | 等级 | 问题 | 修复 |
+|---|---|---|---|
+| R5 | 🟠 中 | `/api/version/update` 初始实现仅校验「已登录」，**任何登录用户（普通 user 角色）都能触发服务器代码更新**（越权） | 增加 `is_admin_role`（超管/管理员）权限判断，普通用户返回 403；已用测试客户端验证（普通用户 403 / 超管 200） |
+
+### 5.2 新增模块安全复查结论
+
+| 模块 | 关键风险点 | 结论 |
+|---|---|---|
+| `/api/version/check` | SSRF / 信息泄露 | URL 固定指向 `api.github.com/repos/Llhhy1/llhhy-blog/releases/latest`（硬编码，非用户输入），8 秒超时 + 失败回退缓存，无 SSRF；返回仅 current/latest 两个版本号，无敏感信息；只读接口 |
+| `/api/version/update` | 越权触发 / 滥用 / 命令注入 | 见 R5 修复；`rate_limit` 3 次/小时；**防重入锁**（状态文件 status 为进行中则 409 拒绝）；脚本路径来自 `DEPLOY_SCRIPT` 环境变量或仓库根 `update.sh`（管理员可控，非用户输入）；`Popen(["bash", script])` 列表参数**无 shell 拼接**，不存在命令注入 |
+| `/api/version/status` | 信息泄露 | 仅返回更新状态 JSON（status/version/ts/message），无敏感数据；只读 |
+| `update.sh` 状态文件 | 篡改 / 注入 | 状态写入 `$APP_DIR/data/update_status.json`（服务器本地），内容为脚本内固定枚举值 + 版本号；JSON 序列化安全；`fail_exit` + `trap EXIT` 保证失败必标记，不会停留在"更新中"假象 |
+| 后台前端 JS | XSS | 版本号/消息经 `textContent` 注入 DOM（非 innerHTML），无 XSS 面；fetch 同源调用 |
+
+### 5.3 上线前必配（可选）
+
+- 无需新增必填环境变量。`update.sh` 需已上传到服务器（默认路径 `myblog/update.sh`，即 `/www/wwwroot/myblog/update.sh`，或配置 `DEPLOY_SCRIPT` 指向其他位置）；未找到脚本时接口返回 400 提示。
+
 ## 五、上线前必做（宝塔面板 · 环境变量配置）
 
 程序启动**必须**存在两个环境变量（缺失即拒绝启动）：

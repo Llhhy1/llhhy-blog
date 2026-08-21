@@ -502,17 +502,17 @@
     overflow-y: auto; overscroll-behavior: contain;
   }
   .admin-sidebar.drawer-open { transform: translateX(0); }
-  /* 遮罩：iOS 风格毛玻璃（背景模糊）+ 深色 */
+  /* 遮罩：去掉微信/旧浏览器不识别的 backdrop-filter，改用深色 rgba + 微妙白色叠加（v2.6.4 兼容微信 X5/TBS） */
   .admin-drawer-mask {
-    display: block; position: fixed; inset: 0;
-    background: rgba(0,0,0,.5);
-    backdrop-filter: blur(3px);
-    -webkit-backdrop-filter: blur(3px);
-    z-index: 1000;
-    opacity: 0; pointer-events: none;
-    transition: opacity .3s ease;
+    display: block !important; position: fixed !important; inset: 0;
+    background: rgba(0,0,0,.55) !important;
+    z-index: 1000 !important;
+    opacity: 0 !important; pointer-events: none !important;
+    transition: opacity .3s ease !important;
   }
-  .admin-drawer-mask.show { opacity: 1; pointer-events: auto; }
+  .admin-drawer-mask.show { opacity: 1 !important; pointer-events: auto !important; }
+  /* 暗色主题用更浅的深色 + 微妙白色提亮（避免被深色主区"吃掉"） */
+  [data-theme="dark"] .admin-drawer-mask { background: rgba(0,0,0,.7) !important; }
   /* 汉堡按钮：更大更显眼 */
   .admin-hamburger {
     display: flex; align-items: center; justify-content: center;

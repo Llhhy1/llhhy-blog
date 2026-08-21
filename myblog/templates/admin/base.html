@@ -83,19 +83,17 @@
 
   <button id="back-to-top" title="回到顶部" aria-label="回到顶部">↑</button>
   <script>
-  // v2.6.0 mobile 抽屉式侧栏
+  // v2.6.2 mobile 抽屉式侧栏（iOS 风格：毛玻璃遮罩 + 主区轻微缩放 + body 锁滚）
   (function () {
     var btn = document.getElementById('admin-menu-btn');
     var sidebar = document.querySelector('.admin-sidebar');
     var mask = document.getElementById('admin-drawer-mask');
     if (!btn || !sidebar || !mask) return;
-    function open() { sidebar.classList.add('drawer-open'); mask.classList.add('show'); document.body.style.overflow = 'hidden'; }
-    function close() { sidebar.classList.remove('drawer-open'); mask.classList.remove('show'); document.body.style.overflow = ''; }
+    function open() { sidebar.classList.add('drawer-open'); mask.classList.add('show'); document.body.classList.add('drawer-open'); }
+    function close() { sidebar.classList.remove('drawer-open'); mask.classList.remove('show'); document.body.classList.remove('drawer-open'); }
     btn.addEventListener('click', open);
     mask.addEventListener('click', close);
-    // 点导航链接后自动关
     sidebar.querySelectorAll('a').forEach(function (a) { a.addEventListener('click', close); });
-    // ESC 关闭
     document.addEventListener('keydown', function (e) { if (e.key === 'Escape') close(); });
   })();
   </script>

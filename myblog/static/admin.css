@@ -486,34 +486,78 @@
    断点：>1280 桌面完整 / ≤1100 窄桌面 / ≤900 平板 / ≤760 手机 / ≤480 小屏
    ============================================================ */
 
-/* 中等屏幕（≤1100）：侧栏改抽屉式（解决 iPad 横屏 / 微信 WebView 桌面模式，v2.6.1 增强） */
+/* 中等屏幕（≤1100）：抽屉式侧栏（v2.6.2 终极方案：iOS 风格毛玻璃+圆角+精致菜单） */
 @media (max-width: 1100px) {
   .admin-shell { flex-direction: column; }
-  .admin-sidebar { position: fixed; left: 0; top: 0; bottom: 0; width: 260px; max-width: 75%;
+  /* 抽屉面板：iOS 风格——右侧圆角 + 大阴影 */
+  .admin-sidebar {
+    position: fixed; left: 0; top: 0; bottom: 0;
+    width: 280px; max-width: 82%;
     z-index: 1001; transform: translateX(-100%);
-    transition: transform .26s cubic-bezier(.4,0,.2,1);
-    box-shadow: 0 0 30px rgba(0,0,0,.18);
-    border-right: 1px solid #ececec; border-bottom: none; }
+    transition: transform .3s cubic-bezier(.4,0,.2,1);
+    border-radius: 0 18px 18px 0;
+    box-shadow: 6px 0 32px rgba(0,0,0,.22);
+    border-right: none;
+    background: #fff;
+    overflow-y: auto; overscroll-behavior: contain;
+  }
   .admin-sidebar.drawer-open { transform: translateX(0); }
-  .admin-drawer-mask { display: block; position: fixed; inset: 0; background: rgba(0,0,0,.4);
-    z-index: 1000; opacity: 0; pointer-events: none; transition: opacity .26s ease; }
+  /* 遮罩：iOS 风格毛玻璃（背景模糊）+ 深色 */
+  .admin-drawer-mask {
+    display: block; position: fixed; inset: 0;
+    background: rgba(0,0,0,.5);
+    backdrop-filter: blur(3px);
+    -webkit-backdrop-filter: blur(3px);
+    z-index: 1000;
+    opacity: 0; pointer-events: none;
+    transition: opacity .3s ease;
+  }
   .admin-drawer-mask.show { opacity: 1; pointer-events: auto; }
-  .admin-hamburger { display: flex; align-items: center; justify-content: center;
+  /* 汉堡按钮：更大更显眼 */
+  .admin-hamburger {
+    display: flex; align-items: center; justify-content: center;
     position: fixed; top: 14px; left: 14px; z-index: 999;
-    width: 42px; height: 42px; border-radius: 10px; border: 1px solid rgba(255,255,255,.18);
-    background: var(--accent, #1a73e8); color: #fff; font-size: 20px; line-height: 1;
-    box-shadow: 0 4px 14px rgba(26,115,232,.35); cursor: pointer; }
-  .admin-hamburger:hover { filter: brightness(1.08); }
-  .admin-main { padding: 70px 22px 50px; max-width: none; }
+    width: 44px; height: 44px; border-radius: 12px; border: none;
+    background: var(--accent, #1a73e8); color: #fff; font-size: 22px; line-height: 1;
+    box-shadow: 0 6px 18px rgba(26,115,232,.4); cursor: pointer;
+    transition: transform .2s ease;
+  }
+  .admin-hamburger:hover { filter: brightness(1.08); transform: scale(1.05); }
+  /* 主区顶部给汉堡留空间；侧栏打开时轻微缩放（modern 感） */
+  .admin-main { padding: 72px 22px 50px; max-width: none;
+    transition: transform .3s cubic-bezier(.4,0,.2,1); }
+  body.drawer-open .admin-main { transform: scale(.985); transform-origin: center; }
+  body.drawer-open { overflow: hidden; }
   .dash-grid { grid-template-columns: 1fr; }
-  /* 抽屉内菜单纵向 */
-  .side-nav { display: flex; flex-direction: column; gap: 2px; padding: 10px; }
-  .side-nav a { margin-bottom: 0; padding: 11px 14px; font-size: 15px; min-width: 0;
-    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; border-radius: 8px; }
-  .side-group { margin: 10px 0 2px; padding: 0 14px; font-size: 12px; opacity: .7; }
-  .side-user-card { display: flex; padding: 12px 14px; }
-  .side-version { padding: 8px 12px; font-size: 12px; }
+  /* 抽屉内菜单纵向、精致 hover */
+  .side-nav { display: flex; flex-direction: column; gap: 3px; padding: 12px; }
+  .side-nav a {
+    margin-bottom: 0; padding: 12px 14px; font-size: 15px; min-width: 0;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    border-radius: 10px;
+    transition: all .18s ease;
+    border-left: 3px solid transparent;
+  }
+  .side-nav a:hover { background: rgba(26,115,232,.08); color: var(--accent, #1a73e8); padding-left: 17px; }
+  .side-nav a.active { background: rgba(26,115,232,.12); color: var(--accent, #1a73e8); font-weight: 600; border-left-color: var(--accent, #1a73e8); }
+  .side-nav .nav-emoji { width: 22px; text-align: center; flex-shrink: 0; font-size: 16px; }
+  .side-group { margin: 12px 0 4px; padding: 0 14px; font-size: 12px; opacity: .7; font-weight: 600; letter-spacing: .5px; }
+  .side-user-card { display: flex; padding: 14px; border-top: 1px solid rgba(0,0,0,.06); margin-top: auto; }
+  .side-version { padding: 10px 14px; font-size: 12px; }
   .side-footer { display: none; }
+  /* dashboard 优化 */
+  .hero-card { padding: 22px 20px; margin-bottom: 18px; }
+  .hero-card h2 { font-size: 18px; margin-bottom: 6px; }
+  .hero-card p { font-size: 13px; margin-bottom: 14px; }
+  .hero-actions { flex-direction: row; flex-wrap: wrap; gap: 8px; }
+  .hero-actions .btn { flex: 1 1 calc(50% - 4px); padding: 10px 12px; font-size: 13px; }
+  .stat-cards { grid-template-columns: repeat(2, 1fr); gap: 12px; margin-bottom: 18px; }
+  .stat-card { padding: 16px; }
+  .stat-card .stat-num { font-size: 26px; }
+  .stat-card .stat-label { font-size: 12px; }
+  .notify-cards { grid-template-columns: repeat(2, 1fr); gap: 10px; }
+  .notify-card { padding: 14px; }
+  .panel { padding: 18px; }
 }
 
 /* 表格：默认所有视口都允许横滚（v2.6.1 全局兜底，避免 760-1100 中屏溢出） */
@@ -524,21 +568,20 @@
   .rank-table { display: block; overflow-x: auto; white-space: nowrap; }
 }
 
-/* 手机（≤760）：小屏内容收紧（侧栏/抽屉式已被 ≤1100 覆盖） */
+/* 手机（≤760）：小屏内容收紧（侧栏/抽屉/遮罩已被 ≤1100 完全覆盖，不再重复） */
 @media (max-width: 760px) {
-  .admin-main { padding: 70px 14px 45px; }
-  .admin-hamburger { width: 38px; height: 38px; font-size: 18px; top: 12px; left: 12px; }
+  .admin-main { padding: 68px 14px 40px; }
+  .admin-hamburger { width: 40px; height: 40px; font-size: 20px; top: 12px; left: 12px; }
   .admin-table { box-shadow: inset -16px 0 12px -12px rgba(0,0,0,.12); }
   .page-title { font-size: 19px; margin-bottom: 14px; }
-  .hero-card { padding: 20px 18px; }
-  .hero-card h2 { font-size: 18px; }
+  .hero-card { padding: 18px 16px; }
+  .hero-card h2 { font-size: 17px; }
   .hero-card p { font-size: 13px; }
-  .hero-actions { flex-direction: column; gap: 10px; }
-  .hero-actions .btn { width: 100%; text-align: center; padding: 12px; }
+  .hero-actions .btn { flex: 1 1 100%; }
   .stat-cards { grid-template-columns: repeat(2, 1fr); gap: 10px; }
-  .stat-card { padding: 14px 14px; }
-  .stat-card .stat-num { font-size: 24px; }
-  .stat-card .stat-label { font-size: 12px; }
+  .stat-card { padding: 14px; }
+  .stat-card .stat-num { font-size: 22px; }
+  .stat-card .stat-label { font-size: 11px; }
   .panel { padding: 16px 14px; }
   .admin-actions { gap: 8px; }
   .edit-form, .link-form { max-width: 100%; }
@@ -550,8 +593,8 @@
   .user-add-form { flex-direction: column; align-items: stretch; }
   .user-add-form input, .user-add-form select { width: 100%; min-width: 0; }
   .notify-cards { grid-template-columns: 1fr 1fr; gap: 10px; }
-  .notify-card { padding: 14px 14px; }
-  .notify-num { font-size: 24px; }
+  .notify-card { padding: 14px; }
+  .notify-num { font-size: 22px; }
   .inline-form { gap: 6px; }
 }
 

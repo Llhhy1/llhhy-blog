@@ -30,6 +30,11 @@ body {
 .site-header nav a:hover { color: var(--accent); }
 .nav-user { margin-left: 22px; color: #666; font-size: 14px; white-space: nowrap; }
 .nav-user a { color: var(--accent); text-decoration: none; }
+
+/* v2.6.0 mobile 汉堡按钮 + 抽屉（桌面默认隐藏） */
+.hamburger { display: none; }
+.drawer { display: none; }
+.drawer-mask { display: none; }
 /* 站内通知铃铛 */
 .nav-bell { position: relative; margin-left: 16px; cursor: pointer; font-size: 17px; user-select: none; }
 .nav-bell .bell-badge { position: absolute; top: -6px; right: -10px; background: #e5484d; color: #fff; font-size: 10px; min-width: 16px; height: 16px; line-height: 16px; border-radius: 8px; padding: 0 4px; text-align: center; }
@@ -159,13 +164,47 @@ button:hover, .btn:hover { background: color-mix(in srgb, var(--accent), #000 15
 @media (max-width: 820px) {
   .layout { flex-direction: column; }
   .sidebar { width: 100%; }
-  /* 顶部 nav 在 mobile 允许换行 + 缩间距，防 8 个链接挤一行被切 */
-  .header-inner { height: auto; flex-wrap: wrap; padding: 8px 0; gap: 6px 12px; }
-  .site-header nav { flex-wrap: wrap; gap: 4px 14px; width: 100%; }
-  .site-header nav a { margin-left: 0; font-size: 14px; }
-  .theme-toggle { margin-left: 0; padding: 3px 7px; font-size: 15px; }
-  .nav-bell { margin-left: 0; font-size: 16px; }
-  .nav-user { margin-left: 0; flex-basis: 100%; font-size: 13px; }
+}
+
+/* v2.6.0 mobile 抽屉式导航 */
+@media (max-width: 760px) {
+  .header-inner { padding: 0 12px; height: 52px; }
+  /* 桌面 nav 在 mobile 隐藏 */
+  .site-header > .container > nav { display: none; }
+  /* 汉堡按钮显示 */
+  .hamburger { display: flex; align-items: center; justify-content: center;
+    width: 38px; height: 38px; border-radius: 10px; border: 1px solid var(--nav-border);
+    background: var(--nav-bg); color: var(--nav-fg); font-size: 20px; line-height: 1;
+    cursor: pointer; margin-right: 8px; }
+  .hamburger:hover { background: var(--accent); color: #fff; border-color: var(--accent); }
+  .logo { font-size: 17px; flex: 1; }
+  /* 抽屉：左侧滑出 */
+  .drawer { display: block; position: fixed; left: 0; top: 0; bottom: 0; width: 280px; max-width: 78%;
+    background: var(--nav-bg); border-right: 1px solid var(--nav-border);
+    z-index: 1001; transform: translateX(-100%);
+    transition: transform .28s cubic-bezier(.4,0,.2,1);
+    display: flex; flex-direction: column;
+    box-shadow: 0 0 30px rgba(0,0,0,.18); overflow-y: auto; }
+  .drawer.open { transform: translateX(0); }
+  .drawer-mask { display: block; position: fixed; inset: 0; background: rgba(0,0,0,.45);
+    z-index: 1000; opacity: 0; pointer-events: none; transition: opacity .28s ease; }
+  .drawer-mask.show { opacity: 1; pointer-events: auto; }
+  .drawer-head { display: flex; align-items: center; justify-content: space-between;
+    padding: 14px 16px; border-bottom: 1px solid var(--nav-border); }
+  .drawer-logo { font-size: 17px; font-weight: 700; color: var(--nav-fg); text-decoration: none; }
+  .drawer-close { background: none; border: none; font-size: 26px; line-height: 1; color: var(--nav-fg); cursor: pointer; padding: 0 6px; }
+  .drawer-nav { display: flex; flex-direction: column; padding: 8px 0; }
+  .drawer-nav a { padding: 13px 18px; color: var(--nav-fg); text-decoration: none; font-size: 15px;
+    border-left: 3px solid transparent; transition: all .15s; }
+  .drawer-nav a:hover { background: rgba(26,115,232,.08); border-left-color: var(--accent); color: var(--accent); }
+  .drawer-foot { margin-top: auto; padding: 14px 16px; border-top: 1px solid var(--nav-border);
+    display: flex; flex-direction: column; gap: 8px; }
+  .drawer-user { color: #666; font-size: 13px; padding: 4px 0; }
+  .drawer-link { padding: 10px 12px; border-radius: 8px; background: rgba(26,115,232,.06);
+    color: var(--nav-fg); text-decoration: none; font-size: 14px; border: none; text-align: left; cursor: pointer; }
+  .drawer-theme { font-size: 14px; }
+  /* 抽屉打开时锁滚（通过 Vue 类控制 overflow，见主区样式） */
+  body.drawer-open-lock { overflow: hidden; }
 }
 
 @media (max-width: 480px) {

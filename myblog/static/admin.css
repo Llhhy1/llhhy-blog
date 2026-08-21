@@ -244,6 +244,10 @@
 [data-theme="dark"] .admin-auth-wrap { background: #15171a; }
 [data-theme="dark"] .admin-auth-card .auth-logo { color: #eef0f2; }
 
+/* 移动端汉堡按钮 + 抽屉遮罩：默认隐藏，≤760px 显示（v2.6.0） */
+.admin-hamburger { display: none; }
+.admin-drawer-mask { display: none; }
+
 /* ---------- 响应式（完整体系见文件末尾 v2.5.3 块） ---------- */
 
 /* ============================================================
@@ -484,18 +488,35 @@
   .rank-table { display: block; overflow-x: auto; white-space: nowrap; }
 }
 
-/* 手机：侧栏 2 列菜单 + 内容全宽 + 卡片内边距收紧 */
+/* 手机：抽屉式侧栏（v2.6.0）+ 顶部汉堡按钮 */
 @media (max-width: 760px) {
   .admin-shell { flex-direction: column; }
-  .admin-sidebar { position: static; width: 100%; height: auto; border-right: none; border-bottom: 1px solid #ececec; }
-  .side-nav { display: grid; grid-template-columns: repeat(2, 1fr); gap: 6px; padding: 10px; }
-  .side-nav a { margin-bottom: 0; padding: 10px 12px; font-size: 14px; min-width: 0;
-    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .side-group { grid-column: 1 / -1; margin: 6px 0 2px; padding: 0; font-size: 12px; }
-  .side-user-card { display: flex; padding: 10px 12px; }
+  .admin-sidebar { position: fixed; left: 0; top: 0; bottom: 0; width: 280px; max-width: 80%;
+    z-index: 1001; transform: translateX(-100%);
+    transition: transform .26s cubic-bezier(.4,0,.2,1);
+    box-shadow: 0 0 30px rgba(0,0,0,.18);
+    border-right: 1px solid #ececec; border-bottom: none; }
+  .admin-sidebar.drawer-open { transform: translateX(0); }
+  .admin-drawer-mask { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.45);
+    z-index: 1000; opacity: 0; transition: opacity .26s ease; }
+  .admin-drawer-mask.show { display: block; opacity: 1; }
+  .admin-hamburger { display: flex; align-items: center; justify-content: center;
+    position: fixed; top: 14px; left: 14px; z-index: 999;
+    width: 42px; height: 42px; border-radius: 10px; border: 1px solid rgba(255,255,255,.18);
+    background: var(--accent, #1a73e8); color: #fff; font-size: 20px; line-height: 1;
+    box-shadow: 0 4px 14px rgba(26,115,232,.35); cursor: pointer; }
+  .admin-hamburger:hover { filter: brightness(1.08); }
+  .admin-main { padding: 70px 14px 45px; }  /* 顶部留空间给汉堡按钮 */
+  /* 抽屉内菜单纵向（恢复 1 列），原 2 列网格在抽屉里不合适 */
+  .side-nav { display: flex; flex-direction: column; gap: 2px; padding: 10px; }
+  .side-nav a { margin-bottom: 0; padding: 11px 14px; font-size: 15px; min-width: 0;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; border-radius: 8px; }
+  .side-group { margin: 10px 0 2px; padding: 0 14px; font-size: 12px; opacity: .7; }
+  .side-user-card { display: flex; padding: 12px 14px; }
   .side-version { padding: 8px 12px; font-size: 12px; }
   .side-footer { display: none; }
-  .admin-main { padding: 18px 14px 45px; }
+  /* 表格：容器级横向滚动 + 右侧渐变阴影提示可滑动（v2.6.0 美化） */
+  .admin-table { box-shadow: inset -16px 0 12px -12px rgba(0,0,0,.12); }
   .page-title { font-size: 19px; margin-bottom: 14px; }
   .hero-card { padding: 20px 18px; }
   .hero-card h2 { font-size: 18px; }
@@ -522,10 +543,10 @@
   .inline-form { gap: 6px; }
 }
 
-/* 小屏手机：侧栏单列、统计卡单列、表单按钮全宽 */
+/* 小屏手机：抽屉单列、统计卡 2 列、通知卡单列、表单按钮全宽 */
 @media (max-width: 480px) {
-  .side-nav { grid-template-columns: 1fr; }
-  .admin-main { padding: 14px 12px 40px; }
+  .admin-hamburger { width: 40px; height: 40px; font-size: 18px; top: 12px; left: 12px; }
+  .admin-main { padding: 60px 12px 40px; }
   .stat-cards { grid-template-columns: 1fr 1fr; }
   .notify-cards { grid-template-columns: 1fr; }
   .hero-card { padding: 18px 14px; }

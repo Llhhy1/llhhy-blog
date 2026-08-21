@@ -188,6 +188,23 @@
 - 断点体系：`≤1100px` 侧栏收窄/主区 padding 缩小/dash-grid 单列；`≤900px` 侧栏置顶 + 表格容器级横向滚动（thead/tbody 各成表，列不压扁）；`≤760px` 手机布局（侧栏 2 列菜单、统计卡 2 列、hero 按钮列堆叠、表单/上传行全宽）；`≤480px` 小屏（侧栏单列、通知卡单列、登录页全屏、编辑按钮全宽）
 - 行为变更：仅 CSS 响应式，不改变任何功能/接口
 
+## 四·补八、第八轮审计（2026-08-21 · v2.6.0 mobile UI 汉堡菜单+抽屉式导航）
+
+> 用户反馈后台手机端表格显示不全（v2.5.3 横向滚动但无视觉提示 + 侧栏仍占左侧）+ 前台 header 排版怪异（nav 简单 wrap 成 7+1 两行）。本次做**结构性**改造：手机端统一用汉堡菜单+抽屉式导航，桌面端完全不变。
+
+### 8.1 审计结论
+
+- 无新漏洞
+- 修改文件：
+  - `myblog/templates/admin/base.html`：加 `.admin-hamburger` 按钮 + `.admin-drawer-mask` 遮罩 + 抽屉开关 JS（textContent 安全，类名硬编码无注入）
+  - `myblog/static/admin.css`：≤760px 侧栏改抽屉式（fixed + translateX -100% → 0，0.26s cubic-bezier 过渡），遮罩 fade in，admin-main 顶部 padding 70px 留空间给汉堡；表格加右侧渐变阴影提示可滑动
+  - `vue-frontend/src/App.vue`：加 `.drawer` 抽屉（v2.6.0 mobile drawer，包含 logo/nav/用户/主题/退出）和 `.drawer-mask` 遮罩；`drawerOpen` 状态控制；nav 链接/退出/主题按钮触发后自动关闭
+  - `vue-frontend/src/styles/global.css`：≤760px 桌面 nav 隐藏、汉堡显示、抽屉样式（transition .28s cubic-bezier）、遮罩 fade
+- 行为变更：仅 mobile（≤760px）展示抽屉；桌面端 nav 完全保持 v2.5.3 行为不变
+- XSS 防护：所有用户输入仍用 `{{ }}` 文本插值，无 v-html 注入面；抽屉 link 用 router-link / 标准 `<a>` 跳转，无 innerHTML 拼接
+- CSRF 防护：抽屉只切换 UI 状态，不发起任何 API 请求；现有全局 `enforce_same_origin` 覆盖所有 POST 接口
+- 状态污染：抽屉开关使用 Vue ref + 切换 CSS class 闭包，组件卸载时自动清理
+
 ## 五、上线前必做（宝塔面板 · 环境变量配置）
 
 程序启动**必须**存在两个环境变量（缺失即拒绝启动）：

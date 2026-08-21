@@ -1,8 +1,41 @@
 <template>
   <div class="reading-progress" id="reading-progress"></div>
+  <!-- v2.6.0 mobile 抽屉式导航 -->
+  <div class="drawer-mask" :class="{show: drawerOpen}" @click="drawerOpen = false"></div>
+  <aside class="drawer" :class="{open: drawerOpen}" aria-label="导航菜单">
+    <div class="drawer-head">
+      <router-link class="drawer-logo" to="/" @click="drawerOpen = false">{{ state.site.site_name || state.site.site_title || '博客' }}</router-link>
+      <button class="drawer-close" type="button" aria-label="关闭菜单" @click="drawerOpen = false">×</button>
+    </div>
+    <nav class="drawer-nav">
+      <router-link to="/" @click="drawerOpen = false">首页</router-link>
+      <router-link to="/archive" @click="drawerOpen = false">归档</router-link>
+      <router-link to="/stats" @click="drawerOpen = false">统计</router-link>
+      <router-link to="/about" @click="drawerOpen = false">关于</router-link>
+      <router-link to="/links" @click="drawerOpen = false">友链</router-link>
+      <router-link to="/square" @click="drawerOpen = false">广场</router-link>
+      <router-link to="/series" @click="drawerOpen = false">系列</router-link>
+      <router-link to="/guestbook" @click="drawerOpen = false">留言墙</router-link>
+    </nav>
+    <div class="drawer-foot">
+      <template v-if="state.user">
+        <span class="drawer-user">👤 {{ state.user.username }}</span>
+        <a v-if="state.user.is_admin" class="drawer-link" href="/admin" @click="drawerOpen = false">🛠️ 后台</a>
+        <a v-else class="drawer-link" href="/admin/post/new" @click="drawerOpen = false">✏️ 写文章</a>
+        <a class="drawer-link" href="#" @click.prevent="doLogout(); drawerOpen = false">退出登录</a>
+      </template>
+      <template v-else>
+        <router-link class="drawer-link" to="/login" @click="drawerOpen = false">登录</router-link>
+        <router-link class="drawer-link" to="/register" @click="drawerOpen = false">注册</router-link>
+      </template>
+      <button class="drawer-link drawer-theme" type="button" @click="toggleTheme(); drawerOpen = false">主题：{{ themeIcon }}</button>
+    </div>
+  </aside>
+
   <header class="site-header">
     <div class="container header-inner">
-      <router-link class="logo" to="/">{{ state.site.site_name || state.site.site_title }}</router-link>
+      <button class="hamburger" type="button" aria-label="打开菜单" @click="drawerOpen = true">☰</button>
+      <router-link class="logo" to="/" @click="drawerOpen = false">{{ state.site.site_name || state.site.site_title }}</router-link>
       <nav>
         <router-link to="/">首页</router-link>
         <router-link to="/archive">归档</router-link>
@@ -84,6 +117,7 @@ import { state, initSite, logout } from "./store.js";
 import { apiPost, apiGet } from "./lib/api.js";
 const themeIcon = ref("🌙");
 const noteClosed = ref(false);
+const drawerOpen = ref(false);  // v2.6.0 mobile 抽屉开关
 const announcements = ref([]);
 const router = useRouter();
 // 站内通知（A4）

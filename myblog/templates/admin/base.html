@@ -23,6 +23,9 @@
 </head>
 <body class="admin">
   <div class="admin-shell">
+    <!-- 移动端汉堡按钮 + 抽屉遮罩（v2.6.0） -->
+    <button id="admin-menu-btn" class="admin-hamburger" type="button" aria-label="打开菜单">☰</button>
+    <div id="admin-drawer-mask" class="admin-drawer-mask" aria-hidden="true"></div>
     <aside class="admin-sidebar">
       <a class="side-logo" href="{{ url_for('admin.dashboard') }}">
         <span class="logo-dot"></span>{{ settings.site_name or settings.site_title or '博客后台' }}
@@ -79,6 +82,23 @@
   </div>
 
   <button id="back-to-top" title="回到顶部" aria-label="回到顶部">↑</button>
+  <script>
+  // v2.6.0 mobile 抽屉式侧栏
+  (function () {
+    var btn = document.getElementById('admin-menu-btn');
+    var sidebar = document.querySelector('.admin-sidebar');
+    var mask = document.getElementById('admin-drawer-mask');
+    if (!btn || !sidebar || !mask) return;
+    function open() { sidebar.classList.add('drawer-open'); mask.classList.add('show'); document.body.style.overflow = 'hidden'; }
+    function close() { sidebar.classList.remove('drawer-open'); mask.classList.remove('show'); document.body.style.overflow = ''; }
+    btn.addEventListener('click', open);
+    mask.addEventListener('click', close);
+    // 点导航链接后自动关
+    sidebar.querySelectorAll('a').forEach(function (a) { a.addEventListener('click', close); });
+    // ESC 关闭
+    document.addEventListener('keydown', function (e) { if (e.key === 'Escape') close(); });
+  })();
+  </script>
   <script src="{{ url_for('static', filename='script.js') }}"></script>
   {% if current_user and current_user.is_admin_role %}
   <!-- 后台在线更新（v2.5.1）：检测新版本 → 确认 → 静默更新 → 完成提醒 -->

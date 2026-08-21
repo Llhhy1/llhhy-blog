@@ -558,11 +558,12 @@
   .hero-card p { font-size: 13px; margin-bottom: 14px; }
   .hero-actions { flex-direction: row; flex-wrap: wrap; gap: 8px; }
   .hero-actions .btn { flex: 1 1 calc(50% - 4px); padding: 10px 12px; font-size: 13px; }
-  .stat-cards { grid-template-columns: repeat(2, 1fr); gap: 12px; margin-bottom: 18px; }
-  .stat-card { padding: 16px; }
-  .stat-card .stat-num { font-size: 26px; }
-  .stat-card .stat-label { font-size: 12px; }
-  .notify-cards { grid-template-columns: repeat(2, 1fr); gap: 10px; }
+  .stat-cards { grid-template-columns: 1fr; gap: 10px; margin-bottom: 18px; }  /* v2.6.6: 单列对齐，4 卡等宽等高 */
+  .stat-card { padding: 14px 16px; display: flex; flex-direction: row; align-items: center; gap: 14px; }
+  .stat-card .stat-ico { font-size: 28px; flex-shrink: 0; line-height: 1; }
+  .stat-card .stat-num { font-size: 28px; min-width: 80px; }
+  .stat-card .stat-label { font-size: 13px; }
+  .notify-cards { grid-template-columns: 1fr 1fr; gap: 10px; }
   .notify-card { padding: 14px; }
   .panel { padding: 18px; }
 }

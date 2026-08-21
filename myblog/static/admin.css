@@ -78,16 +78,33 @@
 .panel h3 { font-size: 15px; margin-bottom: 14px; color: #333; }
 
 /* ---------- 表格 ---------- */
-.admin-table { width: 100%; border-collapse: collapse; background: #fff; border-radius: var(--theme-radius, 12px); overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.03); }
+.admin-table { width: 100%; border-collapse: collapse; background: #fff; border-radius: var(--theme-radius, 12px); box-shadow: 0 1px 3px rgba(0,0,0,0.03);
+  display: block; overflow-x: auto; -webkit-overflow-scrolling: touch; white-space: nowrap; }
+.admin-table thead, .admin-table tbody { display: table; width: 100%; table-layout: auto; min-width: 560px; }
+.admin-table tr { display: table-row; }
 .admin-table th {
   text-align: left; font-size: 12px; color: #888; font-weight: 600;
-  padding: 12px 16px; background: #fafbfc; border-bottom: 1px solid #eee;
+  padding: 10px 12px; background: #fafbfc; border-bottom: 1px solid #eee;
+  position: sticky; top: 0; z-index: 1; white-space: nowrap;
 }
-.admin-table td { padding: 12px 16px; border-bottom: 1px solid #f2f3f5; font-size: 14px; vertical-align: middle; }
+.admin-table th:first-child, .admin-table td:first-child { position: sticky; left: 0; background: inherit; z-index: 2; min-width: 120px; }
+.admin-table th:first-child { background: #fafbfc; z-index: 3; }
+.admin-table td { padding: 10px 12px; border-bottom: 1px solid #f2f3f5; font-size: 14px; vertical-align: middle; white-space: nowrap; }
 .admin-table tr:last-child td { border-bottom: none; }
 .admin-table tr:hover td { background: #fafcff; }
+.admin-table tr:hover td:first-child { background: #fafcff; }
 .admin-table a { color: var(--accent, #1a73e8); text-decoration: none; }
 .admin-table a:hover { text-decoration: underline; }
+.admin-table .sticky-right { position: sticky; right: 0; background: inherit; z-index: 1; box-shadow: -4px 0 8px -4px rgba(0,0,0,.06); }
+/* 表格容器滚动阴影（v2.6.1） */
+.admin-table-wrap { position: relative; }
+.admin-table-wrap::before, .admin-table-wrap::after {
+  content: ""; position: absolute; top: 0; bottom: 0; width: 18px; pointer-events: none; z-index: 4;
+}
+.admin-table-wrap::before { left: 0; background: linear-gradient(90deg, rgba(255,255,255,1), rgba(255,255,255,0)); }
+.admin-table-wrap::after { right: 0; background: linear-gradient(-90deg, rgba(255,255,255,1), rgba(255,255,255,0)); }
+[data-theme="dark"] .admin-table-wrap::before { background: linear-gradient(90deg, rgba(29,32,37,1), rgba(29,32,37,0)); }
+[data-theme="dark"] .admin-table-wrap::after { background: linear-gradient(-90deg, rgba(29,32,37,1), rgba(29,32,37,0)); }
 
 /* ---------- 表单 ---------- */
 .edit-form, .link-form { max-width: 760px; }
@@ -469,45 +486,27 @@
    断点：>1280 桌面完整 / ≤1100 窄桌面 / ≤900 平板 / ≤760 手机 / ≤480 小屏
    ============================================================ */
 
-/* 中等屏幕：侧栏收窄，主区 padding 缩小 */
+/* 中等屏幕（≤1100）：侧栏改抽屉式（解决 iPad 横屏 / 微信 WebView 桌面模式，v2.6.1 增强） */
 @media (max-width: 1100px) {
-  .admin-sidebar { width: 210px; }
-  .admin-main { padding: 22px 22px 50px; }
-  .dash-grid { grid-template-columns: 1fr; }
-}
-
-/* 平板：侧栏置顶横排（2列），表格横向滚动 */
-@media (max-width: 900px) {
-  .admin-sidebar { width: 100%; }
-  .admin-main { padding: 20px 18px 50px; }
-  .stats-grid { grid-template-columns: 1fr; }
-  /* 表格：容器级横向滚动（thead/tbody 各自成表，宽度一致，列不压扁） */
-  .admin-table { display: block; overflow-x: auto; white-space: nowrap; -webkit-overflow-scrolling: touch; }
-  .admin-table thead, .admin-table tbody { display: table; width: 100%; table-layout: fixed; min-width: 640px; }
-  .admin-table tr { display: table-row; }
-  .rank-table { display: block; overflow-x: auto; white-space: nowrap; }
-}
-
-/* 手机：抽屉式侧栏（v2.6.0）+ 顶部汉堡按钮 */
-@media (max-width: 760px) {
   .admin-shell { flex-direction: column; }
-  .admin-sidebar { position: fixed; left: 0; top: 0; bottom: 0; width: 280px; max-width: 80%;
+  .admin-sidebar { position: fixed; left: 0; top: 0; bottom: 0; width: 260px; max-width: 75%;
     z-index: 1001; transform: translateX(-100%);
     transition: transform .26s cubic-bezier(.4,0,.2,1);
     box-shadow: 0 0 30px rgba(0,0,0,.18);
     border-right: 1px solid #ececec; border-bottom: none; }
   .admin-sidebar.drawer-open { transform: translateX(0); }
-  .admin-drawer-mask { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.45);
-    z-index: 1000; opacity: 0; transition: opacity .26s ease; }
-  .admin-drawer-mask.show { display: block; opacity: 1; }
+  .admin-drawer-mask { display: block; position: fixed; inset: 0; background: rgba(0,0,0,.4);
+    z-index: 1000; opacity: 0; pointer-events: none; transition: opacity .26s ease; }
+  .admin-drawer-mask.show { opacity: 1; pointer-events: auto; }
   .admin-hamburger { display: flex; align-items: center; justify-content: center;
     position: fixed; top: 14px; left: 14px; z-index: 999;
     width: 42px; height: 42px; border-radius: 10px; border: 1px solid rgba(255,255,255,.18);
     background: var(--accent, #1a73e8); color: #fff; font-size: 20px; line-height: 1;
     box-shadow: 0 4px 14px rgba(26,115,232,.35); cursor: pointer; }
   .admin-hamburger:hover { filter: brightness(1.08); }
-  .admin-main { padding: 70px 14px 45px; }  /* 顶部留空间给汉堡按钮 */
-  /* 抽屉内菜单纵向（恢复 1 列），原 2 列网格在抽屉里不合适 */
+  .admin-main { padding: 70px 22px 50px; max-width: none; }
+  .dash-grid { grid-template-columns: 1fr; }
+  /* 抽屉内菜单纵向 */
   .side-nav { display: flex; flex-direction: column; gap: 2px; padding: 10px; }
   .side-nav a { margin-bottom: 0; padding: 11px 14px; font-size: 15px; min-width: 0;
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis; border-radius: 8px; }
@@ -515,7 +514,20 @@
   .side-user-card { display: flex; padding: 12px 14px; }
   .side-version { padding: 8px 12px; font-size: 12px; }
   .side-footer { display: none; }
-  /* 表格：容器级横向滚动 + 右侧渐变阴影提示可滑动（v2.6.0 美化） */
+}
+
+/* 表格：默认所有视口都允许横滚（v2.6.1 全局兜底，避免 760-1100 中屏溢出） */
+/* 容器级横滚的细节已在 base .admin-table 块中配置 */
+
+@media (max-width: 900px) {
+  .stats-grid { grid-template-columns: 1fr; }
+  .rank-table { display: block; overflow-x: auto; white-space: nowrap; }
+}
+
+/* 手机（≤760）：小屏内容收紧（侧栏/抽屉式已被 ≤1100 覆盖） */
+@media (max-width: 760px) {
+  .admin-main { padding: 70px 14px 45px; }
+  .admin-hamburger { width: 38px; height: 38px; font-size: 18px; top: 12px; left: 12px; }
   .admin-table { box-shadow: inset -16px 0 12px -12px rgba(0,0,0,.12); }
   .page-title { font-size: 19px; margin-bottom: 14px; }
   .hero-card { padding: 20px 18px; }

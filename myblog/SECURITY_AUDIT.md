@@ -46,6 +46,8 @@
 - **前端 `vue-frontend/`**：`src/views/PostView.vue`（highlight.js 本地化）
 - **第二轮新增**：`myblog/fts.py`（FTS5 搜索）、`myblog/notify.py`（推送通知）、`myblog/SECURITY_AUDIT.md`（第二轮章节）；`models.py` 扩展 `Series/Announcement/Guestbook/Subscriber` 及 `Comment.parent_id/reply_to/likes`；`api.py` 新增系列/公告/留言墙/订阅/搜索/Webhook 路由；`admin.py` 新增系列/公告/留言/订阅管理页；前端新增 `SeriesView / SeriesDetailView / GuestbookView`、`CommentForm` 嵌套回复、`Sidebar` 热门、全局公告条等
 
+- **第三轮新增（v2.3.0）**：`myblog/mail_notify.py`（邮件群发）、`models.py` 新增 `Notification` 及 `Subscriber.unsub_token`、`utils.py` 新增 `get_setting/setting_bool/notify_mentioned`、`api.py` 新增通知/退订/部署触发路由、`admin.py` 新增评论审核路由与设置开关、前端新增 `UnsubscribeView` 与通知铃铛
+
 ## 四、第二轮安全审计（2026-08-21 · 新增模块 B1/B2/B4/B5/C1/C2/C3/D1/D2/D3/D4 + 广场页）
 
 本轮在「全部功能一次性做完 + 开源前」节点，对新增的全部模块做安全复查，并补了一个**功能性 + 安全配置**缺陷。
@@ -78,6 +80,33 @@
 - **密钥管理**：`SECRET_KEY` / `ADMIN_PASSWORD` 强制环境变量；本轮补齐 `WH_DEPLOY_SECRET` 等部署/推送密钥的环境变量载入；**仓库内无硬编码密钥、无 `.env` 入库**（已校验）。
 - **SQL 注入**：ORM 查询 + 参数化原生 SQL，新模块无例外。
 
+## 四·补、第三轮安全审计（2026-08-21 · v2.3.0 评论审核流 + @通知 + 邮件群发 + 自动部署触发）
+
+> 审计原则：**每次发布前必须执行完整安全审计，审计通过后才允许发 Release**。本轮在 v2.3.0 发布前执行。
+
+### 4A.1 发现的缺陷与修复
+
+| # | 等级 | 问题 | 修复 |
+|---|---|---|---|
+| R2 | 🔴 高 | 邮件群发 HTML 注入：`mail_notify._build_mail()` 把文章标题/摘要、退订邮箱直接拼进 HTML 邮件模板，未转义。文章标题含 `<script>` 或 HTML 标签时会被注入邮件正文；退订链接中的 email 未 URL 编码（含 `&` 等会破坏链接），token 未编码 | 标题/摘要 `html.escape()`；退订链接 email/token 用 `urllib.parse.quote(safe="")` 编码后再填充；邮件主题用 `email.header.Header` 编码，阻止换行注入（标题含 `\r\n` 时安全处理） |
+| R3 | 🟠 中 | Webhook 部署触发 `subprocess.Popen` 每次 `open(os.devnull)` 且**从不关闭** → 文件描述符泄漏，长期高频触发可能耗尽 fd | 改用 `subprocess.DEVNULL` 重定向输出（自动管理，无泄漏） |
+| R4 | 🟢 低 | 退订接口错误信息可**枚举有效邮箱**（"该邮箱未订阅"与"令牌不正确"两种提示不同）；POST 退订无速率限制 | 统一错误信息为「退订链接无效或已失效」（404），杜绝枚举；POST 退订接入 `rate_limit` 10 次/60s |
+
+### 4A.2 新增模块安全复查结论
+
+| 模块 | 关键风险点 | 结论 |
+|---|---|---|
+| A4 站内通知 `Notification` | @ 解析注入 / 越权读取 | `notify_mentioned` 用正则提取 `@username` 后 `filter_by(username=name)` **参数化查询**，不存在注入；通知按 `user_id` 归属，列表/已读接口均 `filter_by(user_id=当前会话)`，无法读他人通知；内容存纯文本，前端 `{{ }}` 插值渲染 |
+| 评论审核流 | 越权审核 / 前台越权可见 | 审核接口 `@admin_required`；前台 `post_detail` 只返回 `approved=True` 的评论；开关存 setting 表（`comment_require_approval`），后台仅超管可改 |
+| C3 邮件群发 `mail_notify.py` | 注入 / 凭据泄露 / 隐私 | 见 R2 修复；SMTP 凭据仅环境变量（`SMTP_HOST/USERNAME/PASSWORD`），不入库不入仓；收件人全部 Bcc 密送（互不可见）；未配置 SMTP 自动跳过；全部异常静默不阻断发文章 |
+| D3 自动部署触发 | 未授权执行脚本 / 命令注入 | 密钥 HMAC 恒定时间比较，缺失即 403；`DEPLOY_SCRIPT` 来自环境变量（管理员配置，非用户输入）；`Popen(["bash", script])` 列表参数**无 shell 拼接**，不存在命令注入；见 R3 修复 |
+
+### 4A.3 上线前新增必配（可选）环境变量
+
+- `SMTP_HOST` / `SMTP_PORT` / `SMTP_USERNAME` / `SMTP_PASSWORD` / `SMTP_FROM` / `SMTP_USE_SSL`：邮件群发（多数邮箱用「授权码」当密码；465 用 SSL，587 一般 `SMTP_USE_SSL=false` 走 STARTTLS）。**不配置则群发自动跳过**。
+- `DEPLOY_SCRIPT`：Webhook 校验通过后要执行的部署脚本绝对路径（如 `/www/wwwroot/myblog/deploy.sh`）。**不配置则 webhook 只返回授权成功，不执行任何操作（安全默认）**。
+- `COMMENT_REQUIRE_APPROVAL`：环境变量默认值；后台「站点设置」可动态覆盖。
+
 ## 五、上线前必做（宝塔面板 · 环境变量配置）
 
 程序启动**必须**存在两个环境变量（缺失即拒绝启动）：
@@ -91,6 +120,8 @@
    - `ADMIN_PASSWORD` ← 一个随机强密码（首次登录后台还会被强制修改，这里只是初始值）
 3. （推荐）`COOKIE_SECURE=true`；`SITE_URL=https://你的域名`
 4. （可选 · 自动部署）`WH_DEPLOY_SECRET` ← 一段随机字符串；配合 GitHub Webhook 在 Header 带 `X-Deploy-Token` 或 URL 带 `?token=`。**不配置则 `/api/webhook/deploy` 返回 403（安全默认）**。
+5. （可选 · 邮件群发）`SMTP_HOST` / `SMTP_PORT`（默认 465）/ `SMTP_USERNAME` / `SMTP_PASSWORD` / `SMTP_FROM` / `SMTP_USE_SSL`（默认 true）。**不配置则邮件群发自动跳过**。
+6. （可选 · 自动部署执行）`DEPLOY_SCRIPT` ← 部署脚本绝对路径；**不配置则 Webhook 仅授权不执行（安全默认）**。
 5. （可选 · 新文章推送）`TELEGRAM_BOT_TOKEN` + `TELEGRAM_CHAT_ID`（Telegram），或 `WECOM_WEBHOOK_URL`（企业微信/微信「群机器人」）。**不配置则对应渠道自动跳过，不影响发文章**。
 6. （可选 · 换数据库）`DATABASE_URL` ← 例如 `postgresql+psycopg://user:pass@host:5432/blog`；非 SQLite 时全文搜索自动降级为 LIKE。
 7. 保存并**重启项目**。若日志报"缺少环境变量 SECRET_KEY / ADMIN_PASSWORD"，说明没配置成功。

@@ -1,6 +1,7 @@
 """邮件群发：新文章发布时给所有 active 订阅者发通知邮件。
 使用标准库 smtplib，无需新依赖。环境变量驱动（SMTP_HOST 等），未配置自动跳过，异常静默处理。
 每封邮件密送（收件人互不可见），并带退订链接（凭 email + unsub_token）。
+安全：标题/摘要/邮箱插入 HTML 前均转义；退订链接 email/token 均 URL 编码；主题经 Header 编码防换行注入。
 """
 import threading
 
@@ -10,6 +11,7 @@ def _send_smtp(to_addrs, subject, html_body, plain_body=""):
     import smtplib
     from email.mime.multipart import MIMEMultipart
     from email.mime.text import MIMEText
+    from email.header import Header
     from flask import current_app
 
     host = current_app.config.get("SMTP_HOST", "")
@@ -22,7 +24,8 @@ def _send_smtp(to_addrs, subject, html_body, plain_body=""):
     use_ssl = current_app.config.get("SMTP_USE_SSL", True)
 
     msg = MIMEMultipart("alternative")
-    msg["Subject"] = subject
+    # Header() 编码主题，阻止换行注入（标题里含 \r\n 时安全处理）
+    msg["Subject"] = Header(subject, "utf-8")
     msg["From"] = sender
     msg["To"] = sender  # To 设为发件人，真实收件人放 Bcc（密送），保护隐私
     msg["Bcc"] = ", ".join(to_addrs)
@@ -47,11 +50,14 @@ def _send_smtp(to_addrs, subject, html_body, plain_body=""):
 
 
 def _build_mail(post, site_url):
-    """构造新文章通知邮件的 HTML/纯文本正文。"""
-    from utils import clean_html, render_markdown
-    title = post.title
+    """构造新文章通知邮件的 HTML/纯文本正文（所有用户可控内容均转义）。"""
+    import html
+    title = html.escape(post.title or "")
+    summary = html.escape((post.summary or (post.content or ""))[:200])
     link = f"{site_url.rstrip('/')}/post/{post.slug}"
-    summary = post.summary or (post.content or "")[:120]
+    # email / token 用于退订链接，必须 URL 编码（邮箱可能含 @、.、+ 等；token 是十六进制）
+    # 注意：这里保留占位符，实际发送前按每个订阅者填充并编码
+    unsub_href = f"{site_url.rstrip('/')}/unsubscribe?email=__EMAIL_ENC__&token=__TOKEN_ENC__"
     body_html = f"""\
 <div style="font-family:-apple-system,'PingFang SC','Microsoft YaHei',sans-serif;max-width:560px;margin:0 auto;padding:24px;">
   <h2 style="color:#1a73e8;margin:0 0 12px;">{title}</h2>
@@ -61,10 +67,18 @@ def _build_mail(post, site_url):
   </p>
   <hr style="border:none;border-top:1px solid #eee;margin:24px 0;">
   <p style="font-size:12px;color:#999;">你收到这封邮件是因为订阅了本站的新文章通知。</p>
-  <p style="font-size:12px;color:#999;">不想再收到？<a href="{site_url.rstrip('/')}/unsubscribe?email=__EMAIL__&token=__TOKEN__">点此退订</a>。</p>
+  <p style="font-size:12px;color:#999;">不想再收到？<a href="{unsub_href}">点此退订</a>。</p>
 </div>"""
-    plain = f"{title}\n\n{summary}\n\n阅读全文：{link}\n\n不想再收到？访问：{site_url.rstrip('/')}/unsubscribe?email=__EMAIL__&token=__TOKEN__"
+    plain = f"{post.title}\n\n{(post.summary or (post.content or ''))[:200]}\n\n阅读全文：{link}\n\n不想再收到？访问：{site_url.rstrip('/')}/unsubscribe?email=__EMAIL_ENC__&token=__TOKEN_ENC__"
     return body_html, plain
+
+
+def _fill_unsub(body, email, token):
+    """按订阅者填充退订链接（email/token URL 编码后再填入，纯文本版不编码但转义）。"""
+    import urllib.parse
+    enc_email = urllib.parse.quote(email, safe="")
+    enc_token = urllib.parse.quote(token, safe="")
+    return body.replace("__EMAIL_ENC__", enc_email).replace("__TOKEN_ENC__", enc_token)
 
 
 def notify_subscribers_async(post):
@@ -83,23 +97,18 @@ def notify_subscribers_async(post):
             if not subs:
                 return
             body_html, plain = _build_mail(post, site_url)
-            # 逐个填充退订链接后批量密送（分批每 50 个，避免单封过大）
-            batch = []
             for sub in subs:
-                bh = body_html.replace("__EMAIL__", sub.email).replace("__TOKEN__", sub.unsub_token or "")
-                bp = plain.replace("__EMAIL__", sub.email).replace("__TOKEN__", sub.unsub_token or "")
-                batch.append((sub.email, bh, bp))
-            # 为简化，每封单独发送（保证各自退订链接正确）；量大时可分批密送相同正文
-            for email, bh, bp in batch:
-                _send_smtp([email], f"【新文章】{post.title}", bh, bp)
+                token = sub.unsub_token or ""
+                bh = _fill_unsub(body_html, sub.email, token)
+                bp = _fill_unsub(plain, sub.email, token)
+                _send_smtp([sub.email], f"【新文章】{post.title}", bh, bp)
         except Exception:
             pass  # 群发失败不影响发文章
 
     try:
         from flask import current_app
         app = current_app._get_current_object()
-        t = threading.Thread(target=_worker, daemon=True)
-        # 需要在 app context 内执行 worker，用 make_app_context 包一层
+        # 需要在 app context 内执行 worker
         def _runner():
             with app.app_context():
                 _worker()
@@ -107,3 +116,4 @@ def notify_subscribers_async(post):
         t2.start()
     except Exception:
         pass
+

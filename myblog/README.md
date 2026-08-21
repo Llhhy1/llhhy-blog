@@ -8,7 +8,12 @@
 
 ## 功能
 - 写文章（后台在线编辑，支持 Markdown 语法，代码高亮）
-- 分类与标签 / 站内搜索 / 评论区 / 阅读量统计
+- 分类与标签 / **FTS5 全文搜索**（不支持时自动降级 LIKE）/ 评论区（**嵌套回复 + @显示 + 点赞**）/ 阅读量统计
+- **系列 / 专栏**（多篇成系列，文章页带上一篇/下一篇导航）+ **相关文章推荐**（标签重合度算法）+ **热门文章排行**
+- **留言墙**（前台独立留言页，登录可留言、点赞，后台管理）
+- **邮件订阅**（前台侧边栏订阅框，后台查看订阅者列表）
+- **站点公告**（全局可关闭横幅，Markdown 内容，info/success/warning 级别）
+- **广场页**：微动态发布/点赞/评论 + 友链 RSS 聚合（博客圈）+ 社交账号墙
 - **访问统计**（前台「统计」页 + 后台「📊 访问统计」）：
   - 累计 / 今日访问次数
   - 访客区域排行榜（今日 + 累计 TOP10，IP 属地异步识别）
@@ -17,6 +22,8 @@
 - **博客名称 / 浏览器便签**：后台可编辑，前台 Logo、浏览器标签标题、顶部公告条跟随
 - **前后台统一登录**：一个 `/login` 入口（访问 `/admin` 自动跳转），登录后按角色鉴权分流
 - **精美管理后台**（inis 风格）：分组侧边栏 + 用户卡片 + 渐变欢迎卡 + 双栏仪表盘 + 统计图表，明暗双主题
+- **后台新消息提醒**：未读评论/留言角标（导航 + 仪表盘卡片），一键标记已读
+- **版本自检**：后台左下角显示当前安装版本（vX.Y.Z），点击直达 GitHub Releases 比对最新版
 - 关于本站 / 友情链接 / 底部备案号（ICP 备案码后台可编辑）
 - 暗色模式（右上角切换，自动记忆）
 - 图片上传（后台插图 + 文章封面图）
@@ -25,6 +32,8 @@
 - **自定义主题色**（后台取色器，全站跟随）
 - **归档时间线**（导航「归档」按年/月汇总）
 - **文章点赞**（同一浏览器去重计一次）
+- **新文章推送通知**：发布时推送到 Telegram / 企业微信（可选，未配置自动跳过）
+- **Webhook 自动部署接口**：`/api/webhook/deploy`（HMAC 校验密钥，可接 GitHub push 触发）
 - **用户系统与权限**：访客注册/登录（评论自动用用户名）；三级权限——超级管理员（管理用户，不可被删/降级）/ 管理员（管理内容）/ 普通用户
 - **后台修改密码** + **用户管理**（超级管理员专属：新增用户、调整角色、重置密码、删除用户）
 - **上线安全**：首次进入后台强制设置管理员用户名与密码，未设置前默认密码无法看到后台内容
@@ -32,18 +41,22 @@
 
 ## 目录结构
 ```
-myblog/             # 后端（Flask + SQLite，两套方案共用）
-├── app.py          # 应用入口（工厂函数 + 全局变量 + CLI 命令）
-├── config.py       # 配置（密钥、数据库路径、管理员初始账号）
-├── models.py       # 数据库表结构（文章/评论/用户/设置/访问统计等）
+myblog/             # 后端（Flask + SQLite）
+├── app.py          # 应用入口（工厂函数 + 自动迁移 + FTS 初始化 + CLI 命令）
+├── config.py       # 配置（密钥、数据库路径、管理员初始账号、APP_VERSION）
+├── models.py       # 数据库表结构（文章/评论/用户/设置/系列/公告/留言/订阅者等）
+├── fts.py          # SQLite FTS5 全文搜索（探测可用性，不可用时自动降级 LIKE）
+├── notify.py       # 新文章推送通知（Telegram / 企业微信，环境变量驱动，静默失败）
+├── feed_agg.py     # 友链 RSS 聚合（15 分钟内存缓存 + SSRF 防护 + bleach 清洗）
 ├── stats.py        # 访问统计：IP 属地解析（缓存+在线接口）、埋点记录、汇总
-├── utils.py        # 小工具（生成网址 slug）
+├── utils.py        # 小工具（生成网址 slug、clean_html 白名单清洗、限流、安全跳转）
 ├── routes.py       # 前台页面 + 注册/登录 + 评论提交 + 天气接口
-├── admin.py        # 后台管理（登录/写文章/分类/标签/评论/设置/统计/用户管理）
+├── admin.py        # 后台管理（登录/写文章/分类/标签/评论/设置/统计/用户/系列/公告/留言墙/订阅者）
 ├── api.py          # 前后端分离用的 JSON 接口（/api/*，含 /api/stats/* 埋点与汇总）
 ├── requirements.txt
 ├── deploy_guide.md # 宝塔部署手册（点按式，含 Nginx 反代配置）
-├── templates/      # 页面模板（含后台：admin/base.html 管理外壳、admin/stats.html 统计页）
+├── SECURITY_AUDIT.md # 安全审计报告（两轮）
+├── templates/      # 页面模板（含后台：admin/base.html 管理外壳、admin/stats.html 统计页等）
 ├── static/         # 样式与脚本（admin.css 后台样式、script.js、上传图片在 static/uploads/）
 └── data/           # 运行时自动生成的 SQLite 数据库 blog.db
 
@@ -55,7 +68,7 @@ vue-frontend/       # 前端（Vue3 + Vite，构建成静态站）
     ├── main.js / App.vue / router.js / store.js
     ├── lib/api.js          # fetch 封装
     ├── components/         # PostCard / Sidebar / WeatherWidget / LikeButton / CommentForm
-    ├── views/              # 首页/文章/分类/标签/归档/统计/关于/友链/搜索/登录/注册
+    ├── views/              # 首页/文章/分类/标签/归档/统计/关于/友链/搜索/登录/注册/广场/系列/留言墙
     └── styles/global.css   # 整套样式（含暗色模式）
 ```
 
@@ -107,6 +120,10 @@ vue-frontend/       # 前端（Vue3 + Vite，构建成静态站）
 - `COOKIE_SECURE`：默认 `true`（生产 HTTPS 推荐）；本地纯 HTTP 开发可设 `false`。
 - `BLOG_OPEN_REGISTER`：默认 `true`；设为 `false` 可关闭公开注册。
 - `CORS_ORIGIN`：默认空（不开启跨域）；前后端分离时才填允许的前端域名列表（逗号分隔）。
+- `SITE_URL`：站点对外地址，如 `https://blog.example.com`（RSS/sitemap 生成绝对链接用）。
+- `DATABASE_URL`：默认 `sqlite:///data/blog.db`；可覆盖为其他 SQLite 路径或 Postgres/MySQL 连接串（此时 FTS5 自动降级 LIKE）。
+- `WH_DEPLOY_SECRET`：设置后 `/api/webhook/deploy` 才可用（Header `X-Deploy-Token` 或 `?token=` 携带，HMAC 恒定时间比对）。
+- `TELEGRAM_BOT_TOKEN` / `TELEGRAM_CHAT_ID` / `WECOM_WEBHOOK_URL`：新文章推送渠道（均可选，不配置自动跳过）。
 
 > 安全设计：源码开源后，以上密钥不会以任何弱默认值出现在代码里，请在部署环境通过环境变量注入。
 
@@ -124,4 +141,8 @@ vue-frontend/       # 前端（Vue3 + Vite，构建成静态站）
 - **天气组件不显示 / 定位报错**：wttr.in 主源 + Open-Meteo 兜底。定位被拒或接口失败会自动回退默认城市；访客也可手动输入城市名查询，无需 Key。
 - **点赞数不增加**：同一浏览器已点过会显示已赞（localStorage 去重）。
 - **RSS/sitemap 里链接是 localhost 或 IP**：在宝塔项目「环境变量」里加 `SITE_URL=https://你的域名` 并重启项目。
-- **部署包与数据库**：`myblog-backend.zip` 不包含 `data/` 目录，解压覆盖不会动服务器上已有的 `blog.db`；新增表（统计相关）在重启时自动创建。
+- **部署包与数据库**：`myblog-backend.zip` 不包含 `data/` 目录，解压覆盖不会动服务器上已有的 `blog.db`；新增表/列（评论嵌套字段、系列、公告、留言、订阅者、is_read 等）在重启时自动迁移创建。
+- **更新后后台还是旧界面**：① 先 `ls -la /www/wwwroot/*/data/blog.db` 确认真实运行目录，确认 zip 解压覆盖到了该目录（zip 自带一层 `myblog/`，避免解压成嵌套）；② 宝塔 Python 项目「停止」再「启动」（仅点重启可能只是重载配置，gunicorn 旧进程未退出）；③ 登录后台看左下角版本号是否为最新（与 GitHub Releases 对比）。
+- **搜索变弱 / 接口返回 engine=like**：服务器 SQLite 不带 FTS5 模块，程序已自动降级为 LIKE 模糊搜索（功能正常，大数据量下较慢）。Debian 13 自带 SQLite 一般支持 FTS5。
+- **订阅者列表是空的**：订阅入口在**前台侧边栏「📬 邮件订阅」**（访客填邮箱提交）。当前订阅仅用于收集邮箱，尚未实现群发邮件功能。
+- **后台左下角没有版本号**：说明后端代码未更新到 v2.2.0+，请按「更新后后台还是旧界面」排查。

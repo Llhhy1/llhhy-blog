@@ -61,7 +61,9 @@
    > 建议同时填：
    > - `SITE_URL`：你的域名，如 `https://blog.example.com`（RSS/sitemap 生成绝对链接用）。
    >
-   > 可选：`COOKIE_SECURE=true`（HTTPS 部署推荐）、`BLOG_OPEN_REGISTER=false`（关闭公开注册）、`CORS_ORIGIN`（前后端分离时的前端域名列表，一般留空即可）。
+   > 可选：
+   > - `COOKIE_SECURE=true`（HTTPS 部署推荐）、`BLOG_OPEN_REGISTER=false`（关闭公开注册）、`CORS_ORIGIN`（前后端分离时的前端域名列表，一般留空即可）。
+   > - `WH_DEPLOY_SECRET`（开启 Webhook 自动部署接口）、`TELEGRAM_BOT_TOKEN` + `TELEGRAM_CHAT_ID` / `WECOM_WEBHOOK_URL`（新文章推送）、`DATABASE_URL`（默认 SQLite，一般不用填）。
 
 4. 点 **「提交」**。等待依赖安装完成（首次约 1-3 分钟，面板会显示进度）。
 5. 项目状态变为 **运行中（绿色）** 即成功。若报错，点项目右侧 **「日志」** 查看原因。
@@ -156,10 +158,16 @@
 
 | 检查项 | 地址 | 期望结果 |
 |---|---|---|
-| 首页 | `https://你的域名/` | 文章列表、侧边栏、天气组件 |
+| 首页 | `https://你的域名/` | 文章列表、侧边栏（含「📬 邮件订阅」框）、天气组件 |
 | 文章页 | `https://你的域名/post/xxx` | 打开文章，**直接刷新不 404** |
 | 登录/注册 | `https://你的域名/login`、`/register` | 页面正常，可注册 |
-| 后台 | `https://你的域名/admin` | 用新账号登录进仪表盘 |
+| 后台 | `https://你的域名/admin` | 用新账号登录进仪表盘；**左下角显示版本号**（如 v2.2.0，点它直达 GitHub Releases 比对最新版） |
+| 广场 | `https://你的域名/square` | 微动态 + 博客圈 + 社交账号墙可打开 |
+| 系列 | `https://你的域名/series` | 系列列表页可打开（空列表正常） |
+| 留言墙 | `https://你的域名/guestbook` | 留言页可打开，登录后可留言 |
+| 公告 | 后台新建一条公告 | 前台每个页面顶部出现横幅 |
+| 订阅 | 前台侧边栏填邮箱提交 | 提示订阅成功；后台「✉️ 订阅者」能看到该邮箱 |
+| 搜索 | 前台搜索关键词 | 返回结果（接口 `engine` 字段为 `fts5` 或 `like`） |
 | RSS | `https://你的域名/feed.xml` | 显示 XML |
 | API | `https://你的域名/api/site` | 返回 JSON |
 
@@ -178,7 +186,31 @@
 - **恢复**：把 `blog.db` 传回 `myblog/data/`，重启 Python 项目即可。
 
 > ⚠️ **数据库保护说明**：部署包 `myblog-backend.zip` **不包含 `data/` 目录**，解压覆盖不会动你服务器上已有的 `blog.db`（文章/评论/设置都安全保留）。
-> 新增的统计表（`visit_log` / `read_log` / `search_log` / `ip_region`）在项目**重启时自动创建**，无需手动建表。
+> 新增的表与列（统计表、评论嵌套字段、系列/公告/留言/订阅者表、is_read 列等）在项目**重启时自动迁移创建**，无需手动建表。
+
+---
+
+## 版本升级（老版本 → 新版本）
+
+> 适用：服务器已部署过旧版本（如 v1.0.0），要升级到最新 Release。**只需覆盖代码 + 重启，不要删目录。**
+
+1. **备份（最重要）**：到「文件」下载留底：
+   - `/www/wwwroot/myblog/data/blog.db`（全部数据）
+   - `/www/wwwroot/myblog/static/uploads/`（上传的图片）
+2. **先确认真实运行目录**（避免解压到错误路径）：
+   - 宝塔「网站 → Python项目」→ 点该项目 → 看「项目路径」；
+   - 或终端执行 `ls -la /www/wwwroot/*/data/blog.db`，数据库在哪，项目就在哪。
+3. **覆盖后端**：上传新版 `myblog-backend.zip` → 解压到上述真实目录。
+   - ⚠️ zip 内自带一层 `myblog/`，解压后应合并进运行目录，**避免出现 `myblog/myblog/` 嵌套**；
+   - 确认 `data/` 目录和 `blog.db` 还在（没删目录就一定在）。
+4. **重启后端（关键）**：宝塔「网站 → Python项目」→ 该项目 → **先点「停止」，再点「启动」**。
+   - ⚠️ 只点「重启」可能只是重载配置，gunicorn 旧进程没退出，页面还是旧版；
+   - 可用 `ps -ef | grep gunicorn` 看进程启动时间，确认是新进程。
+5. **覆盖前端**：上传新版 `vue-frontend-dist.zip` 到 `/www/wwwroot/vue-frontend/` → 解压覆盖 `index.html` + `assets/`（**无需重启后端**）。
+6. **验证**：浏览器**无痕窗口**打开（避免缓存）：
+   - 后台左下角显示 `vX.Y.Z`，与 [GitHub Releases](https://github.com/Llhhy1/llhhy-blog/releases) 最新标签一致 → 后端升级成功；
+   - 前台侧边栏出现「📬 邮件订阅」→ 前端升级成功。
+7. **环境变量**：只覆盖文件 + 重启，环境变量原样保留，无需重填；**若误删 Python 项目重建，必须重填 `SECRET_KEY` / `ADMIN_PASSWORD`**（缺失拒绝启动）。改 `SECRET_KEY` 会让已登录用户需要重新登录，属正常现象。
 
 ## 访问统计功能说明（新增）
 

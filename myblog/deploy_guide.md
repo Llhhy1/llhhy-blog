@@ -64,6 +64,7 @@
    > 可选：
    > - `COOKIE_SECURE=true`（HTTPS 部署推荐）、`BLOG_OPEN_REGISTER=false`（关闭公开注册）、`CORS_ORIGIN`（前后端分离时的前端域名列表，一般留空即可）。
    > - `WH_DEPLOY_SECRET`（开启 Webhook 自动部署接口）、`TELEGRAM_BOT_TOKEN` + `TELEGRAM_CHAT_ID` / `WECOM_WEBHOOK_URL`（新文章推送）、`DATABASE_URL`（默认 SQLite，一般不用填）。
+   > - **邮件群发（v2.4.0 起不需要在环境变量配）**：登录后台 → 「📧 邮件设置」直接填 SMTP 即可（见下方「邮件设置」章节）。若你更想用环境变量，也可配 `SMTP_HOST` / `SMTP_PORT` / `SMTP_USERNAME` / `SMTP_PASSWORD` / `SMTP_FROM` / `SMTP_USE_SSL`（后台设置优先于环境变量）。
 
 4. 点 **「提交」**。等待依赖安装完成（首次约 1-3 分钟，面板会显示进度）。
 5. 项目状态变为 **运行中（绿色）** 即成功。若报错，点项目右侧 **「日志」** 查看原因。
@@ -211,6 +212,66 @@
    - 后台左下角显示 `vX.Y.Z`，与 [GitHub Releases](https://github.com/Llhhy1/llhhy-blog/releases) 最新标签一致 → 后端升级成功；
    - 前台侧边栏出现「📬 邮件订阅」→ 前端升级成功。
 7. **环境变量**：只覆盖文件 + 重启，环境变量原样保留，无需重填；**若误删 Python 项目重建，必须重填 `SECRET_KEY` / `ADMIN_PASSWORD`**（缺失拒绝启动）。改 `SECRET_KEY` 会让已登录用户需要重新登录，属正常现象。
+
+## 邮件设置（新文章通知订阅者 · 后台配置）
+
+> 从 v2.4.0 起，邮件群发配置**不需要再填环境变量**，直接在后台操作（更便捷）。
+
+1. 登录后台 → 左侧「**📧 邮件设置**」（超管可见）。
+2. 填写 SMTP 信息：
+   | 字段 | 示例（QQ 邮箱） | 说明 |
+   |---|---|---|
+   | SMTP 服务器 | `smtp.qq.com` | 163 用 `smtp.163.com`，Gmail 用 `smtp.gmail.com` |
+   | 端口 | `465` | QQ/163 用 465（SSL）；部分服务用 587（TLS，需取消勾选 SSL） |
+   | 邮箱账号 | `你的QQ号@qq.com` | 发件登录账号 |
+   | 授权码/密码 | `xxxxxxxxxxxxxxxx` | **QQ/163 邮箱必须用「授权码」**（邮箱设置 → 账户 → 开启 SMTP 后生成），不是登录密码 |
+   | 发件人地址 | 同邮箱账号 | 一般等于账号 |
+   | 使用 SSL | 勾选（465） | 587 端口取消勾选 |
+3. 点「保存」→ 再填一个测试收件人邮箱 → 点「**发送测试邮件**」，收到邮件即配置成功。
+4. 之后每次发布新文章，会自动给「✉️ 订阅者」里所有 active 邮箱发通知（含一键退订链接）。
+   - 未配置 SMTP 时群发自动跳过，不影响发文章。
+
+## 自动部署（GitHub push → 服务器自动更新）
+
+> 想让「GitHub 推送代码 = 服务器自动更新」，只需三步。**可选功能，不配不影响使用。**
+
+### 第一步：准备部署脚本
+
+仓库根目录已提供 `deploy.sh` 模板（从 GitHub Release 下载最新 zip → 备份 data/ 和 uploads → 覆盖代码 → 重启）。上传到服务器：
+
+```bash
+# 宝塔「文件」上传 deploy.sh 到 /www/wwwroot/myblog/，然后终端执行：
+chmod +x /www/wwwroot/myblog/deploy.sh
+```
+
+按你的环境修改脚本顶部的三个变量：`REPO`（默认已对）、`APP_DIR`、`FRONT_DIR`，以及 `RESTART_CMD`（重启方式，见脚本内注释）。
+
+### 第二步：告诉后端脚本路径
+
+宝塔「网站 → Python项目」→ 项目「设置」→「环境变量」新增：
+
+```
+DEPLOY_SCRIPT=/www/wwwroot/myblog/deploy.sh
+```
+
+> 同时建议配 `WH_DEPLOY_SECRET`（一段随机字符串），它是 Webhook 的鉴权密钥。**两个都配好后重启项目。**
+
+### 第三步：GitHub 仓库挂 Webhook
+
+1. 打开你的 GitHub 仓库 `Llhhy1/llhhy-blog` → **Settings → Webhooks → Add webhook**；
+2. 填写：
+   | 字段 | 值 |
+   |---|---|
+   | Payload URL | `https://你的域名/api/webhook/deploy?token=你在WH_DEPLOY_SECRET里填的字符串` |
+   | Content type | `application/json` |
+   | Secret | 留空（已用 URL token 鉴权） |
+   | Which events | **Just the push event**（默认即可） |
+3. 点 **Add webhook** 保存。
+
+之后每次 `git push origin main`，GitHub 会 POST 到你的站点 → 后端校验 token → 自动执行 `deploy.sh` → 服务器自动更新。后台左下角版本号会变成最新版。
+
+> **安全说明**：token 放在 URL 里会出现在 GitHub 后台，介意可改用 Header：把 Payload URL 设为 `https://你的域名/api/webhook/deploy`，并在 GitHub Webhook 的 **Secret** 字段填同一字符串（后端同时支持 Header `X-Deploy-Token` 校验，二者任一匹配即通过）。
+> **不会误伤数据**：`deploy.sh` 覆盖代码前会先备份 `data/blog.db` 和 `static/uploads/` 到 `data/backup/`，且解压时排除 `data/`，数据库永远不会被覆盖。
 
 ## 访问统计功能说明（新增）
 

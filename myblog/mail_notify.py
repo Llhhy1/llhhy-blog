@@ -1,27 +1,61 @@
 """邮件群发：新文章发布时给所有 active 订阅者发通知邮件。
-使用标准库 smtplib，无需新依赖。环境变量驱动（SMTP_HOST 等），未配置自动跳过，异常静默处理。
+使用标准库 smtplib，无需新依赖。配置来源：后台「邮件设置」（Setting 表 mail_* 键）优先，环境变量 SMTP_* 兜底；
+均未配置则自动跳过，异常静默处理。
 每封邮件密送（收件人互不可见），并带退订链接（凭 email + unsub_token）。
 安全：标题/摘要/邮箱插入 HTML 前均转义；退订链接 email/token 均 URL 编码；主题经 Header 编码防换行注入。
 """
 import threading
 
 
-def _send_smtp(to_addrs, subject, html_body, plain_body=""):
-    """同步发送一封邮件（密送所有收件人）。返回 True/False。"""
+def load_mail_config():
+    """读取邮件配置：优先 Setting 表（后台可配置），回退环境变量。
+    返回 dict：{host, port, username, password, from, use_ssl, site_url}
+    """
+    from flask import current_app
+    from utils import get_setting
+    # 环境变量为兜底默认
+    host = current_app.config.get("SMTP_HOST", "") or ""
+    port = current_app.config.get("SMTP_PORT", 465)
+    user = current_app.config.get("SMTP_USERNAME", "") or ""
+    pwd = current_app.config.get("SMTP_PASSWORD", "") or ""
+    sender = current_app.config.get("SMTP_FROM", "") or user
+    use_ssl = current_app.config.get("SMTP_USE_SSL", True)
+    site_url = current_app.config.get("MAIL_SITE_URL") or current_app.config.get("SITE_URL", "") or ""
+    # Setting 表覆盖（后台配置优先）
+    host = get_setting("mail_host", host) or host
+    port = int(get_setting("mail_port", str(port)) or str(port))
+    user = get_setting("mail_username", user) or user
+    pwd = get_setting("mail_password", pwd) or pwd
+    sender = get_setting("mail_from", sender) or sender or user
+    use_ssl = (get_setting("mail_use_ssl", "true" if use_ssl else "false") or "true").lower() != "false"
+    return {"host": host, "port": port, "username": user, "password": pwd,
+            "from": sender, "use_ssl": use_ssl, "site_url": site_url}
+
+
+def send_test_mail(cfg, to_addr):
+    """发送测试邮件（后台「邮件设置」页验证用）。cfg 为 load_mail_config() 返回的 dict。"""
+    subject = "【测试】博客邮件配置验证"
+    body_html = "<p>这是一封测试邮件，说明你的博客 SMTP 邮件配置可用。✅</p>"
+    return _send_smtp(cfg, [to_addr], subject, body_html, "这是一封测试邮件，说明你的博客 SMTP 邮件配置可用。")
+
+
+def _send_smtp(cfg, to_addrs, subject, html_body, plain_body=""):
+    """同步发送一封邮件（密送所有收件人）。返回 True/False。
+    cfg 为 load_mail_config() 返回的 dict（含 host/port/username/password/from/use_ssl）。
+    """
     import smtplib
     from email.mime.multipart import MIMEMultipart
     from email.mime.text import MIMEText
     from email.header import Header
-    from flask import current_app
 
-    host = current_app.config.get("SMTP_HOST", "")
-    if not host:
+    host = cfg.get("host", "")
+    port = int(cfg.get("port", 465))
+    user = cfg.get("username", "")
+    pwd = cfg.get("password", "")
+    sender = cfg.get("from", "") or user
+    use_ssl = cfg.get("use_ssl", True)
+    if not host or not user:
         return False
-    port = int(current_app.config.get("SMTP_PORT", 465))
-    user = current_app.config.get("SMTP_USERNAME", "")
-    pwd = current_app.config.get("SMTP_PASSWORD", "")
-    sender = current_app.config.get("SMTP_FROM", "") or user
-    use_ssl = current_app.config.get("SMTP_USE_SSL", True)
 
     msg = MIMEMultipart("alternative")
     # Header() 编码主题，阻止换行注入（标题里含 \r\n 时安全处理）
@@ -90,18 +124,18 @@ def notify_subscribers_async(post):
             from models import Subscriber
             from flask import current_app
             app = current_app._get_current_object()
-            site_url = app.config.get("MAIL_SITE_URL") or app.config.get("SITE_URL", "")
-            if not app.config.get("SMTP_HOST"):
+            cfg = load_mail_config()
+            if not cfg.get("host") or not cfg.get("username"):
                 return  # 未配置 SMTP，跳过
             subs = Subscriber.query.filter_by(active=True).all()
             if not subs:
                 return
-            body_html, plain = _build_mail(post, site_url)
+            body_html, plain = _build_mail(post, cfg.get("site_url", ""))
             for sub in subs:
                 token = sub.unsub_token or ""
                 bh = _fill_unsub(body_html, sub.email, token)
                 bp = _fill_unsub(plain, sub.email, token)
-                _send_smtp([sub.email], f"【新文章】{post.title}", bh, bp)
+                _send_smtp(cfg, [sub.email], f"【新文章】{post.title}", bh, bp)
         except Exception:
             pass  # 群发失败不影响发文章
 
@@ -116,4 +150,3 @@ def notify_subscribers_async(post):
         t2.start()
     except Exception:
         pass
-

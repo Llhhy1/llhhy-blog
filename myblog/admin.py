@@ -575,6 +575,70 @@ def settings():
     return render_template("admin/settings.html", settings=settings)
 
 
+@admin_bp.route("/email-settings", methods=["GET", "POST"])
+@super_required
+def email_settings():
+    """邮件群发设置（C3）：SMTP 配置存 Setting 表，mail_notify.py 读取时优先库值、回退环境变量。
+    密码不回显：保存时密码留空 = 保持不变。提供「发送测试邮件」验证配置。
+    """
+    from utils import rate_limit, client_key
+    mail_keys = ["mail_host", "mail_port", "mail_username", "mail_password", "mail_from", "mail_use_ssl"]
+    if request.method == "POST":
+        action = request.form.get("action", "save")
+        # 保存配置
+        if action == "save":
+            host = (request.form.get("mail_host") or "").strip()
+            vals = {
+                "mail_host": host,
+                "mail_port": (request.form.get("mail_port") or "465").strip() or "465",
+                "mail_username": (request.form.get("mail_username") or "").strip(),
+                "mail_from": (request.form.get("mail_from") or "").strip(),
+                "mail_use_ssl": "true" if request.form.get("mail_use_ssl") else "false",
+            }
+            # 密码：仅当输入了非空值才更新（不回显、留空保持原值）
+            pwd = request.form.get("mail_password") or ""
+            if pwd.strip():
+                vals["mail_password"] = pwd.strip()
+            for k, v in vals.items():
+                row = Setting.query.filter_by(key=k).first()
+                if row:
+                    row.value = v
+                else:
+                    db.session.add(Setting(key=k, value=v))
+            db.session.commit()
+            flash("邮件设置已保存")
+            return redirect(url_for("admin.email_settings"))
+        # 发送测试邮件（限流防滥用）
+        if action == "test":
+            if not rate_limit(client_key("admin_mail_test"), limit=5, window=300):
+                flash("测试邮件发送过于频繁，请 5 分钟后再试", "error")
+                return redirect(url_for("admin.email_settings"))
+            to = (request.form.get("test_to") or "").strip()
+            if not to:
+                flash("请填写测试收件人邮箱", "error")
+                return redirect(url_for("admin.email_settings"))
+            # 用表单当前值（含新填密码）+ 库中已存值组装测试配置，不落库
+            import mail_notify
+            cfg = mail_notify.load_mail_config()
+            cfg["host"] = (request.form.get("mail_host") or cfg["host"]).strip()
+            cfg["port"] = int((request.form.get("mail_port") or str(cfg["port"])).strip() or 465)
+            cfg["username"] = (request.form.get("mail_username") or cfg["username"]).strip()
+            cfg["from"] = (request.form.get("mail_from") or cfg["from"]).strip()
+            if request.form.get("mail_use_ssl") is not None:
+                cfg["use_ssl"] = True
+            pwd = request.form.get("mail_password") or ""
+            if pwd.strip():
+                cfg["password"] = pwd.strip()
+            ok = mail_notify.send_test_mail(cfg, to)
+            if ok:
+                flash(f"测试邮件已发送到 {to}，请查收（含垃圾箱）")
+            else:
+                flash("发送失败：请检查 SMTP 配置（主机/端口/授权码/SSL 开关），错误详情见后端日志", "error")
+            return redirect(url_for("admin.email_settings"))
+    settings = {s.key: s.value for s in Setting.query.all()}
+    return render_template("admin/email_settings.html", settings=settings)
+
+
 @admin_bp.route("/stats")
 @admin_required
 def stats():

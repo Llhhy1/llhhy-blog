@@ -107,6 +107,28 @@
 - `DEPLOY_SCRIPT`：Webhook 校验通过后要执行的部署脚本绝对路径（如 `/www/wwwroot/myblog/deploy.sh`）。**不配置则 webhook 只返回授权成功，不执行任何操作（安全默认）**。
 - `COMMENT_REQUIRE_APPROVAL`：环境变量默认值；后台「站点设置」可动态覆盖。
 
+## 四·补二、第四轮安全审计（2026-08-21 · v2.4.0 后台邮件设置 + 自动部署脚本）
+
+> 本轮新增：后台「邮件设置」菜单（SMTP 配置存 Setting 表 + 测试发送）、`deploy.sh` 自动部署脚本模板。
+
+### 4B.1 发现的缺陷与修复
+
+| # | 等级 | 问题 | 修复 |
+|---|---|---|---|
+| — | — | 本轮审计未发现需修复的漏洞 | 见下方复查结论 |
+
+### 4B.2 新增模块安全复查结论
+
+| 模块 | 关键风险点 | 结论 |
+|---|---|---|
+| 后台「邮件设置」`/admin/email-settings` | 越权 / 密码泄露 / 滥用发信 | 路由 `@super_required` 仅超管可访问（未登录访问已验证 403）；SMTP 授权码存 Setting 表但**页面永不回显**（GET 不返回已存密码，保存时留空=保持不变，已验证）；「发送测试邮件」限流 5 次/300 秒（防滥用群发）；POST 被全局同源 CSRF 校验覆盖 |
+| `mail_notify.load_mail_config()` | 注入 / 配置篡改 | 读取 Setting 表参数化查询（`filter_by`）；配置仅超管可写；未配置 host/username 时静默跳过群发，不报错不阻塞 |
+| `deploy.sh` 脚本模板 | 执行任意命令 | 仅由 Webhook 触发（HMAC 校验 + `DEPLOY_SCRIPT` 环境变量白名单）；脚本内容由管理员自行维护，仓库中为模板示例，不含任何硬编码凭据 |
+
+### 4B.3 残余风险（记录）
+
+- SMTP 授权码**明文存储**于数据库 Setting 表（与站点其他配置同级）。依赖「仅超管可访问后台 + 数据库文件在服务器本地」的边界；如需更强保护，可改为仅用环境变量 `SMTP_PASSWORD`（后台留空即可）。
+
 ## 五、上线前必做（宝塔面板 · 环境变量配置）
 
 程序启动**必须**存在两个环境变量（缺失即拒绝启动）：
@@ -120,11 +142,11 @@
    - `ADMIN_PASSWORD` ← 一个随机强密码（首次登录后台还会被强制修改，这里只是初始值）
 3. （推荐）`COOKIE_SECURE=true`；`SITE_URL=https://你的域名`
 4. （可选 · 自动部署）`WH_DEPLOY_SECRET` ← 一段随机字符串；配合 GitHub Webhook 在 Header 带 `X-Deploy-Token` 或 URL 带 `?token=`。**不配置则 `/api/webhook/deploy` 返回 403（安全默认）**。
-5. （可选 · 邮件群发）`SMTP_HOST` / `SMTP_PORT`（默认 465）/ `SMTP_USERNAME` / `SMTP_PASSWORD` / `SMTP_FROM` / `SMTP_USE_SSL`（默认 true）。**不配置则邮件群发自动跳过**。
+5. （可选 · 邮件群发）`SMTP_HOST` / `SMTP_PORT`（默认 465）/ `SMTP_USERNAME` / `SMTP_PASSWORD` / `SMTP_FROM` / `SMTP_USE_SSL`（默认 true）。**不配置则邮件群发自动跳过**；v2.4.0 起也可直接在**后台「📧 邮件设置」**填写，无需再配环境变量。
 6. （可选 · 自动部署执行）`DEPLOY_SCRIPT` ← 部署脚本绝对路径；**不配置则 Webhook 仅授权不执行（安全默认）**。
-5. （可选 · 新文章推送）`TELEGRAM_BOT_TOKEN` + `TELEGRAM_CHAT_ID`（Telegram），或 `WECOM_WEBHOOK_URL`（企业微信/微信「群机器人」）。**不配置则对应渠道自动跳过，不影响发文章**。
-6. （可选 · 换数据库）`DATABASE_URL` ← 例如 `postgresql+psycopg://user:pass@host:5432/blog`；非 SQLite 时全文搜索自动降级为 LIKE。
-7. 保存并**重启项目**。若日志报"缺少环境变量 SECRET_KEY / ADMIN_PASSWORD"，说明没配置成功。
+7. （可选 · 新文章推送）`TELEGRAM_BOT_TOKEN` + `TELEGRAM_CHAT_ID`（Telegram），或 `WECOM_WEBHOOK_URL`（企业微信/微信「群机器人」）。**不配置则对应渠道自动跳过，不影响发文章**。
+8. （可选 · 换数据库）`DATABASE_URL` ← 例如 `postgresql+psycopg://user:pass@host:5432/blog`；非 SQLite 时全文搜索自动降级为 LIKE。
+9. 保存并**重启项目**。若日志报"缺少环境变量 SECRET_KEY / ADMIN_PASSWORD"，说明没配置成功。
 
 ## 五、残余风险与建议（非阻塞）
 

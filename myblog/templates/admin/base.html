@@ -46,6 +46,7 @@
         <a href="{{ url_for('admin.stats') }}" class="{{ 'active' if ep == 'admin.stats' }}"><span class="nav-emoji">📈</span>访问统计</a>
         {% if current_user.is_super %}
         <a href="{{ url_for('admin.settings') }}" class="{{ 'active' if ep == 'admin.settings' }}"><span class="nav-emoji">⚙️</span>站点设置</a>
+        <a href="{{ url_for('admin.email_settings') }}" class="{{ 'active' if ep == 'admin.email_settings' }}"><span class="nav-emoji">📧</span>邮件设置</a>
         <a href="{{ url_for('admin.users') }}" class="{{ 'active' if ep == 'admin.users' }}"><span class="nav-emoji">👥</span>用户管理</a>
         {% endif %}
         {% else %}

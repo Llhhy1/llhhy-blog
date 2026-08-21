@@ -78,6 +78,16 @@ body {
 .list-clean a:hover { color: var(--accent); }
 .tag-cloud .tag { display: inline-block; background: #eef3fb; color: var(--accent); padding: 3px 10px; border-radius: 20px; font-size: 13px; margin: 0 6px 6px 0; text-decoration: none; }
 
+/* 侧边栏邮件订阅 */
+.sub-tip { font-size: 12px; color: #999; margin: -4px 0 10px; }
+.sub-box { display: flex; gap: 8px; }
+.sub-box input[type=email] { flex: 1; padding: 8px 10px; border: 1px solid #ddd; border-radius: 6px; font-size: 14px; }
+.sub-box button { padding: 8px 12px; border: none; background: var(--accent); color: #fff; border-radius: 6px; cursor: pointer; white-space: nowrap; }
+.sub-box button:disabled { opacity: .6; cursor: not-allowed; }
+.sub-msg { font-size: 12px; margin-top: 8px; }
+.sub-msg.ok { color: #188038; }
+.sub-msg.err { color: #d93025; }
+
 /* 评论 */
 .comments { margin-top: 28px; background: #fff; border: 1px solid #eee; border-radius: var(--theme-radius, 12px); padding: 22px 24px; }
 .comment { border-bottom: 1px solid #f0f0f0; padding: 12px 0; }
@@ -151,6 +161,10 @@ button:hover, .btn:hover { background: color-mix(in srgb, var(--accent), #000 15
 [data-theme="dark"] .list-clean a { color: #c7ccd1; }
 [data-theme="dark"] .list-clean a:hover { color: #7cb0ff; }
 [data-theme="dark"] .tag-cloud .tag { background: #2a3140; color: #8ab4ff; }
+[data-theme="dark"] .sub-tip { color: #9aa0a6; }
+[data-theme="dark"] .sub-box input[type=email] { background: #262a30; border-color: #3a3f47; color: #e6e8eb; }
+[data-theme="dark"] .sub-msg.ok { color: #7bc47f; }
+[data-theme="dark"] .sub-msg.err { color: #f28b82; }
 [data-theme="dark"] .post-body h2,
 [data-theme="dark"] .post-body h3 { color: #eef0f2; }
 [data-theme="dark"] .post-body blockquote { border-left-color: #7cb0ff; color: #aeb4ba; }

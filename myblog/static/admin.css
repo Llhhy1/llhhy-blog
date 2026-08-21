@@ -339,6 +339,13 @@
 .side-user-role { font-size: 11px; color: #98a1ad; }
 .side-logout { color: #b0b8c4; font-size: 18px; text-decoration: none; padding: 4px 6px; border-radius: 6px; }
 .side-logout:hover { color: #e5484d; background: #fdeaea; }
+.side-version {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 9px 16px; border-top: 1px solid #ececec;
+  font-size: 12px; color: #98a1ad; text-decoration: none; transition: color .15s;
+}
+.side-version:hover { color: var(--accent, #1a73e8); }
+.side-version .version-link { font-size: 11px; color: var(--accent, #1a73e8); opacity: .85; }
 
 /* 双栏仪表盘 */
 .dash-grid { display: grid; grid-template-columns: 1fr 300px; gap: 20px; align-items: start; }
@@ -376,6 +383,8 @@
 /* 暗色适配 */
 [data-theme="dark"] .side-group { color: #7a8499; }
 [data-theme="dark"] .side-user-card { border-color: #2a2e35; }
+[data-theme="dark"] .side-version { border-color: #2a2e35; color: #7a8499; }
+[data-theme="dark"] .side-version:hover { color: #e6e8eb; }
 [data-theme="dark"] .side-user-name { color: #e6e8eb; }
 [data-theme="dark"] .side-user-role { color: #9aa0a8; }
 [data-theme="dark"] .side-logout:hover { background: #3a2222; }

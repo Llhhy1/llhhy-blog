@@ -8,6 +8,16 @@
       </form>
     </div>
 
+    <div class="widget">
+      <h3>📬 邮件订阅</h3>
+      <p class="sub-tip">新文章发布第一时间邮件通知你</p>
+      <form class="sub-box" @submit.prevent="doSubscribe">
+        <input type="email" v-model="subEmail" placeholder="输入邮箱地址" autocomplete="email" :disabled="subDone" />
+        <button type="submit" :disabled="subBusy || subDone">{{ subBtnText }}</button>
+      </form>
+      <p v-if="subMsg" class="sub-msg" :class="subOk ? 'ok' : 'err'">{{ subMsg }}</p>
+    </div>
+
     <WeatherWidget />
 
     <div class="widget">
@@ -66,9 +76,9 @@
 </template>
 
 <script setup>
-import { onMounted, ref } from "vue";
+import { onMounted, ref, computed } from "vue";
 import { useRouter } from "vue-router";
-import { apiGet } from "../lib/api.js";
+import { apiGet, apiPost } from "../lib/api.js";
 import WeatherWidget from "./WeatherWidget.vue";
 
 const router = useRouter();
@@ -80,6 +90,36 @@ const recent = ref([]);
 const totalPosts = ref(0);
 const totalComments = ref(0);
 const hotPosts = ref([]);
+
+// 邮件订阅
+const subEmail = ref("");
+const subBusy = ref(false);
+const subDone = ref(false);
+const subMsg = ref("");
+const subOk = ref(false);
+const subBtnText = computed(() => (subBusy.value ? "提交中…" : subDone.value ? "已订阅 ✓" : "订阅"));
+
+async function doSubscribe() {
+  const email = subEmail.value.trim();
+  if (!email) {
+    subMsg.value = "请输入邮箱地址";
+    subOk.value = false;
+    return;
+  }
+  subBusy.value = true;
+  subMsg.value = "";
+  try {
+    const d = await apiPost("/api/subscribe", { email });
+    subOk.value = true;
+    subDone.value = true;
+    subMsg.value = d.message || "订阅成功";
+  } catch (e) {
+    subOk.value = false;
+    subMsg.value = e.message || "订阅失败，请稍后再试";
+  } finally {
+    subBusy.value = false;
+  }
+}
 
 function doSearch() {
   if (q.value.trim()) router.push({ path: "/search", query: { q: q.value.trim() } });

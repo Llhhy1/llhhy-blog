@@ -11,6 +11,7 @@ from models import (db, Post, Category, Tag, Comment, FriendLink, Setting,
                     User, ROLE_SUPER, ROLE_ADMIN, ROLE_USER, SocialAccount,
                     Series, Announcement, Guestbook, Subscriber)
 from utils import make_slug
+from config import APP_VERSION
 import fts
 import notify
 
@@ -101,6 +102,7 @@ def inject_notification_counts():
     return {
         "pending_comments": pending_comments,
         "pending_guestbook": pending_guestbook,
+        "app_version": APP_VERSION,
     }
 
 

@@ -23,3 +23,6 @@ dist/
 
 # 临时构建目录（用非 dist 名规避本地删除保护，等同 dist/）
 _vite_build/
+
+# 临时构建目录（规避本地删除保护，等同 dist/）
+_vite_build2/

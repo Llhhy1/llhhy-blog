@@ -10,6 +10,11 @@ DATA_DIR = os.path.join(BASE_DIR, "data")
 os.makedirs(DATA_DIR, exist_ok=True)
 
 
+# 应用版本号：与 GitHub Release 标签保持一致（vX.Y.Z）。
+# 后台侧边栏左下角会显示该版本，用于确认服务器安装的代码是否为最新。
+APP_VERSION = "2.2.0"
+
+
 class Config:
     # 会话签名密钥：必须来自环境变量，缺失则拒绝启动（禁止使用任何弱默认值）。
     # 生成：python -c "import secrets;print(secrets.token_hex(32))"

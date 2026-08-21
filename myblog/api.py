@@ -9,7 +9,7 @@ from flask import Blueprint, request, jsonify, current_app, session
 from markupsafe import escape
 
 from models import db, Post, Category, Tag, Comment, FriendLink, Setting, User, ROLE_USER, \
-    Moment, MomentComment, SocialAccount
+    Moment, MomentComment, SocialAccount, Series, Announcement, Guestbook, Subscriber
 from utils import render_markdown, clean_html, rate_limit, client_key
 import stats
 
@@ -127,6 +127,9 @@ def _comment(c):
         "created_at": c.created_at.strftime("%Y-%m-%d %H:%M"),
         "region": c.region or "",        # 归属地（前台展示；IP 原文不返回）
         "device": c.device or "",        # 设备信息
+        "parent_id": c.parent_id or 0,   # 嵌套回复：父评论 id（0=顶层）
+        "reply_to": c.reply_to or "",    # 被回复者昵称（@ 显示）
+        "likes": c.likes or 0,           # 评论点赞数
     }
 
 
@@ -208,6 +211,19 @@ def post_detail(slug):
     data = _post_summary(p)
     data["html"] = _render_html(p.content)
     data["comments"] = [_comment(c) for c in p.comments.order_by(Comment.created_at.asc())]
+    # 系列上下篇导航
+    if p.series_id and p.series:
+        s_posts = p.series.posts.filter_by(published=True).order_by(Post.created_at.asc()).all()
+        idx = next((i for i, x in enumerate(s_posts) if x.id == p.id), -1)
+        data["series"] = {
+            "slug": p.series.slug, "name": p.series.name,
+            "prev": {"slug": s_posts[idx - 1].slug, "title": s_posts[idx - 1].title}
+                    if idx > 0 else None,
+            "next": {"slug": s_posts[idx + 1].slug, "title": s_posts[idx + 1].title}
+                    if idx < len(s_posts) - 1 else None,
+        }
+    else:
+        data["series"] = None
     return jsonify(data)
 
 
@@ -306,12 +322,22 @@ def comment(slug):
     author = author or (data.get("author") or "").strip()
     if not author or not content:
         return jsonify({"error": "昵称和评论内容不能为空"}), 400
+    # 嵌套回复：parent_id 必须属于同一篇文章，reply_to 默认取父评论作者
+    parent_id = data.get("parent_id") or 0
+    reply_to = (data.get("reply_to") or "").strip()
+    if parent_id:
+        parent = Comment.query.filter_by(id=parent_id, post_id=p.id).first()
+        if not parent:
+            return jsonify({"error": "回复的评论不存在"}), 400
+        if not reply_to:
+            reply_to = parent.author
     # 记录评论者 IP 属地与设备（属地缓存命中即返回，未命中后台线程稍后回填）
     from utils import parse_device
     ip = stats.client_ip()
     c = Comment(post_id=p.id, author=author[:80], content=content, approved=True,
                 ip=ip, region=stats.cached_region(ip),
-                device=parse_device(request.headers.get("User-Agent", ""))[:120])
+                device=parse_device(request.headers.get("User-Agent", ""))[:120],
+                parent_id=parent_id or None, reply_to=reply_to[:80])
     db.session.add(c)
     db.session.commit()
     return jsonify({"ok": True, "comment": _comment(c)}), 201
@@ -482,3 +508,159 @@ def social_accounts():
         {"id": a.id, "platform": a.platform, "handle": a.handle, "url": a.url}
         for a in accs
     ])
+
+
+# ---------- 文章系列 / 专栏（B4）----------
+@api_bp.route("/series")
+def series_list():
+    sers = Series.query.order_by(Series.sort, Series.created_at.desc()).all()
+    return jsonify([
+        {"slug": s.slug, "name": s.name, "description": s.description or "",
+         "cover": s.cover or "", "count": s.posts.filter_by(published=True).count()}
+        for s in sers
+    ])
+
+
+@api_bp.route("/series/<slug>")
+def series_detail(slug):
+    s = Series.query.filter_by(slug=slug).first_or_404()
+    posts = s.posts.filter_by(published=True).order_by(Post.created_at.asc()).all()
+    return jsonify({
+        "slug": s.slug, "name": s.name, "description": s.description or "",
+        "cover": s.cover or "",
+        "posts": [_post_summary(p) for p in posts],
+    })
+
+
+# ---------- 相关文章推荐（按标签重合度 + 同分类，纯算法零依赖，B1）----------
+@api_bp.route("/post/<slug>/related")
+def related_posts(slug):
+    p = Post.query.filter_by(slug=slug, published=True).first_or_404()
+    p_tags = set(t.id for t in p.tags)
+    scored = []
+    for c in Post.query.filter(Post.published == True, Post.id != p.id).all():
+        c_tags = set(t.id for t in c.tags)
+        score = len(p_tags & c_tags)
+        if p.category_id and p.category_id == c.category_id:
+            score += 1
+        if score <= 0:
+            continue
+        scored.append((score, c))
+    scored.sort(key=lambda x: (x[0], x[1].created_at), reverse=True)
+    return jsonify({"items": [_post_summary(c) for _, c in scored[:5]]})
+
+
+# ---------- 站点公告 / 置顶（D4）----------
+@api_bp.route("/announcements")
+def announcements():
+    items = Announcement.query.filter_by(active=True).order_by(Announcement.created_at.desc()).all()
+    return jsonify({"items": [
+        {"id": a.id, "content": clean_html(render_markdown(a.content)),
+         "level": a.level, "dismissible": a.dismissible}
+        for a in items
+    ]})
+
+
+# ---------- 留言墙（C1）----------
+def _gb(g):
+    return {
+        "id": g.id, "author": g.author, "content": g.content,
+        "created_at": g.created_at.strftime("%Y-%m-%d %H:%M"),
+        "likes": g.likes or 0,
+        "region": g.region or "", "device": g.device or "",
+    }
+
+
+@api_bp.route("/guestbook")
+def guestbook():
+    page = request.args.get("page", 1, type=int)
+    pagination = Guestbook.query.order_by(Guestbook.created_at.desc()).paginate(
+        page=page, per_page=20, error_out=False)
+    return jsonify({"items": [_gb(g) for g in pagination.items],
+                    "page": pagination.page, "pages": pagination.pages, "total": pagination.total})
+
+
+@api_bp.route("/guestbook", methods=["POST"])
+def post_guestbook():
+    if not rate_limit(client_key("api_guestbook"), limit=10, window=60):
+        return jsonify({"error": "留言过于频繁，请稍后再试"}), 429
+    data = request.get_json(silent=True) or request.form
+    content = (data.get("content") or "").strip()
+    u = _current_user()
+    author = (u.username if u else (data.get("author") or "").strip())
+    if not author or not content:
+        return jsonify({"error": "昵称和留言内容不能为空"}), 400
+    if len(content) > 500:
+        return jsonify({"error": "留言最多 500 字"}), 400
+    from utils import parse_device
+    ip = stats.client_ip()
+    g = Guestbook(author=author[:80], content=content, user_id=u.id if u else None,
+                  ip=ip, region=stats.cached_region(ip),
+                  device=parse_device(request.headers.get("User-Agent", ""))[:120])
+    db.session.add(g)
+    db.session.commit()
+    return jsonify({"ok": True, "guestbook": _gb(g)}), 201
+
+
+@api_bp.route("/guestbook/<int:gid>/like", methods=["POST"])
+def like_guestbook(gid):
+    g = Guestbook.query.get_or_404(gid)
+    if not rate_limit(client_key("api_gblike:" + str(gid)), limit=20, window=60):
+        return jsonify({"likes": g.likes})
+    g.likes += 1
+    db.session.commit()
+    return jsonify({"likes": g.likes})
+
+
+# ---------- 邮件订阅（Newsletter，C3）----------
+@api_bp.route("/subscribe", methods=["POST"])
+def subscribe():
+    if not rate_limit(client_key("api_subscribe"), limit=10, window=60):
+        return jsonify({"error": "操作过于频繁，请稍后再试"}), 429
+    data = request.get_json(silent=True) or request.form
+    email = (data.get("email") or "").strip().lower()
+    import re as _re
+    if not email or not _re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", email):
+        return jsonify({"error": "邮箱格式不正确"}), 400
+    if Subscriber.query.filter_by(email=email).first():
+        return jsonify({"ok": True, "message": "你已经订阅过啦"})
+    db.session.add(Subscriber(email=email[:160]))
+    db.session.commit()
+    return jsonify({"ok": True, "message": "订阅成功，新文章发布时会邮件通知你"}), 201
+
+
+# ---------- 全文搜索（FTS5 优先，失败回退 LIKE，B5）----------
+@api_bp.route("/search")
+def search_api():
+    q = (request.args.get("q") or "").strip()
+    if not q:
+        return jsonify({"items": [], "total": 0, "engine": "none"})
+    try:
+        import fts as fts_mod
+        ids = fts_mod.search(q)
+    except Exception:
+        ids = None
+    if ids is not None:
+        posts = [db.session.get(Post, i) for i in ids]
+        posts = [p for p in posts if p and p.published]
+        return jsonify({"items": [_post_summary(p) for p in posts], "total": len(posts), "engine": "fts5"})
+    like = f"%{q}%"
+    rows = (Post.query.filter(Post.published == True,
+                              db.or_(Post.title.ilike(like), Post.summary.ilike(like), Post.content.ilike(like)))
+            .order_by(Post.created_at.desc()).limit(30).all())
+    return jsonify({"items": [_post_summary(p) for p in rows], "total": len(rows), "engine": "like"})
+
+
+# ---------- Webhook 自动部署（GitHub push → 宝塔拉取，D3）----------
+@api_bp.route("/webhook/deploy", methods=["POST"])
+def webhook_deploy():
+    """仅做密钥鉴权 + 返回成功；真正的 git pull / 重启由宝塔 Webhook 或计划任务完成。
+    配置环境变量 WH_DEPLOY_SECRET；GitHub Webhook 在 Header 带 X-Deploy-Token 或在 URL 带 ?token=。"""
+    secret = current_app.config.get("WH_DEPLOY_SECRET")
+    if not secret:
+        return jsonify({"error": "服务器未配置部署密钥 WH_DEPLOY_SECRET"}), 403
+    token = request.headers.get("X-Deploy-Token") or request.args.get("token") or ""
+    import hmac
+    if not hmac.compare_digest(token, secret):
+        return jsonify({"error": "密钥错误"}), 403
+    return jsonify({"ok": True, "message": "部署触发已授权，请在服务器侧配置 git pull 拉取最新代码"})

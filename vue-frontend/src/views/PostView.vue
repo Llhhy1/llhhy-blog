@@ -30,6 +30,31 @@
         <div v-if="post.tags && post.tags.length" class="post-tags">
           <router-link v-for="t in post.tags" :key="t.slug" class="tag" :to="`/tag/${t.slug}`">{{ t.name }}</router-link>
         </div>
+
+        <div v-if="post.series" class="series-nav">
+          <span class="series-name">📚 系列：<router-link :to="`/series/${post.series.slug}`">{{ post.series.name }}</router-link></span>
+          <div class="series-prev-next">
+            <router-link v-if="post.series.prev" :to="`/post/${post.series.prev.slug}`" class="series-link">← {{ post.series.prev.title }}</router-link>
+            <span v-else class="series-link disabled">已是第一篇</span>
+            <router-link v-if="post.series.next" :to="`/post/${post.series.next.slug}`" class="series-link">{{ post.series.next.title }} →</router-link>
+            <span v-else class="series-link disabled">已是最后一篇</span>
+          </div>
+        </div>
+
+        <div v-if="related.length" class="related-box">
+          <h3 class="related-title">相关文章</h3>
+          <ul class="related-list">
+            <li v-for="r in related" :key="r.slug">
+              <router-link :to="`/post/${r.slug}`">{{ r.title }}</router-link>
+            </li>
+          </ul>
+        </div>
+
+        <div class="share-row">
+          <button class="share-btn" type="button" @click="sharePost">🔗 分享</button>
+          <span v-if="shareTip" class="share-tip">{{ shareTip }}</span>
+        </div>
+
         <LikeButton :slug="post.slug" :count="post.likes || 0" />
         <CommentForm :slug="post.slug" :comments="comments" />
       </article>
@@ -73,6 +98,8 @@ const comments = ref([]);
 const notFound = ref(false);
 const bodyEl = ref(null);
 const tocItems = ref([]);
+const related = ref([]);
+const shareTip = ref("");
 
 async function load() {
   const slug = route.params.slug;
@@ -83,12 +110,17 @@ async function load() {
     const data = await apiGet(`/api/post/${encodeURIComponent(slug)}`);
     post.value = data;
     comments.value = data.comments || [];
+    related.value = [];
     await nextTick();
     renderBody(data.html || "");
     buildToc();
     highlight();
+    setOgMeta(data);
     // 阅读埋点（统计"反复阅读"的文章）
     apiPost("/api/stats/read", { slug }).catch(() => {});
+    // 相关文章推荐
+    apiGet(`/api/post/${encodeURIComponent(slug)}/related`)
+      .then((r) => { related.value = r.items || []; }).catch(() => {});
   } catch (e) {
     notFound.value = true;
   }
@@ -114,6 +146,38 @@ function highlight() {
   bodyEl.value.querySelectorAll("pre code").forEach((block) => {
     try { hljs.highlightElement(block); } catch (e) {}
   });
+}
+
+// 动态注入 Open Graph 分享元信息（D1 · 分享卡片）
+function setOgMeta(p) {
+  document.title = (p.title || "") + " · " + (state.site.site_name || state.site.site_title);
+  const set = (prop, content) => {
+    let m = document.querySelector(`meta[property="${prop}"]`) || document.querySelector(`meta[name="${prop}"]`);
+    if (!m) {
+      m = document.createElement("meta");
+      m.setAttribute(prop.startsWith("og:") ? "property" : "name", prop);
+      document.head.appendChild(m);
+    }
+    m.setAttribute("content", content || "");
+  };
+  set("og:title", p.title);
+  set("og:description", p.summary || (p.content || "").slice(0, 120));
+  set("og:image", p.cover || "");
+  set("og:url", location.href);
+  set("og:type", "article");
+  set("description", p.summary || "");
+}
+
+function sharePost() {
+  const url = location.href;
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(url).then(() => {
+      shareTip.value = "链接已复制，去分享吧！";
+      setTimeout(() => { shareTip.value = ""; }, 2000);
+    }).catch(() => { shareTip.value = url; });
+  } else {
+    shareTip.value = url;
+  }
 }
 
 onMounted(load);

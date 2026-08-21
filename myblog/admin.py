@@ -8,8 +8,11 @@ from flask import (Blueprint, render_template, request, redirect, url_for,
 from werkzeug.utils import secure_filename
 
 from models import (db, Post, Category, Tag, Comment, FriendLink, Setting,
-                    User, ROLE_SUPER, ROLE_ADMIN, ROLE_USER, SocialAccount)
+                    User, ROLE_SUPER, ROLE_ADMIN, ROLE_USER, SocialAccount,
+                    Series, Announcement, Guestbook, Subscriber)
 from utils import make_slug
+import fts
+import notify
 
 admin_bp = Blueprint("admin", __name__, url_prefix="/admin")
 
@@ -185,22 +188,34 @@ def new_post():
         if category_id:
             category_id = int(category_id)
         published = request.form.get("published") == "on"
+        series_id = request.form.get("series_id") or None
         post = Post(
             title=title, slug=unique_slug(title), summary=summary, content=content,
             cover=cover, category_id=category_id, published=published,
+            series_id=int(series_id) if series_id else None,
             author_id=session.get("user_id"),  # 记录作者：普通用户发表的文章归属自己
         )
         db.session.add(post)
         db.session.flush()  # 先把文章放进会话，避免标签关联警告
         _sync_tags(post, request.form.get("tags", ""))
         db.session.commit()
+        try:
+            fts.sync_post(post)
+        except Exception:
+            pass
+        if published:
+            try:
+                notify.notify_new_post(post, current_app.config.get("SITE_URL", ""))
+            except Exception:
+                pass
         flash("文章已发布" if published else "草稿已保存")
         # 普通用户发布后回到「我的文章」，管理员回仪表盘
         user = db.session.get(User, session.get("user_id"))
         return redirect(url_for("admin.my_posts") if user and not user.is_admin_role
                         else url_for("admin.dashboard"))
     cats = Category.query.order_by(Category.id).all()
-    return render_template("admin/edit_post.html", post=None, cats=cats)
+    series = Series.query.order_by(Series.sort).all()
+    return render_template("admin/edit_post.html", post=None, cats=cats, series=series)
 
 
 @admin_bp.route("/my-posts")
@@ -221,6 +236,7 @@ def edit_post(post_id):
         flash("只能编辑自己发表的文章")
         return redirect(url_for("admin.my_posts"))
     if request.method == "POST":
+        was_published = post.published
         title = (request.form.get("title") or "").strip()
         if not title:
             flash("标题不能为空")
@@ -233,16 +249,28 @@ def edit_post(post_id):
         post.cover = (request.form.get("cover") or "").strip()
         cid = request.form.get("category_id") or None
         post.category_id = int(cid) if cid else None
+        sid = request.form.get("series_id") or None
+        post.series_id = int(sid) if sid else None
         post.published = request.form.get("published") == "on"
         _sync_tags(post, request.form.get("tags", ""))
         db.session.commit()
+        try:
+            fts.sync_post(post)
+        except Exception:
+            pass
+        if post.published and not was_published:
+            try:
+                notify.notify_new_post(post, current_app.config.get("SITE_URL", ""))
+            except Exception:
+                pass
         flash("已保存修改")
         user = db.session.get(User, session.get("user_id"))
         return redirect(url_for("admin.my_posts") if user and not user.is_admin_role
                         else url_for("admin.dashboard"))
     cats = Category.query.order_by(Category.id).all()
+    series = Series.query.order_by(Series.sort).all()
     tag_names = ", ".join(t.name for t in post.tags)
-    return render_template("admin/edit_post.html", post=post, cats=cats, tag_names=tag_names)
+    return render_template("admin/edit_post.html", post=post, cats=cats, series=series, tag_names=tag_names)
 
 
 @admin_bp.route("/post/<int:post_id>/delete", methods=["POST"])
@@ -253,6 +281,10 @@ def delete_post(post_id):
     if not _can_edit_post(user, post):
         flash("只能删除自己发表的文章")
         return redirect(url_for("admin.my_posts"))
+    try:
+        fts.delete_post(post.id)
+    except Exception:
+        pass
     db.session.delete(post)
     db.session.commit()
     flash("文章已删除")
@@ -597,3 +629,98 @@ def delete_user(uid):
     db.session.commit()
     flash(f"已删除用户 {target.username}")
     return redirect(url_for("admin.users"))
+
+
+# ---------- 文章系列 / 专栏管理（B4）----------
+@admin_bp.route("/series", methods=["GET", "POST"])
+@admin_required
+def manage_series():
+    if request.method == "POST":
+        name = (request.form.get("name") or "").strip()
+        if name:
+            db.session.add(Series(
+                name=name, slug=make_slug(name),
+                description=(request.form.get("description") or "").strip(),
+                cover=(request.form.get("cover") or "").strip(),
+                sort=request.form.get("sort", 0, type=int),
+            ))
+            db.session.commit()
+            flash("系列已添加")
+        return redirect(url_for("admin.manage_series"))
+    series = Series.query.order_by(Series.sort, Series.created_at.desc()).all()
+    return render_template("admin/series.html", series=series)
+
+
+@admin_bp.route("/series/<int:sid>/delete", methods=["POST"])
+@admin_required
+def delete_series(sid):
+    s = Series.query.get_or_404(sid)
+    db.session.delete(s)
+    db.session.commit()
+    flash("系列已删除")
+    return redirect(url_for("admin.manage_series"))
+
+
+# ---------- 站点公告管理（D4）----------
+@admin_bp.route("/announcements", methods=["GET", "POST"])
+@admin_required
+def manage_announcements():
+    if request.method == "POST":
+        content = (request.form.get("content") or "").strip()
+        if content:
+            db.session.add(Announcement(
+                content=content,
+                level=(request.form.get("level") or "info"),
+                active=request.form.get("active", "on") == "on",
+                dismissible=request.form.get("dismissible", "on") == "on",
+            ))
+            db.session.commit()
+            flash("公告已添加")
+        return redirect(url_for("admin.manage_announcements"))
+    items = Announcement.query.order_by(Announcement.created_at.desc()).all()
+    return render_template("admin/announcements.html", items=items)
+
+
+@admin_bp.route("/announcement/<int:aid>/toggle", methods=["POST"])
+@admin_required
+def toggle_announcement(aid):
+    a = Announcement.query.get_or_404(aid)
+    a.active = not a.active
+    db.session.commit()
+    return redirect(url_for("admin.manage_announcements"))
+
+
+@admin_bp.route("/announcement/<int:aid>/delete", methods=["POST"])
+@admin_required
+def delete_announcement(aid):
+    a = Announcement.query.get_or_404(aid)
+    db.session.delete(a)
+    db.session.commit()
+    flash("公告已删除")
+    return redirect(url_for("admin.manage_announcements"))
+
+
+# ---------- 留言墙管理（C1）----------
+@admin_bp.route("/guestbook", methods=["GET"])
+@admin_required
+def manage_guestbook():
+    rows = Guestbook.query.order_by(Guestbook.created_at.desc()).all()
+    return render_template("admin/guestbook.html", rows=rows)
+
+
+@admin_bp.route("/guestbook/<int:gid>/delete", methods=["POST"])
+@admin_required
+def delete_guestbook(gid):
+    g = Guestbook.query.get_or_404(gid)
+    db.session.delete(g)
+    db.session.commit()
+    flash("留言已删除")
+    return redirect(url_for("admin.manage_guestbook"))
+
+
+# ---------- 邮件订阅者管理（C3）----------
+@admin_bp.route("/subscribers", methods=["GET"])
+@admin_required
+def manage_subscribers():
+    rows = Subscriber.query.order_by(Subscriber.created_at.desc()).all()
+    return render_template("admin/subscribers.html", rows=rows)

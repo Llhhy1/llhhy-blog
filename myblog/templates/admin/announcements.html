@@ -1,0 +1,40 @@
+{% extends "admin/base.html" %}
+{% block title %}公告管理{% endblock %}
+{% block content %}
+  <h1 class="page-title">站点公告管理</h1>
+  <form method="post" action="{{ url_for('admin.manage_announcements') }}" class="link-form" style="flex-direction:column;align-items:stretch;">
+    <textarea name="content" rows="3" placeholder="公告内容（支持 Markdown）" required></textarea>
+    <div class="ann-form-row">
+      <select name="level">
+        <option value="info">普通（蓝）</option>
+        <option value="success">成功（绿）</option>
+        <option value="warning">警告（黄）</option>
+      </select>
+      <label class="checkbox"><input type="checkbox" name="active" checked> 启用</label>
+      <label class="checkbox"><input type="checkbox" name="dismissible" checked> 访客可关闭</label>
+      <button type="submit" class="btn">发布公告</button>
+    </div>
+  </form>
+  <table class="admin-table">
+    <thead><tr><th>内容</th><th>级别</th><th>状态</th><th>操作</th></tr></thead>
+    <tbody>
+      {% for a in items %}
+        <tr>
+          <td>{{ a.content[:60] }}{% if a.content|length > 60 %}…{% endif %}</td>
+          <td>{{ a.level }}</td>
+          <td>{{ '启用' if a.active else '停用' }}</td>
+          <td>
+            <form method="post" action="{{ url_for('admin.toggle_announcement', aid=a.id) }}" class="inline-form">
+              <button type="submit" class="btn-sm">{{ '停用' if a.active else '启用' }}</button>
+            </form>
+            <form method="post" action="{{ url_for('admin.delete_announcement', aid=a.id) }}" class="inline-form" onsubmit="return confirm('确定删除？');">
+              <button type="submit" class="link-danger">删除</button>
+            </form>
+          </td>
+        </tr>
+      {% else %}
+        <tr><td colspan="4">暂无公告。</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+{% endblock %}

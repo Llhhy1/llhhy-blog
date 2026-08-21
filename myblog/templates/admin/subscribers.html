@@ -1,0 +1,20 @@
+{% extends "admin/base.html" %}
+{% block title %}订阅者管理{% endblock %}
+{% block content %}
+  <h1 class="page-title">邮件订阅者（{{ rows|length }}）</h1>
+  <table class="admin-table">
+    <thead><tr><th>#</th><th>邮箱</th><th>订阅时间</th></tr></thead>
+    <tbody>
+      {% for s in rows %}
+        <tr>
+          <td>{{ loop.index }}</td>
+          <td>{{ s.email }}</td>
+          <td>{{ s.created_at.strftime('%Y-%m-%d %H:%M') if s.created_at else '' }}</td>
+        </tr>
+      {% else %}
+        <tr><td colspan="3">暂无订阅者。</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  <p class="hint">提示：新文章发布时的邮件通知由服务器环境决定（需配置 SMTP / 推送服务），当前通过环境变量开关控制，密钥不入库、开源安全。</p>
+{% endblock %}

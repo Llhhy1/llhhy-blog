@@ -1,21 +1,47 @@
 <template>
   <section class="comments" id="comments">
-    <h2>评论 ({{ comments.length }})</h2>
-    <div v-if="!comments.length" class="comment-empty">还没有评论，来沙发？</div>
-    <div v-for="c in comments" :key="c.id" class="comment">
-      <p class="comment-meta">{{ c.author }} · {{ (c.created_at || "").slice(0, 16) }}</p>
-      <p class="comment-meta" v-if="c.region || c.device">
-        <span v-if="c.region">📍 {{ c.region }}</span>
-        <span v-if="c.device">{{ c.region ? " · " : "" }}{{ c.device }}</span>
-      </p>
-      <p class="comment-content">{{ c.content }}</p>
+    <h2>评论 ({{ allCount }})</h2>
+    <div v-if="!topComments.length" class="comment-empty">还没有评论，来沙发？</div>
+
+    <!-- 顶层评论 + 其下回复 -->
+    <div v-for="c in topComments" :key="c.id" class="comment-thread">
+      <div class="comment">
+        <p class="comment-meta">{{ c.author }} · {{ (c.created_at || "").slice(0, 16) }}</p>
+        <p class="comment-meta" v-if="c.region || c.device">
+          <span v-if="c.region">📍 {{ c.region }}</span>
+          <span v-if="c.device">{{ c.region ? " · " : "" }}{{ c.device }}</span>
+        </p>
+        <p class="comment-content">{{ c.content }}</p>
+        <button class="comment-reply-btn" type="button" @click="startReply(c)">回复</button>
+      </div>
+
+      <div v-if="repliesOf(c.id).length" class="comment-replies">
+        <div v-for="r in repliesOf(c.id)" :key="r.id" class="comment reply">
+          <p class="comment-meta">
+            {{ r.author }}
+            <span v-if="r.reply_to" class="reply-to">回复 @{{ r.reply_to }}</span>
+            · {{ (r.created_at || "").slice(0, 16) }}
+          </p>
+          <p class="comment-meta" v-if="r.region || r.device">
+            <span v-if="r.region">📍 {{ r.region }}</span>
+            <span v-if="r.device">{{ r.region ? " · " : "" }}{{ r.device }}</span>
+          </p>
+          <p class="comment-content">{{ r.content }}</p>
+          <button class="comment-reply-btn" type="button" @click="startReply(r)">回复</button>
+        </div>
+      </div>
     </div>
 
+    <!-- 发表 / 回复表单 -->
     <form class="comment-form" autocomplete="off" @submit.prevent="submit">
+      <p v-if="replyingTo" class="replying-tip">
+        回复 @{{ replyingTo.author }}
+        <button type="button" class="reply-cancel" @click="cancelReply">取消</button>
+      </p>
       <input v-if="!state.user" type="text" v-model="author" placeholder="昵称（必填，2-20 字）" maxlength="20" required />
       <textarea v-model="content" placeholder="说点什么…（必填，2-500 字）" maxlength="500" required></textarea>
       <div>
-        <button type="submit">提交评论</button>
+        <button type="submit">提交{{ replyingTo ? "回复" : "评论" }}</button>
         <span class="comment-status" :class="statusClass" style="margin-left: 10px;">{{ status }}</span>
       </div>
     </form>
@@ -23,7 +49,7 @@
 </template>
 
 <script setup>
-import { ref } from "vue";
+import { ref, computed } from "vue";
 import { apiPost } from "../lib/api.js";
 import { state } from "../store.js";
 
@@ -32,6 +58,22 @@ const author = ref("");
 const content = ref("");
 const status = ref("");
 const statusClass = ref("");
+const replyingTo = ref(null);
+
+const topComments = computed(() => (props.comments || []).filter((c) => !c.parent_id));
+function repliesOf(id) {
+  return (props.comments || []).filter((c) => c.parent_id === id);
+}
+const allCount = computed(() => (props.comments || []).length);
+
+function startReply(c) {
+  replyingTo.value = { id: c.id, author: c.author };
+  content.value = "";
+}
+function cancelReply() {
+  replyingTo.value = null;
+  content.value = "";
+}
 
 async function submit() {
   if (!content.value.trim()) { status.value = "评论内容不能为空"; statusClass.value = "error"; return; }
@@ -39,6 +81,10 @@ async function submit() {
   const body = { content: content.value.trim() };
   // 已登录（含超级管理员/管理员/普通用户）：昵称由后端从会话取，不需要前端传
   if (!state.user) body.author = author.value.trim();
+  if (replyingTo.value) {
+    body.parent_id = replyingTo.value.id;
+    body.reply_to = replyingTo.value.author;
+  }
   status.value = "提交中…";
   statusClass.value = "";
   try {
@@ -46,6 +92,7 @@ async function submit() {
     status.value = "评论成功！";
     statusClass.value = "success";
     content.value = "";
+    replyingTo.value = null;
     setTimeout(() => window.location.reload(), 600);
   } catch (e) {
     status.value = e.message || "网络错误";

@@ -17,6 +17,14 @@
       {% endfor %}
     </select>
 
+    <label>所属系列 / 专栏（可选）</label>
+    <select name="series_id">
+      <option value="">— 无 —</option>
+      {% for s in series %}
+        <option value="{{ s.id }}" {% if post and post.series_id == s.id %}selected{% endif %}>{{ s.name }}</option>
+      {% endfor %}
+    </select>
+
     <label>标签（逗号分隔，如：生活, 技术）</label>
     <input type="text" name="tags" value="{{ tag_names if tag_names else '' }}">
 

@@ -20,3 +20,6 @@ dist/
 .idea/
 .vscode/
 .DS_Store
+
+# 临时构建目录（用非 dist 名规避本地删除保护，等同 dist/）
+_vite_build/

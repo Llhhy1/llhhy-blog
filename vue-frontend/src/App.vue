@@ -10,6 +10,8 @@
         <router-link to="/about">关于</router-link>
         <router-link to="/links">友链</router-link>
         <router-link to="/square">广场</router-link>
+        <router-link to="/series">系列</router-link>
+        <router-link to="/guestbook">留言墙</router-link>
         <template v-if="state.user">
           <span class="nav-user">
             👤 {{ state.user.username }}
@@ -26,6 +28,14 @@
       </nav>
     </div>
   </header>
+
+  <!-- 站点公告（后台可配置，可关闭） -->
+  <div v-if="announcements.length" class="ann-wrap">
+    <div v-for="a in announcements" :key="a.id" class="ann-bar" :class="'ann-' + a.level">
+      <span v-html="a.content"></span>
+      <button v-if="a.dismissible" class="ann-close" type="button" aria-label="关闭" @click="dismissAnn(a.id)">✕</button>
+    </div>
+  </div>
 
   <!-- 浏览器便签：后台可编辑，点 × 关闭（本次会话不再显示） -->
   <div v-if="state.site.site_note && !noteClosed" class="site-note">
@@ -55,10 +65,15 @@
 import { onMounted, ref } from "vue";
 import { useRouter } from "vue-router";
 import { state, initSite, logout } from "./store.js";
-import { apiPost } from "./lib/api.js";
+import { apiPost, apiGet } from "./lib/api.js";
 const themeIcon = ref("🌙");
 const noteClosed = ref(false);
+const announcements = ref([]);
 const router = useRouter();
+
+function dismissAnn(id) {
+  announcements.value = announcements.value.filter((a) => a.id !== id);
+}
 
 // 访问埋点：每次路由切换上报一次（后台页面跳过）
 function trackVisit(to) {
@@ -102,6 +117,10 @@ function onScroll() {
 onMounted(async () => {
   await initSite();
   applyTheme(currentTheme());
+  try {
+    const an = await apiGet("/api/announcements");
+    announcements.value = an.items || [];
+  } catch (e) {}
   window.addEventListener("scroll", onScroll, { passive: true });
   window.addEventListener("resize", onScroll);
   onScroll();

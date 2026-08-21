@@ -39,6 +39,17 @@
     </div>
 
     <div class="widget">
+      <h3>🔥 热门文章</h3>
+      <ul class="list-clean">
+        <li v-for="p in hotPosts" :key="p.slug">
+          <router-link :to="`/post/${p.slug}`">{{ p.title }}</router-link>
+          <span style="font-size: 11px; color: #aaa; margin-left: 6px;">{{ p.reads }} 读</span>
+        </li>
+        <li v-if="!hotPosts.length">暂无数据</li>
+      </ul>
+    </div>
+
+    <div class="widget">
       <h3>站点统计</h3>
       <p style="font-size: 13px; color: #666;">文章 {{ totalPosts }} 篇 · 评论 {{ totalComments }} 条</p>
     </div>
@@ -68,6 +79,7 @@ const links = ref([]);
 const recent = ref([]);
 const totalPosts = ref(0);
 const totalComments = ref(0);
+const hotPosts = ref([]);
 
 function doSearch() {
   if (q.value.trim()) router.push({ path: "/search", query: { q: q.value.trim() } });
@@ -90,6 +102,10 @@ onMounted(async () => {
   try {
     const st = await apiGet("/api/site");
     totalComments.value = st.total_comments || 0;
+  } catch (e) {}
+  try {
+    const sum = await apiGet("/api/stats/summary");
+    hotPosts.value = (sum.hot_posts || []).slice(0, 5);
   } catch (e) {}
 });
 </script>

@@ -15,8 +15,14 @@ class Config:
     # 生成：python -c "import secrets;print(secrets.token_hex(32))"
     SECRET_KEY = os.environ.get("SECRET_KEY")
 
-    # SQLite 数据库文件路径
-    SQLALCHEMY_DATABASE_URI = "sqlite:///" + os.path.join(DATA_DIR, "blog.db")
+    # SQLite 数据库文件路径。
+    # 可通过环境变量 DATABASE_URL 覆盖（例如切换到 Postgres/MySQL，或本地隔离测试）：
+    #   export DATABASE_URL="sqlite:///path/to/other.db"
+    #   export DATABASE_URL="postgresql+psycopg://user:pass@host:5432/blog"
+    # 注意：使用非 SQLite 数据库时，FTS5 全文搜索会自动降级为 LIKE 模糊匹配。
+    SQLALCHEMY_DATABASE_URI = os.environ.get("DATABASE_URL") or (
+        "sqlite:///" + os.path.join(DATA_DIR, "blog.db")
+    )
     SQLALCHEMY_TRACK_MODIFICATIONS = False
 
     # 后台管理员初始密码：必须来自环境变量，缺失则拒绝启动。
@@ -55,6 +61,19 @@ class Config:
 
     # 是否开放公开注册（普通用户可自助注册）。设为 false 则关闭注册入口。
     BLOG_OPEN_REGISTER = os.environ.get("BLOG_OPEN_REGISTER", "true").lower() != "false"
+
+    # ===== Webhook 自动部署（D3 · 运维）=====
+    # 仅当设置了 WH_DEPLOY_SECRET 时，/api/webhook/deploy 才接受部署触发。
+    # 调用方需在 Header 带 X-Deploy-Token 或在 URL 带 ?token=，与本地配置的值做
+    # 恒定时间比较（hmac.compare_digest），避免时序侧信道。未配置则接口返回 403。
+    WH_DEPLOY_SECRET = os.environ.get("WH_DEPLOY_SECRET")
+
+    # ===== 新文章推送通知（D2 · 运营分发）=====
+    # 以下均为可选；不配置则对应渠道自动跳过，且所有异常静默处理，不影响发文章主流程。
+    # notify.py 会直接读取同名环境变量，这里在 Config 中集中声明便于部署时一处查看。
+    TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
+    TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
+    WECOM_WEBHOOK_URL = os.environ.get("WECOM_WEBHOOK_URL")
 
 
 # 确保上传目录存在（图片保存在 static/uploads，随项目一起）

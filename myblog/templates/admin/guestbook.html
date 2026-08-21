@@ -1,0 +1,24 @@
+{% extends "admin/base.html" %}
+{% block title %}留言墙管理{% endblock %}
+{% block content %}
+  <h1 class="page-title">留言墙管理</h1>
+  <table class="admin-table">
+    <thead><tr><th>昵称</th><th>内容</th><th>时间</th><th>操作</th></tr></thead>
+    <tbody>
+      {% for g in rows %}
+        <tr>
+          <td>{{ g.author }}</td>
+          <td>{{ g.content[:80] }}{% if g.content|length > 80 %}…{% endif %}</td>
+          <td>{{ g.created_at.strftime('%Y-%m-%d %H:%M') if g.created_at else '' }}</td>
+          <td>
+            <form method="post" action="{{ url_for('admin.delete_guestbook', gid=g.id) }}" class="inline-form" onsubmit="return confirm('确定删除该留言？');">
+              <button type="submit" class="link-danger">删除</button>
+            </form>
+          </td>
+        </tr>
+      {% else %}
+        <tr><td colspan="4">暂无留言。</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+{% endblock %}

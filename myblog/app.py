@@ -10,7 +10,8 @@ from flask import Flask, render_template, request, session, jsonify
 from werkzeug.security import generate_password_hash
 
 from models import (db, Post, Category, Tag, Comment, FriendLink, Setting, User,
-                   ROLE_SUPER, Moment, MomentComment, SocialAccount)
+                   ROLE_SUPER, Moment, MomentComment, SocialAccount,
+                   Series, Announcement, Guestbook, Subscriber)
 from utils import make_slug
 from routes import main_bp
 from admin import admin_bp
@@ -61,33 +62,43 @@ def _migrate_user_table():
 
 
 def _migrate_post_table():
-    """旧库的 post 表可能缺少 author_id 列（普通用户发表文章需要），轻量加列。"""
+    """旧库的 post 表可能缺少 author_id / series_id 列，轻量加列。"""
     from sqlalchemy import inspect
     ins = inspect(db.engine)
     if "post" in ins.get_table_names():
         cols = [c["name"] for c in ins.get_columns("post")]
-        if "author_id" not in cols:
-            db.session.remove()
-            db.engine.dispose()
-            with db.engine.begin() as conn:
-                conn.execute(db.text("ALTER TABLE post ADD COLUMN author_id INTEGER"))
-            print("已迁移 post 表：新增 author_id 列")
-
-
-def _migrate_comment_table():
-    """旧库的 comment 表补 ip / region / device 列（评论显示归属地与设备）。"""
-    from sqlalchemy import inspect
-    ins = inspect(db.engine)
-    if "comment" in ins.get_table_names():
-        cols = [c["name"] for c in ins.get_columns("comment")]
-        need = [c for c in ("ip", "region", "device") if c not in cols]
+        specs = {"author_id": "INTEGER", "series_id": "INTEGER"}
+        need = [c for c in specs if c not in cols]
         if need:
             db.session.remove()
             db.engine.dispose()
             with db.engine.begin() as conn:
                 for c in need:
-                    t = "VARCHAR(64)" if c != "device" else "VARCHAR(120)"
-                    conn.execute(db.text(f"ALTER TABLE comment ADD COLUMN {c} {t} DEFAULT ''"))
+                    conn.execute(db.text(f"ALTER TABLE post ADD COLUMN {c} {specs[c]}"))
+            print(f"已迁移 post 表：新增 {', '.join(need)} 列")
+
+
+def _migrate_comment_table():
+    """旧库的 comment 表补 ip / region / device / parent_id / reply_to / likes 列。"""
+    from sqlalchemy import inspect
+    ins = inspect(db.engine)
+    if "comment" in ins.get_table_names():
+        cols = [c["name"] for c in ins.get_columns("comment")]
+        specs = {
+            "ip": "VARCHAR(64) DEFAULT ''",
+            "region": "VARCHAR(64) DEFAULT ''",
+            "device": "VARCHAR(120) DEFAULT ''",
+            "parent_id": "INTEGER",
+            "reply_to": "VARCHAR(80) DEFAULT ''",
+            "likes": "INTEGER DEFAULT 0",
+        }
+        need = [c for c in specs if c not in cols]
+        if need:
+            db.session.remove()
+            db.engine.dispose()
+            with db.engine.begin() as conn:
+                for c in need:
+                    conn.execute(db.text(f"ALTER TABLE comment ADD COLUMN {c} {specs[c]}"))
             print(f"已迁移 comment 表：新增 {', '.join(need)} 列")
 
 
@@ -209,6 +220,11 @@ def create_app():
         _migrate_post_table()
         _migrate_comment_table()
         _migrate_friendlink_table()
+        try:
+            import fts
+            fts.ensure()
+        except Exception as e:
+            print("FTS 初始化跳过:", e)
         _ensure_settings(app)
         _ensure_super_admin(app)
 

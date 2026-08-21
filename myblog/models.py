@@ -27,6 +27,10 @@ class Post(db.Model):
     likes = db.Column(db.Integer, default=0)                       # 点赞数
     comments = db.relationship("Comment", backref="post", cascade="all, delete-orphan", lazy="dynamic")
     tags = db.relationship("Tag", secondary="post_tag", backref="posts")
+    series_id = db.Column(db.Integer, db.ForeignKey("series.id"), nullable=True)  # 所属专栏/系列
+    series = db.relationship("Series", backref=db.backref("posts", lazy="dynamic"),
+                             foreign_keys=[series_id],
+                             primaryjoin="Series.id == Post.series_id")
 
 
 class Category(db.Model):
@@ -61,6 +65,9 @@ class Comment(db.Model):
     ip = db.Column(db.String(64), default="")       # 评论者 IP（用于回填归属地）
     region = db.Column(db.String(64), default="")   # 归属地（如 广东·广州），异步解析回填
     device = db.Column(db.String(120), default="")  # 设备信息（如 手机 · Android · Chrome）
+    parent_id = db.Column(db.Integer, db.ForeignKey("comment.id"), nullable=True)  # 回复的父评论 id（嵌套回复）
+    reply_to = db.Column(db.String(80), default="")  # 被回复者昵称（前端 @ 显示用）
+    likes = db.Column(db.Integer, default=0)         # 评论点赞数
 
 
 class FriendLink(db.Model):
@@ -189,3 +196,45 @@ class SocialAccount(db.Model):
     handle = db.Column(db.String(120), default="")         # 展示名 / @账号
     url = db.Column(db.String(300), nullable=False)
     sort = db.Column(db.Integer, default=0)                # 排序，越小越靠前
+
+
+class Series(db.Model):
+    """文章系列 / 专栏：多篇成系列，带上下篇导航。"""
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(100), nullable=False)
+    slug = db.Column(db.String(110), unique=True, nullable=False)
+    description = db.Column(db.String(400))
+    cover = db.Column(db.String(500))
+    sort = db.Column(db.Integer, default=0)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+
+class Announcement(db.Model):
+    """站点公告 / 置顶动态（首页顶部公告条）。"""
+    id = db.Column(db.Integer, primary_key=True)
+    content = db.Column(db.Text, nullable=False)          # 公告内容（Markdown，渲染时清洗）
+    level = db.Column(db.String(20), default="info")      # info / warning / success
+    active = db.Column(db.Boolean, default=True)          # 是否启用
+    dismissible = db.Column(db.Boolean, default=True)     # 访客能否关闭
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+
+class Guestbook(db.Model):
+    """留言墙：独立于文章评论的短留言。"""
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=True)
+    author = db.Column(db.String(80), nullable=False)
+    content = db.Column(db.Text, nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    likes = db.Column(db.Integer, default=0)
+    ip = db.Column(db.String(64), default="")
+    region = db.Column(db.String(64), default="")
+    device = db.Column(db.String(120), default="")
+
+
+class Subscriber(db.Model):
+    """邮件订阅者（Newsletter）。"""
+    id = db.Column(db.Integer, primary_key=True)
+    email = db.Column(db.String(160), unique=True, nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    active = db.Column(db.Boolean, default=True)

@@ -63,7 +63,7 @@
         </div>
         <a class="side-logout" href="{{ url_for('admin.logout') }}" title="退出登录">⏻</a>
       </div>
-      <a class="side-version" href="https://github.com/Llhhy1/llhhy-blog/releases" target="_blank" rel="noopener" title="当前安装版本（点击查看最新版本）">
+      <a class="side-version" href="#" onclick="manualCheck();return false;" title="点击检查是否有新版本（后台直接判断，不跳转外部）">
         v{{ app_version }} <span class="version-link">检查更新</span>
       </a>
     </aside>
@@ -80,8 +80,8 @@
 
   <button id="back-to-top" title="回到顶部" aria-label="回到顶部">↑</button>
   <script src="{{ url_for('static', filename='script.js') }}"></script>
-  {% if current_user and current_user.is_super %}
-  <!-- 后台在线更新（v2.5.0）：检测新版本 → 确认 → 静默更新 → 完成提醒 -->
+  {% if current_user and current_user.is_admin_role %}
+  <!-- 后台在线更新（v2.5.1）：检测新版本 → 确认 → 静默更新 → 完成提醒 -->
   <div id="update-banner" style="display:none;position:fixed;left:0;right:0;bottom:0;z-index:9999;background:linear-gradient(90deg,#1a73e8,#5b8def);color:#fff;padding:12px 20px;font-size:14px;box-shadow:0 -4px 20px rgba(0,0,0,.15);">
     <span id="update-msg"></span>
     <span style="float:right;">
@@ -104,17 +104,24 @@
       banner.style.display = 'block';
     }
     function hide() { banner.style.display = 'none'; }
-    function checkVersion() {
+    function checkVersion(manual) {
       fetch('/api/version/check', { headers: { Accept: 'application/json' } })
         .then(function (r) { return r.json(); })
         .then(function (d) {
           if (d.update_available) {
             show('发现新版本 ' + d.latest + '（当前 ' + d.current + '），是否立即在线更新？（将自动备份数据库并重启）', true);
+          } else if (manual) {
+            show('✅ 当前已是最新版本 ' + (d.current || '') + '，无需更新', false);
+            setTimeout(hide, 2500);
           } else if (d.latest && polling === false) {
             hide();
           }
-        }).catch(function () {});
+        }).catch(function () {
+          if (manual) { show('⚠️ 检查失败：无法连接 GitHub，请稍后再试', false); setTimeout(hide, 2500); }
+        });
     }
+    // 点击「检查更新」：后台直接判断，不再跳转 GitHub
+    window.manualCheck = function () { checkVersion(true); };
     yes.addEventListener('click', function () {
       yes.disabled = true;
       show('正在触发更新，请稍候…', false);

@@ -766,10 +766,21 @@ def version_check():
         except Exception:
             latest = _VER_CHECK_CACHE.get("latest", "")  # 网络失败回退缓存
     current = _VER or ""
+    # 规范化版本号：去 v/V 前缀，拆成 tuple 数字比较（修复字符串比较 'v2.5.0' > '2.5.0' 恒 True 的 bug）
+    def _v_tuple(s):
+        s = (s or "").strip()
+        if s and s[0] in "vV":
+            s = s[1:]
+        try:
+            return tuple(int(x) for x in s.split(".") if x.isdigit())
+        except (ValueError, TypeError):
+            return None
+    c_t, l_t = _v_tuple(current), _v_tuple(latest)
+    update_available = bool(c_t and l_t and l_t > c_t)
     return jsonify({
         "current": current,
         "latest": latest,
-        "update_available": bool(latest and current and latest != current and latest > current),
+        "update_available": update_available,
         "check_ok": True,
     })
 

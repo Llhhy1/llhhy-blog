@@ -71,8 +71,9 @@ npm run dev              # 访问 http://localhost:5173
 - **后端**：gunicorn 运行 `myblog`，监听 8686；Nginx 反代 `/api/`、`/admin`、`/static/`；
 - **前端**：`vue-frontend` 执行 `npm run build`，把 `dist/` 作为静态站根目录；
 - **必配环境变量**：`SECRET_KEY`、`ADMIN_PASSWORD`（宝塔「Python 项目 → 设置 → 环境变量」）。
-- **版本确认**：登录后台，左下角显示当前版本（如 v2.2.0），与 [Releases](../../releases) 最新标签比对即可确认部署是否成功。
-- **升级**：备份 `data/` 与 `static/uploads/` → 覆盖后端/前端 → 「停止」再「启动」项目 → 验证版本号。详见部署文档「版本升级」章节。
+- **版本确认**：登录后台，左下角显示当前版本（如 v2.4.0），与 [Releases](../../releases) 最新标签比对即可确认部署是否成功。
+- **升级（简单方式）**：用仓库根目录 `update.sh` 一键脚本（上传后 `bash update.sh`，自动下载最新包 + 备份数据 + 覆盖代码），详见部署文档「一键更新脚本」章节。
+- **升级（手动方式）**：备份 `data/` 与 `static/uploads/` → 覆盖后端/前端 → 「停止」再「启动」项目 → 验证版本号。详见部署文档「版本升级」章节。
 
 ## 安全说明
 

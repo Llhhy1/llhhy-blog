@@ -191,6 +191,23 @@
 
 ---
 
+## 一键更新脚本（最简单 · 推荐）
+
+> 如果觉得手动传 zip 麻烦，用仓库根目录的 **`update.sh`**：一条命令自动完成「下载最新 Release → 备份数据 → 覆盖代码」，只剩最后一步去宝塔重启。
+
+**首次配置（只需一次，约 2 分钟）：**
+
+1. 在仓库下载 `update.sh`（或从 [GitHub 仓库根目录](https://github.com/Llhhy1/llhhy-blog) 直接下载 raw 文件）。
+2. 宝塔「文件」→ 上传到 `/www/wwwroot/myblog/update.sh`。
+3. 宝塔「终端」执行一行：
+   ```bash
+   bash /www/wwwroot/myblog/update.sh
+   ```
+4. 脚本跑完会提示「去宝塔点停止→启动」。以后每次更新都重复第 3 步即可（也可以配置宝塔「计划任务」定时自动跑，比如每周一次）。
+
+> **脚本做了什么**：查最新版本号 → 下载后端/前端 zip → 备份 `data/blog.db` 和 `static/uploads/` 到 `data/backup/` → 覆盖代码（跳过 `data/`，数据库永远保留）→ 提示重启。
+> 若服务器装了 supervisor，可在脚本顶部填 `RESTART_CMD="supervisorctl restart myblog"` 实现全自动，连重启都不用点。
+
 ## 版本升级（老版本 → 新版本）
 
 > 适用：服务器已部署过旧版本（如 v1.0.0），要升级到最新 Release。**只需覆盖代码 + 重启，不要删目录。**

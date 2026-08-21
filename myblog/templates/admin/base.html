@@ -83,14 +83,38 @@
 
   <button id="back-to-top" title="回到顶部" aria-label="回到顶部">↑</button>
   <script>
-  // v2.6.2 mobile 抽屉式侧栏（iOS 风格：毛玻璃遮罩 + 主区轻微缩放 + body 锁滚）
+  // v2.6.5 mobile 抽屉式侧栏（兼容微信 X5：用 position:fixed 锁滚，关闭时恢复滚动位置）
   (function () {
     var btn = document.getElementById('admin-menu-btn');
     var sidebar = document.querySelector('.admin-sidebar');
     var mask = document.getElementById('admin-drawer-mask');
     if (!btn || !sidebar || !mask) return;
-    function open() { sidebar.classList.add('drawer-open'); mask.classList.add('show'); document.body.classList.add('drawer-open'); }
-    function close() { sidebar.classList.remove('drawer-open'); mask.classList.remove('show'); document.body.classList.remove('drawer-open'); }
+    var savedScroll = 0;
+    function open() {
+      savedScroll = window.pageYOffset || document.documentElement.scrollTop;
+      sidebar.classList.add('drawer-open');
+      mask.classList.add('show');
+      // 兼容微信：fixed + top 负值（覆盖普通 overflow:hidden 在 X5/TBS 不生效）
+      document.body.classList.add('drawer-open');
+      document.body.style.position = 'fixed';
+      document.body.style.top = '-' + savedScroll + 'px';
+      document.body.style.left = '0';
+      document.body.style.right = '0';
+      document.body.style.width = '100%';
+      document.body.style.overflow = 'hidden';
+    }
+    function close() {
+      sidebar.classList.remove('drawer-open');
+      mask.classList.remove('show');
+      document.body.classList.remove('drawer-open');
+      document.body.style.position = '';
+      document.body.style.top = '';
+      document.body.style.left = '';
+      document.body.style.right = '';
+      document.body.style.width = '';
+      document.body.style.overflow = '';
+      window.scrollTo(0, savedScroll);
+    }
     btn.addEventListener('click', open);
     mask.addEventListener('click', close);
     sidebar.querySelectorAll('a').forEach(function (a) { a.addEventListener('click', close); });

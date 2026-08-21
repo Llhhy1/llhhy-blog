@@ -248,10 +248,31 @@
 @media (max-width: 820px) {
   .admin-shell { flex-direction: column; }
   .admin-sidebar { width: 100%; height: auto; position: static; border-right: none; border-bottom: 1px solid #ececec; }
-  .side-nav { display: flex; flex-wrap: wrap; gap: 4px; padding: 8px; }
-  .side-nav a { margin-bottom: 0; padding: 8px 10px; }
-  .side-footer { display: none; }
+  /* 侧栏菜单：2 列整齐网格，文字 nowrap + ellipsis 防被切字 */
+  .side-nav { display: grid; grid-template-columns: repeat(2, 1fr); gap: 6px; padding: 10px; }
+  .side-nav a { margin-bottom: 0; padding: 10px 12px; font-size: 14px; min-width: 0;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .side-group { grid-column: 1 / -1; margin: 6px 0 2px; padding: 0; font-size: 12px; }
+  .side-user-card { display: flex; padding: 10px 12px; }
+  .side-version { padding: 8px 12px; font-size: 12px; }
+  .side-logo { padding: 10px 12px; font-size: 15px; }
   .admin-main { padding: 18px 16px 50px; }
+  /* hero 欢迎卡在 mobile 缩小 + 按钮纵向堆叠（防"写新文章"等被切） */
+  .hero-card { padding: 22px 20px; }
+  .hero-card h2 { font-size: 18px; }
+  .hero-card p { font-size: 13px; }
+  .hero-actions { flex-direction: column; gap: 10px; }
+  .hero-actions .btn { width: 100%; text-align: center; padding: 12px; }
+}
+
+@media (max-width: 480px) {
+  /* 极窄屏：侧栏单列更舒适；通知卡也单列 */
+  .side-nav { grid-template-columns: 1fr; }
+  .notify-cards { grid-template-columns: 1fr; }
+  .notify-card { padding: 14px 16px; }
+  .notify-num { font-size: 24px; }
+  .dash-card { padding: 16px; }
+  .admin-main { padding: 14px 12px 40px; }
 }
 
 /* ============================================================

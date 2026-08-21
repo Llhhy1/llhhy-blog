@@ -159,6 +159,21 @@ button:hover, .btn:hover { background: color-mix(in srgb, var(--accent), #000 15
 @media (max-width: 820px) {
   .layout { flex-direction: column; }
   .sidebar { width: 100%; }
+  /* 顶部 nav 在 mobile 允许换行 + 缩间距，防 8 个链接挤一行被切 */
+  .header-inner { height: auto; flex-wrap: wrap; padding: 8px 0; gap: 6px 12px; }
+  .site-header nav { flex-wrap: wrap; gap: 4px 14px; width: 100%; }
+  .site-header nav a { margin-left: 0; font-size: 14px; }
+  .theme-toggle { margin-left: 0; padding: 3px 7px; font-size: 15px; }
+  .nav-bell { margin-left: 0; font-size: 16px; }
+  .nav-user { margin-left: 0; flex-basis: 100%; font-size: 13px; }
+}
+
+@media (max-width: 480px) {
+  .post-detail { padding: 20px 18px; }
+  .post-detail h1 { font-size: 22px; }
+  /* PostView 分享/点赞在极窄屏纵向堆叠，避免被挤变 */
+  .share-row { flex-wrap: wrap; }
+  .like-btn { width: 100%; }
 }
 
 /* 主题切换 */

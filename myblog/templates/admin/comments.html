@@ -9,11 +9,20 @@
     </form>
     {% endif %}
   </div>
+  <!-- 审核流筛选 -->
+  <div class="filter-tabs">
+    <a class="{{ 'active' if not status }}" href="{{ url_for('admin.comments') }}">全部</a>
+    <a class="{{ 'active' if status == 'pending' }}" href="{{ url_for('admin.comments', status='pending') }}">待审核{% if pending_count %}（{{ pending_count }}）{% endif %}</a>
+    <a class="{{ 'active' if status == 'approved' }}" href="{{ url_for('admin.comments', status='approved') }}">已通过</a>
+  </div>
   <table class="admin-table">
-    <thead><tr><th>文章</th><th>昵称</th><th>内容</th><th>归属地 / 设备</th><th>IP</th><th>时间</th><th>操作</th></tr></thead>
+    <thead><tr><th>状态</th><th>文章</th><th>昵称</th><th>内容</th><th>归属地 / 设备</th><th>IP</th><th>时间</th><th>操作</th></tr></thead>
     <tbody>
       {% for c in comments %}
-        <tr class="{{ 'unread-row' if not c.is_read }}">
+        <tr class="{{ 'unread-row' if not c.is_read }}{{ ' pending-row' if not c.approved }}">
+          <td>
+            {% if c.approved %}<span class="badge-ok">已通过</span>{% else %}<span class="badge-pending">待审核</span>{% endif %}
+          </td>
           <td><a href="{{ url_for('main.post', slug=c.post.slug) }}">{{ c.post.title }}</a></td>
           <td>{{ c.author }}</td>
           <td>{{ c.content }}</td>
@@ -25,7 +34,15 @@
           <td><code>{{ c.ip or '—' }}</code></td>
           <td>{{ c.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
           <td>
-            {% if not c.is_read %}
+            {% if not c.approved %}
+            <form method="post" action="{{ url_for('admin.approve_comment', cid=c.id) }}" class="inline-form">
+              <button type="submit" class="link-mark">通过</button>
+            </form>
+            <form method="post" action="{{ url_for('admin.reject_comment', cid=c.id) }}" class="inline-form" onsubmit="return confirm('确定驳回并删除该评论？');">
+              <button type="submit" class="link-danger">驳回</button>
+            </form>
+            {% endif %}
+            {% if not c.is_read and c.approved %}
             <form method="post" action="{{ url_for('admin.mark_comment_read', cid=c.id) }}" class="inline-form">
               <button type="submit" class="link-mark">标为已读</button>
             </form>
@@ -36,9 +53,9 @@
           </td>
         </tr>
       {% else %}
-        <tr><td colspan="7">暂无评论</td></tr>
+        <tr><td colspan="8">{% if status == 'pending' %}没有待审核的评论{% else %}暂无评论{% endif %}</td></tr>
       {% endfor %}
     </tbody>
   </table>
-  <p class="stats-tip">IP / 归属地 / 设备为评论时自动采集；归属地异步解析，缓存命中即时显示，新访客稍后回填。</p>
+  <p class="stats-tip">评论审核开关在「站点设置」里配置；开启后新评论先标记为待审核，通过后前台才显示。IP / 归属地 / 设备为评论时自动采集。</p>
 {% endblock %}

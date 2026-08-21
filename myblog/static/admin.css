@@ -454,3 +454,16 @@
   .notify-card { padding: 14px 16px; }
   .notify-num { font-size: 22px; }
 }
+
+/* 评论审核流 */
+.filter-tabs { display: flex; gap: 8px; margin: 12px 0 16px; flex-wrap: wrap; }
+.filter-tabs a { padding: 5px 14px; border-radius: 16px; font-size: 13px; background: #f1f3f5; color: #555; text-decoration: none; }
+.filter-tabs a.active { background: var(--accent, #1a73e8); color: #fff; }
+.badge-ok { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 11px; background: #e6f4ea; color: #1e7d32; }
+.badge-pending { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 11px; background: #fff4e0; color: #b06a00; }
+.pending-row { background: #fffbf0; }
+.pending-row:hover { background: #fff6dd; }
+[data-theme="dark"] .filter-tabs a { background: #2a2e35; color: #c7ccd1; }
+[data-theme="dark"] .badge-ok { background: #1e3a2a; color: #7bc47f; }
+[data-theme="dark"] .badge-pending { background: #3a2e15; color: #e0a040; }
+[data-theme="dark"] .pending-row { background: #2a2615; }

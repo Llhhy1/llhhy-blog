@@ -18,6 +18,22 @@
             <span v-if="state.user.is_admin"><a href="/admin">后台</a></span>
             <span v-else><a href="/admin/post/new">✏️ 写文章</a></span>
           </span>
+          <div class="nav-bell" @click="toggleNotifPanel">
+            🔔<span v-if="notifUnread" class="bell-badge">{{ notifUnread > 99 ? '99+' : notifUnread }}</span>
+            <div v-if="showNotifPanel" class="notif-panel">
+              <div class="notif-head">
+                <span>通知（{{ notifUnread }} 未读）</span>
+                <a v-if="notifUnread" href="#" @click.prevent="markAllNotifRead">全部已读</a>
+              </div>
+              <div v-if="notifList.length" class="notif-list">
+                <a v-for="n in notifList" :key="n.id" class="notif-item" :class="{unread: !n.is_read}" :href="n.link || '#'" @click.prevent="openNotif(n)">
+                  <span class="notif-time">{{ n.created_at }}</span>
+                  <span class="notif-text">{{ n.content }}</span>
+                </a>
+              </div>
+              <p v-else class="notif-empty">暂无通知</p>
+            </div>
+          </div>
           <a href="#" @click.prevent="doLogout">退出</a>
         </template>
         <template v-else>
@@ -70,6 +86,33 @@ const themeIcon = ref("🌙");
 const noteClosed = ref(false);
 const announcements = ref([]);
 const router = useRouter();
+// 站内通知（A4）
+const notifUnread = ref(0);
+const notifList = ref([]);
+const showNotifPanel = ref(false);
+
+async function loadNotifs() {
+  if (!state.user) { notifUnread.value = 0; notifList.value = []; return; }
+  try {
+    const d = await apiGet("/api/notifications");
+    notifUnread.value = d.unread || 0;
+    notifList.value = d.items || [];
+  } catch (e) {}
+}
+function toggleNotifPanel() {
+  showNotifPanel.value = !showNotifPanel.value;
+  if (showNotifPanel.value) loadNotifs();
+}
+async function openNotif(n) {
+  if (!n.is_read) {
+    try { await apiPost(`/api/notification/${n.id}/read`, {}); n.is_read = true; notifUnread.value = Math.max(0, notifUnread.value - 1); } catch (e) {}
+  }
+  showNotifPanel.value = false;
+  if (n.link) { location.href = n.link; }
+}
+async function markAllNotifRead() {
+  try { await apiPost("/api/notifications/read-all", {}); notifList.value.forEach(n => n.is_read = true); notifUnread.value = 0; } catch (e) {}
+}
 
 function dismissAnn(id) {
   announcements.value = announcements.value.filter((a) => a.id !== id);
@@ -121,8 +164,11 @@ onMounted(async () => {
     const an = await apiGet("/api/announcements");
     announcements.value = an.items || [];
   } catch (e) {}
+  loadNotifs();  // 加载站内通知未读数
   window.addEventListener("scroll", onScroll, { passive: true });
   window.addEventListener("resize", onScroll);
   onScroll();
 });
+// 路由切换后刷新通知（评论被@后能及时看到）
+router.afterEach(() => { loadNotifs(); });
 </script>

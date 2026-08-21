@@ -9,7 +9,7 @@ from flask import Blueprint, request, jsonify, current_app, session
 from markupsafe import escape
 
 from models import db, Post, Category, Tag, Comment, FriendLink, Setting, User, ROLE_USER, \
-    Moment, MomentComment, SocialAccount, Series, Announcement, Guestbook, Subscriber
+    Moment, MomentComment, SocialAccount, Series, Announcement, Guestbook, Subscriber, Notification
 from utils import render_markdown, clean_html, rate_limit, client_key
 import stats
 
@@ -210,7 +210,8 @@ def post_detail(slug):
 
     data = _post_summary(p)
     data["html"] = _render_html(p.content)
-    data["comments"] = [_comment(c) for c in p.comments.order_by(Comment.created_at.asc())]
+    # 审核流：前台只展示已通过审核的评论（approved=True）
+    data["comments"] = [_comment(c) for c in p.comments.filter_by(approved=True).order_by(Comment.created_at.asc())]
     # 系列上下篇导航
     if p.series_id and p.series:
         s_posts = p.series.posts.filter_by(published=True).order_by(Post.created_at.asc()).all()
@@ -332,15 +333,20 @@ def comment(slug):
         if not reply_to:
             reply_to = parent.author
     # 记录评论者 IP 属地与设备（属地缓存命中即返回，未命中后台线程稍后回填）
-    from utils import parse_device
+    from utils import parse_device, setting_bool, notify_mentioned
     ip = stats.client_ip()
-    c = Comment(post_id=p.id, author=author[:80], content=content, approved=True,
+    # 审核流：后台站点设置 comment_require_approval 优先于环境变量默认
+    require_approval = setting_bool("comment_require_approval", current_app.config.get("COMMENT_REQUIRE_APPROVAL", False))
+    c = Comment(post_id=p.id, author=author[:80], content=content, approved=not require_approval,
                 ip=ip, region=stats.cached_region(ip),
                 device=parse_device(request.headers.get("User-Agent", ""))[:120],
                 parent_id=parent_id or None, reply_to=reply_to[:80])
     db.session.add(c)
     db.session.commit()
-    return jsonify({"ok": True, "comment": _comment(c)}), 201
+    # A4 站内 @ 通知：解析评论内容里 @username，给注册用户发通知
+    notify_mentioned(content, f"/post/{p.slug}", author, post_id=p.id)
+    return jsonify({"ok": True, "comment": _comment(c),
+                    "pending": require_approval}), 201
 
 
 # ---------- 访问统计（埋点 + 汇总）----------
@@ -612,7 +618,7 @@ def like_guestbook(gid):
     return jsonify({"likes": g.likes})
 
 
-# ---------- 邮件订阅（Newsletter，C3）----------
+# ---------- 邮件订阅 / 退订（Newsletter，C3）----------
 @api_bp.route("/subscribe", methods=["POST"])
 def subscribe():
     if not rate_limit(client_key("api_subscribe"), limit=10, window=60):
@@ -622,11 +628,40 @@ def subscribe():
     import re as _re
     if not email or not _re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", email):
         return jsonify({"error": "邮箱格式不正确"}), 400
-    if Subscriber.query.filter_by(email=email).first():
+    import secrets as _sec
+    sub = Subscriber.query.filter_by(email=email).first()
+    if sub:
+        if not sub.unsub_token:  # 旧数据补 token
+            sub.unsub_token = _sec.token_hex(16)
+            db.session.commit()
         return jsonify({"ok": True, "message": "你已经订阅过啦"})
-    db.session.add(Subscriber(email=email[:160]))
+    sub = Subscriber(email=email[:160], unsub_token=_sec.token_hex(16))
+    db.session.add(sub)
     db.session.commit()
     return jsonify({"ok": True, "message": "订阅成功，新文章发布时会邮件通知你"}), 201
+
+
+@api_bp.route("/unsubscribe", methods=["GET", "POST"])
+def unsubscribe():
+    """邮件退订：凭邮箱 + 退订令牌取消订阅（无需登录）。
+    用法：/api/unsubscribe?email=xxx&token=yyy，GET 返回状态，POST 执行退订。
+    """
+    email = (request.args.get("email") or "").strip().lower()
+    token = (request.args.get("token") or "").strip()
+    if not email or not token:
+        return jsonify({"error": "缺少 email 或 token 参数"}), 400
+    sub = Subscriber.query.filter_by(email=email).first()
+    if not sub or not sub.unsub_token:
+        return jsonify({"error": "该邮箱未订阅或链接已失效"}), 404
+    import hmac
+    if not hmac.compare_digest(token, sub.unsub_token):
+        return jsonify({"error": "退订令牌不正确"}), 403
+    if request.method == "POST":
+        sub.active = False
+        db.session.commit()
+        return jsonify({"ok": True, "message": "已退订，不再发送新文章邮件"})
+    return jsonify({"ok": True, "email": email, "active": sub.active,
+                    "message": "确认退订？请用 POST 请求确认"})
 
 
 # ---------- 全文搜索（FTS5 优先，失败回退 LIKE，B5）----------
@@ -651,11 +686,56 @@ def search_api():
     return jsonify({"items": [_post_summary(p) for p in rows], "total": len(rows), "engine": "like"})
 
 
-# ---------- Webhook 自动部署（GitHub push → 宝塔拉取，D3）----------
+# ---------- 站内通知（A4 评论 @ 通知）----------
+@api_bp.route("/notifications")
+def notifications():
+    """当前登录用户的未读通知数 + 最近通知列表。"""
+    uid = session.get("user_id")
+    if not uid:
+        return jsonify({"items": [], "unread": 0})
+    unread = Notification.query.filter_by(user_id=uid, is_read=False).count()
+    rows = (Notification.query.filter_by(user_id=uid)
+            .order_by(Notification.created_at.desc()).limit(20).all())
+    return jsonify({
+        "unread": unread,
+        "items": [{
+            "id": n.id, "content": n.content, "link": n.link or "",
+            "is_read": n.is_read,
+            "created_at": n.created_at.strftime("%Y-%m-%d %H:%M"),
+        } for n in rows],
+    })
+
+
+@api_bp.route("/notification/<int:nid>/read", methods=["POST"])
+def read_notification(nid):
+    """标记单条通知已读。"""
+    uid = session.get("user_id")
+    if not uid:
+        return jsonify({"error": "请先登录"}), 401
+    n = Notification.query.filter_by(id=nid, user_id=uid).first_or_404()
+    n.is_read = True
+    db.session.commit()
+    return jsonify({"ok": True})
+
+
+@api_bp.route("/notifications/read-all", methods=["POST"])
+def read_all_notifications():
+    """当前用户全部通知标记已读。"""
+    uid = session.get("user_id")
+    if not uid:
+        return jsonify({"error": "请先登录"}), 401
+    Notification.query.filter_by(user_id=uid, is_read=False).update({"is_read": True})
+    db.session.commit()
+    return jsonify({"ok": True})
+
+
+# ---------- Webhook 自动部署（GitHub push → 服务器自动更新，D3）----------
 @api_bp.route("/webhook/deploy", methods=["POST"])
 def webhook_deploy():
-    """仅做密钥鉴权 + 返回成功；真正的 git pull / 重启由宝塔 Webhook 或计划任务完成。
-    配置环境变量 WH_DEPLOY_SECRET；GitHub Webhook 在 Header 带 X-Deploy-Token 或在 URL 带 ?token=。"""
+    """密钥鉴权 + 触发服务器部署脚本。
+    配置环境变量 WH_DEPLOY_SECRET（鉴权）与 DEPLOY_SCRIPT（部署脚本路径）。
+    GitHub Webhook 在 Header 带 X-Deploy-Token 或在 URL 带 ?token=。
+    校验通过后，若配置了 DEPLOY_SCRIPT 则异步执行该脚本（如 git pull / 解压 zip / 重启）。"""
     secret = current_app.config.get("WH_DEPLOY_SECRET")
     if not secret:
         return jsonify({"error": "服务器未配置部署密钥 WH_DEPLOY_SECRET"}), 403
@@ -663,4 +743,16 @@ def webhook_deploy():
     import hmac
     if not hmac.compare_digest(token, secret):
         return jsonify({"error": "密钥错误"}), 403
-    return jsonify({"ok": True, "message": "部署触发已授权，请在服务器侧配置 git pull 拉取最新代码"})
+    script = current_app.config.get("DEPLOY_SCRIPT", "")
+    triggered = False
+    if script:
+        try:
+            import subprocess, os
+            # 异步触发部署脚本（不等待、不阻塞请求）；日志重定向避免 hang
+            devnull = open(os.devnull, "wb")
+            subprocess.Popen(["bash", script], stdout=devnull, stderr=devnull, close_fds=True)
+            triggered = True
+        except Exception as e:
+            return jsonify({"ok": True, "triggered": False, "error": f"部署脚本启动失败: {e}"}), 500
+    return jsonify({"ok": True, "triggered": triggered,
+                    "message": "部署已触发" if triggered else "授权通过但未配置 DEPLOY_SCRIPT，请手动部署"})

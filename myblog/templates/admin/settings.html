@@ -68,6 +68,11 @@
     <label>自定义 CSS（进阶：粘贴你想覆盖的样式，前后台都会注入；留空不注入）</label>
     <textarea name="custom_css" rows="5" placeholder="例：.site-header { box-shadow: 0 2px 12px rgba(0,0,0,0.08); }&#10;.post-card { border: 0; box-shadow: 0 4px 16px rgba(0,0,0,0.06); }">{{ settings.custom_css }}</textarea>
 
+    <label class="checkbox-row">
+      <input type="checkbox" name="comment_require_approval" {{ 'checked' if (settings.comment_require_approval or '')|lower == 'true' }}>
+      <span>评论需审核（开启后，新评论先标记为「待审核」，通过后才在前台显示；关闭则直接显示）</span>
+    </label>
+
     <button type="submit" class="btn">保存设置</button>
   </form>
 {% endblock %}

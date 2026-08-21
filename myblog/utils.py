@@ -124,3 +124,46 @@ def parse_device(ua):
         browser = "其他"
 
     return f"{device} · {os_name} · {browser}"
+
+
+def get_setting(key, default=None):
+    """读取站点设置（Setting 表键值对）。返回字符串；不存在返回 default。
+    用于后台可动态调整的开关（如评论审核），优先级高于环境变量默认值。
+    """
+    try:
+        from models import Setting
+        s = Setting.query.filter_by(key=key).first()
+        return s.value if s and s.value is not None else default
+    except Exception:
+        return default
+
+
+def setting_bool(key, default=False):
+    """读取布尔型站点设置（'true'/'1'/'yes' 视为真）。"""
+    v = get_setting(key)
+    if v is None:
+        return default
+    return str(v).strip().lower() in ("true", "1", "yes", "on")
+
+
+def notify_mentioned(content, link, from_author, post_id=None):
+    """解析评论/动态内容里的 @username，给被提及的注册用户生成站内通知。
+    - content: 评论原文；link: 点击通知跳转地址；from_author: 提及者昵称（文案用）
+    - 仅给存在的注册用户发通知，不重复，自己@自己不发
+    """
+    try:
+        from models import db, User, Notification
+        names = set(re.findall(r"@([A-Za-z0-9_\u4e00-\u9fa5]{2,40})", content or ""))
+        if not names:
+            return
+        for name in names:
+            u = User.query.filter_by(username=name).first()
+            if u and u.username != from_author:
+                db.session.add(Notification(
+                    user_id=u.id,
+                    content=f"{from_author} 在评论中提到了你：{(content or '')[:80]}",
+                    link=link or "",
+                ))
+        db.session.commit()
+    except Exception:
+        pass  # 通知失败不影响评论主流程

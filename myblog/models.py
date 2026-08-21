@@ -240,3 +240,14 @@ class Subscriber(db.Model):
     email = db.Column(db.String(160), unique=True, nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     active = db.Column(db.Boolean, default=True)
+    unsub_token = db.Column(db.String(64), default="")  # 退订令牌（邮件退订链接用，一次性校验）
+
+
+class Notification(db.Model):
+    """站内通知：评论/动态 @ 某人时给对方生成的提醒。"""
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False)  # 接收者
+    content = db.Column(db.String(300), nullable=False)   # 通知文案（纯文本）
+    link = db.Column(db.String(300), default="")          # 点击跳转地址（如 /post/xxx）
+    is_read = db.Column(db.Boolean, default=False)        # 是否已读
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)

@@ -88,8 +88,8 @@ async function submit() {
   status.value = "提交中…";
   statusClass.value = "";
   try {
-    await apiPost(`/api/post/${props.slug}/comment`, body);
-    status.value = "评论成功！";
+    const d = await apiPost(`/api/post/${props.slug}/comment`, body);
+    status.value = d.pending ? "评论已提交，待管理员审核后将显示" : "评论成功！";
     statusClass.value = "success";
     content.value = "";
     replyingTo.value = null;

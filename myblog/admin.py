@@ -14,6 +14,7 @@ from utils import make_slug
 from config import APP_VERSION
 import fts
 import notify
+import mail_notify
 
 admin_bp = Blueprint("admin", __name__, url_prefix="/admin")
 
@@ -226,6 +227,11 @@ def new_post():
                 notify.notify_new_post(post, current_app.config.get("SITE_URL", ""))
             except Exception:
                 pass
+            # C3 邮件群发：新文章发布时异步通知所有订阅者（未配置 SMTP 自动跳过）
+            try:
+                mail_notify.notify_subscribers_async(post)
+            except Exception:
+                pass
         flash("文章已发布" if published else "草稿已保存")
         # 普通用户发布后回到「我的文章」，管理员回仪表盘
         user = db.session.get(User, session.get("user_id"))
@@ -279,6 +285,11 @@ def edit_post(post_id):
         if post.published and not was_published:
             try:
                 notify.notify_new_post(post, current_app.config.get("SITE_URL", ""))
+            except Exception:
+                pass
+            # C3 邮件群发：草稿转发布时也通知订阅者
+            try:
+                mail_notify.notify_subscribers_async(post)
             except Exception:
                 pass
         flash("已保存修改")
@@ -471,8 +482,38 @@ def delete_social(aid):
 @admin_bp.route("/comments", methods=["GET"])
 @admin_required
 def comments():
-    rows = Comment.query.order_by(Comment.created_at.desc()).all()
-    return render_template("admin/comments.html", comments=rows)
+    # 审核流：支持 ?status=pending 只看待审核
+    status = request.args.get("status", "")
+    q = Comment.query
+    if status == "pending":
+        q = q.filter_by(approved=False)
+    elif status == "approved":
+        q = q.filter_by(approved=True)
+    rows = q.order_by(Comment.created_at.desc()).all()
+    pending_count = Comment.query.filter_by(approved=False).count()
+    return render_template("admin/comments.html", comments=rows, status=status, pending_count=pending_count)
+
+
+@admin_bp.route("/comment/<int:cid>/approve", methods=["POST"])
+@admin_required
+def approve_comment(cid):
+    """审核通过评论。"""
+    c = Comment.query.get_or_404(cid)
+    c.approved = True
+    db.session.commit()
+    flash("评论已通过审核")
+    return redirect(url_for("admin.comments", status="pending"))
+
+
+@admin_bp.route("/comment/<int:cid>/reject", methods=["POST"])
+@admin_required
+def reject_comment(cid):
+    """驳回评论（删除，相当于拒绝显示）。"""
+    c = Comment.query.get_or_404(cid)
+    db.session.delete(c)
+    db.session.commit()
+    flash("评论已驳回并删除")
+    return redirect(url_for("admin.comments", status="pending"))
 
 
 @admin_bp.route("/comment/<int:cid>/read", methods=["POST"])
@@ -520,6 +561,13 @@ def settings():
                 row.value = val
             else:
                 db.session.add(Setting(key=f, value=val))
+        # 评论审核开关（checkbox：勾选=true，不勾选=空）
+        cap = Setting.query.filter_by(key="comment_require_approval").first()
+        cap_val = "true" if request.form.get("comment_require_approval") else "false"
+        if cap:
+            cap.value = cap_val
+        else:
+            db.session.add(Setting(key="comment_require_approval", value=cap_val))
         db.session.commit()
         flash("站点设置已保存")
         return redirect(url_for("admin.settings"))

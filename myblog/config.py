@@ -80,6 +80,27 @@ class Config:
     TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
     WECOM_WEBHOOK_URL = os.environ.get("WECOM_WEBHOOK_URL")
 
+    # ===== 邮件群发（C3 · 新文章通知订阅者）=====
+    # 使用标准库 smtplib，无需新依赖。配置 SMTP 后，新文章发布时异步群发给所有 active 订阅者（密送）。
+    # 未配置 SMTP_HOST 则邮件群发自动跳过（订阅者仅收集邮箱，不发信）。
+    # 退订链接用 Subscriber.unsub_token 校验，无需登录即可退订。
+    SMTP_HOST = os.environ.get("SMTP_HOST", "")
+    SMTP_PORT = int(os.environ.get("SMTP_PORT", "465"))
+    SMTP_USERNAME = os.environ.get("SMTP_USERNAME", "")
+    SMTP_PASSWORD = os.environ.get("SMTP_PASSWORD", "")  # 多数邮箱用「授权码」而非登录密码
+    SMTP_FROM = os.environ.get("SMTP_FROM", "")          # 发件人地址（一般等于 SMTP_USERNAME）
+    SMTP_USE_SSL = os.environ.get("SMTP_USE_SSL", "true").lower() != "false"  # 465 用 SSL，587 一般关 SSL 用 TLS
+
+    # ===== 评论审核流 =====
+    # 默认 false：评论提交后直接显示。设为 true 则评论提交后先标记 approved=False，管理员审核通过才显示。
+    # 也可在后台「站点设置」里动态覆盖（setting 表 key=comment_require_approval）。
+    COMMENT_REQUIRE_APPROVAL = os.environ.get("COMMENT_REQUIRE_APPROVAL", "false").lower() == "true"
+
+    # ===== Webhook 自动部署（D3 · 真正拉取）=====
+    # webhook 校验通过后，若设置了 DEPLOY_SCRIPT 路径，会异步执行该脚本（如 git pull / 解压 zip / 重启）。
+    # 脚本需有执行权限；未设置则 webhook 仅返回 {"ok":true}（保持旧行为）。
+    DEPLOY_SCRIPT = os.environ.get("DEPLOY_SCRIPT", "")
+
 
 # 确保上传目录存在（图片保存在 static/uploads，随项目一起）
 os.makedirs(Config.UPLOAD_FOLDER, exist_ok=True)

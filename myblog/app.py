@@ -11,7 +11,7 @@ from werkzeug.security import generate_password_hash
 
 from models import (db, Post, Category, Tag, Comment, FriendLink, Setting, User,
                    ROLE_SUPER, Moment, MomentComment, SocialAccount,
-                   Series, Announcement, Guestbook, Subscriber)
+                   Series, Announcement, Guestbook, Subscriber, Notification)
 from utils import make_slug
 from routes import main_bp
 from admin import admin_bp
@@ -92,6 +92,7 @@ def _migrate_comment_table():
             "reply_to": "VARCHAR(80) DEFAULT ''",
             "likes": "INTEGER DEFAULT 0",
             "is_read": "BOOLEAN DEFAULT 0",
+            "approved": "BOOLEAN DEFAULT 1",  # 审核流：1=已通过显示，0=待审核
         }
         need = [c for c in specs if c not in cols]
         if need:
@@ -129,6 +130,20 @@ def _migrate_guestbook_table():
             with db.engine.begin() as conn:
                 conn.execute(db.text("ALTER TABLE guestbook ADD COLUMN is_read BOOLEAN DEFAULT 0"))
             print("已迁移 guestbook 表：新增 is_read 列")
+
+
+def _migrate_subscriber_table():
+    """旧库的 subscriber 表补 unsub_token 列（邮件退订用）。"""
+    from sqlalchemy import inspect
+    ins = inspect(db.engine)
+    if "subscriber" in ins.get_table_names():
+        cols = [c["name"] for c in ins.get_columns("subscriber")]
+        if "unsub_token" not in cols:
+            db.session.remove()
+            db.engine.dispose()
+            with db.engine.begin() as conn:
+                conn.execute(db.text("ALTER TABLE subscriber ADD COLUMN unsub_token VARCHAR(64) DEFAULT ''"))
+            print("已迁移 subscriber 表：新增 unsub_token 列")
 
 
 def _ensure_super_admin(app):
@@ -236,6 +251,7 @@ def create_app():
         _migrate_comment_table()
         _migrate_friendlink_table()
         _migrate_guestbook_table()
+        _migrate_subscriber_table()
         try:
             import fts
             fts.ensure()

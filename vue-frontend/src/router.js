@@ -14,6 +14,7 @@ const routes = [
   { path: "/series", name: "series", component: () => import("./views/SeriesView.vue") },
   { path: "/series/:slug", name: "series-detail", component: () => import("./views/SeriesDetailView.vue") },
   { path: "/guestbook", name: "guestbook", component: () => import("./views/GuestbookView.vue") },
+  { path: "/unsubscribe", name: "unsubscribe", component: () => import("./views/UnsubscribeView.vue") },
   { path: "/search", name: "search", component: () => import("./views/SearchView.vue") },
   { path: "/login", name: "login", component: () => import("./views/LoginView.vue") },
   { path: "/register", name: "register", component: () => import("./views/RegisterView.vue") },

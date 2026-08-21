@@ -552,20 +552,20 @@
   .side-user-card { display: flex; padding: 14px; border-top: 1px solid rgba(0,0,0,.06); margin-top: auto; }
   .side-version { padding: 10px 14px; font-size: 12px; }
   .side-footer { display: none; }
-  /* dashboard 优化 */
-  .hero-card { padding: 22px 20px; margin-bottom: 18px; }
-  .hero-card h2 { font-size: 18px; margin-bottom: 6px; }
-  .hero-card p { font-size: 13px; margin-bottom: 14px; }
-  .hero-actions { flex-direction: row; flex-wrap: wrap; gap: 8px; }
-  .hero-actions .btn { flex: 1 1 calc(50% - 4px); padding: 10px 12px; font-size: 13px; }
-  .stat-cards { grid-template-columns: 1fr; gap: 10px; margin-bottom: 18px; }  /* v2.6.6: 单列对齐，4 卡等宽等高 */
-  .stat-card { padding: 14px 16px; display: flex; flex-direction: row; align-items: center; gap: 14px; }
-  .stat-card .stat-ico { font-size: 28px; flex-shrink: 0; line-height: 1; }
-  .stat-card .stat-num { font-size: 28px; min-width: 80px; }
-  .stat-card .stat-label { font-size: 13px; }
-  .notify-cards { grid-template-columns: 1fr 1fr; gap: 10px; }
+  /* dashboard 优化（v2.6.8: 保留 hero 渐变风格 + 恢复 2x2 小卡片，统一所有卡片尺寸） */
+  .hero-card { padding: 16px 18px; margin-bottom: 14px; }
+  .hero-card h2 { font-size: 17px; margin-bottom: 4px; }
+  .hero-card p { font-size: 12px; margin-bottom: 10px; line-height: 1.5; }
+  .hero-actions { flex-direction: row; flex-wrap: wrap; gap: 6px; margin-top: 0; }
+  .hero-actions .btn { flex: 1 1 calc(50% - 3px); padding: 8px 10px; font-size: 12px; }
+  .stat-cards { grid-template-columns: repeat(2, 1fr); gap: 10px; margin-bottom: 14px; }  /* 恢复 2x2 小卡片 */
+  .stat-card { padding: 12px 14px; min-height: 64px; }
+  .stat-card .stat-ico { font-size: 22px; }
+  .stat-card .stat-num { font-size: 22px; }
+  .stat-card .stat-label { font-size: 12px; }
+  .notify-cards { grid-template-columns: repeat(2, 1fr); gap: 10px; }
   .notify-card { padding: 14px; }
-  .panel { padding: 18px; }
+  .panel { padding: 16px 18px; }
 }
 
 /* 表格：默认所有视口都允许横滚（v2.6.1 全局兜底，避免 760-1100 中屏溢出） */
@@ -585,7 +585,7 @@
   .hero-card { padding: 18px 16px; }
   .hero-card h2 { font-size: 17px; }
   .hero-card p { font-size: 13px; }
-  .hero-actions .btn { flex: 1 1 100%; }
+  .hero-actions .btn { flex: 1 1 calc(50% - 3px); }  /* v2.6.8: 与 ≤1100 一致，按钮 2x2 不占满 */
   .stat-cards { grid-template-columns: repeat(2, 1fr); gap: 10px; }
   .stat-card { padding: 14px; }
   .stat-card .stat-num { font-size: 22px; }

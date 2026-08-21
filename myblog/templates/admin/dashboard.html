@@ -1,92 +1,100 @@
 {% extends "admin/base.html" %}
 {% block title %}后台仪表盘{% endblock %}
 {% block content %}
-  <!-- 渐变欢迎卡 -->
-  <div class="hero-card">
-    <h2>👋 欢迎回来，{{ current_user.username if current_user else '管理员' }}</h2>
-    <p>站点共有 {{ total_posts }} 篇文章、{{ total_comments }} 条评论，累计访问 {{ summary.total_visits }} 次。今天也要元气满满地更新呀～</p>
-    <div class="hero-actions">
-      <a class="btn" href="{{ url_for('admin.new_post') }}">✏️ 写新文章</a>
-      <a class="btn ghost" href="{{ url_for('admin.stats') }}">📈 访问统计</a>
-      <a class="btn ghost" href="{{ url_for('main.index') }}" target="_blank">🌐 查看前台</a>
+  <!-- 渐变欢迎卡（外层大框） -->
+  <div class="section-box">
+    <div class="hero-card">
+      <h2>👋 欢迎回来，{{ current_user.username if current_user else '管理员' }}</h2>
+      <p>站点共有 {{ total_posts }} 篇文章、{{ total_comments }} 条评论，累计访问 {{ summary.total_visits }} 次。今天也要元气满满地更新呀～</p>
+      <div class="hero-actions">
+        <a class="btn" href="{{ url_for('admin.new_post') }}">✏️ 写新文章</a>
+        <a class="btn ghost" href="{{ url_for('admin.stats') }}">📈 访问统计</a>
+        <a class="btn ghost" href="{{ url_for('main.index') }}" target="_blank">🌐 查看前台</a>
+      </div>
     </div>
   </div>
 
   <!-- 新消息提醒卡 -->
   {% if pending_comments or pending_guestbook %}
-  <div class="notify-cards">
-    {% if pending_comments %}
-    <a class="notify-card" href="{{ url_for('admin.comments') }}">
-      <span class="notify-ico">💬</span>
-      <span class="notify-num">{{ pending_comments }}</span>
-      <span class="notify-label">条新评论未读</span>
-    </a>
-    {% endif %}
-    {% if pending_guestbook %}
-    <a class="notify-card" href="{{ url_for('admin.manage_guestbook') }}">
-      <span class="notify-ico">📝</span>
-      <span class="notify-num">{{ pending_guestbook }}</span>
-      <span class="notify-label">条新留言未读</span>
-    </a>
-    {% endif %}
+  <div class="section-box">
+    <div class="notify-cards">
+      {% if pending_comments %}
+      <a class="notify-card" href="{{ url_for('admin.comments') }}">
+        <span class="notify-ico">💬</span>
+        <span class="notify-num">{{ pending_comments }}</span>
+        <span class="notify-label">条新评论未读</span>
+      </a>
+      {% endif %}
+      {% if pending_guestbook %}
+      <a class="notify-card" href="{{ url_for('admin.manage_guestbook') }}">
+        <span class="notify-ico">📝</span>
+        <span class="notify-num">{{ pending_guestbook }}</span>
+        <span class="notify-label">条新留言未读</span>
+      </a>
+      {% endif %}
+    </div>
   </div>
   {% endif %}
 
-  <!-- 概览统计卡 -->
-  <div class="stat-cards">
-    <div class="stat-card">
-      <span class="stat-ico">🌏</span>
-      <span class="stat-num">{{ summary.total_visits }}</span>
-      <span class="stat-label">累计访问</span>
-    </div>
-    <div class="stat-card">
-      <span class="stat-ico">🔥</span>
-      <span class="stat-num">{{ summary.today_visits }}</span>
-      <span class="stat-label">今日访问（{{ summary.today_date }}）</span>
-    </div>
-    <div class="stat-card">
-      <span class="stat-ico">📝</span>
-      <span class="stat-num">{{ total_posts }}</span>
-      <span class="stat-label">文章总数</span>
-    </div>
-    <div class="stat-card">
-      <span class="stat-ico">💬</span>
-      <span class="stat-num">{{ total_comments }}</span>
-      <span class="stat-label">评论总数{% if pending %}（{{ pending }} 待审）{% endif %}</span>
+  <!-- 概览统计卡（外层大框，内部 2x2） -->
+  <div class="section-box">
+    <div class="stat-cards">
+      <div class="stat-card">
+        <span class="stat-ico">🌏</span>
+        <span class="stat-num">{{ summary.total_visits }}</span>
+        <span class="stat-label">累计访问</span>
+      </div>
+      <div class="stat-card">
+        <span class="stat-ico">🔥</span>
+        <span class="stat-num">{{ summary.today_visits }}</span>
+        <span class="stat-label">今日访问（{{ summary.today_date }}）</span>
+      </div>
+      <div class="stat-card">
+        <span class="stat-ico">📝</span>
+        <span class="stat-num">{{ total_posts }}</span>
+        <span class="stat-label">文章总数</span>
+      </div>
+      <div class="stat-card">
+        <span class="stat-ico">💬</span>
+        <span class="stat-num">{{ total_comments }}</span>
+        <span class="stat-label">评论总数{% if pending %}（{{ pending }} 待审）{% endif %}</span>
+      </div>
     </div>
   </div>
 
   <div class="dash-grid">
-    <div class="panel dash-main-panel">
+    <div class="panel section-box">
       <h3>📚 全部文章（{{ posts | length }}）</h3>
-      <table class="admin-table">
-        <thead>
-          <tr><th>标题</th><th>分类</th><th>状态</th><th>阅读</th><th>操作</th></tr>
-        </thead>
-        <tbody>
-          {% for p in posts %}
-            <tr>
-              <td><a href="{{ url_for('admin.edit_post', post_id=p.id) }}">{{ p.title }}</a></td>
-              <td>{{ p.category.name if p.category else '—' }}</td>
-              <td>{{ '已发布' if p.published else '草稿' }}</td>
-              <td>{{ p.views }}</td>
-              <td>
-                <a href="{{ url_for('admin.edit_post', post_id=p.id) }}">编辑</a>
-                <form method="post" action="{{ url_for('admin.delete_post', post_id=p.id) }}" class="inline-form" onsubmit="return confirm('确定删除？');">
-                  <button type="submit" class="link-danger">删除</button>
-                </form>
-              </td>
-            </tr>
-          {% else %}
-            <tr><td colspan="5">还没有文章，点上方「写新文章」开始吧</td></tr>
-          {% endfor %}
-        </tbody>
-      </table>
+      <div class="table-scroll">
+        <table class="admin-table">
+          <thead>
+            <tr><th>标题</th><th>分类</th><th>状态</th><th>阅读</th><th>操作</th></tr>
+          </thead>
+          <tbody>
+            {% for p in posts %}
+              <tr>
+                <td><a href="{{ url_for('admin.edit_post', post_id=p.id) }}">{{ p.title }}</a></td>
+                <td>{{ p.category.name if p.category else '—' }}</td>
+                <td>{{ '已发布' if p.published else '草稿' }}</td>
+                <td>{{ p.views }}</td>
+                <td>
+                  <a href="{{ url_for('admin.edit_post', post_id=p.id) }}">编辑</a>
+                  <form method="post" action="{{ url_for('admin.delete_post', post_id=p.id) }}" class="inline-form" onsubmit="return confirm('确定删除？');">
+                    <button type="submit" class="link-danger">删除</button>
+                  </form>
+                </td>
+              </tr>
+            {% else %}
+              <tr><td colspan="5">还没有文章，点上方「写新文章」开始吧</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
     </div>
 
     <div class="dash-side">
       <!-- 今日访客区域 TOP5 -->
-      <div class="panel dash-panel-side">
+      <div class="panel section-box">
         <h3>🌏 今日访客区域 TOP5</h3>
         {% if summary.regions_today %}
           <ul class="mini-rank">
@@ -106,7 +114,7 @@
       </div>
 
       <!-- 最近评论 -->
-      <div class="panel dash-panel-side">
+      <div class="panel section-box">
         <h3>💬 最近评论</h3>
         {% if recent_comments %}
           <ul class="mini-comments">
@@ -125,7 +133,7 @@
       </div>
 
       <!-- 快捷操作 -->
-      <div class="panel dash-panel-side">
+      <div class="panel section-box">
         <h3>⚡ 快捷操作</h3>
         <div class="quick-links">
           <a href="{{ url_for('admin.new_post') }}">✏️ 写文章</a>

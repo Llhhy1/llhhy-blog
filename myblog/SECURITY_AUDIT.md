@@ -283,6 +283,34 @@
 - 无新漏洞；隔离冒烟测试通过（删除→剩 1 条、切换→active 翻转正确）
 - 仪表盘样式调整（回到 v2.6.4 观感）本轮**未实施**，待用户确认方向后再做
 
+## 四·补十三、第十三轮审计（2026-08-21 · v2.6.11 仪表盘回 v2.6.4 + 大框防溢出）
+
+> 用户要求：仪表盘回到 v2.6.4 设计观感（hero 渐变大气 + 统计卡 2x2 + 下方 4 面板手机端单列），并给每个区块外面包一层大框（`.section-box`），保证内容被框住不溢出屏幕。
+
+### 13.1 改动文件
+
+- `myblog/templates/admin/dashboard.html`：恢复 v2.6.4 结构（hero + notify + 2x2 统计卡 + dash-grid 单列）；给 hero / notify / 统计卡 / 全部文章 / 右侧 3 面板各套一层 `.section-box`；「全部文章」表格外加 `.table-scroll` 横向滚动容器
+- `myblog/static/admin.css`：
+  - 新增 `.section-box`（浅色背景 + 边框 + 圆角 + `overflow:hidden` 关键防溢出）+ 暗色适配
+  - 新增 `.table-scroll`（表格横向滚动容器）
+  - section-box 内 `.panel` 去自身边框/阴影/外边距（避免双层框）
+  - 撤销 v2.6.9 的 `dash-grid` 2x2（`display:contents`）→ 恢复 `grid-template-columns: 1fr`（手机端下方 4 面板单列）
+  - 撤销 v2.6.8 的 hero 缩小 → 恢复 v2.6.4 大气尺寸（≤1100 hero padding 22px 20px、按钮 2x2）
+  - 撤销 v2.6.8 ≤760 的 hero-actions 2x2 → 恢复 `flex:1 1 100%`（按钮全宽堆叠）
+
+### 13.2 审计项
+
+- 纯 CSS / 模板结构改动，无新后端路由 / 无用户输入处理 / 无数据库写操作
+- XSS：模板仅用服务端变量 + Jinja2 自动转义，无新增 `|safe`
+- 越权：无新增接口，鉴权沿用既有 `@admin_required`
+- 溢出修复：`section-box { overflow: hidden }` + `.table-scroll { overflow-x: auto }` 确保内容在框内裁剪/滚动，不再撑破视口
+- 桌面端布局完全不变（dash-grid 1fr + 300px 双栏）
+
+### 13.3 审计结论
+
+- 无新漏洞；隔离冒烟渲染通过（section-box 6 处、table-scroll 1 处、无 v2.6.9 残留）
+- CSS 配平 OK（681 行）
+
 ## 五、上线前必做（宝塔面板 · 环境变量配置）
 
 程序启动**必须**存在两个环境变量（缺失即拒绝启动）：

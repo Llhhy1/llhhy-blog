@@ -35,12 +35,12 @@
         <a href="{{ url_for('admin.new_post') }}" class="{{ 'active' if ep in ('admin.new_post', 'admin.edit_post') }}"><span class="nav-emoji">✏️</span>写新文章</a>
         <a href="{{ url_for('admin.categories') }}" class="{{ 'active' if ep == 'admin.categories' }}"><span class="nav-emoji">🗂️</span>分类管理</a>
         <a href="{{ url_for('admin.tags') }}" class="{{ 'active' if ep == 'admin.tags' }}"><span class="nav-emoji">🏷️</span>标签管理</a>
-        <a href="{{ url_for('admin.comments') }}" class="{{ 'active' if ep == 'admin.comments' }}"><span class="nav-emoji">💬</span>评论管理{% if pending is defined and pending %} <span class="nav-badge">{{ pending }}</span>{% endif %}</a>
+        <a href="{{ url_for('admin.comments') }}" class="{{ 'active' if ep == 'admin.comments' }}"><span class="nav-emoji">💬</span>评论管理{% if pending_comments %} <span class="nav-badge">{{ pending_comments }}</span>{% endif %}</a>
         <a href="{{ url_for('admin.links') }}" class="{{ 'active' if ep == 'admin.links' }}"><span class="nav-emoji">🔗</span>友链管理</a>
         <a href="{{ url_for('admin.social') }}" class="{{ 'active' if ep == 'admin.social' }}"><span class="nav-emoji">🌐</span>社交账号</a>
         <a href="{{ url_for('admin.manage_series') }}" class="{{ 'active' if ep == 'admin.manage_series' }}"><span class="nav-emoji">📚</span>系列管理</a>
         <a href="{{ url_for('admin.manage_announcements') }}" class="{{ 'active' if ep == 'admin.manage_announcements' }}"><span class="nav-emoji">📢</span>公告管理</a>
-        <a href="{{ url_for('admin.manage_guestbook') }}" class="{{ 'active' if ep == 'admin.manage_guestbook' }}"><span class="nav-emoji">📝</span>留言墙</a>
+        <a href="{{ url_for('admin.manage_guestbook') }}" class="{{ 'active' if ep == 'admin.manage_guestbook' }}"><span class="nav-emoji">📝</span>留言墙{% if pending_guestbook %} <span class="nav-badge">{{ pending_guestbook }}</span>{% endif %}</a>
         <a href="{{ url_for('admin.manage_subscribers') }}" class="{{ 'active' if ep == 'admin.manage_subscribers' }}"><span class="nav-emoji">✉️</span>订阅者</a>
         <p class="side-group">系统设置</p>
         <a href="{{ url_for('admin.stats') }}" class="{{ 'active' if ep == 'admin.stats' }}"><span class="nav-emoji">📈</span>访问统计</a>

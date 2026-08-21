@@ -12,6 +12,26 @@
     </div>
   </div>
 
+  <!-- 新消息提醒卡 -->
+  {% if pending_comments or pending_guestbook %}
+  <div class="notify-cards">
+    {% if pending_comments %}
+    <a class="notify-card" href="{{ url_for('admin.comments') }}">
+      <span class="notify-ico">💬</span>
+      <span class="notify-num">{{ pending_comments }}</span>
+      <span class="notify-label">条新评论未读</span>
+    </a>
+    {% endif %}
+    {% if pending_guestbook %}
+    <a class="notify-card" href="{{ url_for('admin.manage_guestbook') }}">
+      <span class="notify-ico">📝</span>
+      <span class="notify-num">{{ pending_guestbook }}</span>
+      <span class="notify-label">条新留言未读</span>
+    </a>
+    {% endif %}
+  </div>
+  {% endif %}
+
   <!-- 概览统计卡 -->
   <div class="stat-cards">
     <div class="stat-card">

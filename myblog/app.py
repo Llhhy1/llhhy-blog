@@ -91,6 +91,7 @@ def _migrate_comment_table():
             "parent_id": "INTEGER",
             "reply_to": "VARCHAR(80) DEFAULT ''",
             "likes": "INTEGER DEFAULT 0",
+            "is_read": "BOOLEAN DEFAULT 0",
         }
         need = [c for c in specs if c not in cols]
         if need:
@@ -114,6 +115,20 @@ def _migrate_friendlink_table():
             with db.engine.begin() as conn:
                 conn.execute(db.text("ALTER TABLE friend_link ADD COLUMN rss_url VARCHAR(300) DEFAULT ''"))
             print("已迁移 friend_link 表：新增 rss_url 列")
+
+
+def _migrate_guestbook_table():
+    """旧库的 guestbook 表补 is_read 列（新消息提醒）。"""
+    from sqlalchemy import inspect
+    ins = inspect(db.engine)
+    if "guestbook" in ins.get_table_names():
+        cols = [c["name"] for c in ins.get_columns("guestbook")]
+        if "is_read" not in cols:
+            db.session.remove()
+            db.engine.dispose()
+            with db.engine.begin() as conn:
+                conn.execute(db.text("ALTER TABLE guestbook ADD COLUMN is_read BOOLEAN DEFAULT 0"))
+            print("已迁移 guestbook 表：新增 is_read 列")
 
 
 def _ensure_super_admin(app):
@@ -220,6 +235,7 @@ def create_app():
         _migrate_post_table()
         _migrate_comment_table()
         _migrate_friendlink_table()
+        _migrate_guestbook_table()
         try:
             import fts
             fts.ensure()

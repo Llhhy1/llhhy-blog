@@ -1,16 +1,28 @@
 {% extends "admin/base.html" %}
 {% block title %}留言墙管理{% endblock %}
 {% block content %}
-  <h1 class="page-title">留言墙管理</h1>
+  <div class="admin-actions">
+    <h1 class="page-title" style="margin:0;">📝 留言墙管理</h1>
+    {% if pending_guestbook %}
+    <form method="post" action="{{ url_for('admin.mark_all_guestbook_read') }}" class="inline-form">
+      <button type="submit" class="btn small">✅ 全部标记已读</button>
+    </form>
+    {% endif %}
+  </div>
   <table class="admin-table">
     <thead><tr><th>昵称</th><th>内容</th><th>时间</th><th>操作</th></tr></thead>
     <tbody>
       {% for g in rows %}
-        <tr>
+        <tr class="{{ 'unread-row' if not g.is_read }}">
           <td>{{ g.author }}</td>
           <td>{{ g.content[:80] }}{% if g.content|length > 80 %}…{% endif %}</td>
           <td>{{ g.created_at.strftime('%Y-%m-%d %H:%M') if g.created_at else '' }}</td>
           <td>
+            {% if not g.is_read %}
+            <form method="post" action="{{ url_for('admin.mark_guestbook_read', gid=g.id) }}" class="inline-form">
+              <button type="submit" class="link-mark">标为已读</button>
+            </form>
+            {% endif %}
             <form method="post" action="{{ url_for('admin.delete_guestbook', gid=g.id) }}" class="inline-form" onsubmit="return confirm('确定删除该留言？');">
               <button type="submit" class="link-danger">删除</button>
             </form>

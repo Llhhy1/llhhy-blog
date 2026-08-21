@@ -387,6 +387,33 @@
 
 
 /* 手机端后台（≤600px） */
+/* ---------- 新消息提醒（未读评论 / 未读留言） ---------- */
+.notify-cards {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 14px;
+  margin-bottom: 20px;
+}
+.notify-card {
+  display: flex; align-items: center; gap: 12px;
+  padding: 16px 18px; background: #fff; border-radius: var(--theme-radius, 10px);
+  border: 1px solid #e8ecf2; text-decoration: none; color: #2c2c2c;
+  box-shadow: 0 2px 8px rgba(0,0,0,.04); transition: all .15s;
+}
+.notify-card:hover {
+  transform: translateY(-2px); border-color: var(--accent, #1a73e8);
+  box-shadow: 0 6px 16px rgba(26,115,232,.10);
+}
+.notify-ico { font-size: 22px; }
+.notify-num { font-size: 26px; font-weight: 700; color: var(--accent, #1a73e8); }
+.notify-label { font-size: 14px; color: #666; }
+
+.unread-row { background: #f4f9ff !important; }
+.unread-row td:first-child { border-left: 3px solid var(--accent, #1a73e8); }
+.link-mark {
+  background: none; border: none; color: var(--accent, #1a73e8); cursor: pointer;
+  font-size: 13px; padding: 0; margin-right: 10px;
+}
+.link-mark:hover { text-decoration: underline; }
+
 @media (max-width: 600px) {
   .admin-main { padding: 14px 12px 50px; }
   .side-logo { padding: 12px 14px; font-size: 15px; }
@@ -414,4 +441,7 @@
   .admin-auth-card { padding: 22px 20px; }
   .flash { font-size: 13px; padding: 8px 12px; }
   .admin-actions .btn { flex: 1; text-align: center; }
+  .notify-cards { grid-template-columns: 1fr; }
+  .notify-card { padding: 14px 16px; }
+  .notify-num { font-size: 22px; }
 }

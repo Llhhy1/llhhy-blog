@@ -68,6 +68,7 @@ class Comment(db.Model):
     parent_id = db.Column(db.Integer, db.ForeignKey("comment.id"), nullable=True)  # 回复的父评论 id（嵌套回复）
     reply_to = db.Column(db.String(80), default="")  # 被回复者昵称（前端 @ 显示用）
     likes = db.Column(db.Integer, default=0)         # 评论点赞数
+    is_read = db.Column(db.Boolean, default=False)   # 管理员是否已读（新消息提醒）
 
 
 class FriendLink(db.Model):
@@ -230,6 +231,7 @@ class Guestbook(db.Model):
     ip = db.Column(db.String(64), default="")
     region = db.Column(db.String(64), default="")
     device = db.Column(db.String(120), default="")
+    is_read = db.Column(db.Boolean, default=False)   # 管理员是否已读（新消息提醒）
 
 
 class Subscriber(db.Model):

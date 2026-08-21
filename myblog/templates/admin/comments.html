@@ -1,12 +1,19 @@
 {% extends "admin/base.html" %}
 {% block title %}评论管理{% endblock %}
 {% block content %}
-  <h1 class="page-title">💬 评论管理（{{ comments | length }}）</h1>
+  <div class="admin-actions">
+    <h1 class="page-title" style="margin:0;">💬 评论管理（{{ comments | length }}）</h1>
+    {% if pending_comments %}
+    <form method="post" action="{{ url_for('admin.mark_all_comments_read') }}" class="inline-form">
+      <button type="submit" class="btn small">✅ 全部标记已读</button>
+    </form>
+    {% endif %}
+  </div>
   <table class="admin-table">
     <thead><tr><th>文章</th><th>昵称</th><th>内容</th><th>归属地 / 设备</th><th>IP</th><th>时间</th><th>操作</th></tr></thead>
     <tbody>
       {% for c in comments %}
-        <tr>
+        <tr class="{{ 'unread-row' if not c.is_read }}">
           <td><a href="{{ url_for('main.post', slug=c.post.slug) }}">{{ c.post.title }}</a></td>
           <td>{{ c.author }}</td>
           <td>{{ c.content }}</td>
@@ -18,6 +25,11 @@
           <td><code>{{ c.ip or '—' }}</code></td>
           <td>{{ c.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
           <td>
+            {% if not c.is_read %}
+            <form method="post" action="{{ url_for('admin.mark_comment_read', cid=c.id) }}" class="inline-form">
+              <button type="submit" class="link-mark">标为已读</button>
+            </form>
+            {% endif %}
             <form method="post" action="{{ url_for('admin.delete_comment', cid=c.id) }}" class="inline-form" onsubmit="return confirm('确定删除？');">
               <button type="submit" class="link-danger">删除</button>
             </form>

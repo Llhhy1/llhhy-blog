@@ -88,6 +88,22 @@ def unique_slug(base, post_id=None):
     return slug
 
 
+@admin_bp.context_processor
+def inject_notification_counts():
+    """向所有后台模板注入未读评论/未读留言数量，用于导航角标和仪表盘提醒。"""
+    try:
+        pending_comments = Comment.query.filter_by(is_read=False).count()
+        pending_guestbook = Guestbook.query.filter_by(is_read=False).count()
+    except Exception:
+        # 表尚未创建时（首次启动）不报错
+        pending_comments = 0
+        pending_guestbook = 0
+    return {
+        "pending_comments": pending_comments,
+        "pending_guestbook": pending_guestbook,
+    }
+
+
 @admin_bp.route("/login", methods=["GET", "POST"])
 def login():
     """后台登录（普通用户与管理员共用，已与前台统一登录融合）。
@@ -457,6 +473,26 @@ def comments():
     return render_template("admin/comments.html", comments=rows)
 
 
+@admin_bp.route("/comment/<int:cid>/read", methods=["POST"])
+@admin_required
+def mark_comment_read(cid):
+    """单条评论标记为已读。"""
+    c = Comment.query.get_or_404(cid)
+    c.is_read = True
+    db.session.commit()
+    return redirect(url_for("admin.comments"))
+
+
+@admin_bp.route("/comments/read-all", methods=["POST"])
+@admin_required
+def mark_all_comments_read():
+    """全部评论标记为已读。"""
+    Comment.query.filter_by(is_read=False).update({"is_read": True})
+    db.session.commit()
+    flash("全部评论已标记为已读")
+    return redirect(url_for("admin.comments"))
+
+
 @admin_bp.route("/comment/<int:cid>/delete", methods=["POST"])
 @admin_required
 def delete_comment(cid):
@@ -706,6 +742,26 @@ def delete_announcement(aid):
 def manage_guestbook():
     rows = Guestbook.query.order_by(Guestbook.created_at.desc()).all()
     return render_template("admin/guestbook.html", rows=rows)
+
+
+@admin_bp.route("/guestbook/<int:gid>/read", methods=["POST"])
+@admin_required
+def mark_guestbook_read(gid):
+    """单条留言标记为已读。"""
+    g = Guestbook.query.get_or_404(gid)
+    g.is_read = True
+    db.session.commit()
+    return redirect(url_for("admin.manage_guestbook"))
+
+
+@admin_bp.route("/guestbook/read-all", methods=["POST"])
+@admin_required
+def mark_all_guestbook_read():
+    """全部留言标记为已读。"""
+    Guestbook.query.filter_by(is_read=False).update({"is_read": True})
+    db.session.commit()
+    flash("全部留言已标记为已读")
+    return redirect(url_for("admin.manage_guestbook"))
 
 
 @admin_bp.route("/guestbook/<int:gid>/delete", methods=["POST"])

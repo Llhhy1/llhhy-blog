@@ -8,7 +8,7 @@ from flask import (Blueprint, render_template, request, redirect, url_for,
 from werkzeug.utils import secure_filename
 
 from models import (db, Post, Category, Tag, Comment, FriendLink, Setting,
-                    User, ROLE_SUPER, ROLE_ADMIN, ROLE_USER)
+                    User, ROLE_SUPER, ROLE_ADMIN, ROLE_USER, SocialAccount)
 from utils import make_slug
 
 admin_bp = Blueprint("admin", __name__, url_prefix="/admin")
@@ -357,12 +357,24 @@ def links():
                 name=name, url=url,
                 description=(request.form.get("description") or "").strip(),
                 sort=request.form.get("sort", 0, type=int),
+                rss_url=(request.form.get("rss_url") or "").strip(),
             ))
             db.session.commit()
             flash("友链已添加")
         return redirect(url_for("admin.links"))
     links = FriendLink.query.order_by(FriendLink.sort).all()
     return render_template("admin/links.html", links=links)
+
+
+@admin_bp.route("/link/<int:lid>/rss", methods=["POST"])
+@admin_required
+def set_link_rss(lid):
+    """保存某条友链的 RSS 地址（用于「博客圈」聚合）。"""
+    link = FriendLink.query.get_or_404(lid)
+    link.rss_url = (request.form.get("rss_url") or "").strip()
+    db.session.commit()
+    flash("已保存 RSS 地址")
+    return redirect(url_for("admin.links"))
 
 
 @admin_bp.route("/link/<int:lid>/delete", methods=["POST"])
@@ -373,6 +385,37 @@ def delete_link(lid):
     db.session.commit()
     flash("友链已删除")
     return redirect(url_for("admin.links"))
+
+
+@admin_bp.route("/social", methods=["GET", "POST"])
+@admin_required
+def social():
+    """社交账号管理（广场页「我的社交账号」墙）。"""
+    if request.method == "POST":
+        platform = (request.form.get("platform") or "").strip()
+        url = (request.form.get("url") or "").strip()
+        if platform and url:
+            db.session.add(SocialAccount(
+                platform=platform,
+                handle=(request.form.get("handle") or "").strip(),
+                url=url,
+                sort=request.form.get("sort", 0, type=int),
+            ))
+            db.session.commit()
+            flash("社交账号已添加")
+        return redirect(url_for("admin.social"))
+    accounts = SocialAccount.query.order_by(SocialAccount.sort).all()
+    return render_template("admin/social.html", accounts=accounts)
+
+
+@admin_bp.route("/social/<int:aid>/delete", methods=["POST"])
+@admin_required
+def delete_social(aid):
+    acc = SocialAccount.query.get_or_404(aid)
+    db.session.delete(acc)
+    db.session.commit()
+    flash("社交账号已删除")
+    return redirect(url_for("admin.social"))
 
 
 @admin_bp.route("/comments", methods=["GET"])

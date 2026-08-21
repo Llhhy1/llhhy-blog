@@ -9,6 +9,7 @@
         <router-link to="/stats">统计</router-link>
         <router-link to="/about">关于</router-link>
         <router-link to="/links">友链</router-link>
+        <router-link to="/square">广场</router-link>
         <template v-if="state.user">
           <span class="nav-user">
             👤 {{ state.user.username }}

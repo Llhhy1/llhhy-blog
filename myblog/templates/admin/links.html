@@ -6,11 +6,12 @@
     <input type="text" name="name" placeholder="名称" required>
     <input type="text" name="url" placeholder="https://..." required>
     <input type="text" name="description" placeholder="描述（可选）">
+    <input type="text" name="rss_url" placeholder="RSS 地址（可选，用于博客圈聚合）">
     <input type="number" name="sort" value="0" title="排序，越小越靠前">
     <button type="submit" class="btn">添加</button>
   </form>
   <table class="admin-table">
-    <thead><tr><th>名称</th><th>链接</th><th>描述</th><th>操作</th></tr></thead>
+    <thead><tr><th>名称</th><th>链接</th><th>描述</th><th>RSS 地址</th><th>操作</th></tr></thead>
     <tbody>
       {% for l in links %}
         <tr>
@@ -18,13 +19,19 @@
           <td><a href="{{ l.url }}" target="_blank" rel="noopener">{{ l.url }}</a></td>
           <td>{{ l.description }}</td>
           <td>
+            <form method="post" action="{{ url_for('admin.set_link_rss', lid=l.id) }}" class="inline-form link-rss-form">
+              <input type="text" name="rss_url" value="{{ l.rss_url or '' }}" placeholder="https://.../feed.xml">
+              <button type="submit">保存</button>
+            </form>
+          </td>
+          <td>
             <form method="post" action="{{ url_for('admin.delete_link', lid=l.id) }}" class="inline-form" onsubmit="return confirm('确定删除？');">
               <button type="submit" class="link-danger">删除</button>
             </form>
           </td>
         </tr>
       {% else %}
-        <tr><td colspan="4">暂无友链</td></tr>
+        <tr><td colspan="5">暂无友链</td></tr>
       {% endfor %}
     </tbody>
   </table>

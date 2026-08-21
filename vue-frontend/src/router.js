@@ -10,6 +10,7 @@ const routes = [
   { path: "/stats", name: "stats", component: () => import("./views/StatsView.vue") },
   { path: "/about", name: "about", component: () => import("./views/AboutView.vue") },
   { path: "/links", name: "links", component: () => import("./views/LinksView.vue") },
+  { path: "/square", name: "square", component: () => import("./views/SquareView.vue") },
   { path: "/search", name: "search", component: () => import("./views/SearchView.vue") },
   { path: "/login", name: "login", component: () => import("./views/LoginView.vue") },
   { path: "/register", name: "register", component: () => import("./views/RegisterView.vue") },

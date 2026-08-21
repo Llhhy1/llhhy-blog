@@ -9,7 +9,8 @@ import datetime
 from flask import Flask, render_template, request, session, jsonify
 from werkzeug.security import generate_password_hash
 
-from models import db, Post, Category, Tag, Comment, FriendLink, Setting, User, ROLE_SUPER
+from models import (db, Post, Category, Tag, Comment, FriendLink, Setting, User,
+                   ROLE_SUPER, Moment, MomentComment, SocialAccount)
 from utils import make_slug
 from routes import main_bp
 from admin import admin_bp
@@ -88,6 +89,20 @@ def _migrate_comment_table():
                     t = "VARCHAR(64)" if c != "device" else "VARCHAR(120)"
                     conn.execute(db.text(f"ALTER TABLE comment ADD COLUMN {c} {t} DEFAULT ''"))
             print(f"已迁移 comment 表：新增 {', '.join(need)} 列")
+
+
+def _migrate_friendlink_table():
+    """旧库的 friend_link 表补 rss_url 列（友链 RSS 聚合用）。"""
+    from sqlalchemy import inspect
+    ins = inspect(db.engine)
+    if "friend_link" in ins.get_table_names():
+        cols = [c["name"] for c in ins.get_columns("friend_link")]
+        if "rss_url" not in cols:
+            db.session.remove()
+            db.engine.dispose()
+            with db.engine.begin() as conn:
+                conn.execute(db.text("ALTER TABLE friend_link ADD COLUMN rss_url VARCHAR(300) DEFAULT ''"))
+            print("已迁移 friend_link 表：新增 rss_url 列")
 
 
 def _ensure_super_admin(app):
@@ -193,6 +208,7 @@ def create_app():
         _migrate_user_table()
         _migrate_post_table()
         _migrate_comment_table()
+        _migrate_friendlink_table()
         _ensure_settings(app)
         _ensure_super_admin(app)
 

@@ -37,6 +37,7 @@
         <a href="{{ url_for('admin.tags') }}" class="{{ 'active' if ep == 'admin.tags' }}"><span class="nav-emoji">🏷️</span>标签管理</a>
         <a href="{{ url_for('admin.comments') }}" class="{{ 'active' if ep == 'admin.comments' }}"><span class="nav-emoji">💬</span>评论管理{% if pending is defined and pending %} <span class="nav-badge">{{ pending }}</span>{% endif %}</a>
         <a href="{{ url_for('admin.links') }}" class="{{ 'active' if ep == 'admin.links' }}"><span class="nav-emoji">🔗</span>友链管理</a>
+        <a href="{{ url_for('admin.social') }}" class="{{ 'active' if ep == 'admin.social' }}"><span class="nav-emoji">🌐</span>社交账号</a>
         <p class="side-group">系统设置</p>
         <a href="{{ url_for('admin.stats') }}" class="{{ 'active' if ep == 'admin.stats' }}"><span class="nav-emoji">📈</span>访问统计</a>
         {% if current_user.is_super %}

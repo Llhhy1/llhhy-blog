@@ -1,0 +1,33 @@
+{% extends "admin/base.html" %}
+{% block title %}社交账号管理{% endblock %}
+{% block content %}
+  <h1 class="page-title">社交账号管理</h1>
+  <p class="auth-tip">这里维护广场页「我的社交账号」墙，访客可一键前往关注你。</p>
+  <form method="post" action="{{ url_for('admin.social') }}" class="link-form">
+    <input type="text" name="platform" placeholder="平台，如 GitHub" required>
+    <input type="text" name="handle" placeholder="展示名 / @账号（可选）">
+    <input type="text" name="url" placeholder="https://..." required>
+    <input type="number" name="sort" value="0" title="排序，越小越靠前">
+    <button type="submit" class="btn">添加</button>
+  </form>
+  <table class="admin-table">
+    <thead><tr><th>平台</th><th>展示名</th><th>链接</th><th>操作</th></tr></thead>
+    <tbody>
+      {% for a in accounts %}
+        <tr>
+          <td>{{ a.platform }}</td>
+          <td>{{ a.handle }}</td>
+          <td><a href="{{ a.url }}" target="_blank" rel="noopener">{{ a.url }}</a></td>
+          <td>
+            <form method="post" action="{{ url_for('admin.delete_social', aid=a.id) }}" class="inline-form" onsubmit="return confirm('确定删除？');">
+              <button type="submit" class="link-danger">删除</button>
+            </form>
+          </td>
+        </tr>
+      {% else %}
+        <tr><td colspan="4">暂无社交账号</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  <a class="btn" href="{{ url_for('admin.dashboard') }}">返回仪表盘</a>
+{% endblock %}

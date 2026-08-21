@@ -70,6 +70,7 @@ class FriendLink(db.Model):
     url = db.Column(db.String(300), nullable=False)
     description = db.Column(db.String(200))
     sort = db.Column(db.Integer, default=0)  # 排序，越小越靠前
+    rss_url = db.Column(db.String(300), default="")  # 该友链站点的 RSS 地址（留空则不参与「博客圈」聚合）
 
 
 class Setting(db.Model):
@@ -155,3 +156,36 @@ class User(db.Model):
     @property
     def role_label(self):
         return {"super": "超级管理员", "admin": "管理员", "user": "普通用户"}.get(self.role, self.role)
+
+
+class Moment(db.Model):
+    """微动态（微博客）：作者发的短内容，可点赞、可评论。"""
+    id = db.Column(db.Integer, primary_key=True)
+    author_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=True)
+    author = db.relationship("User", foreign_keys=[author_id], viewonly=True)
+    content = db.Column(db.Text, nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    likes = db.Column(db.Integer, default=0)
+    comments = db.relationship("MomentComment", backref="moment",
+                               cascade="all, delete-orphan", lazy="dynamic")
+
+
+class MomentComment(db.Model):
+    """微动态评论。"""
+    id = db.Column(db.Integer, primary_key=True)
+    moment_id = db.Column(db.Integer, db.ForeignKey("moment.id"), nullable=False)
+    author = db.Column(db.String(80), nullable=False)
+    content = db.Column(db.Text, nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    ip = db.Column(db.String(64), default="")       # 评论者 IP（异步回填归属地）
+    region = db.Column(db.String(64), default="")   # 归属地
+    device = db.Column(db.String(120), default="")  # 设备信息
+
+
+class SocialAccount(db.Model):
+    """作者的社交账号（广场页「我的社交账号」墙）。"""
+    id = db.Column(db.Integer, primary_key=True)
+    platform = db.Column(db.String(40), nullable=False)   # 如 GitHub / Bilibili / 知乎 / 微博
+    handle = db.Column(db.String(120), default="")         # 展示名 / @账号
+    url = db.Column(db.String(300), nullable=False)
+    sort = db.Column(db.Integer, default=0)                # 排序，越小越靠前

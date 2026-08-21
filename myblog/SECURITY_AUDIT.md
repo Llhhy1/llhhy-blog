@@ -311,6 +311,26 @@
 - 无新漏洞；隔离冒烟渲染通过（section-box 6 处、table-scroll 1 处、无 v2.6.9 残留）
 - CSS 配平 OK（681 行）
 
+## 四·补十二、第十四轮审计（2026-08-21 · v2.6.12 大框随主题切换）
+
+> 用户确认 v2.6.11 布局正确，但要求大框（section-box）颜色随深/浅主题切换。
+
+### 12.1 改动内容
+
+- `admin.css`：将 section-box 及其内部 panel 的颜色由写死值改为 CSS 变量驱动
+  - `.admin` 作用域定义浅色变量：`--box-bg:#f4f6f8` / `--box-border:#e6e8eb` / `--inner-bg:#ffffff`
+  - `[data-theme="dark"] .admin` 定义深色变量：`--box-bg:#1b1e23` / `--box-border:#333a44` / `--inner-bg:#23272e`
+  - `.section-box` 用 `var(--box-bg)` / `var(--box-border)`；`.section-box .panel` 用 `var(--inner-bg)` / `var(--box-border)`
+  - 暗色段补 `[data-theme="dark"] .section-box .panel` 覆盖通用 `.panel` 暗色规则，保证边框/背景统一跟随
+- `data-theme` 挂在 `<html>`（documentElement），`[data-theme="dark"] .admin` 继承链正确
+
+### 12.2 安全评估
+
+- 纯 CSS 变量重构，无后端逻辑改动，无用户输入、无 XSS/SQL/越权面
+- 变量 fallback 保留原默认值，浅色/深色均显式定义，无未定义风险
+- 隔离冒烟渲染通过（dashboard 200，section-box 6 处、table-scroll 1 处）
+- CSS 配平 OK（695 行）
+
 ## 五、上线前必做（宝塔面板 · 环境变量配置）
 
 程序启动**必须**存在两个环境变量（缺失即拒绝启动）：

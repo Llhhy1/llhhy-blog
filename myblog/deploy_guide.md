@@ -191,22 +191,50 @@
 
 ---
 
-## 一键更新脚本（最简单 · 推荐）
+## 一键更新脚本（懒人版 · 推荐，连重启都自动）
 
-> 如果觉得手动传 zip 麻烦，用仓库根目录的 **`update.sh`**：一条命令自动完成「下载最新 Release → 备份数据 → 覆盖代码」，只剩最后一步去宝塔重启。
+> 仓库根目录的 **`update.sh`**：一条命令自动完成「下载最新 Release → 备份数据 → 覆盖代码 → **自动重启后端**」，全程无需手动操作。
 
-**首次配置（只需一次，约 2 分钟）：**
+**首次配置（只需一次，约 3 分钟）：**
 
-1. 在仓库下载 `update.sh`（或从 [GitHub 仓库根目录](https://github.com/Llhhy1/llhhy-blog) 直接下载 raw 文件）。
+1. 在仓库下载 `update.sh`（[GitHub 仓库根目录](https://github.com/Llhhy1/llhhy-blog) → 点 `update.sh` → 右上角「Download raw file」）。
 2. 宝塔「文件」→ 上传到 `/www/wwwroot/myblog/update.sh`。
-3. 宝塔「终端」执行一行：
+3. （推荐）确认宝塔环境支持自动重启，见下方「宝塔环境配置（自动重启的前提）」。
+4. 宝塔「终端」执行一行：
    ```bash
    bash /www/wwwroot/myblog/update.sh
    ```
-4. 脚本跑完会提示「去宝塔点停止→启动」。以后每次更新都重复第 3 步即可（也可以配置宝塔「计划任务」定时自动跑，比如每周一次）。
+5. 脚本跑完即更新完成。以后每次更新**只需要再跑这一条命令**；也可以配置宝塔「计划任务」每周自动跑一次（shell 脚本任务，命令同上），连跑都不用跑。
 
-> **脚本做了什么**：查最新版本号 → 下载后端/前端 zip → 备份 `data/blog.db` 和 `static/uploads/` 到 `data/backup/` → 覆盖代码（跳过 `data/`，数据库永远保留）→ 提示重启。
-> 若服务器装了 supervisor，可在脚本顶部填 `RESTART_CMD="supervisorctl restart myblog"` 实现全自动，连重启都不用点。
+> **脚本做了什么**：查最新版本号 → 下载后端/前端 zip → 备份 `data/blog.db` 和 `static/uploads/` 到 `data/backup/` → 覆盖代码（跳过 `data/`，数据库永远保留）→ **自动重启后端**（见下）。
+>
+> **自动重启原理（懒人的关键）**：脚本依次尝试——
+> ① 若脚本顶部填了 `RESTART_CMD`，直接执行它；
+> ② 探测 `supervisorctl`（宝塔 Python 项目底层就是 supervisor 管理），自动找到指向你项目目录的 supervisor 项目名并 `restart`；
+> ③ 若没装 supervisor，则向 gunicorn 发 `HUP` 信号优雅重载（加载新代码、不中断请求）；
+> ④ 以上都失败才提示手动去宝塔点「停止→启动」。
+>
+> 脚本顶部可填：`PROJECT_NAME="myblog"`（宝塔 Python 项目名，填了重启最稳）、或 `RESTART_CMD="supervisorctl restart myblog"`（手动指定重启命令，优先级最高）。
+
+### 宝塔环境配置（自动重启的前提）
+
+要让脚本能"一键重启"，服务器需要满足以下任一条件（**都不需要也行**，脚本会退化为提示你手动点）：
+
+| 方式 | 需要做什么 | 效果 |
+|---|---|---|
+| **A. supervisor（推荐，最稳）** | 宝塔「软件商店」搜索安装 **Supervisor 管理器**（宝塔自带插件）；装好后**重启一次 Python 项目**让 supervisor 接管 | 脚本自动 `supervisorctl restart`，完全自动 |
+| B. gunicorn HUP | 什么都不用装（默认就有） | 脚本向 gunicorn 发 HUP 热重载，一般能生效 |
+| C. 手动 | 无 | 脚本最后提示你去宝塔点「停止→启动」 |
+
+**确认 supervisor 是否接管了你的项目**（宝塔终端执行）：
+
+```bash
+supervisorctl status
+# 若输出里有你的项目名（如 myblog RUNNING）→ 方式 A 生效，脚本可全自动重启
+# 若提示 command not found → 未装 supervisor，走方式 B/C
+```
+
+> 装好 supervisor 后记得：宝塔「网站 → Python项目」→ 你的项目 → 重新「停止→启动」一次（让 supervisor 注册接管），再跑 `supervisorctl status` 确认。
 
 ## 版本升级（老版本 → 新版本）
 

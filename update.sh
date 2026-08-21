@@ -1,19 +1,22 @@
 #!/usr/bin/env bash
 # =============================================================
-# llhhy-blog 一键更新脚本（最简方式，无需 Webhook / 无需环境变量）
-# 作用：自动完成「下载最新 Release → 备份数据 → 覆盖代码 → 提示重启」
-# 用法（宝塔终端执行，一行搞定）：
+# llhhy-blog 一键更新脚本（懒人版 · 全自动，连重启都不用点）
+# 作用：自动完成「下载最新 Release → 备份数据 → 覆盖代码 → 自动重启后端」
+# 用法（宝塔终端执行，一行搞定，全程无需手动操作）：
 #   bash /www/wwwroot/myblog/update.sh
-# 效果：脚本帮你做了平时手动更新的全部步骤，唯一需要你做的
-#       是最后按提示去宝塔点一下「停止→启动」（或配置自动重启）。
+# 自动重启原理：宝塔「Python项目」底层用 supervisor 管理 gunicorn，
+#   脚本会自动探测 supervisor 里的项目进程名并 restart；
+#   若没装 supervisor，则热重载 gunicorn 兜底（加载新代码）。
 # =============================================================
 set -e
 
-# ===== 首次使用：按你的服务器改这 3 行 =====
+# ===== 首次使用：按你的服务器改这几行 =====
 REPO="Llhhy1/llhhy-blog"                 # GitHub 仓库，一般不用改
 APP_DIR="/www/wwwroot/myblog"            # 后端运行目录（Python 项目路径）
 FRONT_DIR="/www/wwwroot/vue-frontend"    # 前端静态目录（Nginx 网站根）
-# 可选：想自动重启就填一行命令（宝塔装了 supervisor 可填：supervisorctl restart myblog）
+PROJECT_NAME=""                          # 宝塔 Python 项目名称（如 myblog）；留空则自动探测
+# 手动指定重启命令时填（优先使用，覆盖自动探测）：
+#   RESTART_CMD="supervisorctl restart myblog"
 RESTART_CMD=""
 
 WORK="/tmp/llhhy_update"
@@ -21,8 +24,48 @@ TS=$(date +%Y%m%d_%H%M%S)
 mkdir -p "$WORK"
 log(){ echo "[$(date '+%F %T')] $*"; }
 
+# ===== 自动重启函数：优先 supervisor，其次 gunicorn HUP，最后提示 =====
+auto_restart() {
+  log "⑥ 重启后端服务..."
+  # 1. 用户手动指定了重启命令 → 直接用
+  if [ -n "$RESTART_CMD" ]; then
+    if eval "$RESTART_CMD"; then log "   重启命令执行成功。"; return 0; fi
+    log "   ⚠️ 重启命令执行失败，尝试自动探测..."; 
+  fi
+  # 2. 探测 supervisor 管理的项目（宝塔 Python 项目默认走 supervisor）
+  if command -v supervisorctl >/dev/null 2>&1; then
+    # 2a. 用户给了 PROJECT_NAME → 直接 restart
+    if [ -n "$PROJECT_NAME" ]; then
+      if supervisorctl status "$PROJECT_NAME" >/dev/null 2>&1; then
+        supervisorctl restart "$PROJECT_NAME" && log "   已通过 supervisor 重启「$PROJECT_NAME」。"
+        return 0
+      fi
+      log "   ⚠️ supervisor 中找不到项目「$PROJECT_NAME」，继续探测..."
+    fi
+    # 2b. 自动探测：找配置目录指向 APP_DIR 的项目
+    for conf in /etc/supervisor/conf.d/*.conf /www/server/panel/plugin/supervisor/*.conf; do
+      [ -f "$conf" ] || continue
+      if grep -q "$APP_DIR" "$conf" 2>/dev/null; then
+        name=$(basename "$conf" .conf)
+        if supervisorctl status "$name" >/dev/null 2>&1; then
+          supervisorctl restart "$name" && log "   已自动探测并重启 supervisor 项目「$name」。"
+          return 0
+        fi
+      fi
+    done
+  fi
+  # 3. 兜底：向 gunicorn 发 HUP 信号优雅重载（加载新代码，不中断请求）
+  if pgrep -f "gunicorn.*$APP_DIR" >/dev/null 2>&1 || pgrep -f "gunicorn" >/dev/null 2>&1; then
+    pkill -HUP -f "gunicorn" && log "   已向 gunicorn 发送 HUP 信号（优雅重载新代码）。"
+    sleep 2
+    return 0
+  fi
+  # 4. 都失败 → 提示手动
+  log "   ⚠️ 无法自动重启，请手动去宝塔「网站 → Python项目」→ 点「停止」再「启动」。"
+}
+
 log "==============================================="
-log " 一键更新 llhhy-blog（自动下载最新 Release）"
+log " 一键更新 llhhy-blog（懒人版 · 自动下载+备份+覆盖+重启）"
 log "==============================================="
 cd "$WORK"
 
@@ -81,14 +124,11 @@ else
   log "   ⚠️ 前端目录 $FRONT_DIR 不存在，跳过（请检查路径）。"
 fi
 
-# 6. 重启提示
+# 6. 自动重启后端
+auto_restart
+
 log "==============================================="
-log "✅ 代码已更新到 $TAG"
-if [ -n "$RESTART_CMD" ]; then
-  log "⑥ 自动重启后端..."
-  eval "$RESTART_CMD" || log "   自动重启失败，请手动在宝塔重启。"
-else
-  log "⑥ 最后一步（必做）：去宝塔「网站 → Python项目」→ 点「停止」再「启动」。"
-  log "   然后浏览器无痕打开后台，左下角版本号应为 $TAG。"
-fi
+log "✅ 全部完成！代码已更新到 $TAG"
+log "   后台左下角版本号应为 $TAG；若无痕窗口打开还是旧版，"
+log "   请去宝塔「网站 → Python项目」手动「停止→启动」一次。"
 log "==============================================="

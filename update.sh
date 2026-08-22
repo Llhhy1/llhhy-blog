@@ -79,17 +79,20 @@ gh_fetch() {  # gh_fetch <url> <outfile|->
   return 1
 }
 
-# ===== 自动重启函数：优先 supervisor，其次 gunicorn HUP，最后提示 =====
+# ===== 自动重启函数：优先 supervisor，其次「真杀+真启动」，最后提示 =====
+# ⚠️ 关键修复（v3.0.0）：严禁用 HUP 热重载！
+#    HUP 只让 gunicorn master fork 新 worker，master 不退出；当改了 import / 表结构时，
+#    老 worker 仍在服务旧代码，表现为「更新完不重启 / 还是旧版」。
+#    正确做法 = 真杀 master（TERM）→ 等退出 → 用原启动命令重新拉起（停止→启动）。
 auto_restart() {
   log "⑥ 重启后端服务..."
-  # 1. 用户手动指定了重启命令 → 直接用
+  # 1. 用户手动指定了重启命令 → 直接用（supervisor restart 本身是 停+起，安全）
   if [ -n "$RESTART_CMD" ]; then
     if eval "$RESTART_CMD"; then log "   重启命令执行成功。"; return 0; fi
-    log "   ⚠️ 重启命令执行失败，尝试自动探测..."; 
+    log "   ⚠️ 重启命令执行失败，尝试自动探测..."
   fi
   # 2. 探测 supervisor 管理的项目（宝塔 Python 项目默认走 supervisor）
   if command -v supervisorctl >/dev/null 2>&1; then
-    # 2a. 用户给了 PROJECT_NAME → 直接 restart
     if [ -n "$PROJECT_NAME" ]; then
       if supervisorctl status "$PROJECT_NAME" >/dev/null 2>&1; then
         supervisorctl restart "$PROJECT_NAME" && log "   已通过 supervisor 重启「$PROJECT_NAME」。"
@@ -97,7 +100,6 @@ auto_restart() {
       fi
       log "   ⚠️ supervisor 中找不到项目「$PROJECT_NAME」，继续探测..."
     fi
-    # 2b. 自动探测：找配置目录指向 APP_DIR 的项目
     for conf in /etc/supervisor/conf.d/*.conf /www/server/panel/plugin/supervisor/*.conf; do
       [ -f "$conf" ] || continue
       if grep -q "$APP_DIR" "$conf" 2>/dev/null; then
@@ -109,15 +111,37 @@ auto_restart() {
       fi
     done
   fi
-  # 3. 兜底：向 gunicorn 发 HUP 信号优雅重载（加载新代码，不中断请求）
-  if pgrep -f "gunicorn.*$APP_DIR" >/dev/null 2>&1 || pgrep -f "gunicorn" >/dev/null 2>&1; then
-    pkill -HUP -f "gunicorn" && log "   已向 gunicorn 发送 HUP 信号（优雅重载新代码）。"
-    sleep 2
-    return 0
+  # 3. 兜底：真杀旧 gunicorn master（TERM）→ 等退出 → 用记住的启动命令重新拉起
+  #    3a. 找到 gunicorn master（注意：master 进程本身不带 worker 计数，用 pgrep 取主）
+  local pid
+  pid=$(pgrep -f "gunicorn.*$APP_DIR" 2>/dev/null | head -1)
+  [ -z "$pid" ] && pid=$(pgrep -f "gunicorn" 2>/dev/null | head -1)
+  if [ -n "$pid" ]; then
+    log "   找到 gunicorn 进程 pid=$pid，发送 TERM 真正停止..."
+    kill -TERM "$pid" 2>/dev/null || pkill -TERM -f "gunicorn"
+    # 等待进程真正退出（最多 15 秒）
+    local waited=0
+    while kill -0 "$pid" 2>/dev/null && [ $waited -lt 15 ]; do sleep 1; waited=$((waited+1)); done
+    pkill -9 -f "gunicorn" 2>/dev/null || true   # 兜底强杀残留 worker
+    sleep 1
+    log "   旧进程已停止。"
+  else
+    log "   未发现运行中的 gunicorn 进程（可能已停止），直接进入启动。"
   fi
-  # 4. 都失败 → 提示手动
-  log "   ⚠️ 无法自动重启，请手动去宝塔「网站 → Python项目」→ 点「停止」再「启动」。"
-  set_status "partial" "代码已更新，但自动重启未生效，请手动在宝塔重启项目"
+  # 3b. 用记住的启动命令重新拉起（首次需手动启动一次以记录，见下方说明）
+  local start_cmd
+  start_cmd=$(cat "$APP_DIR/data/start_cmd.txt" 2>/dev/null)
+  if [ -n "$start_cmd" ]; then
+    log "   用记录的启动命令重新拉起：$start_cmd"
+    eval "$start_cmd" && { log "   已重新启动（停止→启动 完成）。"; return 0; }
+    log "   ⚠️ 启动命令执行失败，请检查 start_cmd.txt 内容。"
+  else
+    log "   ⚠️ 未发现记录的启动命令（data/start_cmd.txt）。"
+  fi
+  # 4. 都失败 → 提示手动（并告诉用户如何记录启动命令）
+  log "   ⚠️ 无法自动重启。请手动在宝塔「网站 → Python项目」点「停止」再「启动」；"
+  log "      若想以后全自动：在服务器上用你的启动命令跑一次并追加 'echo 命令 > $APP_DIR/data/start_cmd.txt' 记录它。"
+  set_status "partial" "代码已更新，但自动重启未生效，请手动在宝塔重启项目（停止→启动）"
 }
 
 set_status "started" "开始更新"

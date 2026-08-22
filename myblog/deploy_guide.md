@@ -209,10 +209,12 @@
 > **脚本做了什么**：查最新版本号 → 下载后端/前端 zip → 备份 `data/blog.db` 和 `static/uploads/` 到 `data/backup/` → 覆盖代码（跳过 `data/`，数据库永远保留）→ **自动重启后端**（见下）。
 >
 > **自动重启原理（懒人的关键）**：脚本依次尝试——
-> ① 若脚本顶部填了 `RESTART_CMD`，直接执行它；
+> ① 若脚本顶部填了 `RESTART_CMD`，直接执行它（supervisor `restart` 本身是停+起，安全）；
 > ② 探测 `supervisorctl`（宝塔 Python 项目底层就是 supervisor 管理），自动找到指向你项目目录的 supervisor 项目名并 `restart`；
-> ③ 若没装 supervisor，则向 gunicorn 发 `HUP` 信号优雅重载（加载新代码、不中断请求）；
+> ③ 若没装 supervisor，则**真杀 gunicorn master（`kill -TERM`）→ 等待退出 → 用记录的启动命令重新拉起**（见下方 `start_cmd.txt`）；
 > ④ 以上都失败才提示手动去宝塔点「停止→启动」。
+>
+> ⚠️ **严禁 HUP 热重载**：早期脚本用 `pkill -HUP` 优雅重载，但 HUP 只让 gunicorn master fork 新 worker、**master 不退出**。当版本改动涉及 import / 表结构（如 v3.0.0 新增 4 张表 + 模型 import）时，老 worker 仍在服务旧代码，表现为「更新完不重启 / 还是旧版」。v3.0.0 起已改为「真杀 + 真启动」。
 >
 > 脚本顶部可填：`PROJECT_NAME="myblog"`（宝塔 Python 项目名，填了重启最稳）、或 `RESTART_CMD="supervisorctl restart myblog"`（手动指定重启命令，优先级最高）。
 
@@ -223,8 +225,17 @@
 | 方式 | 需要做什么 | 效果 |
 |---|---|---|
 | **A. supervisor（推荐，最稳）** | 宝塔「软件商店」搜索安装 **Supervisor 管理器**（宝塔自带插件）；装好后**重启一次 Python 项目**让 supervisor 接管 | 脚本自动 `supervisorctl restart`，完全自动 |
-| B. gunicorn HUP | 什么都不用装（默认就有） | 脚本向 gunicorn 发 HUP 热重载，一般能生效 |
+| **B. 记录启动命令（无 supervisor 时推荐）** | 把宝塔 Python 项目的「启动命令」写入 `data/start_cmd.txt`（见下） | 脚本真杀 gunicorn 后用该命令重新拉起，全自动 |
 | C. 手动 | 无 | 脚本最后提示你去宝塔点「停止→启动」 |
+
+**方式 B 配置（只需一次）**：在宝塔「Python 项目 → 设置 → 启动命令」复制那行命令，在服务器终端执行（把 gunicorn 启动那行原样写进文件，注意用 `nohup ... &` 后台化）：
+
+```bash
+# 示例（按你宝塔实际启动命令改）：
+echo 'nohup /www/wwwroot/myblog/venv/bin/gunicorn -w 3 -b 127.0.0.1:8000 app:app >/www/wwwroot/myblog/gunicorn.log 2>&1 &' > /www/wwwroot/myblog/data/start_cmd.txt
+```
+
+> 此后 `update.sh` 在第 ③ 步会自动 `kill -TERM` 旧进程并用 `start_cmd.txt` 重新拉起，实现真正的「停止→启动」。
 
 **确认 supervisor 是否接管了你的项目**（宝塔终端执行）：
 

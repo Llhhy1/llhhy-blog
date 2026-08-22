@@ -17,8 +17,11 @@ FRONT_DIR="/www/wwwroot/vue-frontend"  # 前端静态目录（Nginx 网站根）
 # 重启后端的方式（宝塔环境任选其一）：
 #   A. 宝塔已装 supervisor：sudo supervisorctl restart myblog
 #   B. 宝塔计划任务/服务：/etc/init.d/myblog restart
-#   C. 不自动重启（仅拉代码），由你手动在宝塔点「停止→启动」
-RESTART_CMD="echo '[deploy] 未配置自动重启命令，请手动在宝塔重启 Python 项目'"
+#   C. 留空 → 脚本自动「真杀 gunicorn(Term) + 用 data/start_cmd.txt 重新拉起」
+# ⚠️ v3.0.0 修复：严禁 HUP 热重载（master 不退出会导致旧代码仍在跑）。
+#    首次全自动需先在服务器用你的启动命令跑一次并记录：
+#      echo 'nohup /path/to/gunicorn -w 3 -b 127.0.0.1:8000 app:app >/www/wwwroot/myblog/gunicorn.log 2>&1 &' > /www/wwwroot/myblog/data/start_cmd.txt
+RESTART_CMD=""
 
 # ===== 以下一般不用改 =====
 WORK="/tmp/llhhy_deploy"
@@ -74,8 +77,20 @@ else
   log "⚠️ 前端目录 $FRONT_DIR 不存在，跳过前端覆盖（请检查路径）"
 fi
 
-# 6. 重启后端（Python 项目）
-log "执行重启命令..."
-eval "$RESTART_CMD"
+# 6. 重启后端（Python 项目）—— 真杀 + 真启动（严禁 HUP）
+if [ -n "$RESTART_CMD" ]; then
+  log "执行重启命令..."
+  eval "$RESTART_CMD"
+elif [ -f "$APP_DIR/data/start_cmd.txt" ]; then
+  # 有记录的启动命令 → 先真杀旧 gunicorn，再拉起
+  pid=$(pgrep -f "gunicorn.*$APP_DIR" 2>/dev/null | head -1)
+  [ -z "$pid" ] && pid=$(pgrep -f "gunicorn" 2>/dev/null | head -1)
+  [ -n "$pid" ] && { kill -TERM "$pid" 2>/dev/null; sleep 3; pkill -9 -f "gunicorn" 2>/dev/null || true; }
+  start_cmd=$(cat "$APP_DIR/data/start_cmd.txt")
+  log "用记录的启动命令重新拉起：$start_cmd"
+  eval "$start_cmd"
+else
+  log "⚠️ 未配置 RESTART_CMD 且无 start_cmd.txt，代码已更新但未重启。请手动在宝塔「停止→启动」。"
+fi
 
 log "✅ 自动部署完成（$TAG）。请用无痕窗口访问后台，左下角版本号应为 $TAG"

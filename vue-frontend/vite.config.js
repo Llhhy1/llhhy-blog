@@ -13,6 +13,6 @@ export default defineConfig({
     },
   },
   build: {
-    outDir: "dist_v311",
+    outDir: "dist_v312",
   },
 });

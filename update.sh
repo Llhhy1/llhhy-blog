@@ -112,17 +112,36 @@ auto_restart() {
     done
   fi
   # 3. 兜底：真杀旧 gunicorn master（TERM）→ 等退出 → 用记住的启动命令重新拉起
-  #    3a. 找到 gunicorn master（注意：master 进程本身不带 worker 计数，用 pgrep 取主）
-  local pid
-  pid=$(pgrep -f "gunicorn.*$APP_DIR" 2>/dev/null | head -1)
-  [ -z "$pid" ] && pid=$(pgrep -f "gunicorn" 2>/dev/null | head -1)
+  #    ⚠️ v3.1.1 修复：优先读 gunicorn 自己的 pidfile（配置里 pidfile=...），
+  #       只杀「自己这个 master pid」，绝不 pkill -f "gunicorn" 粗放匹配——
+  #       否则会误匹配到 root 启动的其他 gunicorn 进程，导致 Operation not permitted。
+  #       若 pidfile 不存在/为空，再用精确匹配 APP_DIR 的 pgrep 作为兜底（仍避开 root 进程）。
+  local pid pidfile="$APP_DIR/gunicorn.pid"
+  if [ -f "$pidfile" ] && [ -s "$pidfile" ]; then
+    pid=$(cat "$pidfile" 2>/dev/null | tr -d '[:space:]' | head -1)
+    # 校验 pid 是数字且进程确实存活
+    case "$pid" in
+      ''|*[!0-9]*) pid="" ;;
+    esac
+    if [ -n "$pid" ] && ! kill -0 "$pid" 2>/dev/null; then pid=""; fi
+  fi
+  # 兜底：精确匹配本项目的 gunicorn（避免 pkill 全局误杀 root 进程）
+  if [ -z "$pid" ]; then
+    pid=$(pgrep -f "gunicorn.*$APP_DIR" 2>/dev/null | head -1)
+  fi
   if [ -n "$pid" ]; then
-    log "   找到 gunicorn 进程 pid=$pid，发送 TERM 真正停止..."
-    kill -TERM "$pid" 2>/dev/null || pkill -TERM -f "gunicorn"
+    log "   找到 gunicorn master pid=$pid，发送 TERM 真正停止..."
+    if ! kill -TERM "$pid" 2>/dev/null; then
+      # 杀不掉（权限不足等）→ 明确失败，不误报成功
+      log "   ❌ 无法终止进程 pid=$pid（权限不足？是否跨用户运行）。请检查运行账户与进程属主。"
+      set_status "partial" "代码已更新，但终止旧进程失败(权限不足)，请手动在宝塔重启项目（停止→启动）"
+      return 1
+    fi
     # 等待进程真正退出（最多 15 秒）
     local waited=0
     while kill -0 "$pid" 2>/dev/null && [ $waited -lt 15 ]; do sleep 1; waited=$((waited+1)); done
-    pkill -9 -f "gunicorn" 2>/dev/null || true   # 兜底强杀残留 worker
+    # 仅当上面的 pid 还活着才强杀（避免误杀其他进程）
+    kill -0 "$pid" 2>/dev/null && { pkill -9 -f "gunicorn.*$APP_DIR" 2>/dev/null || true; }
     sleep 1
     log "   旧进程已停止。"
   else
@@ -133,10 +152,29 @@ auto_restart() {
   start_cmd=$(cat "$APP_DIR/data/start_cmd.txt" 2>/dev/null)
   if [ -n "$start_cmd" ]; then
     log "   用记录的启动命令重新拉起：$start_cmd"
-    eval "$start_cmd" && { log "   已重新启动（停止→启动 完成）。"; return 0; }
-    log "   ⚠️ 启动命令执行失败，请检查 start_cmd.txt 内容。"
+    if eval "$start_cmd"; then log "   已重新启动（停止→启动 完成）。"; return 0; fi
+    log "   ⚠️ 启动命令执行失败，尝试用 gunicorn.conf 兜底..."
+  fi
+  # 3c. 兜底：用项目目录下的 gunicorn.conf（配置里已写 pidfile，能正确生成 pid 文件）
+  #     优先 venv 内的 gunicorn，其次系统 gunicorn
+  local conf="$APP_DIR/gunicorn.conf" gun
+  if [ ! -f "$conf" ] && [ -f "$APP_DIR/gunicorn.conf.py" ]; then conf="$APP_DIR/gunicorn.conf.py"; fi
+  if [ -f "$conf" ]; then
+    if [ -x "$APP_DIR/venv/bin/gunicorn" ]; then gun="$APP_DIR/venv/bin/gunicorn"
+    elif command -v gunicorn >/dev/null 2>&1; then gun="gunicorn"
+    else gun=""; fi
+    if [ -n "$gun" ]; then
+      log "   用 gunicorn.conf 兜底拉起：$gun -c $conf app:app"
+      ( cd "$APP_DIR" && nohup "$gun" -c "$conf" app:app >/www/wwwroot/myblog/gunicorn.log 2>&1 & )
+      sleep 2
+      if [ -f "$APP_DIR/gunicorn.pid" ] && kill -0 "$(cat "$APP_DIR/gunicorn.pid" 2>/dev/null)" 2>/dev/null; then
+        log "   已用 conf 兜底重新启动（停止→启动 完成）。"
+        return 0
+      fi
+      log "   ⚠️ conf 兜底启动后未检测到 pid，请检查 gunicorn.log。"
+    fi
   else
-    log "   ⚠️ 未发现记录的启动命令（data/start_cmd.txt）。"
+    log "   ⚠️ 未发现记录的启动命令（data/start_cmd.txt），也未找到 gunicorn.conf。"
   fi
   # 4. 都失败 → 提示手动（并告诉用户如何记录启动命令）
   log "   ⚠️ 无法自动重启。请手动在宝塔「网站 → Python项目」点「停止」再「启动」；"

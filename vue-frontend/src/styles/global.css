@@ -236,7 +236,7 @@ button:hover, .btn:hover { background: color-mix(in srgb, var(--accent), #000 15
   .drawer-nav a:hover { background: rgba(26,115,232,.08); border-left-color: var(--accent); color: var(--accent); }
   .drawer-foot { margin-top: auto; padding: 14px 16px; border-top: 1px solid var(--nav-border);
     display: flex; flex-direction: column; gap: 8px; }
-  .drawer-user { color: #666; font-size: 13px; padding: 4px 0; }
+  .drawer-user { color: var(--nav-fg); opacity: .7; font-size: 13px; padding: 4px 0; }
   .drawer-link { padding: 10px 12px; border-radius: 8px; background: rgba(26,115,232,.06);
     color: var(--nav-fg); text-decoration: none; font-size: 14px; border: none; text-align: left; cursor: pointer; }
   .drawer-theme { font-size: 14px; }
@@ -257,6 +257,11 @@ button:hover, .btn:hover { background: color-mix(in srgb, var(--accent), #000 15
 .theme-toggle:hover { background: #f0f0f0 !important; }
 
 /* 暗色模式 */
+[data-theme="dark"] {
+  --nav-bg: #1d2025;
+  --nav-fg: #d7d9dc;
+  --nav-border: #2a2e35;
+}
 [data-theme="dark"] body { background: #15171a; color: #d7d9dc; }
 [data-theme="dark"] .site-header { background: #1d2025; border-color: #2a2e35; }
 [data-theme="dark"] .logo,
@@ -271,6 +276,12 @@ button:hover, .btn:hover { background: color-mix(in srgb, var(--accent), #000 15
   box-shadow: none;
   border: 1px solid rgba(255,255,255,.15);
 }
+/* 抽屉暗色：用导航变量统一底色/文字/边框，hover 与按钮背景加深 */
+[data-theme="dark"] .drawer { background: var(--nav-bg); border-right-color: var(--nav-border); }
+[data-theme="dark"] .drawer-head,
+[data-theme="dark"] .drawer-foot { border-color: var(--nav-border); }
+[data-theme="dark"] .drawer-nav a:hover { background: rgba(124,176,255,.14); color: #7cb0ff; }
+[data-theme="dark"] .drawer-link { background: rgba(124,176,255,.12); color: var(--nav-fg); }
 [data-theme="dark"] .widget,
 [data-theme="dark"] .post-card,
 [data-theme="dark"] .post-detail,

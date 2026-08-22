@@ -78,17 +78,56 @@ else
 fi
 
 # 6. 重启后端（Python 项目）—— 真杀 + 真启动（严禁 HUP）
+#    v3.1.1 修复：优先读 gunicorn 自己的 pidfile（配置里 pidfile=/www/wwwroot/myblog/gunicorn.pid），
+#       只杀「自己这个 master pid」，绝不 pkill -f "gunicorn" 粗放匹配——否则会误匹配到 root 启动的
+#       其他 gunicorn 进程，导致 Operation not permitted。
 if [ -n "$RESTART_CMD" ]; then
   log "执行重启命令..."
   eval "$RESTART_CMD"
 elif [ -f "$APP_DIR/data/start_cmd.txt" ]; then
-  # 有记录的启动命令 → 先真杀旧 gunicorn，再拉起
-  pid=$(pgrep -f "gunicorn.*$APP_DIR" 2>/dev/null | head -1)
-  [ -z "$pid" ] && pid=$(pgrep -f "gunicorn" 2>/dev/null | head -1)
-  [ -n "$pid" ] && { kill -TERM "$pid" 2>/dev/null; sleep 3; pkill -9 -f "gunicorn" 2>/dev/null || true; }
+  # 有记录的启动命令 → 先精确真杀旧 gunicorn，再拉起
+  pid=""
+  pidfile="$APP_DIR/gunicorn.pid"
+  if [ -f "$pidfile" ] && [ -s "$pidfile" ]; then
+    pid=$(cat "$pidfile" 2>/dev/null | tr -d '[:space:]' | head -1)
+    case "$pid" in
+      ''|*[!0-9]*) pid="" ;;
+    esac
+    if [ -n "$pid" ] && ! kill -0 "$pid" 2>/dev/null; then pid=""; fi
+  fi
+  if [ -z "$pid" ]; then
+    pid=$(pgrep -f "gunicorn.*$APP_DIR" 2>/dev/null | head -1)
+  fi
+  if [ -n "$pid" ]; then
+    log "找到 gunicorn master pid=$pid，发送 TERM 真正停止..."
+    if ! kill -TERM "$pid" 2>/dev/null; then
+      log "❌ 无法终止进程 pid=$pid（权限不足？是否跨用户运行）。请手动在宝塔重启项目（停止→启动）。"
+      exit 1
+    fi
+    waited=0
+    while kill -0 "$pid" 2>/dev/null && [ $waited -lt 15 ]; do sleep 1; waited=$((waited+1)); done
+    kill -0 "$pid" 2>/dev/null && { pkill -9 -f "gunicorn.*$APP_DIR" 2>/dev/null || true; }
+    sleep 1
+    log "旧进程已停止。"
+  else
+    log "未发现运行中的 gunicorn 进程，直接进入启动。"
+  fi
   start_cmd=$(cat "$APP_DIR/data/start_cmd.txt")
   log "用记录的启动命令重新拉起：$start_cmd"
-  eval "$start_cmd"
+  if ! eval "$start_cmd"; then
+    log "⚠️ 启动命令执行失败，尝试用 gunicorn.conf 兜底..."
+    conf="$APP_DIR/gunicorn.conf"
+    [ -f "$conf" ] || conf="$APP_DIR/gunicorn.conf.py"
+    if [ -f "$conf" ]; then
+      gun="$APP_DIR/venv/bin/gunicorn"
+      command -v gunicorn >/dev/null 2>&1 && gun="${gun:-gunicorn}"
+      if [ -x "$APP_DIR/venv/bin/gunicorn" ] || command -v gunicorn >/dev/null 2>&1; then
+        ( cd "$APP_DIR" && nohup "${gun:-gunicorn}" -c "$conf" app:app >/www/wwwroot/myblog/gunicorn.log 2>&1 & )
+        sleep 2
+        log "已用 gunicorn.conf 兜底重新拉起。"
+      fi
+    fi
+  fi
 else
   log "⚠️ 未配置 RESTART_CMD 且无 start_cmd.txt，代码已更新但未重启。请手动在宝塔「停止→启动」。"
 fi

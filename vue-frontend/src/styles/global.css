@@ -171,12 +171,13 @@ button:hover, .btn:hover { background: color-mix(in srgb, var(--accent), #000 15
   .header-inner { padding: 0 12px; height: 52px; }
   /* 桌面 nav 在 mobile 隐藏 */
   .site-header > .container > nav { display: none; }
-  /* 汉堡按钮显示 */
+  /* 汉堡按钮：与后台 .admin-hamburger 视觉同步（实心强调色胶囊 + 阴影） */
   .hamburger { display: flex; align-items: center; justify-content: center;
-    width: 38px; height: 38px; border-radius: 10px; border: 1px solid var(--nav-border);
-    background: var(--nav-bg); color: var(--nav-fg); font-size: 20px; line-height: 1;
-    cursor: pointer; margin-right: 8px; }
-  .hamburger:hover { background: var(--accent); color: #fff; border-color: var(--accent); }
+    width: 44px; height: 44px; border-radius: 12px; border: none;
+    background: var(--accent, #1a73e8); color: #fff; font-size: 22px; line-height: 1;
+    box-shadow: 0 6px 18px rgba(26,115,232,.4); cursor: pointer; margin-right: 8px;
+    transition: transform .2s ease, filter .2s ease; }
+  .hamburger:hover { filter: brightness(1.08); transform: scale(1.05); }
   .logo { font-size: 17px; flex: 1; }
   /* 抽屉：左侧滑出 */
   .drawer { display: block; position: fixed; left: 0; top: 0; bottom: 0; width: 280px; max-width: 78%;
@@ -227,6 +228,13 @@ button:hover, .btn:hover { background: color-mix(in srgb, var(--accent), #000 15
 [data-theme="dark"] .site-header nav a:hover { color: #7cb0ff; }
 [data-theme="dark"] .theme-toggle { border-color: #3a3f47; color: #cfd3d8; }
 [data-theme="dark"] .theme-toggle:hover { background: #2a2e35 !important; }
+/* 汉堡按钮暗色：与后台 .admin-hamburger 一致（半透明白胶囊 + 描边） */
+[data-theme="dark"] .hamburger {
+  background: rgba(255,255,255,.1);
+  color: #e6e8eb;
+  box-shadow: none;
+  border: 1px solid rgba(255,255,255,.15);
+}
 [data-theme="dark"] .widget,
 [data-theme="dark"] .post-card,
 [data-theme="dark"] .post-detail,

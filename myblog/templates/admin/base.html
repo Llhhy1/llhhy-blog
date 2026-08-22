@@ -30,6 +30,7 @@
       <a class="side-logo" href="{{ url_for('admin.dashboard') }}">
         <span class="logo-dot"></span>{{ settings.site_name or settings.site_title or '博客后台' }}
       </a>
+      <button id="theme-toggle" class="side-theme-toggle" type="button" aria-label="切换深色/浅色主题">🌙</button>
       <nav class="side-nav">
         {% set ep = request.endpoint or '' %}
         {% if current_user and current_user.is_admin_role %}

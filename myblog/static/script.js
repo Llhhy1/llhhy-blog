@@ -117,7 +117,9 @@ loadWeather();
   function apply(theme) {
     if (theme === "dark") document.documentElement.setAttribute("data-theme", "dark");
     else document.documentElement.removeAttribute("data-theme");
-    btn.textContent = theme === "dark" ? "☀️" : "🌙";
+    const ico = theme === "dark" ? "☀️" : "🌙";
+    const lbl = theme === "dark" ? "浅色" : "深色";
+    btn.innerHTML = ico + ' <span class="tt-label">' + lbl + "</span>";
   }
   apply(current());
   btn.addEventListener("click", function () {

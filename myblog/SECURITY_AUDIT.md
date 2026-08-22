@@ -401,3 +401,35 @@
 - 生产建议启用 HTTPS（Let's Encrypt 免费证书），并定期备份 `data/blog.db`。
 - 评论/注册等写接口后续可加验证码（如极验）进一步防滥用。
 - 请确认 Nginx 反代已配置 `proxy_set_header X-Forwarded-For $remote_addr;`（由 Nginx 写入真实 IP，而不是透传客户端伪造值）。
+
+---
+
+# 第十七轮审计（v2.6.15）
+
+## 17.1 本轮改动清单（对比 v2.6.14）
+
+| 文件 | 改动类型 | 说明 |
+|---|---|---|
+| `vue-frontend/src/styles/global.css` | 前端 CSS | 移动端 `.hamburger` 视觉同步为后台 `.admin-hamburger` 风格（实心强调色胶囊、44×44、圆角12px、阴影、暗色变体） |
+| `myblog/static/admin.css` | 后台 CSS | ① 仪表盘 `.dash-grid` 桌面端改为单列全宽（修复左右栏高度失衡）；② 新增 `.side-theme-toggle` 按钮样式（含 `[data-theme="dark"]` 变体） |
+| `myblog/templates/admin/base.html` | 后台模板 | 侧边栏顶部新增 `#theme-toggle` 主题切换按钮（复用 `script.js` 既有 IIFE） |
+| `myblog/static/script.js` | 前端 JS | `apply()` 改用 `innerHTML` 渲染「☀️ 浅色 / 🌙 深色」带文字标签（常量字符串，无用户输入） |
+
+## 17.2 维度审计
+
+| 编号 | 维度 | 结论 | 状态 |
+|---|---|---|---|
+| R1 | XSS | 四处改动均不含用户可控数据进 HTML。`base.html` 既有 `{{ settings.site_name or ... }}` 走 Jinja 自动转义；`script.js` 的 `innerHTML` 仅拼接**硬编码常量**（图标 emoji + "浅色"/"深色" 文案），无任意用户/外部输入，不构成 DOM-XSS。 | 通过 |
+| R2 | SQL 注入 | 无新增 SQL/ORM 查询，无字符串拼接。 | 通过 |
+| R3 | 越权 | 无新增路由；新增按钮仅触发客户端主题切换（读写 `localStorage` + `<html data-theme>`），不触及任何接口或数据归属。 | 通过 |
+| R4 | SSRF | 无新增外部请求；主题切换纯前端本地逻辑。 | 通过 |
+| R5 | CSRF | 无新增 POST 接口；既有全局 `enforce_same_origin` 不受影响。 | 通过 |
+| R6 | 密钥泄露 | 无新增凭据/环境变量；改动文件均入仓但无密钥硬编码（已 `grep` 确认）。 | 通过 |
+| R7 | 资源泄漏 | 无新增文件句柄/subprocess/连接；`script.js` 仅 DOM 操作。 | 通过 |
+| R8 | 限流 | 无新增写接口，不涉及限流面。 | 通过 |
+
+## 17.3 安全评估
+
+- 本轮为纯前端/静态资源与 UI 文案调整，无新增后端攻击面；所有既有鉴权、数据接口、密钥机制不受影响。
+- 后台主题切换复用 v2.6.14 已加固的缓存策略（`admin_css_v`=APP_VERSION + `no-cache` 响应头），发版后浏览器/微信自动拉新。
+- 后端语法 `py_compile` 计划通过（见发布流程步骤）。

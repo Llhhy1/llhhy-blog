@@ -416,10 +416,23 @@
 .side-version:hover { color: var(--accent, #1a73e8); }
 .side-version .version-link { font-size: 11px; color: var(--accent, #1a73e8); opacity: .85; }
 
-/* 双栏仪表盘 */
-.dash-grid { display: grid; grid-template-columns: 1fr 300px; gap: 20px; align-items: start; }
+/* 侧边栏：深色/浅色主题切换按钮（v2.6.15，复用 script.js 的 #theme-toggle 逻辑） */
+.side-theme-toggle {
+  display: flex; align-items: center; justify-content: center; gap: 8px;
+  margin: 12px 14px 0; padding: 10px 14px;
+  border: 1px solid #e6e8eb; border-radius: 12px;
+  background: #fff; color: #44505f; font-size: 14px; cursor: pointer;
+  transition: background .15s, border-color .15s, color .15s, transform .15s;
+}
+.side-theme-toggle:hover { border-color: var(--accent, #1a73e8); color: var(--accent, #1a73e8); transform: translateY(-1px); }
+[data-theme="dark"] .side-theme-toggle {
+  background: #1c2026; color: #cfd3d8; border-color: #2a2e36;
+}
+[data-theme="dark"] .side-theme-toggle:hover { color: #8ab4ff; border-color: #4f6fa8; }
+
+/* 仪表盘下方面板：桌面端单列全宽（v2.6.4 观感，避免左右栏高度失衡） */
+.dash-grid { display: grid; grid-template-columns: 1fr; gap: 20px; }
 .dash-side { display: flex; flex-direction: column; gap: 20px; }
-@media (max-width: 1000px) { .dash-grid { grid-template-columns: 1fr; } }
 
 /* 迷你区域榜单 */
 .mini-rank { list-style: none; }

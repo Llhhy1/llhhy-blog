@@ -68,7 +68,7 @@ def _migrate_post_table():
     ins = inspect(db.engine)
     if "post" in ins.get_table_names():
         cols = [c["name"] for c in ins.get_columns("post")]
-        specs = {"author_id": "INTEGER", "series_id": "INTEGER", "scheduled_at": "DATETIME"}
+        specs = {"author_id": "INTEGER", "series_id": "INTEGER", "scheduled_at": "DATETIME", "is_pinned": "BOOLEAN"}
         need = [c for c in specs if c not in cols]
         if need:
             db.session.remove()

@@ -25,6 +25,7 @@ class Post(db.Model):
     published = db.Column(db.Boolean, default=True)                # 是否发布
     # 定时发布时间：为空=立即发布/已发布；不为空且未来时间=定时待发布（到点后由后台线程翻 published）
     scheduled_at = db.Column(db.DateTime, nullable=True)
+    is_pinned = db.Column(db.Boolean, default=False)               # 是否置顶（首页/列表优先展示）
     views = db.Column(db.Integer, default=0)                       # 阅读量
     likes = db.Column(db.Integer, default=0)                       # 点赞数
     comments = db.relationship("Comment", backref="post", cascade="all, delete-orphan", lazy="dynamic")
@@ -261,6 +262,10 @@ def visible_posts_query():
     定时发布：scheduled_at 为空或 <= 当前 UTC 时间，才对外可见；未来的定时文章
     暂不对外露出（列表/详情/搜索/归档/分类/标签/系列/热门/相关都走此条件）。
     后台管理（dashboard/my_posts）仍用裸 Post.query，方便查看/编辑定时草稿。
+
+    注意：本函数只负责「可见性过滤」，排序由各调用方自行 order_by。
+    置顶优先：调用方应在 order_by 最前面加 Post.is_pinned.desc()，
+    例如 .order_by(Post.is_pinned.desc(), Post.created_at.desc())。
     """
     now = datetime.utcnow()
     return Post.query.filter(

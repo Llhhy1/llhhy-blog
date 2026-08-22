@@ -89,7 +89,7 @@ def index():
     per_page = current_app.config["POSTS_PER_PAGE"]
     pagination = (
         visible_posts_query()
-        .order_by(Post.created_at.desc())
+        .order_by(Post.is_pinned.desc(), Post.created_at.desc())
         .paginate(page=page, per_page=per_page, error_out=False)
     )
     posts = [_render(p) for p in pagination.items]
@@ -151,14 +151,14 @@ def like_post(slug):
 @main_bp.route("/category/<slug>")
 def category(slug):
     cat = Category.query.filter_by(slug=slug).first_or_404()
-    posts = [_render(p) for p in visible_posts_query().filter_by(category_id=cat.id).order_by(Post.created_at.desc()).all()]
+    posts = [_render(p) for p in visible_posts_query().filter_by(category_id=cat.id).order_by(Post.is_pinned.desc(), Post.created_at.desc()).all()]
     return render_template("archive.html", title=cat.name, posts=posts, kind="分类")
 
 
 @main_bp.route("/tag/<slug>")
 def tag(slug):
     t = Tag.query.filter_by(slug=slug).first_or_404()
-    posts = [_render(p) for p in visible_posts_query().filter(Post.tags.any(id=t.id)).order_by(Post.created_at.desc()).all()]
+    posts = [_render(p) for p in visible_posts_query().filter(Post.tags.any(id=t.id)).order_by(Post.is_pinned.desc(), Post.created_at.desc()).all()]
     return render_template("archive.html", title=t.name, posts=posts, kind="标签")
 
 
@@ -170,7 +170,7 @@ def search():
         like = f"%{q}%"
         rows = (
             visible_posts_query().filter(db.or_(Post.title.like(like), Post.content.like(like)))
-            .order_by(Post.created_at.desc())
+            .order_by(Post.is_pinned.desc(), Post.created_at.desc())
             .all()
         )
         results = [_render(p) for p in rows]
@@ -190,7 +190,7 @@ def links():
 @main_bp.route("/archive")
 def archive():
     """归档时间线：全部已发布文章按「年 → 月」分组倒序展示。"""
-    posts = visible_posts_query().order_by(Post.created_at.desc()).all()
+    posts = visible_posts_query().order_by(Post.is_pinned.desc(), Post.created_at.desc()).all()
     groups = {}  # {年份: {月份: [文章...]}}
     for p in posts:
         groups.setdefault(p.created_at.year, {}).setdefault(p.created_at.month, []).append(p)
@@ -340,7 +340,7 @@ def _site_base():
 def feed():
     """RSS 2.0 订阅源：取最近 20 篇已发布文章。"""
     posts = (visible_posts_query()
-             .order_by(Post.created_at.desc()).limit(20).all())
+             .order_by(Post.is_pinned.desc(), Post.created_at.desc()).limit(20).all())
     base = _site_base()
     site_title = current_app.config.get("SITE_TITLE", "我的博客")
     desc_row = Setting.query.filter_by(key="site_description").first()

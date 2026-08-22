@@ -76,6 +76,7 @@ body {
 .post-card { background: #fff; border: 1px solid #eee; border-radius: var(--theme-radius, 12px); padding: 20px 22px; margin-bottom: 18px; }
 .post-card h2 a { color: #1f1f1f; text-decoration: none; font-size: 19px; }
 .post-card h2 a:hover { color: var(--accent); }
+.pin-badge { font-size: 15px; margin-right: 4px; vertical-align: -1px; }
 .post-meta { color: #999; font-size: 13px; margin: 8px 0; }
 .post-meta a { color: var(--accent); text-decoration: none; }
 .post-summary { color: #666; font-size: 14px; }

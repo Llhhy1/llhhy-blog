@@ -48,6 +48,10 @@
       <input type="checkbox" name="published" id="published-chk" {% if not post or post.published %}checked{% endif %}> 立即发布
     </label>
 
+    <label class="checkbox">
+      <input type="checkbox" name="is_pinned" id="pinned-chk" {% if post and post.is_pinned %}checked{% endif %}> 📌 置顶（首页与列表优先展示）
+    </label>
+
     <label>定时发布（可选，留空则按上方「立即发布」处理）</label>
     <input type="datetime-local" name="scheduled_at" id="scheduled-at"
            value="{{ scheduled_local if scheduled_local else '' }}"

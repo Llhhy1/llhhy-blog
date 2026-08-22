@@ -117,6 +117,7 @@ def _post_summary(p):
         "created_at": p.created_at.strftime("%Y-%m-%d %H:%M"),
         "views": p.views,
         "likes": p.likes,
+        "is_pinned": bool(p.is_pinned),  # 是否置顶（首页/列表优先展示）
         "category": {"name": p.category.name, "slug": p.category.slug} if p.category else None,
         "tags": [{"name": t.name, "slug": t.slug} for t in p.tags],
     }
@@ -200,7 +201,7 @@ def posts():
         query = query.filter(
             db.or_(Post.title.ilike(like), Post.summary.ilike(like), Post.content.ilike(like))
         )
-    query = query.order_by(Post.created_at.desc())
+    query = query.order_by(Post.is_pinned.desc(), Post.created_at.desc())
     pagination = query.paginate(page=page, per_page=per_page, error_out=False)
 
     return jsonify({
@@ -262,7 +263,7 @@ def tags():
 def posts_by_category(slug):
     c = Category.query.filter_by(slug=slug).first_or_404()
     items = visible_posts_query().filter_by(category_id=c.id)\
-        .order_by(Post.created_at.desc()).all()
+        .order_by(Post.is_pinned.desc(), Post.created_at.desc()).all()
     return jsonify({"name": c.name, "slug": c.slug,
                     "items": [_post_summary(p) for p in items]})
 
@@ -270,7 +271,7 @@ def posts_by_category(slug):
 @api_bp.route("/tag/<slug>")
 def posts_by_tag(slug):
     t = Tag.query.filter_by(slug=slug).first_or_404()
-    items = visible_posts_query().filter(Post.tags.any(id=t.id)).order_by(Post.created_at.desc()).all()
+    items = visible_posts_query().filter(Post.tags.any(id=t.id)).order_by(Post.is_pinned.desc(), Post.created_at.desc()).all()
     return jsonify({"name": t.name, "slug": t.slug,
                     "items": [_post_summary(p) for p in items]})
 
@@ -278,7 +279,7 @@ def posts_by_tag(slug):
 # ---------- 归档时间线 ----------
 @api_bp.route("/archive")
 def archive():
-    posts = visible_posts_query().order_by(Post.created_at.desc()).all()
+    posts = visible_posts_query().order_by(Post.is_pinned.desc(), Post.created_at.desc()).all()
     timeline = {}
     for p in posts:
         y = p.created_at.strftime("%Y")
@@ -696,7 +697,7 @@ def search_api():
     like = f"%{q}%"
     rows = (visible_posts_query()
             .filter(db.or_(Post.title.ilike(like), Post.summary.ilike(like), Post.content.ilike(like)))
-            .order_by(Post.created_at.desc()).limit(30).all())
+            .order_by(Post.is_pinned.desc(), Post.created_at.desc()).limit(30).all())
     return jsonify({"items": [_post_summary(p) for p in rows], "total": len(rows), "engine": "like"})
 
 

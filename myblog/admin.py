@@ -232,11 +232,12 @@ def new_post():
         # 定时发布：填了未来时间则先存为未发布，后台线程到点自动翻 published
         if scheduled_at is not None and scheduled_at > datetime.datetime.utcnow():
             published = False
+        is_pinned = request.form.get("is_pinned") == "on"
         series_id = request.form.get("series_id") or None
         post = Post(
             title=title, slug=unique_slug(title), summary=summary, content=content,
             cover=cover, category_id=category_id, published=published,
-            scheduled_at=scheduled_at,
+            scheduled_at=scheduled_at, is_pinned=is_pinned,
             series_id=int(series_id) if series_id else None,
             author_id=session.get("user_id"),  # 记录作者：普通用户发表的文章归属自己
         )
@@ -313,6 +314,7 @@ def edit_post(post_id):
             scheduled_at = None  # 立即发布/草稿：清空定时，避免历史脏值
         post.published = published
         post.scheduled_at = scheduled_at
+        post.is_pinned = request.form.get("is_pinned") == "on"
         _sync_tags(post, request.form.get("tags", ""))
         db.session.commit()
         try:

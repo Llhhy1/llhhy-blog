@@ -83,6 +83,7 @@
                   {% else %}
                     草稿
                   {% endif %}
+                  {% if p.is_pinned %}<span class="status-pinned">📌 置顶</span>{% endif %}
                 </td>
                 <td>{{ p.views }}</td>
                 <td>

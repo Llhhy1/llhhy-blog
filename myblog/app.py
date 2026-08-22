@@ -220,6 +220,11 @@ def create_app():
                 resp.headers["Vary"] = "Origin"
             resp.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
             resp.headers["Access-Control-Allow-Headers"] = "Content-Type"
+        # 后台静态资源（admin.css/script.js）禁用强缓存：微信 X5 内核可能忽略 ?v 把旧 CSS 强缓存住，
+        # 导致深色主题等前端更新永远不生效（v2.6.14 修复）。no-cache 让微信每次向服务器验证，
+        # 文件变了（ETag/mtime）即返回新内容。前台 Vue 资源由 Nginx 服务，不经过此处。
+        if request.path.endswith("/static/admin.css") or request.path.endswith("/static/script.js"):
+            resp.headers["Cache-Control"] = "no-cache, must-revalidate"
         return resp
 
     # 同源校验（CSRF 纵深防御）：对会改变数据的请求，若带 Origin 头则必须同源或已配置的跨域来源。
@@ -276,13 +281,14 @@ def create_app():
         uid = session.get("user_id")
         if uid:
             current_user = db.session.get(User, uid)
-        # 静态资源版本戳（按 mtime 变化）—— 模板里 ?v=... 加在 CSS/JS 链接后，
-        # 强制浏览器重新拉取，避免部署新版本后被 ETag/Cache-Control 拦截仍是旧 CSS 导致全文本。
-        import os
+        # 静态资源版本戳：改用 APP_VERSION（每次发版必变），模板里 ?v=... 加在 CSS/JS 链接后。
+        # 不用 mtime：宝塔 update.sh 用 rsync -a 保留 mtime，可能导致 ?v 不变；
+        # 且微信 X5 内核对带 query 的静态资源可能强缓存旧文件，故双保险（见下方 no-cache 响应头）。
         try:
-            admin_css_v = int(os.path.getmtime(os.path.join(app.static_folder, "admin.css")))
-        except OSError:
-            admin_css_v = 0
+            import config as _cfg_ver
+            admin_css_v = _cfg_ver.APP_VERSION
+        except Exception:
+            admin_css_v = "0"
         # 主题美化：把后台设置转成 CSS 变量，注入所有模板（后台 shell + 前台 SSR 页）
         radius_map = {"sm": "8px", "md": "12px", "lg": "20px"}
         font_map = {"sm": "14px", "md": "15px", "lg": "17px"}

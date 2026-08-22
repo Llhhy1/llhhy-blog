@@ -16,9 +16,12 @@ set -e
 REPO="Llhhy1/llhhy-blog"                 # GitHub 仓库，一般不用改
 APP_DIR="/www/wwwroot/myblog"            # 后端运行目录（Python 项目路径）
 FRONT_DIR="/www/wwwroot/vue-frontend"    # 前端静态目录（Nginx 网站根）
-PROJECT_NAME=""                          # 宝塔 Python 项目名称（如 myblog）；留空则自动探测
+PROJECT_NAME="myblog"                      # 宝塔 Python 项目名称（默认 myblog）；若你宝塔里的项目名不同请改这里
 # 手动指定重启命令时填（优先使用，覆盖自动探测）：
 #   RESTART_CMD="supervisorctl restart myblog"
+# ⚠️ v3.1.2 修复：宝塔 Python 项目底层由 supervisor 以 www 身份管理 gunicorn，
+#   脚本若以 root 或其他身份运行，直接 kill 该进程会 Operation not permitted。
+#   因此默认走 supervisorctl restart（以正确身份停+起），彻底绕开跨用户 kill 权限问题。
 RESTART_CMD=""
 
 WORK="/tmp/llhhy_update"
@@ -92,10 +95,14 @@ auto_restart() {
     log "   ⚠️ 重启命令执行失败，尝试自动探测..."
   fi
   # 2. 探测 supervisor 管理的项目（宝塔 Python 项目默认走 supervisor）
+  #    v3.1.2 修复：若脚本以 root 运行而 supervisor 需 www 身份，自动加 sudo -u www；
+  #    若当前就是 www 或 sudo 不可用，则原样执行（supervisorctl 本身以正确身份重启，无跨用户 kill 问题）。
   if command -v supervisorctl >/dev/null 2>&1; then
+    local SUC=""
+    if [ "$(id -u)" = "0" ] && command -v sudo >/dev/null 2>&1; then SUC="sudo -u www"; fi
     if [ -n "$PROJECT_NAME" ]; then
-      if supervisorctl status "$PROJECT_NAME" >/dev/null 2>&1; then
-        supervisorctl restart "$PROJECT_NAME" && log "   已通过 supervisor 重启「$PROJECT_NAME」。"
+      if eval "$SUC supervisorctl status $PROJECT_NAME" >/dev/null 2>&1; then
+        eval "$SUC supervisorctl restart $PROJECT_NAME" && log "   已通过 supervisor 重启「$PROJECT_NAME」。"
         return 0
       fi
       log "   ⚠️ supervisor 中找不到项目「$PROJECT_NAME」，继续探测..."
@@ -104,8 +111,8 @@ auto_restart() {
       [ -f "$conf" ] || continue
       if grep -q "$APP_DIR" "$conf" 2>/dev/null; then
         name=$(basename "$conf" .conf)
-        if supervisorctl status "$name" >/dev/null 2>&1; then
-          supervisorctl restart "$name" && log "   已自动探测并重启 supervisor 项目「$name」。"
+        if eval "$SUC supervisorctl status $name" >/dev/null 2>&1; then
+          eval "$SUC supervisorctl restart $name" && log "   已自动探测并重启 supervisor 项目「$name」。"
           return 0
         fi
       fi
@@ -117,13 +124,19 @@ auto_restart() {
   #       否则会误匹配到 root 启动的其他 gunicorn 进程，导致 Operation not permitted。
   #       若 pidfile 不存在/为空，再用精确匹配 APP_DIR 的 pgrep 作为兜底（仍避开 root 进程）。
   local pid pidfile="$APP_DIR/gunicorn.pid"
+  # v3.1.2 修复：若当前是 root 而 gunicorn 属主是 www，kill 会无权限；
+  #   优先用 sudo -u www 执行 kill/pkill，确保以进程属主身份操作。
+  local KILL="kill"; local PKILL="pkill"; local KILL0="kill -0"
+  if [ "$(id -u)" = "0" ] && command -v sudo >/dev/null 2>&1; then
+    KILL="sudo -u www kill"; PKILL="sudo -u www pkill"; KILL0="sudo -u www kill -0"
+  fi
   if [ -f "$pidfile" ] && [ -s "$pidfile" ]; then
     pid=$(cat "$pidfile" 2>/dev/null | tr -d '[:space:]' | head -1)
     # 校验 pid 是数字且进程确实存活
     case "$pid" in
       ''|*[!0-9]*) pid="" ;;
     esac
-    if [ -n "$pid" ] && ! kill -0 "$pid" 2>/dev/null; then pid=""; fi
+    if [ -n "$pid" ] && ! $KILL0 "$pid" 2>/dev/null; then pid=""; fi
   fi
   # 兜底：精确匹配本项目的 gunicorn（避免 pkill 全局误杀 root 进程）
   if [ -z "$pid" ]; then
@@ -131,7 +144,7 @@ auto_restart() {
   fi
   if [ -n "$pid" ]; then
     log "   找到 gunicorn master pid=$pid，发送 TERM 真正停止..."
-    if ! kill -TERM "$pid" 2>/dev/null; then
+    if ! $KILL -TERM "$pid" 2>/dev/null; then
       # 杀不掉（权限不足等）→ 明确失败，不误报成功
       log "   ❌ 无法终止进程 pid=$pid（权限不足？是否跨用户运行）。请检查运行账户与进程属主。"
       set_status "partial" "代码已更新，但终止旧进程失败(权限不足)，请手动在宝塔重启项目（停止→启动）"
@@ -139,9 +152,9 @@ auto_restart() {
     fi
     # 等待进程真正退出（最多 15 秒）
     local waited=0
-    while kill -0 "$pid" 2>/dev/null && [ $waited -lt 15 ]; do sleep 1; waited=$((waited+1)); done
+    while $KILL0 "$pid" 2>/dev/null && [ $waited -lt 15 ]; do sleep 1; waited=$((waited+1)); done
     # 仅当上面的 pid 还活着才强杀（避免误杀其他进程）
-    kill -0 "$pid" 2>/dev/null && { pkill -9 -f "gunicorn.*$APP_DIR" 2>/dev/null || true; }
+    $KILL0 "$pid" 2>/dev/null && { $PKILL -9 -f "gunicorn.*$APP_DIR" 2>/dev/null || true; }
     sleep 1
     log "   旧进程已停止。"
   else

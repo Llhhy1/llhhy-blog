@@ -64,3 +64,6 @@ _vite_build14/
 
 # 项目内存目录（本地数据，不入版本库）
 .workbuddy/memory/
+
+# 临时 CRLF 修复包（不入库）
+deploy_scripts_crlf_fix.zip

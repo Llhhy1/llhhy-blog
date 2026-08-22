@@ -134,6 +134,17 @@ body.admin {
 .admin-table tr:hover td:first-child { background: #fafcff; }
 .admin-table a { color: var(--accent, #1a73e8); text-decoration: none; }
 .admin-table a:hover { text-decoration: underline; }
+/* 定时发布状态徽标（v2.7.0） */
+.status-scheduled {
+  display: inline-block; padding: 2px 8px; border-radius: 999px;
+  background: #fff7e6; color: #d48806; font-size: 12px; font-weight: 500;
+  border: 1px solid #ffe7ba; white-space: nowrap;
+}
+[data-theme="dark"] .status-scheduled {
+  background: rgba(212, 136, 6, 0.18); color: #ffc53d; border-color: rgba(212, 136, 6, 0.4);
+}
+/* 编辑页定时发布提示文字 */
+.edit-form .hint { color: #8a8f99; font-size: 12px; margin: 4px 0 0; }
 .admin-table .sticky-right { position: sticky; right: 0; background: inherit; z-index: 1; box-shadow: -4px 0 8px -4px rgba(0,0,0,.06); }
 /* 订阅者管理页（v2.6.10）：状态徽标 + 行内操作按钮 */
 .badge { display: inline-block; padding: 2px 9px; border-radius: 999px; font-size: 12px; line-height: 1.6; }

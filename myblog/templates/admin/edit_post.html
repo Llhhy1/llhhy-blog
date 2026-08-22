@@ -45,10 +45,32 @@
     <textarea name="content" id="content" rows="18">{{ post.content if post else '' }}</textarea>
 
     <label class="checkbox">
-      <input type="checkbox" name="published" {% if not post or post.published %}checked{% endif %}> 立即发布
+      <input type="checkbox" name="published" id="published-chk" {% if not post or post.published %}checked{% endif %}> 立即发布
     </label>
+
+    <label>定时发布（可选，留空则按上方「立即发布」处理）</label>
+    <input type="datetime-local" name="scheduled_at" id="scheduled-at"
+           value="{{ scheduled_local if scheduled_local else '' }}"
+           min="{{ now_local if now_local else '' }}"
+           placeholder="选择未来时间，到点自动公开">
+    <p class="hint">填写一个未来时间并保存，文章会先存为「待发布」，后台到点自动公开并推送通知；若同时勾选「立即发布」则以立即发布为准。</p>
 
     <button type="submit" class="btn">保存</button>
     <a class="btn" href="{{ url_for('admin.dashboard') }}">返回</a>
   </form>
+
+  <script>
+    // 立即发布 与 定时发布 互斥联动（v2.7.0）
+    (function () {
+      var chk = document.getElementById("published-chk");
+      var dt = document.getElementById("scheduled-at");
+      if (!chk || !dt) return;
+      chk.addEventListener("change", function () {
+        if (chk.checked) dt.value = "";  // 勾选立即发布则清空定时
+      });
+      dt.addEventListener("change", function () {
+        if (dt.value) chk.checked = false;  // 填了定时则取消立即发布
+      });
+    })();
+  </script>
 {% endblock %}

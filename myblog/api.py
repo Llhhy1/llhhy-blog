@@ -5,12 +5,14 @@
 """
 import json
 import os
+import datetime
 
 from flask import Blueprint, request, jsonify, current_app, session
 from markupsafe import escape
 
 from models import db, Post, Category, Tag, Comment, FriendLink, Setting, User, ROLE_USER, \
-    Moment, MomentComment, SocialAccount, Series, Announcement, Guestbook, Subscriber, Notification
+    Moment, MomentComment, SocialAccount, Series, Announcement, Guestbook, Subscriber, Notification, \
+    visible_posts_query
 from utils import render_markdown, clean_html, rate_limit, client_key
 import stats
 
@@ -120,6 +122,15 @@ def _post_summary(p):
     }
 
 
+def _is_visible(p):
+    """判断单篇文章当前是否对访客可见（已发布且未到定时发布时间）。"""
+    if not p or not p.published:
+        return False
+    if p.scheduled_at is not None and p.scheduled_at > datetime.utcnow():
+        return False
+    return True
+
+
 def _comment(c):
     return {
         "id": c.id,
@@ -157,7 +168,7 @@ def site():
         "custom_css": s.get("custom_css", ""),
         "categories": [
             {"name": c.name, "slug": c.slug,
-             "count": c.posts.filter_by(published=True).count()}
+             "count": visible_posts_query().filter_by(category_id=c.id).count()}
             for c in Category.query.order_by(Category.id).all()
         ],
         "tags": [
@@ -169,7 +180,7 @@ def site():
             for l in FriendLink.query.order_by(FriendLink.sort).all()
         ],
         "stats": {
-            "posts": Post.query.filter_by(published=True).count(),
+            "posts": visible_posts_query().count(),
             "views": db.session.query(db.func.sum(Post.views)).scalar() or 0,
             "comments": Comment.query.count(),
         },
@@ -183,7 +194,7 @@ def posts():
     per_page = current_app.config.get("POSTS_PER_PAGE", 8)
     q = (request.args.get("q") or "").strip()
 
-    query = Post.query.filter_by(published=True)
+    query = visible_posts_query()
     if q:
         like = f"%{q}%"
         query = query.filter(
@@ -204,7 +215,7 @@ def posts():
 # ---------- 文章详情（含渲染后的 HTML 与评论）----------
 @api_bp.route("/post/<slug>")
 def post_detail(slug):
-    p = Post.query.filter_by(slug=slug, published=True).first_or_404()
+    p = visible_posts_query().filter_by(slug=slug).first_or_404()
     # 阅读量 +1
     p.views += 1
     db.session.commit()
@@ -215,7 +226,7 @@ def post_detail(slug):
     data["comments"] = [_comment(c) for c in p.comments.filter_by(approved=True).order_by(Comment.created_at.asc())]
     # 系列上下篇导航
     if p.series_id and p.series:
-        s_posts = p.series.posts.filter_by(published=True).order_by(Post.created_at.asc()).all()
+        s_posts = visible_posts_query().filter_by(series_id=p.series_id).order_by(Post.created_at.asc()).all()
         idx = next((i for i, x in enumerate(s_posts) if x.id == p.id), -1)
         data["series"] = {
             "slug": p.series.slug, "name": p.series.name,
@@ -234,7 +245,7 @@ def post_detail(slug):
 def categories():
     return jsonify([
         {"name": c.name, "slug": c.slug,
-         "count": c.posts.filter_by(published=True).count()}
+         "count": visible_posts_query().filter_by(category_id=c.id).count()}
         for c in Category.query.order_by(Category.id).all()
     ])
 
@@ -250,7 +261,7 @@ def tags():
 @api_bp.route("/category/<slug>")
 def posts_by_category(slug):
     c = Category.query.filter_by(slug=slug).first_or_404()
-    items = Post.query.filter_by(category_id=c.id, published=True)\
+    items = visible_posts_query().filter_by(category_id=c.id)\
         .order_by(Post.created_at.desc()).all()
     return jsonify({"name": c.name, "slug": c.slug,
                     "items": [_post_summary(p) for p in items]})
@@ -259,8 +270,7 @@ def posts_by_category(slug):
 @api_bp.route("/tag/<slug>")
 def posts_by_tag(slug):
     t = Tag.query.filter_by(slug=slug).first_or_404()
-    items = [p for p in t.posts if p.published]
-    items.sort(key=lambda p: p.created_at, reverse=True)
+    items = visible_posts_query().filter(Post.tags.any(id=t.id)).order_by(Post.created_at.desc()).all()
     return jsonify({"name": t.name, "slug": t.slug,
                     "items": [_post_summary(p) for p in items]})
 
@@ -268,7 +278,7 @@ def posts_by_tag(slug):
 # ---------- 归档时间线 ----------
 @api_bp.route("/archive")
 def archive():
-    posts = Post.query.filter_by(published=True).order_by(Post.created_at.desc()).all()
+    posts = visible_posts_query().order_by(Post.created_at.desc()).all()
     timeline = {}
     for p in posts:
         y = p.created_at.strftime("%Y")
@@ -296,7 +306,7 @@ def links():
 # ---------- 点赞 ----------
 @api_bp.route("/post/<slug>/like", methods=["POST"])
 def like(slug):
-    p = Post.query.filter_by(slug=slug, published=True).first_or_404()
+    p = visible_posts_query().filter_by(slug=slug).first_or_404()
     # 限流：同一 IP 对单篇文章 60 秒内最多 20 次点赞（防刷量）
     if not rate_limit(client_key("api_like:" + slug), limit=20, window=60):
         return jsonify({"likes": p.likes})
@@ -308,7 +318,7 @@ def like(slug):
 # ---------- 评论提交 ----------
 @api_bp.route("/post/<slug>/comment", methods=["POST"])
 def comment(slug):
-    p = Post.query.filter_by(slug=slug, published=True).first_or_404()
+    p = visible_posts_query().filter_by(slug=slug).first_or_404()
     # 限流：同一 IP 60 秒内最多 10 条评论
     if not rate_limit(client_key("api_comment"), limit=10, window=60):
         return jsonify({"error": "评论过于频繁，请稍后再试"}), 429
@@ -523,7 +533,7 @@ def series_list():
     sers = Series.query.order_by(Series.sort, Series.created_at.desc()).all()
     return jsonify([
         {"slug": s.slug, "name": s.name, "description": s.description or "",
-         "cover": s.cover or "", "count": s.posts.filter_by(published=True).count()}
+         "cover": s.cover or "", "count": visible_posts_query().filter_by(series_id=s.id).count()}
         for s in sers
     ])
 
@@ -531,7 +541,7 @@ def series_list():
 @api_bp.route("/series/<slug>")
 def series_detail(slug):
     s = Series.query.filter_by(slug=slug).first_or_404()
-    posts = s.posts.filter_by(published=True).order_by(Post.created_at.asc()).all()
+    posts = visible_posts_query().filter_by(series_id=s.id).order_by(Post.created_at.asc()).all()
     return jsonify({
         "slug": s.slug, "name": s.name, "description": s.description or "",
         "cover": s.cover or "",
@@ -542,10 +552,10 @@ def series_detail(slug):
 # ---------- 相关文章推荐（按标签重合度 + 同分类，纯算法零依赖，B1）----------
 @api_bp.route("/post/<slug>/related")
 def related_posts(slug):
-    p = Post.query.filter_by(slug=slug, published=True).first_or_404()
+    p = visible_posts_query().filter_by(slug=slug).first_or_404()
     p_tags = set(t.id for t in p.tags)
     scored = []
-    for c in Post.query.filter(Post.published == True, Post.id != p.id).all():
+    for c in visible_posts_query().filter(Post.id != p.id).all():
         c_tags = set(t.id for t in c.tags)
         score = len(p_tags & c_tags)
         if p.category_id and p.category_id == c.category_id:
@@ -681,11 +691,11 @@ def search_api():
         ids = None
     if ids is not None:
         posts = [db.session.get(Post, i) for i in ids]
-        posts = [p for p in posts if p and p.published]
+        posts = [p for p in posts if _is_visible(p)]
         return jsonify({"items": [_post_summary(p) for p in posts], "total": len(posts), "engine": "fts5"})
     like = f"%{q}%"
-    rows = (Post.query.filter(Post.published == True,
-                              db.or_(Post.title.ilike(like), Post.summary.ilike(like), Post.content.ilike(like)))
+    rows = (visible_posts_query()
+            .filter(db.or_(Post.title.ilike(like), Post.summary.ilike(like), Post.content.ilike(like)))
             .order_by(Post.created_at.desc()).limit(30).all())
     return jsonify({"items": [_post_summary(p) for p in rows], "total": len(rows), "engine": "like"})
 

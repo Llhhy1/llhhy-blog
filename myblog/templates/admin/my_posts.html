@@ -17,7 +17,15 @@
         {% for p in posts %}
           <tr>
             <td><a href="{{ url_for('admin.edit_post', post_id=p.id) }}">{{ p.title }}</a></td>
-            <td>{{ '已发布' if p.published else '草稿' }}</td>
+            <td>
+              {% if p.scheduled_at and not p.published %}
+                <span class="status-scheduled">⏰ 定时 {{ p.scheduled_at.strftime('%m-%d %H:%M') }}</span>
+              {% elif p.published %}
+                已发布
+              {% else %}
+                草稿
+              {% endif %}
+            </td>
             <td>{{ p.views }}</td>
             <td>{{ p.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
             <td>

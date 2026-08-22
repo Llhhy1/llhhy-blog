@@ -11,7 +11,8 @@ from werkzeug.security import generate_password_hash
 
 from models import (db, Post, Category, Tag, Comment, FriendLink, Setting, User,
                    ROLE_SUPER, Moment, MomentComment, SocialAccount,
-                   Series, Announcement, Guestbook, Subscriber, Notification)
+                   Series, Announcement, Guestbook, Subscriber, Notification,
+                   visible_posts_query)
 from utils import make_slug
 from routes import main_bp
 from admin import admin_bp
@@ -67,7 +68,7 @@ def _migrate_post_table():
     ins = inspect(db.engine)
     if "post" in ins.get_table_names():
         cols = [c["name"] for c in ins.get_columns("post")]
-        specs = {"author_id": "INTEGER", "series_id": "INTEGER"}
+        specs = {"author_id": "INTEGER", "series_id": "INTEGER", "scheduled_at": "DATETIME"}
         need = [c for c in specs if c not in cols]
         if need:
             db.session.remove()
@@ -271,8 +272,8 @@ def create_app():
         cats = Category.query.order_by(Category.id).all()
         tags = Tag.query.order_by(Tag.id).all()
         links = FriendLink.query.order_by(FriendLink.sort).all()
-        recent = Post.query.filter_by(published=True).order_by(Post.created_at.desc()).limit(5).all()
-        total_posts = Post.query.filter_by(published=True).count()
+        recent = visible_posts_query().order_by(Post.created_at.desc()).limit(5).all()
+        total_posts = visible_posts_query().count()
         total_views = db.session.query(db.func.sum(Post.views)).scalar() or 0
         total_comments = Comment.query.count()
         settings = {s.key: s.value for s in Setting.query.all()}
@@ -314,7 +315,47 @@ def create_app():
             custom_css=settings.get("custom_css", ""),
         )
 
-    @app.cli.command("init-db")
+    # ---------- 定时发布后台线程（v2.7.0）----------
+    # 守护线程每 60s 扫描「已设 scheduled_at 且到点、但尚未 published」的文章，
+    # 翻成 published 并触发新文章推送（Telegram/企业微信）+ 邮件群发订阅者。
+    # 线程内独立 app_context，避免与请求上下文冲突；所有异常静默，不影响主流程。
+    def _scheduler_loop():
+        import time as _time
+        while True:
+            _time.sleep(60)
+            try:
+                with app.app_context():
+                    now = datetime.datetime.utcnow()
+                    due = Post.query.filter(
+                        Post.scheduled_at.isnot(None),
+                        Post.scheduled_at <= now,
+                        Post.published != True,
+                    ).all()
+                    for p in due:
+                        p.published = True
+                        p.scheduled_at = None  # 发布后清空，避免重复触发
+                        db.session.commit()
+                        try:
+                            import notify as _notify
+                            _notify.notify_new_post(p, app.config.get("SITE_URL", ""))
+                        except Exception:
+                            pass
+                        try:
+                            import mail_notify as _mail
+                            _mail.notify_subscribers_async(p)
+                        except Exception:
+                            pass
+                    if due:
+                        print(f"[定时发布] 已自动发布 {len(due)} 篇到点文章")
+            except Exception as e:
+                # 单轮异常不致命，下一轮继续；打印便于排查
+                print("[定时发布线程] 异常（已忽略，继续下一轮）:", e)
+
+    import threading as _threading
+    _sched_thread = _threading.Thread(target=_scheduler_loop, name="scheduled-publish", daemon=True)
+    _sched_thread.start()
+
+    return app
     def init_db_command():
         """初始化数据库：flask init-db"""
         db.create_all()

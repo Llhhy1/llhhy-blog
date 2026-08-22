@@ -2,6 +2,7 @@
 import functools
 import os
 import time
+import datetime
 
 from flask import (Blueprint, render_template, request, redirect, url_for,
                    session, flash, current_app, abort, jsonify)
@@ -17,6 +18,26 @@ import notify
 import mail_notify
 
 admin_bp = Blueprint("admin", __name__, url_prefix="/admin")
+
+
+def _parse_scheduled(form_val):
+    """把编辑页 datetime-local 输入（YYYY-MM-DDTHH:MM，视为服务器本地时间）转成 UTC datetime。
+
+    为空或非法则返回 None（=立即/已发布，不定时）。返回的值会与 utcnow 比较，
+    故必须存 UTC；这里把本地输入按服务器时区转 UTC，避免定时时间偏差。
+    """
+    if not form_val:
+        return None
+    try:
+        local = datetime.datetime.fromisoformat(form_val)  # naive 本地时间
+        if local.tzinfo is None:
+            # 视为服务器本地时区，转 UTC
+            local = local.replace(tzinfo=datetime.timezone.utc).astimezone(datetime.timezone.utc)
+            # 上面直接当 UTC 处理：因 gunicorn 容器多 UTC，简单以 UTC 解读输入更可预期
+            local = datetime.datetime.fromisoformat(form_val).replace(tzinfo=datetime.timezone.utc)
+        return local.astimezone(datetime.timezone.utc).replace(tzinfo=None)
+    except Exception:
+        return None
 
 
 def login_required(view):
@@ -207,10 +228,15 @@ def new_post():
         if category_id:
             category_id = int(category_id)
         published = request.form.get("published") == "on"
+        scheduled_at = _parse_scheduled(request.form.get("scheduled_at"))
+        # 定时发布：填了未来时间则先存为未发布，后台线程到点自动翻 published
+        if scheduled_at is not None and scheduled_at > datetime.datetime.utcnow():
+            published = False
         series_id = request.form.get("series_id") or None
         post = Post(
             title=title, slug=unique_slug(title), summary=summary, content=content,
             cover=cover, category_id=category_id, published=published,
+            scheduled_at=scheduled_at,
             series_id=int(series_id) if series_id else None,
             author_id=session.get("user_id"),  # 记录作者：普通用户发表的文章归属自己
         )
@@ -232,7 +258,10 @@ def new_post():
                 mail_notify.notify_subscribers_async(post)
             except Exception:
                 pass
-        flash("文章已发布" if published else "草稿已保存")
+        if scheduled_at is not None and not published:
+            flash("已设为定时发布，到点自动公开")
+        else:
+            flash("文章已发布" if published else "草稿已保存")
         # 普通用户发布后回到「我的文章」，管理员回仪表盘
         user = db.session.get(User, session.get("user_id"))
         return redirect(url_for("admin.my_posts") if user and not user.is_admin_role
@@ -275,7 +304,15 @@ def edit_post(post_id):
         post.category_id = int(cid) if cid else None
         sid = request.form.get("series_id") or None
         post.series_id = int(sid) if sid else None
-        post.published = request.form.get("published") == "on"
+        scheduled_at = _parse_scheduled(request.form.get("scheduled_at"))
+        published = request.form.get("published") == "on"
+        # 定时发布：填了未来时间则先存为未发布，后台线程到点自动翻 published
+        if scheduled_at is not None and scheduled_at > datetime.datetime.utcnow():
+            published = False
+        else:
+            scheduled_at = None  # 立即发布/草稿：清空定时，避免历史脏值
+        post.published = published
+        post.scheduled_at = scheduled_at
         _sync_tags(post, request.form.get("tags", ""))
         db.session.commit()
         try:
@@ -292,14 +329,23 @@ def edit_post(post_id):
                 mail_notify.notify_subscribers_async(post)
             except Exception:
                 pass
-        flash("已保存修改")
+        if scheduled_at is not None and not published:
+            flash("已更新为定时发布，到点自动公开")
+        else:
+            flash("已保存修改")
         user = db.session.get(User, session.get("user_id"))
         return redirect(url_for("admin.my_posts") if user and not user.is_admin_role
                         else url_for("admin.dashboard"))
     cats = Category.query.order_by(Category.id).all()
     series = Series.query.order_by(Series.sort).all()
     tag_names = ", ".join(t.name for t in post.tags)
-    return render_template("admin/edit_post.html", post=post, cats=cats, series=series, tag_names=tag_names)
+    # scheduled_at 转 datetime-local 输入框格式（YYYY-MM-DDTHH:MM）；按 UTC 显示
+    scheduled_local = ""
+    if post.scheduled_at:
+        scheduled_local = post.scheduled_at.strftime("%Y-%m-%dT%H:%M")
+    return render_template("admin/edit_post.html", post=post, cats=cats, series=series,
+                           tag_names=tag_names, scheduled_local=scheduled_local,
+                           now_local=datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M"))
 
 
 @admin_bp.route("/post/<int:post_id>/delete", methods=["POST"])

@@ -466,3 +466,44 @@
 - 修复后深色模式文字继承 `body.admin` 的 `#d7d9dc`，所有未单独覆盖颜色的子元素（表格、列表等）在深色背景下均可正常阅读。
 - 建议后续对 `admin.css` 中所有 `.admin body` / `.admin *` 等祖先选择器做一次全量审查，避免类似因 body class 位置导致的规则失效。
 - 后端语法 `py_compile` 计划通过（见发布流程步骤）。
+
+---
+
+# 第十九轮审计（v2.7.0 · 定时发布功能）
+
+> 审计对象：新增 `Post.scheduled_at` 字段、后台定时发布守护线程、全部前台/列表查询的"可见性"升级、后台编辑页定时输入与状态展示。
+> 审计时间：2026-08-22
+
+## 19.1 本轮改动清单（对比 v2.6.16）
+
+| 文件 | 改动 |
+|------|------|
+| `myblog/models.py` | `Post` 新增 `scheduled_at`（DateTime 可空）；新增模块级 `visible_posts_query()` 统一"对访客可见"条件 |
+| `myblog/app.py` | `_migrate_post_table` 补 `scheduled_at` 列；`context_processor` 用可见性查询；`create_app()` 末尾启动 `scheduled-publish` 守护线程（每 60s 扫描到点文章翻 published） |
+| `myblog/routes.py` | 首页/详情/分类/标签/搜索/归档/RSS/sitemap/评论/点赞 全部改用 `visible_posts_query()` |
+| `myblog/api.py` | 列表/详情/系列/相关/搜索 全部改用 `visible_posts_query()` 或 `_is_visible()`；新增辅助函数 |
+| `myblog/admin.py` | `new_post`/`edit_post` 解析 `scheduled_at`（新增 `_parse_scheduled`）；状态逻辑与定时互斥 |
+| `myblog/templates/admin/edit_post.html` | 新增"定时发布"datetime-local 输入 + 与"立即发布"互斥联动 JS |
+| `myblog/templates/admin/dashboard.html` / `my_posts.html` | 状态列展示"⏰ 定时(时间)"徽标 |
+| `myblog/static/admin.css` | 新增 `.status-scheduled` 徽标与 `.hint` 提示样式（含深色变体） |
+
+## 19.2 维度审计
+
+| 维度 | 评估 | 结论 |
+|------|------|------|
+| XSS | 模板状态列仅渲染 `scheduled_at.strftime(...)`（受控日期，非用户输入）；`scheduled_local` 来自 DB 存储的 datetime 经 `strftime` 格式化，非原始输入 | 通过 |
+| SQL 注入 | 全部走 ORM 参数化（`visible_posts_query`/`filter`/`filter_by`），无字符串拼接；`_parse_scheduled` 用 `datetime.fromisoformat` 解析，非法值返回 None | 通过 |
+| 越权 | 定时字段仅为数据属性，无新增路由；`new_post`/`edit_post` 沿用 `@login_required` + `_can_edit_post` 归属校验 | 通过 |
+| SSRF | 无新增外部请求、无新 URL 抓取 | 通过 |
+| CSRF | 沿用全局 `enforce_same_origin`（跨站 POST 返回 403）；定时输入走既有 POST 表单 | 通过 |
+| 密钥泄露 | 无新增密钥/环境变量；`scheduled_at` 不入库凭据 | 通过 |
+| 资源泄漏 | 守护线程 `daemon=True`，无文件句柄/subprocess/连接；`db.session` 在 `app.app_context()` 内自动管理 | 通过 |
+| 限流 | 定时线程为内部扫描（非外部请求），无需限流；前台定时文章对外不可见，天然规避刷量 | 通过 |
+| 并发（多 worker） | gunicorn 多进程各自起线程扫描；翻转用 `published != True` 过滤 + commit，已发布的不匹配，重复翻转幂等；notify/邮件群发 try/except 静默 | 通过（轻微重复通知风险，已静默降级） |
+
+## 19.3 安全评估
+
+- 无高危/严重问题。定时发布功能在既有安全框架内实现，攻击面无新增。
+- 关键安全收益：定时未到的文章在**所有对外出口**（列表/详情/搜索/归档/RSS/sitemap/系列/相关/分类/标签/评论/点赞）均不可见，杜绝"定时文章提前泄露"。
+- 守护线程异常全部 try/except 静默，单轮失败不影响主流程与后续轮次。
+- 冒烟测试（隔离临时库）覆盖：列迁移、可见性过滤、线程翻转、时间解析、翻转后可见性，**全部通过**。

@@ -23,6 +23,8 @@ class Post(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     published = db.Column(db.Boolean, default=True)                # 是否发布
+    # 定时发布时间：为空=立即发布/已发布；不为空且未来时间=定时待发布（到点后由后台线程翻 published）
+    scheduled_at = db.Column(db.DateTime, nullable=True)
     views = db.Column(db.Integer, default=0)                       # 阅读量
     likes = db.Column(db.Integer, default=0)                       # 点赞数
     comments = db.relationship("Comment", backref="post", cascade="all, delete-orphan", lazy="dynamic")
@@ -251,3 +253,17 @@ class Notification(db.Model):
     link = db.Column(db.String(300), default="")          # 点击跳转地址（如 /post/xxx）
     is_read = db.Column(db.Boolean, default=False)        # 是否已读
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+
+def visible_posts_query():
+    """返回「对访客可见」的文章查询（已发布 且 未到定时发布时间的视为不可见）。
+
+    定时发布：scheduled_at 为空或 <= 当前 UTC 时间，才对外可见；未来的定时文章
+    暂不对外露出（列表/详情/搜索/归档/分类/标签/系列/热门/相关都走此条件）。
+    后台管理（dashboard/my_posts）仍用裸 Post.query，方便查看/编辑定时草稿。
+    """
+    now = datetime.utcnow()
+    return Post.query.filter(
+        Post.published == True,
+        db.or_(Post.scheduled_at.is_(None), Post.scheduled_at <= now),
+    )

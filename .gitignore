@@ -60,3 +60,6 @@ _vite_build13/
 _vite_build14/
 
 _vite_build14/
+
+# 项目内存目录（本地数据，不入版本库）
+.workbuddy/memory/

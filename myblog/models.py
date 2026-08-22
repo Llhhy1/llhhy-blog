@@ -287,6 +287,7 @@ class AuditLog(db.Model):
     target_id = db.Column(db.Integer, nullable=True)     # 操作对象 id
     detail = db.Column(db.String(300), default="")       # 简述，如文章标题/动作结果
     ip = db.Column(db.String(64), default="")
+    success = db.Column(db.Boolean, default=True)        # 是否成功（登录失败/操作失败时为 False）
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
 

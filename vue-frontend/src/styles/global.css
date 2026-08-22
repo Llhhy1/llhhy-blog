@@ -20,6 +20,8 @@ body {
 }
 
 .container { max-width: 1040px; margin: 0 auto; padding: 0 20px; }
+/* 大框内不再二次限宽（外层 .site-frame 已负责边缘留白，避免内容被压窄） */
+.site-frame .container { max-width: none; padding: 0; }
 
 /* 顶部导航 */
 .site-header { background: var(--nav-bg); border-bottom: 1px solid var(--nav-border); position: sticky; top: 0; z-index: 10; }
@@ -66,6 +68,40 @@ body {
 [data-theme="dark"] .unsub-card { background: #1d2025; border-color: #2a2e35; }
 [data-theme="dark"] .unsub-card h2 { color: #f1f3f5; }
 [data-theme="dark"] .unsub-tip { color: #9aa0a6; }
+
+/* ===== 大框架（v3.1.0）：统一框住正文+页脚，视觉与后台 .section-box 一致 ===== */
+/* 外框：浅灰底 + 细边框 + 圆角 + 溢出裁剪，居中限宽 */
+.site-frame {
+  max-width: 1100px;
+  margin: 22px auto 28px;
+  padding: 0 16px;
+  background: #f4f6f8;
+  border: 1px solid #e6e8eb;
+  border-radius: var(--theme-radius, 12px);
+  overflow: hidden;            /* 关键：内容超出时裁剪，不撑破外框 */
+  box-shadow: 0 1px 3px rgba(0,0,0,0.03);
+}
+/* 框内内容区：负责实际左右留白（避免与外框 padding 叠加） */
+.site-frame-inner { padding: 22px 18px 8px; }
+/* 页脚：在大框内，去掉全宽白底，改为透明分隔线 */
+.site-footer {
+  background: transparent;
+  border-top: 1px solid #e6e8eb;
+  padding: 18px 0;
+  color: #999;
+  font-size: 13px;
+  text-align: center;
+}
+[data-theme="dark"] .site-frame {
+  background: #1b1e23;
+  border-color: #333a44;
+}
+[data-theme="dark"] .site-frame-inner { /* 暗色下内容区透明，由外框统一底色 */ }
+[data-theme="dark"] .site-footer {
+  background: transparent;
+  border-color: #333a44;
+  color: #9aa0a6;
+}
 
 /* 布局 */
 .layout { display: flex; gap: 32px; padding-top: 32px; padding-bottom: 40px; align-items: flex-start; }
@@ -156,8 +192,7 @@ button:hover, .btn:hover { background: color-mix(in srgb, var(--accent), #000 15
 .pagination .current { background: var(--accent); color: #fff; }
 .pagination .disabled, .pagination .ellipsis { color: #c2c2c2; }
 
-/* 页脚 */
-.site-footer { background: #fff; border-top: 1px solid #ececec; padding: 22px 0; color: #999; font-size: 13px; text-align: center; }
+/* 页脚（基础链接色，外框/底色由 .site-frame 体系控制，见上方大框架段） */
 .site-footer a { color: #8a8a8a; text-decoration: underline; }
 .site-footer a:hover { color: #555; }
 
@@ -467,6 +502,9 @@ button:hover, .btn:hover { background: color-mix(in srgb, var(--accent), #000 15
   #back-to-top { width: 38px; height: 38px; right: 14px; bottom: 18px; font-size: 18px; }
   .site-note { font-size: 12px; padding: 7px 10px; }
   .like-btn { width: 100%; }
+  /* 大框窄屏收敛：减小外边距与内边距，避免小屏被框挤压 */
+  .site-frame { margin: 12px auto 18px; padding: 0 8px; border-radius: 10px; }
+  .site-frame-inner { padding: 14px 10px 4px; }
 }
 
 /* ===== 评论嵌套回复（C2） ===== */

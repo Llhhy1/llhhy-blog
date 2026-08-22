@@ -15,6 +15,8 @@ from models import db, Post, Category, Tag, Comment, FriendLink, Setting, User, 
     ReadLog, visible_posts_query, LinkApplication, AuditLog, PostHistory, RecycleBin
 from utils import render_markdown, clean_html, rate_limit, client_key
 import stats
+# v3.1.0：记录登录审计（log_login_attempt 定义在 admin 模块，admin 不依赖 api，无循环）
+from admin import log_login_attempt
 
 api_bp = Blueprint("api", __name__, url_prefix="/api")
 
@@ -81,7 +83,10 @@ def auth_login():
     password = data.get("password") or ""
     u = User.query.filter_by(username=username).first()
     if not u or not u.check_password(password):
+        # v3.1.0：记录失败的登录尝试（含尝试的用户名与 IP，便于发现爆破）
+        log_login_attempt(username, False)
         return jsonify({"error": "用户名或密码错误"}), 401
+    log_login_attempt(username, True)
     return _login_user(u)
 
 

@@ -168,3 +168,17 @@
 - 新增站点设置：`comment_spam_keywords`（垃圾评论关键词，逗号分隔）、`site_lang`（默认语言 `zh`/`en`）、`reward_qr_default`（默认打赏收款码 URL）。
 - **自动迁移**：重启时 `app.py` 的 `_migrate_*` 自动补列（Post 7 个新字段）+ 新建 4 张表（audit_log / recycle_bin / link_application / post_history），无需手动 SQL。
 - **安全审计**：第七轮（R7），修复 `/api/link-apply` 模型未导入导致的 500 与隐私空间超管自查看不到的问题；24 项冒烟测试全部通过。
+
+## 十一、v3.1.0 功能迭代（登录审计 + 前台大框 + 主题修复）
+
+> v3.1.0 为**可观测性增强 + 视觉对齐**版本：补齐后台登录审计、审计日志 30 天保留与打包下载，前台内容统一大框（对齐后台），并修复手机端汉堡菜单不随深色模式切换的问题。全部经安全审计（R8）与冒烟测试通过。
+
+### 11.1 新增功能清单
+- **后台登录审计日志**：`log_login_attempt()` 在三个登录入口（api `/auth/login`、admin `login`、routes `login`）调用，成功/失败均写入 `AuditLog`（action='login'，含尝试用户名、来源 IP）；`AuditLog` 新增 `success` 列（迁移 `_migrate_audit_log_table` 自动补列）。
+- **审计日志 30 天保留**：每次登录顺带调用 `_purge_audit_logs_older_than(30)` 清理超期日志（原清理按钮由 7 天改为 30 天）。
+- **审计日志打包下载**：`/admin/audit-logs/export`（`@super_required`）用 `io.BytesIO` + `zipfile` 内存打包 CSV + TXT，经 `send_file` 流式返回，不落盘。
+- **前台统一大框**：`App.vue` 内容区外包 `.site-frame`（视觉对齐后台 `.section-box`，浅灰底 + 细边框 + 圆角 + overflow 裁剪 + 暗色变量）；窄屏收敛边距。
+- **主题初始化修复（手机汉堡不跟随）**：`App.vue` `onMounted` 原在 `initSite` 异步完成前强制把 `data-theme` 重置为 light（覆盖用户已选 dark），改为站点设置加载后据 `localStorage` 修正主题与图标，并加 `matchMedia` 跟随系统。
+
+### 11.2 安全审计
+- 第八轮（R8）：导出接口路径穿越/注入/资源泄漏均不涉及（文件名服务端生成、内存打包）；登录日志仅超管可见；XSS/SQL 注入/CSRF/限流沿用既有防护。无高危问题。

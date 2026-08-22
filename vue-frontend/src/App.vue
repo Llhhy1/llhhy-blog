@@ -95,20 +95,21 @@
     <button class="site-note-close" type="button" aria-label="关闭便签" @click="noteClosed = true">✕</button>
   </div>
 
-  <main class="container">
-    <router-view v-slot="{ Component }">
-      <component :is="Component" />
-    </router-view>
-  </main>
+  <!-- 大框架：统一框住公告/便签/正文/页脚（v3.1.0，视觉与后台 .section-box 一致） -->
+  <div class="site-frame">
+    <main class="site-frame-inner">
+      <router-view v-slot="{ Component }">
+        <component :is="Component" />
+      </router-view>
+    </main>
 
-  <footer class="site-footer">
-    <div class="container">
+    <footer class="site-footer">
       <p>{{ state.site.footer_text }}</p>
       <p v-if="state.site.beian_code">
         <a href="https://beian.miit.gov.cn" target="_blank" rel="noopener">{{ state.site.beian_code }}</a>
       </p>
-    </div>
-  </footer>
+    </footer>
+  </div>
 
   <button id="back-to-top" title="回到顶部" aria-label="回到顶部" @click="scrollTop">↑</button>
 </template>
@@ -176,6 +177,25 @@ function toggleTheme() {
   try { localStorage.setItem("theme", next); } catch (e) {}
 }
 
+// 读取用户手动选择的主题（localStorage），无则返回 null（交由系统/后台默认决定）
+function savedTheme() {
+  try { return localStorage.getItem("theme"); } catch (e) { return null; }
+}
+
+// 系统深色偏好变化监听（仅当用户未手动选择主题时跟随系统，v3.1.0 修复）
+let _darkMq = null;
+function watchSystemTheme() {
+  if (!window.matchMedia) return;
+  _darkMq = window.matchMedia("(prefers-color-scheme: dark)");
+  const handler = () => {
+    // 用户手动选过主题则不再跟随系统，保持手动选择
+    if (savedTheme()) return;
+    applyTheme(_darkMq.matches ? "dark" : "light");
+  };
+  if (_darkMq.addEventListener) _darkMq.addEventListener("change", handler);
+  else if (_darkMq.addListener) _darkMq.addListener(handler);
+}
+
 // v3.0.0 功能11：中英语言切换
 function toggleLang() {
   setLang(state.lang === "en" ? "zh" : "en");
@@ -201,7 +221,16 @@ function onScroll() {
 
 onMounted(async () => {
   await initSite();
-  applyTheme(currentTheme());
+  // v3.1.0 修复：initSite 内部 applyDefaultTheme 仅在「用户未手动选过主题」时设置 data-theme；
+  // 若用户曾手动切到 dark（localStorage 有值），需在此据 localStorage 修正并同步图标，
+  // 否则页面会停在 light，导致手机端汉堡菜单等暗色样式不生效（不随主题切换）。
+  const saved = savedTheme();
+  if (saved === "dark" || saved === "light") {
+    applyTheme(saved);
+  } else {
+    applyTheme(currentTheme());
+  }
+  watchSystemTheme();
   try {
     const an = await apiGet("/api/announcements");
     announcements.value = an.items || [];

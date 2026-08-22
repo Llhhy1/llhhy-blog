@@ -155,6 +155,20 @@ def _migrate_subscriber_table():
             print("已迁移 subscriber 表：新增 unsub_token 列")
 
 
+def _migrate_audit_log_table():
+    """v3.1.0：audit_log 表补 success 列（登录成功/失败区分）。"""
+    from sqlalchemy import inspect
+    ins = inspect(db.engine)
+    if "audit_log" in ins.get_table_names():
+        cols = [c["name"] for c in ins.get_columns("audit_log")]
+        if "success" not in cols:
+            db.session.remove()
+            db.engine.dispose()
+            with db.engine.begin() as conn:
+                conn.execute(db.text("ALTER TABLE audit_log ADD COLUMN success BOOLEAN DEFAULT 1"))
+            print("已迁移 audit_log 表：新增 success 列")
+
+
 def _migrate_new_tables_v3():
     """v3.0.0 新增表：若数据库中尚不存在这些表，则建表（幂等，可重复调用）。
 
@@ -349,6 +363,7 @@ def create_app():
         _migrate_friendlink_table()
         _migrate_guestbook_table()
         _migrate_subscriber_table()
+        _migrate_audit_log_table()
         _migrate_new_tables_v3()
         try:
             import fts

@@ -58,17 +58,24 @@ def find_front_dir(explicit=None):
         if os.path.isdir(p):
             return p
         raise SystemExit("指定前端目录不存在: " + explicit)
-    # 优先最新 _vite_buildN，回退 dist
-    candidates = []
+    # 优先级：最新 dist*（含 dist_vXXX，规避本地删除保护用非 dist 名）> 最新 _vite_buildN > dist
+    dist_like = []
+    numbered = []
     for name in os.listdir(FRONT_BASE):
-        if re.match(r"^_vite_build\d+$", name):
-            candidates.append(name)
-    if candidates:
-        candidates.sort(key=lambda s: int(re.search(r"\d+", s).group()))
-        return os.path.join(FRONT_BASE, candidates[-1])
-    d = os.path.join(FRONT_BASE, "dist")
-    if os.path.isdir(d):
-        return d
+        full = os.path.join(FRONT_BASE, name)
+        if not os.path.isdir(full):
+            continue
+        if re.match(r"^dist", name):  # dist / dist_v311 / dist_v312 ...
+            dist_like.append((os.path.getmtime(full), name))
+        elif re.match(r"^_vite_build\d+$", name):
+            numbered.append(name)
+    if dist_like:
+        # 取修改时间最新的 dist* 目录（正式产物名，优先）
+        dist_like.sort(key=lambda t: t[0], reverse=True)
+        return os.path.join(FRONT_BASE, dist_like[0][1])
+    if numbered:
+        numbered.sort(key=lambda s: int(re.search(r"\d+", s).group()))
+        return os.path.join(FRONT_BASE, numbered[-1])
     raise SystemExit("未找到前端构建目录（请先 npm run build 或指定 --front-dir）")
 
 

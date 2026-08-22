@@ -5,7 +5,7 @@ import time
 import datetime
 
 from flask import (Blueprint, render_template, request, redirect, url_for,
-                   session, flash, current_app, abort, jsonify)
+                   session, flash, current_app, abort, jsonify, send_file)
 from werkzeug.utils import secure_filename
 
 from models import (db, Post, Category, Tag, Comment, FriendLink, Setting,
@@ -97,11 +97,12 @@ def _can_edit_post(user, post):
     return post.author_id is not None and post.author_id == user.id
 
 
-def log_audit(action, target="", target_id=None, detail="", user=None, ip=""):
+def log_audit(action, target="", target_id=None, detail="", user=None, ip="", success=True):
     """记录一条后台操作审计日志（v3.0.0 功能4）。
 
     自动填操作人（传入 user 或当前会话用户）、用户名、来源 IP。
     所有后台写操作（增删改文章/评论/用户/设置/友链等）调用本函数，便于事后追溯。
+    success：是否成功（登录失败/操作失败时为 False）。
     异常静默：单条日志失败不影响主流程。
     """
     try:
@@ -114,9 +115,47 @@ def log_audit(action, target="", target_id=None, detail="", user=None, ip=""):
             user_id=user.id if user else None,
             username=user.username if user else "",
             action=action, target=target, target_id=target_id,
-            detail=(detail or "")[:300], ip=ip[:64],
+            detail=(detail or "")[:300], ip=ip[:64], success=success,
         ))
         db.session.commit()
+    except Exception:
+        pass
+
+
+def log_login_attempt(username, success, ip=""):
+    """记录一次后台登录尝试（v3.1.0 新增）。
+
+    无论成功失败都写入审计日志（action='login'），便于追溯异常登录与爆破。
+    success=True 记 target='成功'，False 记 target='失败'（含尝试的用户名）。
+    无请求上下文时（如离线脚本）安全降级，不抛异常。
+    """
+    if not ip:
+        try:
+            ip = (request.headers.get("X-Forwarded-For", "").split(",")[0].strip()
+                  or request.remote_addr or "")
+        except Exception:
+            ip = ""
+    try:
+        db.session.add(AuditLog(
+            user_id=None, username=(username or "")[:40],
+            action="login", target=("成功" if success else "失败"),
+            target_id=None, detail=(f"登录尝试：{username}" if not success else "后台登录"),
+            ip=ip[:64], success=success,
+        ))
+        db.session.commit()
+    except Exception:
+        pass
+    # 顺带清理超过 30 天的旧审计日志（含登录日志），避免表无限膨胀（v3.1.0）
+    _purge_audit_logs_older_than(30)
+
+
+def _purge_audit_logs_older_than(days):
+    """清理超过 N 天的审计日志（含登录日志）。轻量：仅当存在时才删除。"""
+    try:
+        cutoff = datetime.datetime.utcnow() - datetime.timedelta(days=days)
+        deleted = AuditLog.query.filter(AuditLog.created_at < cutoff).delete()
+        if deleted:
+            db.session.commit()
     except Exception:
         pass
 
@@ -179,12 +218,14 @@ def login():
         password = request.form.get("password", "")
         user = User.query.filter_by(username=username).first()
         if user and user.check_password(password):
+            log_login_attempt(username, True)
             session["user_id"] = user.id
             if user.is_super and user.must_change_password:
                 return redirect(url_for("admin.setup"))
             # 按角色分流
             return redirect(url_for("admin.dashboard") if user.is_admin_role
                             else url_for("admin.new_post"))
+        log_login_attempt(username, False)
         flash("用户名或密码错误")
         return render_template("admin/login.html")
     # GET 未登录：跳转到前台统一登录页（同一会话，登录后按权限自动回到对应页面）
@@ -1313,16 +1354,69 @@ def audit_logs():
                            pagination=pagination)
 
 
+@admin_bp.route("/audit-logs/export")
+@login_required
+@super_required
+def export_audit_logs():
+    """打包下载全部审计日志（v3.1.0 新增）：生成 CSV + 可读 TXT 的 zip，内存打包不落盘。"""
+    import io
+    import csv
+    import zipfile
+    import datetime as _dt
+    logs = AuditLog.query.order_by(AuditLog.created_at.desc()).all()
+
+    # ---- CSV ----
+    csv_buf = io.StringIO()
+    writer = csv.writer(csv_buf)
+    writer.writerow(["时间", "操作人", "动作", "对象", "结果", "说明", "来源IP"])
+    for l in logs:
+        writer.writerow([
+            l.created_at.strftime("%Y-%m-%d %H:%M:%S") if l.created_at else "",
+            l.username or "",
+            l.action or "",
+            (l.target or "") + (f"#{l.target_id}" if l.target_id else ""),
+            "成功" if l.success else "失败",
+            l.detail or "",
+            l.ip or "",
+        ])
+    csv_bytes = csv_buf.getvalue().encode("utf-8-sig")  # BOM 让 Excel 正确识别中文
+
+    # ---- TXT（人类可读）----
+    lines = ["llhhy-blog 后台审计日志导出", "生成时间：" + _dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+             "共 %d 条记录（保留 30 天）" % len(logs), "=" * 60]
+    for l in logs:
+        ts = l.created_at.strftime("%Y-%m-%d %H:%M:%S") if l.created_at else "?"
+        obj = (l.target or "") + (f"#{l.target_id}" if l.target_id else "")
+        res = "成功" if l.success else "失败"
+        lines.append(f"[{ts}] {l.username or '—'} {l.action} {obj} {res} | {l.detail or ''} | IP:{l.ip or '—'}")
+    txt_bytes = ("\n".join(lines)).encode("utf-8")
+
+    # ---- 内存打包 zip ----
+    zip_buf = io.BytesIO()
+    with zipfile.ZipFile(zip_buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr("audit_logs.csv", csv_bytes)
+        zf.writestr("audit_logs.txt", txt_bytes)
+    zip_buf.seek(0)
+
+    stamp = _dt.datetime.now().strftime("%Y%m%d_%H%M%S")
+    return send_file(
+        zip_buf,
+        mimetype="application/zip",
+        as_attachment=True,
+        download_name=f"audit_logs_{stamp}.zip",
+    )
+
+
 @admin_bp.route("/audit-logs/clear", methods=["POST"])
 @login_required
 @super_required
 def clear_audit_logs():
-    """清空操作日志（谨慎操作，不可恢复）。保留最近 7 天（避免误清全部）。"""
-    cutoff = datetime.datetime.utcnow() - datetime.timedelta(days=7)
+    """清空操作日志（谨慎操作，不可恢复）。保留最近 30 天（v3.1.0 起统一为 30 天保留期）。"""
+    cutoff = datetime.datetime.utcnow() - datetime.timedelta(days=30)
     deleted = AuditLog.query.filter(AuditLog.created_at < cutoff).delete()
     db.session.commit()
-    log_audit("clear", "audit_log", None, f"清空 7 天前的审计日志 {deleted} 条", user=_current_user_or_none())
-    flash(f"已清理 {deleted} 条 7 天前的旧日志（近 7 天记录保留）")
+    log_audit("clear", "audit_log", None, f"清空 30 天前的审计日志 {deleted} 条", user=_current_user_or_none())
+    flash(f"已清理 {deleted} 条 30 天前的旧日志（近 30 天记录保留）")
     return redirect(url_for("admin.audit_logs"))
 
 

@@ -3,13 +3,14 @@
 {% block content %}
   <div class="admin-actions">
     <h1 class="page-title" style="margin:0;">🧾 后台操作日志（审计 trail）</h1>
-    <form method="post" action="{{ url_for('admin.clear_audit_logs') }}" class="inline-form" onsubmit="return confirm('确定清空 7 天前的旧日志？近 7 天记录会保留。');">
+    <form method="post" action="{{ url_for('admin.clear_audit_logs') }}" class="inline-form" onsubmit="return confirm('确定清空 30 天前的旧日志？近 30 天记录会保留。');">
       <button type="submit" class="btn small ghost">🧹 清理旧日志</button>
     </form>
+    <a class="btn small" href="{{ url_for('admin.export_audit_logs') }}">⬇️ 打包下载</a>
   </div>
-  <p class="stats-tip">记录后台关键写操作（增删改文章/评论/用户/设置等），含操作人、动作、对象、来源 IP，便于事后追溯。仅超级管理员可见。</p>
+  <p class="stats-tip">记录后台关键写操作（增删改文章/评论/用户/设置等）与每次登录（含成功/失败），含操作人、动作、对象、来源 IP，便于事后追溯。仅超级管理员可见。日志保留 30 天，自动清理更早记录。</p>
   <table class="admin-table">
-    <thead><tr><th>时间</th><th>操作人</th><th>动作</th><th>对象</th><th>说明</th><th>来源 IP</th></tr></thead>
+    <thead><tr><th>时间</th><th>操作人</th><th>动作</th><th>对象</th><th>结果</th><th>说明</th><th>来源 IP</th></tr></thead>
     <tbody>
       {% for l in logs %}
         <tr>
@@ -17,11 +18,12 @@
           <td>{{ l.username or '—' }}</td>
           <td><span class="badge-ok">{{ l.action }}</span></td>
           <td>{{ l.target }}{% if l.target_id %} #{{ l.target_id }}{% endif %}</td>
+          <td>{% if l.success %}<span class="badge-ok">成功</span>{% else %}<span class="badge-bad">失败</span>{% endif %}</td>
           <td>{{ l.detail or '—' }}</td>
           <td><code>{{ l.ip or '—' }}</code></td>
         </tr>
       {% else %}
-        <tr><td colspan="6">暂无操作日志</td></tr>
+        <tr><td colspan="7">暂无操作日志</td></tr>
       {% endfor %}
     </tbody>
   </table>

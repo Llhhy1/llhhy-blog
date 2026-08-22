@@ -9,6 +9,8 @@ from markupsafe import escape
 
 from models import db, Post, Category, Tag, Comment, Setting, User, ROLE_USER, visible_posts_query
 from utils import make_slug, render_markdown, safe_redirect, rate_limit, client_key
+# v3.1.0：登录审计（log_login_attempt 定义于 admin 模块，admin 不依赖 routes，无循环）
+from admin import log_login_attempt
 
 main_bp = Blueprint("main", __name__)
 
@@ -63,10 +65,12 @@ def login():
         password = request.form.get("password", "")
         u = User.query.filter_by(username=username).first()
         if u and u.check_password(password):
+            log_login_attempt(username, True)
             session["user_id"] = u.id
             flash(f"欢迎回来，{u.username}！")
             nxt = safe_redirect(request.args.get("next"), url_for("main.index"))
             return redirect(nxt)
+        log_login_attempt(username, False)
         flash("用户名或密码错误")
     return render_template("login.html")
 

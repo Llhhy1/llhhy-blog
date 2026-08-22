@@ -4,13 +4,6 @@
    ============================================================ */
 .admin * { box-sizing: border-box; margin: 0; padding: 0; }
 
-/* 主题变量（大框随明暗主题切换）：浅色端默认值 */
-.admin {
-  --box-bg: #f4f6f8;          /* 大框背景（浅灰） */
-  --box-border: #e6e8eb;      /* 大框/内卡边框 */
-  --inner-bg: #ffffff;        /* 大框内 panel 背景（白） */
-}
-
 .admin body {
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
     "Microsoft YaHei", sans-serif;
@@ -85,10 +78,10 @@
 .panel h3 { font-size: 15px; margin-bottom: 14px; color: #333; }
 
 /* 大框（v2.6.11）：把内部小卡片整体框住，防止内容溢出屏幕
-   颜色通过 --box-bg / --box-border / --inner-bg 变量随主题切换 */
+   浅色写死值（与全站暗色规则一致，避免微信老内核 var() 不生效） */
 .section-box {
-  background: var(--box-bg, #f4f6f8);
-  border: 1px solid var(--box-border, #e6e8eb);
+  background: #f4f6f8;
+  border: 1px solid #e6e8eb;
   border-radius: var(--theme-radius, 12px);
   padding: 18px;
   margin-bottom: 18px;
@@ -97,8 +90,8 @@
 }
 /* section-box 内的 panel 去掉自身边框/阴影/外边距（避免双层框） */
 .section-box .panel {
-  background: var(--inner-bg, #ffffff);
-  border: 1px solid var(--box-border, #e6e8eb);
+  background: #ffffff;
+  border: 1px solid #e6e8eb;
   border-radius: 10px;
   margin-bottom: 0;
   box-shadow: none;
@@ -113,15 +106,14 @@
   -webkit-overflow-scrolling: touch;
 }
 .table-scroll .admin-table { margin-bottom: 0; }
-[data-theme="dark"] .admin {
-  --box-bg: #1b1e23;          /* 大框背景（深灰） */
-  --box-border: #333a44;      /* 大框/内卡边框 */
-  --inner-bg: #23272e;        /* 大框内 panel 背景（深卡） */
+/* 暗色下大框跟随主题（写死值，与全站暗色规则一致，兼容微信老内核） */
+[data-theme="dark"] .section-box {
+  background: #1b1e23;
+  border-color: #333a44;
 }
-/* 暗色下大框内 panel 明确跟随变量（覆盖通用 .panel 暗色规则，保证边框/背景统一） */
 [data-theme="dark"] .section-box .panel {
-  background: var(--inner-bg, #23272e);
-  border-color: var(--box-border, #333a44);
+  background: #23272e;
+  border-color: #333a44;
 }
 
 /* ---------- 表格 ---------- */
@@ -577,6 +569,13 @@
   .admin-drawer-mask.show { opacity: 1 !important; pointer-events: auto !important; }
   /* 暗色主题用更浅的深色 + 微妙白色提亮（避免被深色主区"吃掉"） */
   [data-theme="dark"] .admin-drawer-mask { background: rgba(0,0,0,.7) !important; }
+  /* 汉堡按钮深色适配：半透明深色底 + 浅色字，避免亮蓝白字在深色背景突兀 */
+  [data-theme="dark"] .admin-hamburger {
+    background: rgba(255,255,255,.1);
+    color: #e6e8eb;
+    box-shadow: none;
+    border: 1px solid rgba(255,255,255,.15);
+  }
   /* 汉堡按钮：更大更显眼 */
   .admin-hamburger {
     display: flex; align-items: center; justify-content: center;

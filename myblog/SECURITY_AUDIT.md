@@ -331,6 +331,28 @@
 - 隔离冒烟渲染通过（dashboard 200，section-box 6 处、table-scroll 1 处）
 - CSS 配平 OK（695 行）
 
+## 四·补十三、第十五轮审计（2026-08-22 · v2.6.13 修复深色模式大框/汉堡不跟随主题）
+
+> 用户反馈：深色模式下新增大框仍是白色、汉堡图标也不随主题变。
+
+### 13.1 根因
+
+- v2.6.12 用 CSS 变量（`--box-bg` 等）+ `[data-theme="dark"] .admin` 继承做暗色切换。但全站 71 条暗色规则**全部是写死颜色值、0 条用 var()**，说明原方案刻意不依赖 CSS 变量（兼容微信老内核）。微信内置浏览器对 `var()` 的变量继承/属性选择器匹配支持不可靠，导致 `[data-theme="dark"] .admin { --box-bg:... }` 未生效，section-box 的 `var(--box-bg, #f4f6f8)` 退回浅色 fallback → 深色下仍是白色。
+- 汉堡图标 `.admin-hamburger` 写死 `background: var(--accent)` + `color:#fff`（亮蓝白字），暗色段无适配规则。
+
+### 13.2 修复
+
+- `admin.css`：section-box 及内部 panel 的浅色/暗色**全部改为写死值**（与全站暗色规则一致），删除 `.admin` 的 var 变量定义和 `[data-theme="dark"] .admin` 变量赋值
+  - 浅色：`.section-box { background:#f4f6f8; border-color:#e6e8eb }`；`.section-box .panel { background:#fff; border-color:#e6e8eb }`
+  - 暗色：`[data-theme="dark"] .section-box { background:#1b1e23; border-color:#333a44 }`；`[data-theme="dark"] .section-box .panel { background:#23272e; border-color:#333a44 }`
+- 汉堡图标暗色适配：`[data-theme="dark"] .admin-hamburger { background:rgba(255,255,255,.1); color:#e6e8eb; border:1px solid rgba(255,255,255,.15); box-shadow:none }`
+
+### 13.3 安全评估
+
+- 纯 CSS 颜色值修正，无后端逻辑改动，无注入面
+- 隔离冒烟渲染通过（dashboard 200）；CSS 配平 OK（694 行）
+- 无 var() 残留，彻底兼容微信内核
+
 ## 五、上线前必做（宝塔面板 · 环境变量配置）
 
 程序启动**必须**存在两个环境变量（缺失即拒绝启动）：

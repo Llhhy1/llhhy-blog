@@ -14,17 +14,16 @@ set -e
 REPO="Llhhy1/llhhy-blog"            # GitHub 仓库（owner/repo）
 APP_DIR="/www/wwwroot/myblog"       # 后端运行目录（Python 项目路径，必填）
 FRONT_DIR="/www/wwwroot/vue-frontend"  # 前端静态目录（Nginx 网站根）
-# 重启后端的方式（宝塔环境任选其一）：
-#   A. 宝塔已装 supervisor：sudo supervisorctl restart myblog
-#   B. 宝塔计划任务/服务：/etc/init.d/myblog restart
-#   C. 留空 → 脚本优先自动探测 supervisor 项目（PROJECT_NAME）并 restart；
-#           若没有 supervisor，则「真杀 gunicorn(Term) + 用 data/start_cmd.txt 重新拉起」
-# ⚠️ v3.1.2 修复：宝塔 Python 项目底层由 supervisor 以 www 身份管理 gunicorn，
-#   脚本若以 root 或其他身份运行，直接 kill 该进程会 Operation not permitted。
-#   因此默认优先走 supervisorctl restart（以正确身份停+起），彻底绕开跨用户 kill 权限问题。
-#   如需手动指定重启命令可填：RESTART_CMD="supervisorctl restart myblog"
-RESTART_CMD=""
 PROJECT_NAME="myblog"                      # 宝塔 Python 项目名称（默认 myblog）；若你宝塔里的项目名不同请改这里
+APP_USER="mw"                              # gunicorn 进程运行用户（ps -ef 看到的属主；本机实测为 mw，非 www）
+# ⚠️ 重要：宝塔 Python 项目【不是】用 supervisor 管理！它用自己的进程守护，进程属主是 mw。
+#   脚本若以 root 运行，必须用「与进程同身份(mw)」去 kill / 启动，否则 Operation not permitted。
+#   跨用户 kill 的正确做法：runuser -u mw -- kill ...（或 su mw -c），绝不能用 www（本机无此用户）。
+GUNICORN_BIN="/ww/server/pyporject_evn/blog_env/bin/gunicorn"  # 宝塔托管的 gunicorn 真实路径（非项目 venv）
+GUNICORN_CONF="$APP_DIR/gunicorn_conf.py" # 宝塔实际用的 conf 名（注意是 gunicorn_conf.py，不是 gunicorn.conf）
+# 重启后端的方式（留空 → 脚本优先 bt CLI 重启，其次 runuser -u mw 真杀+宝塔 gunicorn 重新拉起）
+#   如需手动指定重启命令可填：RESTART_CMD="bt stop myblog && bt start myblog"
+RESTART_CMD=""
 
 # ===== 以下一般不用改 =====
 WORK="/tmp/llhhy_deploy"
@@ -81,90 +80,72 @@ else
 fi
 
 # 6. 重启后端（Python 项目）—— 真杀 + 真启动（严禁 HUP）
-#    v3.1.2 修复：优先 supervisorctl restart（以 www 身份由 supervisor 管理，无跨用户 kill 权限问题）；
-#       其次才走「读 pidfile 精确杀」。若脚本以 root 运行而 gunicorn 属主是 www，kill 会无权限，
-#       故 kill/pkill 自动加 sudo -u www 保护。
-#    v3.1.1 修复：优先读 gunicorn 自己的 pidfile（配置里 pidfile=/www/wwwroot/myblog/gunicorn.pid），
-#       只杀「自己这个 master pid」，绝不 pkill -f "gunicorn" 粗放匹配——否则会误匹配到 root 启动的
-#       其他 gunicorn 进程，导致 Operation not permitted。
-SUC=""
-if [ "$(id -u)" = "0" ] && command -v sudo >/dev/null 2>&1; then SUC="sudo -u www"; fi
+#    ⚠️ 宝塔 Python 项目【不是】supervisor 管理，gunicorn 属主是 mw（非 www）。
+#    正确做法：bt CLI 重启（最贴近面板停止→启动） → 否则以 mw 身份 runuser 真杀+宝塔 gunicorn 重新拉起。
+#    绝不能用 www（本机无此用户），否则跨用户 kill 报 Operation not permitted。
+RU=""
+if [ "$(id -u)" = "0" ] && command -v runuser >/dev/null 2>&1; then
+  RU="runuser -u $APP_USER --"
+elif [ "$(id -u)" = "0" ] && command -v su >/dev/null 2>&1; then
+  RU="su $APP_USER -c"
+fi
 if [ -n "$RESTART_CMD" ]; then
   log "执行重启命令..."
   eval "$RESTART_CMD"
-elif command -v supervisorctl >/dev/null 2>&1; then
-  # 优先 supervisor（以正确身份停+起，绕过跨用户 kill 权限问题）
-  if [ -n "$PROJECT_NAME" ]; then
-    if eval "$SUC supervisorctl status $PROJECT_NAME" >/dev/null 2>&1; then
-      eval "$SUC supervisorctl restart $PROJECT_NAME" && log "已通过 supervisor 重启「$PROJECT_NAME」。"
-      log "✅ 自动部署完成（$TAG）。请用无痕窗口访问后台，左下角版本号应为 $TAG"
-      exit 0
+elif command -v bt >/dev/null 2>&1 && [ -n "$PROJECT_NAME" ]; then
+  # 优先宝塔 CLI（停止→启动，以正确身份执行，无权限问题）
+  log "尝试通过宝塔 CLI 重启项目「$PROJECT_NAME」..."
+  if bt stop "$PROJECT_NAME" >/dev/null 2>&1; then
+    sleep 2
+    if bt start "$PROJECT_NAME" >/dev/null 2>&1; then
+      log "已通过宝塔 CLI 重启「$PROJECT_NAME」。"
+    else
+      log "⚠️ bt stop 成功但 bt start 失败，继续用 runuser 兜底..."
     fi
-    log "⚠️ supervisor 中找不到项目「$PROJECT_NAME」，尝试 start_cmd.txt 兜底..."
+  else
+    log "⚠️ bt stop 失败，继续用 runuser 兜底..."
   fi
-  for conf in /etc/supervisor/conf.d/*.conf /www/server/panel/plugin/supervisor/*.conf; do
-    [ -f "$conf" ] || continue
-    if grep -q "$APP_DIR" "$conf" 2>/dev/null; then
-      name=$(basename "$conf" .conf)
-      if eval "$SUC supervisorctl status $name" >/dev/null 2>&1; then
-        eval "$SUC supervisorctl restart $name" && log "已自动探测并重启 supervisor 项目「$name」。"
-        log "✅ 自动部署完成（$TAG）。请用无痕窗口访问后台，左下角版本号应为 $TAG"
-        exit 0
-      fi
-    fi
-  done
-  log "⚠️ 未探测到 supervisor 项目，尝试 start_cmd.txt 兜底..."
 fi
-if [ -f "$APP_DIR/data/start_cmd.txt" ]; then
-  # 有记录的启动命令 → 先精确真杀旧 gunicorn，再拉起
-  pid=""
-  pidfile="$APP_DIR/gunicorn.pid"
-  KILL="kill"; PKILL="pkill"; KILL0="kill -0"
-  if [ "$(id -u)" = "0" ] && command -v sudo >/dev/null 2>&1; then
-    KILL="sudo -u www kill"; PKILL="sudo -u www pkill"; KILL0="sudo -u www kill -0"
-  fi
-  if [ -f "$pidfile" ] && [ -s "$pidfile" ]; then
-    pid=$(cat "$pidfile" 2>/dev/null | tr -d '[:space:]' | head -1)
-    case "$pid" in
-      ''|*[!0-9]*) pid="" ;;
-    esac
-    if [ -n "$pid" ] && ! $KILL0 "$pid" 2>/dev/null; then pid=""; fi
-  fi
-  if [ -z "$pid" ]; then
-    pid=$(pgrep -f "gunicorn.*$APP_DIR" 2>/dev/null | head -1)
-  fi
-  if [ -n "$pid" ]; then
-    log "找到 gunicorn master pid=$pid，发送 TERM 真正停止..."
-    if ! $KILL -TERM "$pid" 2>/dev/null; then
-      log "❌ 无法终止进程 pid=$pid（权限不足？是否跨用户运行）。请手动在宝塔重启项目（停止→启动）。"
-      exit 1
-    fi
+# 兜底：以 mw 身份真杀 + 用宝塔真实 gunicorn 路径重新拉起
+pid=""
+pidfile="$APP_DIR/gunicorn.pid"
+if [ -f "$pidfile" ] && [ -s "$pidfile" ]; then
+  pid=$(cat "$pidfile" 2>/dev/null | tr -d '[:space:]' | head -1)
+  case "$pid" in
+    ''|*[!0-9]*) pid="" ;;
+  esac
+  if [ -n "$pid" ] && ! $RU kill -0 "$pid" 2>/dev/null; then pid=""; fi
+fi
+if [ -z "$pid" ]; then
+  pid=$(pgrep -f "gunicorn.*$APP_DIR" 2>/dev/null | head -1)
+fi
+if [ -n "$pid" ]; then
+  log "找到 gunicorn master pid=$pid，以 $APP_USER 身份发送 TERM 真正停止..."
+  if ! $RU kill -TERM "$pid" 2>/dev/null; then
+    log "❌ 无法终止进程 pid=$pid（权限不足）。请检查 APP_USER 是否为实际进程属主（ps -ef | grep gunicorn）。"
+    log "⚠️ 代码已更新但未重启，请手动在宝塔「停止→启动」。"
+  else
     waited=0
-    while $KILL0 "$pid" 2>/dev/null && [ $waited -lt 15 ]; do sleep 1; waited=$((waited+1)); done
-    $KILL0 "$pid" 2>/dev/null && { $PKILL -9 -f "gunicorn.*$APP_DIR" 2>/dev/null || true; }
+    while $RU kill -0 "$pid" 2>/dev/null && [ $waited -lt 15 ]; do sleep 1; waited=$((waited+1)); done
+    $RU kill -0 "$pid" 2>/dev/null && { $RU pkill -9 -f "gunicorn.*$APP_DIR" 2>/dev/null || true; }
     sleep 1
     log "旧进程已停止。"
-  else
-    log "未发现运行中的 gunicorn 进程，直接进入启动。"
-  fi
-  start_cmd=$(cat "$APP_DIR/data/start_cmd.txt")
-  log "用记录的启动命令重新拉起：$start_cmd"
-  if ! eval "$start_cmd"; then
-    log "⚠️ 启动命令执行失败，尝试用 gunicorn.conf 兜底..."
-    conf="$APP_DIR/gunicorn.conf"
-    [ -f "$conf" ] || conf="$APP_DIR/gunicorn.conf.py"
-    if [ -f "$conf" ]; then
-      gun="$APP_DIR/venv/bin/gunicorn"
-      command -v gunicorn >/dev/null 2>&1 && gun="${gun:-gunicorn}"
-      if [ -x "$APP_DIR/venv/bin/gunicorn" ] || command -v gunicorn >/dev/null 2>&1; then
-        ( cd "$APP_DIR" && nohup "${gun:-gunicorn}" -c "$conf" app:app >/www/wwwroot/myblog/gunicorn.log 2>&1 & )
-        sleep 2
-        log "已用 gunicorn.conf 兜底重新拉起。"
-      fi
-    fi
   fi
 else
-  log "⚠️ 未配置 RESTART_CMD 且无 start_cmd.txt，代码已更新但未重启。请手动在宝塔「停止→启动」。"
+  log "未发现运行中的 gunicorn 进程，直接进入启动。"
+fi
+# 用宝塔真实 gunicorn 路径重新拉起（与 ps 里看到的命令行一致）
+if [ -x "$GUNICORN_BIN" ] && [ -f "$GUNICORN_CONF" ]; then
+  log "用宝塔 gunicorn 重新拉起：$RU $GUNICORN_BIN -c $GUNICORN_CONF app:app"
+  ( cd "$APP_DIR" && $RU env "HOME=/www/wwwroot" "$GUNICORN_BIN" -c "$GUNICORN_CONF" app:app >/www/wwwroot/myblog/gunicorn.log 2>&1 & )
+  sleep 3
+  if pgrep -f "gunicorn.*$APP_DIR" >/dev/null 2>&1; then
+    log "已用宝塔 gunicorn 重新启动（停止→启动 完成）。"
+  else
+    log "⚠️ 启动后未检测到 gunicorn 进程，请检查 gunicorn.log；或手动在宝塔「停止→启动」。"
+  fi
+else
+  log "⚠️ 未找到宝塔 gunicorn（$GUNICORN_BIN）或 conf（$GUNICORN_CONF），代码已更新但未重启。请手动在宝塔「停止→启动」。"
 fi
 
 log "✅ 自动部署完成（$TAG）。请用无痕窗口访问后台，左下角版本号应为 $TAG"

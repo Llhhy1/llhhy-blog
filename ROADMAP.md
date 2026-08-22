@@ -212,3 +212,15 @@
 
 ### 14.2 安全审计
 - 第十轮（R10）：纯静态 CSS 规则，无动态内容/用户输入/接口变更，无新增攻击面；4 条规则置于文件末尾特异性与旧规则相同，覆盖行为符合预期，不影响亮色模式。`py_compile` 通过（仅版本字符串）、`vite build` 通过、package.py 打包校验通过（APP_VERSION=3.1.3，不含 data/）。
+
+## 十五、v3.1.4 部署脚本根因修复（不含代码变更）
+
+> v3.1.4 为**部署脚本根因修复**版本：纠正 v3.1.2 的错误假设，让一键更新/自动部署真正能在宝塔环境自动重启。仅更新 `update.sh` / `deploy.sh`，APP_VERSION 仍为 v3.1.3。
+
+### 15.1 修复清单
+- **错误假设纠正**：宝塔 Python 项目**不是** supervisor 管理（无 `supervisorctl`），且 gunicorn 进程属主是 **`mw`（uid=1000），不是 `www`**。v3.1.2 写死的 `sudo -u www` / `supervisorctl` 在本机全部不成立，导致跨用户 kill 权限失败（Operation not permitted）。
+- **修复**：重启探测顺序改为 ① `RESTART_CMD`（手动指定）→ ② 宝塔 CLI `bt stop/start <项目名>` → ③ 以 `mw` 身份 `runuser -u mw` 真杀 + 用宝塔真实 gunicorn 路径（`/ww/server/pyporject_evn/blog_env/bin/gunicorn -c gunicorn_conf.py`）重新拉起 → ④ 提示手动。
+- **新增变量**：`APP_USER="mw"`、`GUNICORN_BIN`（宝塔托管路径）、`GUNICORN_CONF="gunicorn_conf.py"`，彻底移除对 `www` / supervisor 的依赖。
+
+### 15.2 安全审计
+- 第十一轮（R11）：纯部署脚本修正，无后端/前端代码改动。以进程同身份 `mw` 操作，跨用户 kill 根因消除；所有变量为脚本内置常量无外部输入注入；仍优先 pidfile + 精确匹配避免误杀；若 bt/runuser 均不可用降级为提示手动，绝不误报成功。`bash -n` 语法校验通过（update.sh / deploy.sh）。

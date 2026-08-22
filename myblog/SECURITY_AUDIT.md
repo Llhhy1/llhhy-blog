@@ -713,3 +713,28 @@
 | R10-5 | 回归风险 | 4 条规则置于文件末尾，特异性与旧抽屉暗色规则相同，后定义覆盖前定义（预期行为）；不影响亮色模式与其他组件 | ✅ 通过 |
 
 **评估**：无安全风险，纯视觉修复。`py_compile` 通过（仅改版本字符串），`vite build` 通过（dist_v313 含新规则），package.py 打包校验通过（APP_VERSION=3.1.3，不含 data/）。
+
+---
+
+## 第十一轮审计（R11 · v3.1.4 部署脚本修复）
+
+**范围**：仅修改部署脚本 `update.sh` / `deploy.sh` 的重启逻辑，无任何后端代码 / 前端代码 / 数据库结构 / 接口变更。APP_VERSION 仍为 v3.1.3（纯部署工具修复）。
+
+**改动点（根因纠正）**：
+1. 纠正此前错误假设——宝塔 Python 项目**不是** supervisor 管理，且 gunicorn 进程属主是 **`mw`（uid=1000），不是 `www`**。
+2. 重启探测顺序改为：`RESTART_CMD`（手动指定）→ **宝塔 CLI `bt stop/start <项目名>`** → **以 `mw` 身份 `runuser -u mw` 真杀 + 用宝塔真实 gunicorn 路径重新拉起** → 提示手动。
+3. 新增变量：`APP_USER="mw"`、`GUNICORN_BIN="/ww/server/pyporject_evn/blog_env/bin/gunicorn"`（宝塔托管环境，非项目 venv）、`GUNICORN_CONF="$APP_DIR/gunicorn_conf.py"`（实际 conf 名）。
+4. 彻底移除 `sudo -u www` / `supervisorctl` 依赖（本机无 www 用户、无 supervisor），跨用户 kill 问题根除以进程同身份操作解决。
+
+**审计结论**：
+
+| 编号 | 维度 | 结论 |
+|---|---|---|
+| R11-1 | 权限/越权 | 以进程属主 `mw` 身份操作，不再跨用户 kill，Operation not permitted 根因消除 | ✅ 通过 |
+| R11-2 | 命令注入 | 所有变量（APP_USER / GUNICORN_BIN / GUNICORN_CONF / PROJECT_NAME）均为脚本内置常量，无外部输入拼接进 eval | ✅ 不涉及 |
+| R11-3 | 误杀进程 | 仍优先读 pidfile + 精确匹配 `gunicorn.*$APP_DIR`，绝不 pkill -f 全局；bt CLI 走面板原生停止→启动 | ✅ 不涉及 |
+| R11-4 | 密钥泄露 | 无新增密钥/环境变量 | ✅ 不涉及 |
+| R11-5 | 资源泄漏 | 仅进程启停，无文件句柄/连接泄漏 | ✅ 不涉及 |
+| R11-6 | 回归风险 | 重启逻辑与面板「停止→启动」等效；若 bt/runuser 均不可用则降级为提示手动，绝不误报成功 | ✅ 通过 |
+
+**评估**：纯部署脚本修正，无代码风险。`bash -n` 语法校验通过（update.sh / deploy.sh）。部署包 `deploy_scripts_v314fix.zip` 含修正后脚本，代码包沿用 v3.1.3 产物（myblog-backend.zip / vue-frontend-dist.zip）。

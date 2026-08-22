@@ -371,7 +371,7 @@ chmod +x /www/wwwroot/myblog/deploy.sh
 
 按你的环境修改脚本顶部的三个变量：`REPO`（默认已对）、`APP_DIR`、`FRONT_DIR`，以及 `RESTART_CMD`（重启方式，见脚本内注释）。
 
-> **v3.1.2 重要修复（跨用户 kill 权限）**：若一键更新卡在第⑥步 `Operation not permitted`（gunicorn 由宝塔 `www` 用户启动，脚本以 root 触发时跨用户 `kill` 被拒），请下载 v3.1.2 / v3.1.3 Release 里的 `deploy_scripts_v312fix.zip`，覆盖 `update.sh`/`deploy.sh` 到 `/www/wwwroot/myblog/`。新版默认 `PROJECT_NAME="myblog"`，重启优先走 `supervisorctl restart myblog`（supervisor 以 www 身份停+起，绕开跨用户 kill）；若宝塔 Python 项目名不是 `myblog`，把两个脚本里的 `PROJECT_NAME` 改成实际项目名即可。
+> **一键更新重启权限（重要，v3.1.4 已根治）**：若一键更新卡在第⑥步 `Operation not permitted`，根因是 gunicorn 由宝塔以 **`mw` 用户**（非 `www`）启动，且宝塔 Python 项目**不是** supervisor 管理。请下载 **v3.1.4** Release 里的 `deploy_scripts_v314fix.zip`，覆盖 `update.sh`/`deploy.sh` 到 `/www/wwwroot/myblog/`。新版重启逻辑：宝塔 CLI（`bt stop/start <项目名>`）优先 → 以 `mw` 身份 `runuser -u mw` 真杀 + 宝塔真实 gunicorn 路径（`/ww/server/pyporject_evn/blog_env/bin/gunicorn -c gunicorn_conf.py`）重新拉起，彻底绕开跨用户 kill。若项目名不是 `myblog`，改两个脚本里的 `PROJECT_NAME`；若 gunicorn 属主不是 `mw`，改 `APP_USER`。
 
 ### 第二步：告诉后端脚本路径
 

@@ -16,6 +16,7 @@
           <span v-else-if="state.site.site_name"> · ✍️ {{ state.site.site_name }}</span>
           <span v-if="post.category"> · <router-link :to="`/category/${post.category.slug}`">{{ post.category.name }}</router-link></span>
           <span> · {{ post.views }} 阅读</span>
+          <span v-if="post.word_count"> · 📖 {{ post.word_count }} 字 / {{ post.reading_minutes }} 分钟</span>
         </p>
         <nav v-if="tocItems.length" class="toc" aria-label="文章目录">
           <p class="toc-title">目录</p>
@@ -42,12 +43,19 @@
         </div>
 
         <div v-if="related.length" class="related-box">
-          <h3 class="related-title">相关文章</h3>
+          <h3 class="related-title">看了又看</h3>
           <ul class="related-list">
             <li v-for="r in related" :key="r.slug">
               <router-link :to="`/post/${r.slug}`">{{ r.title }}</router-link>
             </li>
           </ul>
+        </div>
+
+        <!-- 文章打赏（v3.0.0 功能14：仅超管开启时显示） -->
+        <div v-if="post.reward_enabled" class="reward-box">
+          <p class="reward-title">💝 觉得有用？请作者喝杯咖啡</p>
+          <img v-if="post.reward_qr || rewardQrDefault" class="reward-qr" :src="post.reward_qr || rewardQrDefault" alt="打赏二维码" />
+          <p v-else class="reward-hint">作者暂未上传收款二维码</p>
         </div>
 
         <div class="share-row">
@@ -100,6 +108,7 @@ const bodyEl = ref(null);
 const tocItems = ref([]);
 const related = ref([]);
 const shareTip = ref("");
+const rewardQrDefault = ref("");
 
 async function load() {
   const slug = route.params.slug;
@@ -111,6 +120,7 @@ async function load() {
     post.value = data;
     comments.value = data.comments || [];
     related.value = [];
+    rewardQrDefault.value = state.site.reward_qr_default || "";
     await nextTick();
     renderBody(data.html || "");
     buildToc();
@@ -118,8 +128,8 @@ async function load() {
     setOgMeta(data);
     // 阅读埋点（统计"反复阅读"的文章）
     apiPost("/api/stats/read", { slug }).catch(() => {});
-    // 相关文章推荐
-    apiGet(`/api/post/${encodeURIComponent(slug)}/related`)
+    // 「看了又看」协同过滤推荐（v3.0.0 功能8）
+    apiGet(`/api/post/${encodeURIComponent(slug)}/also-viewed`)
       .then((r) => { related.value = r.items || []; }).catch(() => {});
   } catch (e) {
     notFound.value = true;
@@ -181,6 +191,8 @@ function sharePost() {
   }
 }
 
-onMounted(load);
-watch(() => route.params.slug, load);
+onMounted(() => {
+  load();
+});
+watch(() => route.params.slug, () => { load(); });
 </script>

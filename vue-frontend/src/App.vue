@@ -8,14 +8,15 @@
       <button class="drawer-close" type="button" aria-label="关闭菜单" @click="drawerOpen = false">×</button>
     </div>
     <nav class="drawer-nav">
-      <router-link to="/" @click="drawerOpen = false">首页</router-link>
-      <router-link to="/archive" @click="drawerOpen = false">归档</router-link>
-      <router-link to="/stats" @click="drawerOpen = false">统计</router-link>
-      <router-link to="/about" @click="drawerOpen = false">关于</router-link>
-      <router-link to="/links" @click="drawerOpen = false">友链</router-link>
-      <router-link to="/square" @click="drawerOpen = false">广场</router-link>
-      <router-link to="/series" @click="drawerOpen = false">系列</router-link>
-      <router-link to="/guestbook" @click="drawerOpen = false">留言墙</router-link>
+      <router-link to="/" @click="drawerOpen = false">{{ t('home') }}</router-link>
+      <router-link to="/archive" @click="drawerOpen = false">{{ t('archive') }}</router-link>
+      <router-link to="/stats" @click="drawerOpen = false">{{ t('stats') }}</router-link>
+      <router-link to="/about" @click="drawerOpen = false">{{ t('about') }}</router-link>
+      <router-link to="/links" @click="drawerOpen = false">{{ t('links') }}</router-link>
+      <router-link to="/square" @click="drawerOpen = false">{{ t('square') }}</router-link>
+      <router-link to="/series" @click="drawerOpen = false">{{ t('series') }}</router-link>
+      <router-link to="/tags/hot" @click="drawerOpen = false">{{ t('hot_tags') }}</router-link>
+      <router-link to="/guestbook" @click="drawerOpen = false">{{ t('guestbook') }}</router-link>
     </nav>
     <div class="drawer-foot">
       <template v-if="state.user">
@@ -37,14 +38,15 @@
       <button class="hamburger" type="button" aria-label="打开菜单" @click="drawerOpen = true">☰</button>
       <router-link class="logo" to="/" @click="drawerOpen = false">{{ state.site.site_name || state.site.site_title }}</router-link>
       <nav>
-        <router-link to="/">首页</router-link>
-        <router-link to="/archive">归档</router-link>
-        <router-link to="/stats">统计</router-link>
-        <router-link to="/about">关于</router-link>
-        <router-link to="/links">友链</router-link>
-        <router-link to="/square">广场</router-link>
-        <router-link to="/series">系列</router-link>
-        <router-link to="/guestbook">留言墙</router-link>
+        <router-link to="/">{{ t('home') }}</router-link>
+        <router-link to="/archive">{{ t('archive') }}</router-link>
+        <router-link to="/stats">{{ t('stats') }}</router-link>
+        <router-link to="/about">{{ t('about') }}</router-link>
+        <router-link to="/links">{{ t('links') }}</router-link>
+        <router-link to="/square">{{ t('square') }}</router-link>
+        <router-link to="/series">{{ t('series') }}</router-link>
+        <router-link to="/tags/hot">{{ t('hot_tags') }}</router-link>
+        <router-link to="/guestbook">{{ t('guestbook') }}</router-link>
         <template v-if="state.user">
           <span class="nav-user">
             👤 {{ state.user.username }}
@@ -67,12 +69,13 @@
               <p v-else class="notif-empty">暂无通知</p>
             </div>
           </div>
-          <a href="#" @click.prevent="doLogout">退出</a>
+          <a href="#" @click.prevent="doLogout">{{ t('logout') }}</a>
         </template>
         <template v-else>
-          <router-link to="/login">登录</router-link>
-          <router-link to="/register">注册</router-link>
+          <router-link to="/login">{{ t('login') }}</router-link>
+          <router-link to="/register">{{ t('register') }}</router-link>
         </template>
+        <button class="lang-toggle" type="button" @click="toggleLang" :title="t('theme')">{{ state.lang === 'en' ? '中' : 'EN' }}</button>
         <button class="theme-toggle" type="button" aria-label="切换亮暗主题" @click="toggleTheme">{{ themeIcon }}</button>
       </nav>
     </div>
@@ -113,7 +116,7 @@
 <script setup>
 import { onMounted, ref } from "vue";
 import { useRouter } from "vue-router";
-import { state, initSite, logout } from "./store.js";
+import { state, initSite, logout, t, setLang } from "./store.js";
 import { apiPost, apiGet } from "./lib/api.js";
 const themeIcon = ref("🌙");
 const noteClosed = ref(false);
@@ -171,6 +174,11 @@ function toggleTheme() {
   const next = currentTheme() === "dark" ? "light" : "dark";
   applyTheme(next);
   try { localStorage.setItem("theme", next); } catch (e) {}
+}
+
+// v3.0.0 功能11：中英语言切换
+function toggleLang() {
+  setLang(state.lang === "en" ? "zh" : "en");
 }
 
 function scrollTop() { window.scrollTo({ top: 0, behavior: "smooth" }); }

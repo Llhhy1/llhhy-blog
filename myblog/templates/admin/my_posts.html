@@ -45,11 +45,23 @@
                 草稿
               {% endif %}
               {% if p.is_pinned %}<span class="status-pinned">📌 置顶</span>{% endif %}
+              {% if p.pin_requested and not p.is_pinned %}<span class="status-requested">🔔 待审批</span>{% endif %}
             </td>
             <td>{{ p.views }}</td>
             <td>{{ p.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
             <td>
               <a href="{{ url_for('admin.edit_post', post_id=p.id) }}">编辑</a>
+              {% if not p.is_pinned and p.published %}
+                {% if p.pin_requested %}
+                  <form method="post" action="{{ url_for('admin.cancel_pin_request', post_id=p.id) }}" class="inline-form">
+                    <button type="submit" class="link-btn">撤回申请</button>
+                  </form>
+                {% else %}
+                  <form method="post" action="{{ url_for('admin.request_pin', post_id=p.id) }}" class="inline-form">
+                    <button type="submit" class="link-btn">申请置顶</button>
+                  </form>
+                {% endif %}
+              {% endif %}
               <form method="post" action="{{ url_for('admin.delete_post', post_id=p.id) }}" class="inline-form" onsubmit="return confirm('确定删除？');">
                 <button type="submit" class="link-danger">删除</button>
               </form>

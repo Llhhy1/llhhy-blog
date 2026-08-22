@@ -574,3 +574,65 @@
   3. 草稿自动保存纯前端 `localStorage`，不落库、不发请求，无隐私/安全外溢风险；按 post id 隔离避免串稿。
   4. 一键提前公开复用既有权限函数 `_can_edit_post`，与定时发布线程互斥（清空 `scheduled_at` 避免重复触发）。
 - 冒烟测试（隔离临时库）覆盖：列迁移、置顶优先排序、API 序列化字段，**全部通过**。
+
+---
+
+## 22. 第二十二轮安全审计（v2.8.1 · 置顶权限分层）
+
+### 22.1 本轮改动清单（对比 v2.8.0）
+- **新增字段**：`Post.pin_requested`（Boolean，默认 False）——普通用户置顶申请待审批态；迁移自动补列。
+- **权限分层（核心）**：
+  - 仅 `is_admin_role`（超管/管理员）可在编辑页直接勾选置顶；普通用户表单里的 `is_pinned` 提交**被后端无条件忽略**（防表单绕过）。
+  - 普通用户对自己的文章可「申请置顶」（`/admin/post/<id>/request-pin`，置 `pin_requested=True`）；可「撤回申请」（`cancel-pin_request`）。
+  - 超管专属：`approve_pin`（批准置顶，置 `is_pinned=True`）、`reject_pin`（拒绝）、`unpin`（取消任意文章置顶）——均用 `@super_required` 装饰器，非超管 403。
+- **前端 UI**：编辑页按 `current_user.is_admin_role` 显隐置顶框；仪表盘超管可见「批准/拒绝/取消置顶」按钮 + 🔔待审批徽标；我的文章普通用户可见「申请置顶/撤回」按钮。
+
+### 22.2 维度审计
+| 编号 | 维度 | 改动点 | 结论 |
+|---|---|---|---|
+| R6-1 | 越权 | `request_pin`/`cancel_pin_request` 用 `@login_required` + `_can_edit_post`（仅本人文章）；`approve_pin`/`reject_pin`/`unpin` 用 `@super_required` | ✅ 通过：普通用户直接 POST `unpin` 返回 403，已用测试客户端验证 |
+| R6-2 | 权限绕过 | new_post/edit_post 保存 `is_pinned` 前强制 `user.is_admin_role` 判断，普通用户提交值无效 | ✅ 通过：冒烟测试「普通用户新建/编辑提交置顶被忽略」PASS |
+| R6-3 | XSS | 徽标文本为受控字符串（`🔔 待审批`）；`flash` 消息经模板自动转义 | ✅ 通过 |
+| R6-4 | SQL 注入 | 全部 ORM（`get_or_404`/`filter`），无字符串拼接 | ✅ 通过 |
+| R6-5 | CSRF | 审批/申请/取消均为 POST，经全局 `enforce_same_origin` 校验 | ✅ 通过 |
+| R6-6 | 数据一致性 | 批准置顶同时清 `pin_requested`；取消置顶不清申请态（已置顶文章不再有申请）；撤回申请仅当 `pin_requested and not is_pinned` | ✅ 通过 |
+| R6-7 | 资源泄漏 | 无新增文件句柄/外部调用 | ✅ 不涉及 |
+
+### 22.3 安全评估
+- 无高危/严重问题。本轮把"人人可置顶"的权限敞口收敛为"申请-审批"模型，解决多普通用户大量置顶淹没超管文章的核心诉求。
+- 设计要点：
+  1. **后端强制校验**而非仅前端隐藏——普通用户即使伪造表单 `is_pinned=on` 也无法置顶（已验证）。
+  2. 审批动作严格限定超管（`@super_required`），普通管理员不能批准别人的申请（但管理员自己文章仍可在编辑页直接置顶，符合既有权限）。
+  3. 状态机闭环：未申请 → 申请(🔔) → 批准(📌)/拒绝(回未申请)；已置顶 → 超管取消(回未申请)。无悬挂态。
+- 冒烟测试（隔离临时库）**12 项全部通过**：含普通用户置顶被忽略、申请/批准/取消链路、普通用户越权 unpin 被 403 拦截、列迁移。
+
+---
+
+## 二十三、v3.0.0 安全审计（R7）
+
+> 审计时间：**2026-08-22** · 审计对象：v3.0.0 全部 14 项新增/改动功能
+> 本轮覆盖：系列目录页/阅读进度、字数统计、评论批量+垃圾过滤、操作日志、版本历史/回收站、友链申请、热门标签、看了又看、访客趋势图、分类/标签 RSS、多语言、隐私空间、打赏开关。
+> 验证方式：隔离临时库（`DATABASE_URL` 指向 temp）+ 自动化冒烟脚本 **24 项全部通过**（含隐私空间匿名 404 / 超管可见、软删除前台不可见、搜索高亮、垃圾评论 400 等）。
+
+### 23.1 本轮发现问题与修复
+| 编号 | 维度 | 问题 | 状态 |
+|---|---|---|---|
+| R7-1 | 越权/导入缺失 | `api.py` 未导入 `LinkApplication`（及 `AuditLog/PostHistory/RecycleBin`），导致 `/api/link-apply` 在运行时 `NameError` 500 | ✅ 已修：补 `from models import ... LinkApplication, AuditLog, PostHistory, RecycleBin` |
+| R7-2 | 功能13 隐私可见性 | 公开 API `post_detail` 调用 `visible_posts_query()` 不传 user，登录的超管也无法查看自己的隐私文章 | ✅ 已修：传入 `_current_user_or_none()`，超管登录后可见本人隐私文章；匿名/非超管仍 404 |
+
+### 23.2 维度审计
+| 编号 | 维度 | 改动点 | 结论 |
+|---|---|---|---|
+| R7-3 | XSS | 搜索高亮 `make_highlight` 先 `escape(snippet)` 再正则包裹 `<mark>`，无原始用户 HTML 注入 | ✅ 通过 |
+| R7-4 | XSS | 后台新模板（友链申请/审计日志/回收站/版本历史）全部用 Jinja `{{ }}` 自动转义，未对 `name/url/description/detail` 等用户数据使用 `|safe`；`a.url` 在 `href` 属性中经自动转义 + 提交时 `^https?://` 格式校验 | ✅ 通过 |
+| R7-5 | 越权 | 新后台路由：`audit_logs`/`clear_audit_logs` → `@super_required`；`recycle_bin`/`restore_post`/`purge_post`/`link_applications`/批量评论 → `@admin_required`；`post_history`/`rollback_post`/`delete_post` → `@login_required` + `_can_edit_post` 归属校验 | ✅ 通过（已用测试客户端验证越权被拦截） |
+| R7-6 | 限流/校验 | 友链申请 `/api/link-apply` 接入 `rate_limit`（10/24h）+ URL 正则 + 同 URL 去重；评论垃圾词过滤（站点设置 `comment_spam_keywords`）命中即 400 | ✅ 通过 |
+| R7-7 | CSRF | 所有 POST（审批/删除/还原/回滚/设置）经全局 `enforce_same_origin` 校验，跨站 403 | ✅ 通过 |
+| R7-8 | SQL 注入 | 全部参数化（`filter_by`/`get_or_404`/`text` 绑定）；批量评论 `int(x) for x if x.isdigit()` 防注入 | ✅ 通过 |
+| R7-9 | 密钥泄露 | 无硬编码密钥/凭据；新增设置（`comment_spam_keywords`/`site_lang`/`reward_qr_default`）均走 `Setting` 表或环境变量，不入库密码 | ✅ 通过 |
+| R7-10 | 资源泄漏 | 无新增文件句柄/子进程/外部长连接；RSS 拼串为纯本地字符串拼接 | ✅ 不涉及 |
+| R7-11 | SSRF | 无新增外部 URL 抓取逻辑；友链 URL 仅存储展示，不服务端发起请求 | ✅ 不涉及 |
+
+### 23.3 安全评估
+- 无高危/严重问题。本轮修复的 R7-1（模型未导入）属真实运行期缺陷，若不修则友链申请功能在生产 500；R7-2 修复隐私空间可用性问题（安全属性本身未泄漏，仅超管自查看不到）。
+- 冒烟测试 **24 项全部通过**，覆盖 14 项功能的核心接口与权限边界。

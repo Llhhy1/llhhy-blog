@@ -1,0 +1,27 @@
+{% extends "admin/base.html" %}
+{% block title %}版本历史{% endblock %}
+{% block content %}
+  <h1 class="page-title">🕓 版本历史：{{ post.title }}</h1>
+  <p class="stats-tip">每次保存/发布文章时若内容或标题有变化，会自动存一份快照（最多保留 20 个）。可回滚到任意历史版本（回滚前会自动再存一份当前版本，便于撤销）。</p>
+  <table class="admin-table">
+    <thead><tr><th>版本时间</th><th>编辑者</th><th>标题</th><th>正文字数</th><th>操作</th></tr></thead>
+    <tbody>
+      {% for v in versions %}
+        <tr>
+          <td>{{ v.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
+          <td>{{ v.author or '—' }}</td>
+          <td>{{ v.title }}<br><span class="muted">{{ (v.content or '')[:40] }}{% if (v.content or '')|length > 40 %}…{% endif %}</span></td>
+          <td>{{ (v.content or '')|length }}</td>
+          <td>
+            <form method="post" action="{{ url_for('admin.rollback_post', post_id=post.id, hid=v.id) }}" class="inline-form" onsubmit="return confirm('确定回滚到该版本？当前内容会先自动备份一份。');">
+              <button type="submit" class="link-mark">回滚到此版本</button>
+            </form>
+          </td>
+        </tr>
+      {% else %}
+        <tr><td colspan="5">暂无历史版本</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  <p style="margin-top:16px;"><a class="btn ghost" href="{{ url_for('admin.edit_post', post_id=post.id) }}">← 返回编辑</a></p>
+{% endblock %}

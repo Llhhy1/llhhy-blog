@@ -87,6 +87,25 @@ def make_slug(text):
     return s or "post"
 
 
+def count_words(content):
+    """粗略统计正文字数（v3.0.0 功能12）。
+
+    规则：中文字符每个算 1 字；连续的英文字母/数字按「词」计数（空格分隔），
+    每个词算 1 字；标点/空白不计。无依赖、纯正则，足够用于阅读时长估算。
+    返回 (字数, 预计阅读分钟数（按 300 字/分钟，最小 1 分钟）)。
+    """
+    text = (content or "").strip()
+    if not text:
+        return 0, 0
+    # 中文字符数
+    cjk = len(re.findall(r"[一-鿿]", text))
+    # 非中文的「词」（英文/数字连续串）数
+    words = re.findall(r"[A-Za-z0-9]+", text)
+    total = cjk + len(words)
+    minutes = max(1, round(total / 300))
+    return total, minutes
+
+
 def parse_device(ua):
     """从 User-Agent 解析设备信息，返回如「手机 · Android · Chrome」。"""
     ua = ua or ""

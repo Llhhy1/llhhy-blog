@@ -15,11 +15,21 @@
     <a class="{{ 'active' if status == 'pending' }}" href="{{ url_for('admin.comments', status='pending') }}">待审核{% if pending_count %}（{{ pending_count }}）{% endif %}</a>
     <a class="{{ 'active' if status == 'approved' }}" href="{{ url_for('admin.comments', status='approved') }}">已通过</a>
   </div>
+  <form id="batch-form" method="post">
+    <div class="admin-actions">
+      <h1 class="page-title" style="margin:0;">💬 评论管理（{{ comments | length }}）</h1>
+      <div class="batch-actions">
+        <label class="checkbox-row"><input type="checkbox" id="select-all"> 全选</label>
+        <button type="submit" formaction="{{ url_for('admin.batch_approve_comments') }}" class="btn small">✅ 批量通过</button>
+        <button type="submit" formaction="{{ url_for('admin.batch_delete_comments') }}" class="btn small ghost" onclick="return confirm('确定批量删除选中的评论？');">🗑️ 批量删除</button>
+      </div>
+    </div>
   <table class="admin-table">
-    <thead><tr><th>状态</th><th>文章</th><th>昵称</th><th>内容</th><th>归属地 / 设备</th><th>IP</th><th>时间</th><th>操作</th></tr></thead>
+    <thead><tr><th><input type="checkbox" id="select-all-head"></th><th>状态</th><th>文章</th><th>昵称</th><th>内容</th><th>归属地 / 设备</th><th>IP</th><th>时间</th><th>操作</th></tr></thead>
     <tbody>
       {% for c in comments %}
         <tr class="{{ 'unread-row' if not c.is_read }}{{ ' pending-row' if not c.approved }}">
+          <td><input type="checkbox" name="ids" value="{{ c.id }}" class="row-check"></td>
           <td>
             {% if c.approved %}<span class="badge-ok">已通过</span>{% else %}<span class="badge-pending">待审核</span>{% endif %}
           </td>
@@ -53,9 +63,20 @@
           </td>
         </tr>
       {% else %}
-        <tr><td colspan="8">{% if status == 'pending' %}没有待审核的评论{% else %}暂无评论{% endif %}</td></tr>
+        <tr><td colspan="9">{% if status == 'pending' %}没有待审核的评论{% else %}暂无评论{% endif %}</td></tr>
       {% endfor %}
     </tbody>
   </table>
-  <p class="stats-tip">评论审核开关在「站点设置」里配置；开启后新评论先标记为待审核，通过后前台才显示。IP / 归属地 / 设备为评论时自动采集。</p>
+  </form>
+  <p class="stats-tip">评论审核开关在「站点设置」里配置；开启后新评论先标记为待审核，通过后前台才显示。IP / 归属地 / 设备为评论时自动采集。批量操作可勾选多条后一键通过或删除。垃圾评论关键词过滤在「站点设置 → v3.0.0 新增设置」中配置。</p>
+  <script>
+  (function () {
+    var head = document.getElementById('select-all-head');
+    var all = document.getElementById('select-all');
+    var rows = document.querySelectorAll('.row-check');
+    function setAll(checked) { rows.forEach(function (r) { r.checked = checked; }); }
+    if (head) head.addEventListener('change', function () { setAll(head.checked); });
+    if (all) all.addEventListener('change', function () { setAll(all.checked); });
+  })();
+  </script>
 {% endblock %}

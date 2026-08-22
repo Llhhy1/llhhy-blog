@@ -1,0 +1,28 @@
+{% extends "admin/base.html" %}
+{% block title %}回收站{% endblock %}
+{% block content %}
+  <h1 class="page-title">🗑️ 回收站</h1>
+  <p class="stats-tip">被删除的文章会先进入回收站（软删除，前台不可见），可在此还原或彻底删除。彻底删除不可恢复。</p>
+  <table class="admin-table">
+    <thead><tr><th>标题</th><th>删除者</th><th>入站时间</th><th>操作</th></tr></thead>
+    <tbody>
+      {% for r in rows %}
+        <tr>
+          <td>{{ r.title }}<br><span class="muted">/{{ r.slug }}</span></td>
+          <td>{{ r.deleted_by or '—' }}</td>
+          <td>{{ r.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
+          <td>
+            <form method="post" action="{{ url_for('admin.restore_post', rid=r.id) }}" class="inline-form">
+              <button type="submit" class="link-mark">还原</button>
+            </form>
+            <form method="post" action="{{ url_for('admin.purge_post', rid=r.id) }}" class="inline-form" onsubmit="return confirm('彻底删除不可恢复，确定？');">
+              <button type="submit" class="link-danger">彻底删除</button>
+            </form>
+          </td>
+        </tr>
+      {% else %}
+        <tr><td colspan="4">回收站是空的</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+{% endblock %}

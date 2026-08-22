@@ -109,10 +109,26 @@
                     草稿
                   {% endif %}
                   {% if p.is_pinned %}<span class="status-pinned">📌 置顶</span>{% endif %}
+                  {% if p.pin_requested and not p.is_pinned %}<span class="status-requested">🔔 待审批</span>{% endif %}
                 </td>
                 <td>{{ p.views }}</td>
                 <td>
                   <a href="{{ url_for('admin.edit_post', post_id=p.id) }}">编辑</a>
+                  {% if current_user and current_user.is_super %}
+                    {% if p.pin_requested and not p.is_pinned %}
+                      <form method="post" action="{{ url_for('admin.approve_pin', post_id=p.id) }}" class="inline-form">
+                        <button type="submit" class="link-btn">批准置顶</button>
+                      </form>
+                      <form method="post" action="{{ url_for('admin.reject_pin', post_id=p.id) }}" class="inline-form">
+                        <button type="submit" class="link-danger">拒绝</button>
+                      </form>
+                    {% endif %}
+                    {% if p.is_pinned %}
+                      <form method="post" action="{{ url_for('admin.unpin', post_id=p.id) }}" class="inline-form" onsubmit="return confirm('确定取消置顶？');">
+                        <button type="submit" class="link-btn">取消置顶</button>
+                      </form>
+                    {% endif %}
+                  {% endif %}
                   <form method="post" action="{{ url_for('admin.delete_post', post_id=p.id) }}" class="inline-form" onsubmit="return confirm('确定删除？');">
                     <button type="submit" class="link-danger">删除</button>
                   </form>

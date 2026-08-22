@@ -6,7 +6,16 @@
         <div class="series-detail-head">
           <h1>📚 {{ series.name }}</h1>
           <p class="desc">{{ series.description || "" }}</p>
+          <p class="series-count">共 {{ series.posts.length }} 篇</p>
         </div>
+        <!-- 系列目录页（v3.0.0 功能1）：编号章节索引，点击直达 -->
+        <ol v-if="series.posts.length" class="series-toc">
+          <li v-for="(p, i) in series.posts" :key="p.slug">
+            <span class="chapter-no">{{ i + 1 }}</span>
+            <router-link :to="`/post/${p.slug}`">{{ p.title }}</router-link>
+            <span class="chapter-meta">{{ (p.created_at || "").slice(0, 10) }}</span>
+          </li>
+        </ol>
         <PostCard v-for="p in series.posts" :key="p.slug" :post="p" />
         <p v-if="!series.posts.length" class="empty">该系列还没有文章。</p>
       </template>

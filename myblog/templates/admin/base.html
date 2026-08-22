@@ -46,12 +46,15 @@
         <a href="{{ url_for('admin.manage_announcements') }}" class="{{ 'active' if ep == 'admin.manage_announcements' }}"><span class="nav-emoji">📢</span>公告管理</a>
         <a href="{{ url_for('admin.manage_guestbook') }}" class="{{ 'active' if ep == 'admin.manage_guestbook' }}"><span class="nav-emoji">📝</span>留言墙{% if pending_guestbook %} <span class="nav-badge">{{ pending_guestbook }}</span>{% endif %}</a>
         <a href="{{ url_for('admin.manage_subscribers') }}" class="{{ 'active' if ep == 'admin.manage_subscribers' }}"><span class="nav-emoji">✉️</span>订阅者</a>
+        <a href="{{ url_for('admin.recycle_bin') }}" class="{{ 'active' if ep == 'admin.recycle_bin' }}"><span class="nav-emoji">🗑️</span>回收站</a>
         <p class="side-group">系统设置</p>
         <a href="{{ url_for('admin.stats') }}" class="{{ 'active' if ep == 'admin.stats' }}"><span class="nav-emoji">📈</span>访问统计</a>
         {% if current_user.is_super %}
         <a href="{{ url_for('admin.settings') }}" class="{{ 'active' if ep == 'admin.settings' }}"><span class="nav-emoji">⚙️</span>站点设置</a>
         <a href="{{ url_for('admin.email_settings') }}" class="{{ 'active' if ep == 'admin.email_settings' }}"><span class="nav-emoji">📧</span>邮件设置</a>
         <a href="{{ url_for('admin.users') }}" class="{{ 'active' if ep == 'admin.users' }}"><span class="nav-emoji">👥</span>用户管理</a>
+        <a href="{{ url_for('admin.link_applications') }}" class="{{ 'active' if ep == 'admin.link_applications' }}"><span class="nav-emoji">🔗</span>友链申请{% if pending_comments %}{% endif %}</a>
+        <a href="{{ url_for('admin.audit_logs') }}" class="{{ 'active' if ep == 'admin.audit_logs' }}"><span class="nav-emoji">🧾</span>操作日志</a>
         {% endif %}
         {% else %}
         <p class="side-group">我的创作</p>

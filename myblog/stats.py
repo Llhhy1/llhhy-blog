@@ -213,6 +213,36 @@ def _hot_searches(limit=10):
     return [{"keyword": r[0], "count": r[1]} for r in rows]
 
 
+def compute_trend(days=30):
+    """访客趋势数据（v3.0.0 功能9）：返回最近 N 天每天的总访问次数（PV）与独立访客（UV）。
+
+    用于前台/后台「访客趋势图」可视化。按 VisitLog.date 聚合，缺失日期补 0，
+    保证前端拿到的是连续日期序列（便于画折线/柱状图）。
+    """
+    try:
+        end = datetime.date.today()
+        start = end - datetime.timedelta(days=days - 1)
+        # 取区间内所有访问日志的 (date, ip)
+        rows = (db.session.query(VisitLog.date, VisitLog.ip)
+                .filter(VisitLog.date >= start.isoformat(),
+                        VisitLog.date <= end.isoformat()).all())
+        pv = {}
+        uv = {}
+        for d, ip in rows:
+            pv[d] = pv.get(d, 0) + 1
+            uv.setdefault(d, set()).add(ip)
+        result = []
+        cur = start
+        while cur <= end:
+            ds = cur.isoformat()
+            result.append({"date": ds, "pv": pv.get(ds, 0), "uv": len(uv.get(ds, set()))})
+            cur += datetime.timedelta(days=1)
+        return result
+    except Exception as e:
+        print("compute_trend 失败:", e)
+        return []
+
+
 def compute_summary():
     """统计汇总：供 /api/stats/summary 与后台统计页使用。"""
     return {
@@ -224,5 +254,6 @@ def compute_summary():
         "hot_posts": _hot_posts(),
         "hot_searches": _hot_searches(),
         "hourly": _hourly(),
+        "trend": compute_trend(30),
         "updated_at": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
     }

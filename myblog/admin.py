@@ -10,9 +10,11 @@ from werkzeug.utils import secure_filename
 
 from models import (db, Post, Category, Tag, Comment, FriendLink, Setting,
                     User, ROLE_SUPER, ROLE_ADMIN, ROLE_USER, SocialAccount,
-                    Series, Announcement, Guestbook, Subscriber)
-from utils import make_slug
+                    Series, Announcement, Guestbook, Subscriber,
+                    AuditLog, RecycleBin, LinkApplication, PostHistory)
+from utils import make_slug, count_words
 from config import APP_VERSION
+import stats as stats_mod
 import fts
 import notify
 import mail_notify
@@ -95,8 +97,37 @@ def _can_edit_post(user, post):
     return post.author_id is not None and post.author_id == user.id
 
 
+def log_audit(action, target="", target_id=None, detail="", user=None, ip=""):
+    """记录一条后台操作审计日志（v3.0.0 功能4）。
+
+    自动填操作人（传入 user 或当前会话用户）、用户名、来源 IP。
+    所有后台写操作（增删改文章/评论/用户/设置/友链等）调用本函数，便于事后追溯。
+    异常静默：单条日志失败不影响主流程。
+    """
+    try:
+        if user is None:
+            uid = session.get("user_id")
+            user = db.session.get(User, uid) if uid else None
+        ip = ip or (request.headers.get("X-Forwarded-For", "").split(",")[0].strip()
+                    or request.remote_addr or "")
+        db.session.add(AuditLog(
+            user_id=user.id if user else None,
+            username=user.username if user else "",
+            action=action, target=target, target_id=target_id,
+            detail=(detail or "")[:300], ip=ip[:64],
+        ))
+        db.session.commit()
+    except Exception:
+        pass
+
+
+def _current_user_or_none():
+    """取当前登录用户对象（用于审计日志等），未登录返回 None。"""
+    uid = session.get("user_id")
+    return db.session.get(User, uid) if uid else None
+
+
 def unique_slug(base, post_id=None):
-    """生成不重复的 slug，重复时追加 -2, -3 ..."""
     base_slug = make_slug(base)
     slug = base_slug
     i = 2
@@ -270,6 +301,79 @@ def publish_now(post_id):
     return redirect(url_for(back))
 
 
+# ---------- 置顶权限分层（v2.8.1）----------
+# 规则：仅管理员/超管可直接置顶；普通用户须向超管「申请置顶」，由超管批准/拒绝。
+# 超管可对任意文章「取消置顶」。所有操作均 POST + 登录/权限校验。
+@admin_bp.route("/post/<int:post_id>/request-pin", methods=["POST"])
+@login_required
+def request_pin(post_id):
+    """普通用户向超管申请置顶自己的文章。"""
+    post = Post.query.get_or_404(post_id)
+    user = db.session.get(User, session.get("user_id"))
+    if not _can_edit_post(user, post):
+        flash("只能申请自己发表的文章")
+        return redirect(url_for("admin.my_posts"))
+    if post.is_pinned:
+        flash("该文章已置顶，无需申请")
+    elif post.pin_requested:
+        flash("已提交置顶申请，等待超管审批")
+    else:
+        post.pin_requested = True
+        db.session.commit()
+        flash("置顶申请已提交，等待超管审批")
+    return redirect(url_for("admin.my_posts"))
+
+
+@admin_bp.route("/post/<int:post_id>/cancel-pin-request", methods=["POST"])
+@login_required
+def cancel_pin_request(post_id):
+    """普通用户撤回自己的置顶申请。"""
+    post = Post.query.get_or_404(post_id)
+    user = db.session.get(User, session.get("user_id"))
+    if not _can_edit_post(user, post):
+        flash("只能操作自己发表的文章")
+        return redirect(url_for("admin.my_posts"))
+    if post.pin_requested and not post.is_pinned:
+        post.pin_requested = False
+        db.session.commit()
+        flash("已撤回置顶申请")
+    return redirect(url_for("admin.my_posts"))
+
+
+@admin_bp.route("/post/<int:post_id>/approve-pin", methods=["POST"])
+@super_required
+def approve_pin(post_id):
+    """超管批准置顶申请：翻 is_pinned=True 并清申请态。"""
+    post = Post.query.get_or_404(post_id)
+    post.is_pinned = True
+    post.pin_requested = False
+    db.session.commit()
+    flash(f"已批准置顶：{post.title}")
+    return redirect(url_for("admin.dashboard"))
+
+
+@admin_bp.route("/post/<int:post_id>/reject-pin", methods=["POST"])
+@super_required
+def reject_pin(post_id):
+    """超管拒绝置顶申请：清申请态，不置顶。"""
+    post = Post.query.get_or_404(post_id)
+    post.pin_requested = False
+    db.session.commit()
+    flash(f"已拒绝置顶申请：{post.title}")
+    return redirect(url_for("admin.dashboard"))
+
+
+@admin_bp.route("/post/<int:post_id>/unpin", methods=["POST"])
+@super_required
+def unpin(post_id):
+    """超管取消任意文章的置顶。"""
+    post = Post.query.get_or_404(post_id)
+    post.is_pinned = False
+    db.session.commit()
+    flash(f"已取消置顶：{post.title}")
+    return redirect(url_for("admin.dashboard"))
+
+
 @admin_bp.route("/post/new", methods=["GET", "POST"])
 @login_required
 def new_post():
@@ -289,10 +393,18 @@ def new_post():
         # 定时发布：填了未来时间则先存为未发布，后台线程到点自动翻 published
         if scheduled_at is not None and scheduled_at > datetime.datetime.utcnow():
             published = False
-        is_pinned = request.form.get("is_pinned") == "on"
+        # 置顶权限分层（v2.8.1）：仅管理员/超管可直接置顶；普通用户表单里的 is_pinned 一律忽略（防绕过）
+        user = db.session.get(User, session.get("user_id"))
+        is_pinned = (request.form.get("is_pinned") == "on") and bool(user and user.is_admin_role)
         series_id = request.form.get("series_id") or None
         seo_description = (request.form.get("seo_description") or "").strip()
         seo_keywords = (request.form.get("seo_keywords") or "").strip()
+        # v3.0.0 功能13/14：隐私空间 + 打赏（仅超管可设置）
+        is_private = (request.form.get("is_private") == "on") and bool(user and user.is_super)
+        reward_enabled = (request.form.get("reward_enabled") == "on") and bool(user and user.is_super)
+        reward_qr = (request.form.get("reward_qr") or "").strip() if reward_enabled else ""
+        # v3.0.0 功能12：字数统计 + 阅读时长
+        wc, rm = count_words(content)
         post = Post(
             title=title, slug=unique_slug(title), summary=summary, content=content,
             cover=cover, category_id=category_id, published=published,
@@ -300,10 +412,14 @@ def new_post():
             seo_description=seo_description, seo_keywords=seo_keywords,
             series_id=int(series_id) if series_id else None,
             author_id=session.get("user_id"),  # 记录作者：普通用户发表的文章归属自己
+            word_count=wc, reading_minutes=rm,
+            is_private=is_private, reward_enabled=reward_enabled, reward_qr=reward_qr,
         )
         db.session.add(post)
         db.session.flush()  # 先把文章放进会话，避免标签关联警告
         _sync_tags(post, request.form.get("tags", ""))
+        # v3.0.0 功能5：保存首个版本历史（新建即 v1）
+        _save_post_history(post, user.username if user else "")
         db.session.commit()
         try:
             fts.sync_post(post)
@@ -329,7 +445,9 @@ def new_post():
                         else url_for("admin.dashboard"))
     cats = Category.query.order_by(Category.id).all()
     series = Series.query.order_by(Series.sort).all()
-    return render_template("admin/edit_post.html", post=None, cats=cats, series=series)
+    user = db.session.get(User, session.get("user_id"))
+    return render_template("admin/edit_post.html", post=None, cats=cats, series=series,
+                           current_user=user)
 
 
 @admin_bp.route("/my-posts")
@@ -392,10 +510,30 @@ def edit_post(post_id):
             scheduled_at = None  # 立即发布/草稿：清空定时，避免历史脏值
         post.published = published
         post.scheduled_at = scheduled_at
-        post.is_pinned = request.form.get("is_pinned") == "on"
+        # 置顶权限分层（v2.8.1）：仅管理员/超管可改置顶；普通用户即便提交 is_pinned 也被忽略（防绕过）
+        if user.is_admin_role:
+            post.is_pinned = request.form.get("is_pinned") == "on"
+            post.pin_requested = False  # 管理员直接操作置顶，无需申请态
         post.seo_description = (request.form.get("seo_description") or "").strip()
         post.seo_keywords = (request.form.get("seo_keywords") or "").strip()
+        # v3.0.0 功能13/14：隐私空间 + 打赏（仅超管可设置）
+        if user.is_super:
+            post.is_private = request.form.get("is_private") == "on"
+            post.reward_enabled = request.form.get("reward_enabled") == "on"
+            if post.reward_enabled:
+                post.reward_qr = (request.form.get("reward_qr") or "").strip()
+            else:
+                post.reward_qr = ""
+        # v3.0.0 功能12：字数统计 + 阅读时长
+        wc, rm = count_words(post.content)
+        post.word_count = wc
+        post.reading_minutes = rm
         _sync_tags(post, request.form.get("tags", ""))
+        # v3.0.0 功能5：内容/标题有变化时保存版本历史
+        if post.content != content or post.title != title:
+            _save_post_history(post, user.username if user else "")
+        post.content = content
+        post.title = title
         db.session.commit()
         try:
             fts.sync_post(post)
@@ -427,27 +565,155 @@ def edit_post(post_id):
         scheduled_local = post.scheduled_at.strftime("%Y-%m-%dT%H:%M")
     return render_template("admin/edit_post.html", post=post, cats=cats, series=series,
                            tag_names=tag_names, scheduled_local=scheduled_local,
-                           now_local=datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M"))
+                           now_local=datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M"),
+                           current_user=user)
 
 
 @admin_bp.route("/post/<int:post_id>/delete", methods=["POST"])
 @login_required
 def delete_post(post_id):
+    """删除文章（v3.0.0 软删除：进入回收站，可还原）。
+
+    权限：管理员全部可操作；普通用户仅自己文章。删除时把文章快照存入回收站
+    （RecycleBin）并标记 post.in_trash=True（前台/列表不可见），不真正从 post 表移除。
+    彻底删除请在回收站页操作（仅管理员）。
+    """
     post = Post.query.get_or_404(post_id)
     user = db.session.get(User, session.get("user_id"))
     if not _can_edit_post(user, post):
         flash("只能删除自己发表的文章")
         return redirect(url_for("admin.my_posts"))
+    # 入回收站：存快照 + 标记软删除
     try:
-        fts.delete_post(post.id)
+        db.session.add(RecycleBin(
+            post_id=post.id, title=post.title or "", slug=post.slug or "",
+            summary=post.summary or "", content=post.content or "", cover=post.cover or "",
+            category_id=post.category_id, author_id=post.author_id, series_id=post.series_id,
+            deleted_by=user.username if user else "",
+        ))
     except Exception:
         pass
-    db.session.delete(post)
+    post.in_trash = True
+    post.deleted_at = datetime.datetime.utcnow()
     db.session.commit()
-    flash("文章已删除")
-    user = db.session.get(User, session.get("user_id"))
+    try:
+        fts.delete_post(post.id)  # 同步从 FTS 索引移除，避免搜索命中已删文章
+    except Exception:
+        pass
+    log_audit("delete", "post", post.id, f"移入回收站：{post.title}", user=user)
+    flash("文章已移入回收站（可在回收站还原）")
     return redirect(url_for("admin.my_posts") if user and not user.is_admin_role
                     else url_for("admin.dashboard"))
+
+
+# ---------- 回收站（v3.0.0 功能5）----------
+@admin_bp.route("/recycle-bin")
+@login_required
+@admin_required
+def recycle_bin():
+    """回收站列表：展示被软删除的文章，可还原或彻底删除。"""
+    rows = RecycleBin.query.filter_by(restored=False).order_by(RecycleBin.created_at.desc()).all()
+    return render_template("admin/recycle_bin.html", rows=rows)
+
+
+@admin_bp.route("/recycle-bin/<int:rid>/restore", methods=["POST"])
+@login_required
+@admin_required
+def restore_post(rid):
+    """从回收站还原：找到原 post（未被彻底删除）则清 in_trash；否则用快照重建。"""
+    rb = RecycleBin.query.get_or_404(rid)
+    if rb.restored:
+        flash("该记录已还原过")
+        return redirect(url_for("admin.recycle_bin"))
+    post = None
+    if rb.post_id:
+        post = Post.query.get(rb.post_id)
+    if post and post.in_trash:
+        post.in_trash = False
+        post.deleted_at = None
+        db.session.commit()
+        log_audit("restore", "post", post.id, f"从回收站还原：{rb.title}", user=_current_user_or_none())
+        flash(f"已还原文章：{rb.title}")
+    else:
+        # 原 post 已彻底删除或不存在：用快照重建一篇新文章
+        new_post = Post(
+            title=rb.title, slug=unique_slug(rb.title + "-" + str(rb.id)),
+            summary=rb.summary, content=rb.content, cover=rb.cover,
+            category_id=rb.category_id, published=False, author_id=rb.author_id,
+            series_id=rb.series_id,
+        )
+        db.session.add(new_post)
+        db.session.flush()
+        try:
+            fts.sync_post(new_post)
+        except Exception:
+            pass
+        log_audit("restore", "post", new_post.id, f"从回收站快照重建：{rb.title}", user=_current_user_or_none())
+        flash(f"已用快照重建文章：{rb.title}（草稿状态，请检查后发布）")
+    rb.restored = True
+    db.session.commit()
+    return redirect(url_for("admin.recycle_bin"))
+
+
+@admin_bp.route("/recycle-bin/<int:rid>/purge", methods=["POST"])
+@login_required
+@admin_required
+def purge_post(rid):
+    """彻底删除：从 post 表真正移除（若仍在）+ 删除回收站记录 + 删 FTS。"""
+    rb = RecycleBin.query.get_or_404(rid)
+    if rb.post_id:
+        post = Post.query.get(rb.post_id)
+        if post:
+            try:
+                fts.delete_post(post.id)
+            except Exception:
+                pass
+            db.session.delete(post)
+    db.session.delete(rb)
+    db.session.commit()
+    log_audit("purge", "post", rb.post_id, f"彻底删除：{rb.title}", user=_current_user_or_none())
+    flash(f"已彻底删除：{rb.title}")
+    return redirect(url_for("admin.recycle_bin"))
+
+
+# ---------- 文章版本历史（v3.0.0 功能5）----------
+@admin_bp.route("/post/<int:post_id>/history")
+@login_required
+def post_history(post_id):
+    """查看某文章的版本历史列表（可对比 / 回滚）。"""
+    post = Post.query.get_or_404(post_id)
+    user = _current_user_or_none()
+    if not _can_edit_post(user, post):
+        flash("只能查看自己文章的版本历史")
+        return redirect(url_for("admin.my_posts"))
+    versions = PostHistory.query.filter_by(post_id=post_id)\
+        .order_by(PostHistory.created_at.desc()).all()
+    return render_template("admin/post_history.html", post=post, versions=versions)
+
+
+@admin_bp.route("/post/<int:post_id>/history/<int:hid>/rollback", methods=["POST"])
+@login_required
+def rollback_post(post_id, hid):
+    """把文章回滚到指定历史版本（写回 title/summary/content 并保存新历史）。"""
+    post = Post.query.get_or_404(post_id)
+    user = _current_user_or_none()
+    if not _can_edit_post(user, post):
+        flash("只能回滚自己文章的版本")
+        return redirect(url_for("admin.my_posts"))
+    h = PostHistory.query.filter_by(id=hid, post_id=post_id).first_or_404()
+    # 回滚前先存当前版本，便于再撤销回滚
+    _save_post_history(post, user.username if user else "")
+    post.title = h.title
+    post.summary = h.summary
+    post.content = h.content
+    db.session.commit()
+    try:
+        fts.sync_post(post)
+    except Exception:
+        pass
+    log_audit("rollback", "post", post.id, f"回滚到版本 {hid}", user=user)
+    flash("已回滚到该历史版本")
+    return redirect(url_for("admin.post_history", post_id=post_id))
 
 
 def allowed_file(filename):
@@ -494,6 +760,26 @@ def _sync_tags(post, raw):
             db.session.add(tag)
             db.session.flush()
         post.tags.append(tag)
+
+
+def _save_post_history(post, author=""):
+    """保存当前文章的版本快照（v3.0.0 功能5）。
+
+    每次有内容/标题变化时调用，存一份 title/summary/content/author 快照。
+    仅保留最近 20 个版本（超出删最旧），避免无限增长。
+    """
+    try:
+        db.session.add(PostHistory(
+            post_id=post.id, title=post.title or "", summary=post.summary or "",
+            content=post.content or "", author=author or "",
+        ))
+        # 限制每个文章最多 20 个历史版本
+        old = PostHistory.query.filter_by(post_id=post.id).order_by(PostHistory.created_at.asc()).all()
+        if len(old) > 20:
+            for h in old[:len(old) - 20]:
+                db.session.delete(h)
+    except Exception:
+        pass
 
 
 @admin_bp.route("/categories", methods=["GET", "POST"])
@@ -583,6 +869,59 @@ def delete_link(lid):
     db.session.commit()
     flash("友链已删除")
     return redirect(url_for("admin.links"))
+
+
+# ---------- 友情链接自助申请审核（v3.0.0 功能6）----------
+@admin_bp.route("/link-applications")
+@admin_required
+def link_applications():
+    """友链申请列表：默认看待审核，可按状态筛选。"""
+    status = request.args.get("status", "pending")
+    q = LinkApplication.query
+    if status:
+        q = q.filter_by(status=status)
+    rows = q.order_by(LinkApplication.created_at.desc()).all()
+    pending_count = LinkApplication.query.filter_by(status="pending").count()
+    return render_template("admin/link_applications.html", rows=rows,
+                           status=status, pending_count=pending_count)
+
+
+@admin_bp.route("/link-application/<int:aid>/approve", methods=["POST"])
+@admin_required
+def approve_link_application(aid):
+    """通过友链申请：写入 FriendLink 列表，标记申请为 approved。"""
+    app_row = LinkApplication.query.get_or_404(aid)
+    if app_row.status != "approved":
+        # 写入友链表（避免重复：同 URL 已存在则跳过）
+        existing = FriendLink.query.filter_by(url=app_row.url).first()
+        if not existing:
+            db.session.add(FriendLink(name=app_row.name, url=app_row.url,
+                                      description=app_row.description or "",
+                                      sort=99))
+        app_row.status = "approved"
+        app_row.reviewer = (_current_user_or_none().username if _current_user_or_none() else "")
+        app_row.reviewed_at = datetime.datetime.utcnow()
+        db.session.commit()
+        log_audit("approve", "link_application", aid, f"通过友链申请：{app_row.name}", user=_current_user_or_none())
+        flash(f"已通过友链申请：{app_row.name}")
+    return redirect(url_for("admin.link_applications"))
+
+
+@admin_bp.route("/link-application/<int:aid>/reject", methods=["POST"])
+@admin_required
+def reject_link_application(aid):
+    """拒绝友链申请：仅标记状态，不写入友链表。"""
+    app_row = LinkApplication.query.get_or_404(aid)
+    app_row.status = "rejected"
+    app_row.reviewer = (_current_user_or_none().username if _current_user_or_none() else "")
+    app_row.reviewed_at = datetime.datetime.utcnow()
+    note = (request.form.get("note") or "").strip()
+    if note:
+        app_row.review_note = note
+    db.session.commit()
+    log_audit("reject", "link_application", aid, f"拒绝友链申请：{app_row.name}", user=_current_user_or_none())
+    flash(f"已拒绝友链申请：{app_row.name}")
+    return redirect(url_for("admin.link_applications"))
 
 
 @admin_bp.route("/social", methods=["GET", "POST"])
@@ -683,6 +1022,47 @@ def delete_comment(cid):
     return redirect(url_for("admin.comments"))
 
 
+# ---------- 评论批量管理（v3.0.0 功能2）----------
+@admin_bp.route("/comments/batch-approve", methods=["POST"])
+@admin_required
+def batch_approve_comments():
+    """批量通过评论：表单传入待审 comment id 列表（name=ids，多选）。"""
+    ids = [int(x) for x in request.form.getlist("ids") if x.isdigit()]
+    if not ids:
+        flash("请先勾选要通过的评论")
+        return redirect(url_for("admin.comments"))
+    approved = 0
+    for cid in ids:
+        c = Comment.query.get(cid)
+        if c and not c.approved:
+            c.approved = True
+            approved += 1
+    db.session.commit()
+    log_audit("batch_approve", "comment", None, f"批量通过 {approved} 条评论", user=_current_user_or_none())
+    flash(f"已批量通过 {approved} 条评论")
+    return redirect(url_for("admin.comments"))
+
+
+@admin_bp.route("/comments/batch-delete", methods=["POST"])
+@admin_required
+def batch_delete_comments():
+    """批量删除评论：表单传入 comment id 列表（name=ids，多选）。"""
+    ids = [int(x) for x in request.form.getlist("ids") if x.isdigit()]
+    if not ids:
+        flash("请先勾选要删除的评论")
+        return redirect(url_for("admin.comments"))
+    deleted = 0
+    for cid in ids:
+        c = Comment.query.get(cid)
+        if c:
+            db.session.delete(c)
+            deleted += 1
+    db.session.commit()
+    log_audit("batch_delete", "comment", None, f"批量删除 {deleted} 条评论", user=_current_user_or_none())
+    flash(f"已批量删除 {deleted} 条评论")
+    return redirect(url_for("admin.comments"))
+
+
 @admin_bp.route("/settings", methods=["GET", "POST"])
 @super_required
 def settings():
@@ -690,7 +1070,9 @@ def settings():
         fields = ["site_title", "site_name", "site_note", "site_description", "about_content", "footer_text",
                   "beian_code", "weather_lat", "weather_lon", "weather_city",
                   "accent_color",
-                  "theme_mode", "theme_radius", "theme_font", "nav_style", "custom_css"]
+                  "theme_mode", "theme_radius", "theme_font", "nav_style", "custom_css",
+                  # v3.0.0 功能2：垃圾评论关键词（逗号分隔）；功能11：前台默认语言
+                  "comment_spam_keywords", "site_lang", "reward_qr_default"]
         for f in fields:
             val = request.form.get(f, "")
             row = Setting.query.filter_by(key=f).first()
@@ -916,6 +1298,32 @@ def delete_user(uid):
     db.session.commit()
     flash(f"已删除用户 {target.username}")
     return redirect(url_for("admin.users"))
+
+
+# ---------- 后台操作日志（审计 trail，v3.0.0 功能4）----------
+@admin_bp.route("/audit-logs")
+@login_required
+@super_required
+def audit_logs():
+    """操作日志列表（仅超管可见）：分页展示，按时间倒序。"""
+    page = request.args.get("page", 1, type=int)
+    pagination = AuditLog.query.order_by(AuditLog.created_at.desc()).paginate(
+        page=page, per_page=30, error_out=False)
+    return render_template("admin/audit_logs.html", logs=pagination.items,
+                           pagination=pagination)
+
+
+@admin_bp.route("/audit-logs/clear", methods=["POST"])
+@login_required
+@super_required
+def clear_audit_logs():
+    """清空操作日志（谨慎操作，不可恢复）。保留最近 7 天（避免误清全部）。"""
+    cutoff = datetime.datetime.utcnow() - datetime.timedelta(days=7)
+    deleted = AuditLog.query.filter(AuditLog.created_at < cutoff).delete()
+    db.session.commit()
+    log_audit("clear", "audit_log", None, f"清空 7 天前的审计日志 {deleted} 条", user=_current_user_or_none())
+    flash(f"已清理 {deleted} 条 7 天前的旧日志（近 7 天记录保留）")
+    return redirect(url_for("admin.audit_logs"))
 
 
 # ---------- 文章系列 / 专栏管理（B4）----------

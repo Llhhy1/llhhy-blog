@@ -159,6 +159,15 @@ body.admin {
 [data-theme="dark"] .status-scheduled {
   background: rgba(212, 136, 6, 0.18); color: #ffc53d; border-color: rgba(212, 136, 6, 0.4);
 }
+/* 置顶申请待审批徽标（v2.8.1） */
+.status-requested {
+  display: inline-block; padding: 2px 8px; border-radius: 999px;
+  background: #eef2ff; color: #4338ca; font-size: 12px; font-weight: 500;
+  border: 1px solid #c7d2fe; white-space: nowrap;
+}
+[data-theme="dark"] .status-requested {
+  background: rgba(67, 56, 202, 0.18); color: #a5b4fc; border-color: rgba(67, 56, 202, 0.4);
+}
 /* 编辑页定时发布提示文字 */
 .edit-form .hint { color: #8a8f99; font-size: 12px; margin: 4px 0 0; }
 .admin-table .sticky-right { position: sticky; right: 0; background: inherit; z-index: 1; box-shadow: -4px 0 8px -4px rgba(0,0,0,.06); }
@@ -731,3 +740,16 @@ body.admin {
   .admin-auth-wrap { padding: 12px; }
   .admin-auth-card { width: 100%; max-width: none; }
 }
+
+/* ===== v3.0.0 新增样式 ===== */
+.reading-info { background: #f3f6fc; border: 1px solid #e0e7f5; color: #3a4a63; padding: 8px 12px; border-radius: 8px; font-size: 13px; margin-top: 4px; }
+.reading-info b { color: var(--accent, #1a73e8); }
+:root[data-theme="dark"] .reading-info { background: #1c222b; border-color: #2a313c; color: #c4ccd6; }
+.batch-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.batch-actions .checkbox-row { font-size: 13px; margin: 0; }
+.badge-rejected { background: #fdecea; color: #c0392b; padding: 2px 8px; border-radius: 10px; font-size: 12px; }
+:root[data-theme="dark"] .badge-rejected { background: #3a2326; color: #ff8a80; }
+.nav-badge { background: #e74c3c; color: #fff; border-radius: 10px; padding: 0 6px; font-size: 11px; margin-left: 2px; }
+.pending-row { background: #fff9f2; }
+:root[data-theme="dark"] .pending-row { background: #2a2418; }
+.row-check, #select-all-head { width: 16px; height: 16px; }

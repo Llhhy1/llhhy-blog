@@ -71,6 +71,22 @@
         </div>
       </section>
 
+      <!-- 访客趋势图（v3.0.0 功能9） -->
+      <section class="stats-card">
+        <h3>📈 近 30 天访客趋势</h3>
+        <p v-if="!s.trend || !s.trend.length" class="stats-empty">暂无趋势数据</p>
+        <svg v-else class="trend-chart" :viewBox="`0 0 ${trendW} ${trendH}`" preserveAspectRatio="none">
+          <polyline :points="pvPoints" fill="none" stroke="#1a73e8" stroke-width="2" />
+          <polyline :points="uvPoints" fill="none" stroke="#34a853" stroke-width="2" />
+          <text v-for="(d, i) in trendLabels" :key="i" :x="labelX(i)" :y="trendH - 4"
+                font-size="9" fill="#999" text-anchor="middle">{{ d }}</text>
+        </svg>
+        <div class="trend-legend">
+          <span class="lg lg-pv">■ PV（总访问次数）</span>
+          <span class="lg lg-uv">■ UV（独立访客）</span>
+        </div>
+      </section>
+
       <!-- 阅读时段分布 -->
       <section class="stats-card">
         <h3>🕐 访客阅读时段分布</h3>
@@ -101,6 +117,31 @@ const maxToday = computed(() => Math.max(1, ...s.value.regions_today.map(r => r.
 const maxAll = computed(() => Math.max(1, ...s.value.regions_all.map(r => r.count)));
 const maxReads = computed(() => Math.max(1, ...s.value.hot_posts.map(p => p.reads)));
 const maxHour = computed(() => Math.max(1, ...s.value.hourly.map(b => b.count)));
+
+// 访客趋势图（v3.0.0 功能9）：把趋势数据映射成 SVG 折线坐标
+const trendW = 660;
+const trendH = 180;
+const trendPad = 8;
+const trendData = computed(() => s.value.trend || []);
+const trendMax = computed(() => Math.max(1, ...trendData.value.map(d => d.pv)));
+function _points(key) {
+  const n = trendData.value.length;
+  if (!n) return "";
+  return trendData.value.map((d, i) => {
+    const x = (i / Math.max(1, n - 1)) * (trendW - trendPad * 2) + trendPad;
+    const y = trendH - trendPad - (d[key] / trendMax.value) * (trendH - trendPad * 2);
+    return `${x.toFixed(1)},${y.toFixed(1)}`;
+  }).join(" ");
+}
+const pvPoints = computed(() => _points("pv"));
+const uvPoints = computed(() => _points("uv"));
+// 每 5 天标注一个日期（MM-DD）
+const trendLabels = computed(() => trendData.value.map((d, i) =>
+  i % 5 === 0 ? d.date.slice(5) : ""));
+function labelX(i) {
+  const n = trendData.value.length;
+  return ((i / Math.max(1, n - 1)) * (trendW - trendPad * 2) + trendPad).toFixed(1);
+}
 
 function pct(v, max) { return Math.max(2, Math.round((v / max) * 100)); }
 function hourPct(b) { return pct(b.count, maxHour.value); }

@@ -54,9 +54,25 @@
       <input type="checkbox" name="published" id="published-chk" {% if not post or post.published %}checked{% endif %}> 立即发布
     </label>
 
+    {% if current_user and current_user.is_admin_role %}
     <label class="checkbox">
       <input type="checkbox" name="is_pinned" id="pinned-chk" {% if post and post.is_pinned %}checked{% endif %}> 📌 置顶（首页与列表优先展示）
     </label>
+    {% else %}
+    <p class="hint">置顶为管理权限功能：普通用户如需置顶，请在「我的文章」中提交<b>置顶申请</b>，由超级管理员审批。</p>
+    {% endif %}
+
+    {# v3.0.0 功能13/14：隐私空间 + 打赏，仅超级管理员可设置 #}
+    {% if current_user and current_user.is_super %}
+    <label class="checkbox">
+      <input type="checkbox" name="is_private" id="private-chk" {% if post and post.is_private %}checked{% endif %}> 🔒 隐私文章（仅超级管理员可见，前台与其它用户均不可见）
+    </label>
+    <label class="checkbox">
+      <input type="checkbox" name="reward_enabled" id="reward-chk" {% if post and post.reward_enabled %}checked{% endif %}> 💝 开启文章打赏（文章结尾展示收款二维码）
+    </label>
+    <label>打赏二维码 URL（可选，留空则使用站点设置中的默认二维码）</label>
+    <input type="text" name="reward_qr" value="{{ post.reward_qr if post and post.reward_qr else '' }}" placeholder="https://…/reward.png">
+    {% endif %}
 
     <label>定时发布（可选，留空则按上方「立即发布」处理）</label>
     <input type="datetime-local" name="scheduled_at" id="scheduled-at"
@@ -64,6 +80,18 @@
            min="{{ now_local if now_local else '' }}"
            placeholder="选择未来时间，到点自动公开">
     <p class="hint">填写一个未来时间并保存，文章会先存为「待发布」，后台到点自动公开并推送通知；若同时勾选「立即发布」则以立即发布为准。</p>
+
+    {# v3.0.0 功能12：字数统计 + 阅读时长（实时预览） #}
+    <div class="reading-info" id="reading-info">
+      📖 预计阅读 <b id="reading-min">{{ (post.reading_minutes if post and post.reading_minutes else 1) }}</b> 分钟 ·
+      约 <b id="word-count">{{ post.word_count if post and post.word_count else 0 }}</b> 字
+    </div>
+
+    {% if post %}
+    <p style="margin-top:8px;">
+      <a class="btn ghost small" href="{{ url_for('admin.post_history', post_id=post.id) }}">🕓 查看版本历史 / 回滚</a>
+    </p>
+    {% endif %}
 
     <button type="submit" class="btn">保存</button>
     <a class="btn" href="{{ url_for('admin.dashboard') }}">返回</a>
@@ -81,6 +109,24 @@
       dt.addEventListener("change", function () {
         if (dt.value) chk.checked = false;  // 填了定时则取消立即发布
       });
+    })();
+
+    // v3.0.0 功能12：字数统计 + 阅读时长实时预览（纯前端估算，与后端保存值一致：中文字+英文词，300 字/分）
+    (function () {
+      var content = document.getElementById("content");
+      var wcEl = document.getElementById("word-count");
+      var rmEl = document.getElementById("reading-min");
+      if (!content || !wcEl || !rmEl) return;
+      function count() {
+        var text = content.value || "";
+        var cjk = (text.match(/[一-鿿]/g) || []).length;
+        var words = (text.match(/[A-Za-z0-9]+/g) || []).length;
+        var total = cjk + words;
+        wcEl.textContent = total;
+        rmEl.textContent = Math.max(1, Math.round(total / 300));
+      }
+      content.addEventListener("input", count);
+      count();
     })();
 
     // 草稿自动保存（v2.8.0）：每 5 秒把当前编辑内容存到 localStorage，

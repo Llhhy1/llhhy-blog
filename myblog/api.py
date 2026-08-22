@@ -7,16 +7,22 @@ import json
 import os
 import datetime
 
-from flask import Blueprint, request, jsonify, current_app, session
+from flask import Blueprint, request, jsonify, current_app, session, Response
 from markupsafe import escape
 
 from models import db, Post, Category, Tag, Comment, FriendLink, Setting, User, ROLE_USER, \
     Moment, MomentComment, SocialAccount, Series, Announcement, Guestbook, Subscriber, Notification, \
-    visible_posts_query
+    ReadLog, visible_posts_query, LinkApplication, AuditLog, PostHistory, RecycleBin
 from utils import render_markdown, clean_html, rate_limit, client_key
 import stats
 
 api_bp = Blueprint("api", __name__, url_prefix="/api")
+
+
+def _current_user_or_none():
+    """取当前登录用户对象（用于隐私空间可见性判断），未登录返回 None。"""
+    uid = session.get("user_id")
+    return db.session.get(User, uid) if uid else None
 
 
 # ---------- 认证接口（注册 / 登录 / 登出 / 当前用户）----------
@@ -123,6 +129,11 @@ def _post_summary(p):
         "seo_keywords": p.seo_keywords or "",
         "category": {"name": p.category.name, "slug": p.category.slug} if p.category else None,
         "tags": [{"name": t.name, "slug": t.slug} for t in p.tags],
+        # v3.0.0 新增字段
+        "word_count": p.word_count or 0,
+        "reading_minutes": p.reading_minutes or 0,
+        "reward_enabled": bool(p.reward_enabled),
+        "is_private": bool(p.is_private),
     }
 
 
@@ -170,6 +181,8 @@ def site():
         "theme_font": s.get("theme_font", "md"),
         "nav_style": s.get("nav_style", "light"),
         "custom_css": s.get("custom_css", ""),
+        "reward_qr_default": s.get("reward_qr_default", ""),
+        "site_lang": s.get("site_lang", "zh"),
         "categories": [
             {"name": c.name, "slug": c.slug,
              "count": visible_posts_query().filter_by(category_id=c.id).count()}
@@ -219,7 +232,9 @@ def posts():
 # ---------- 文章详情（含渲染后的 HTML 与评论）----------
 @api_bp.route("/post/<slug>")
 def post_detail(slug):
-    p = visible_posts_query().filter_by(slug=slug).first_or_404()
+    # v3.0.0 功能13：登录的超级管理员可查看自己的隐私文章；其余人（含未登录）一律 404
+    _u = _current_user_or_none()
+    p = visible_posts_query(user=_u).filter_by(slug=slug).first_or_404()
     # 阅读量 +1（防刷：同 IP 24h 内只计一次真实阅读）
     from app import count_unique_view
     if count_unique_view(p.id, stats.client_ip()):
@@ -264,6 +279,30 @@ def tags():
     ])
 
 
+@api_bp.route("/hot-tags")
+def hot_tags():
+    """热门标签（v3.0.0 功能7）：按文章数排序取前 N，并附带总阅读量便于热度加权。
+
+    前端「热门标签页」展示；排序权重 = 文章数 * 2 + floor(总阅读量 / 1000)，
+    既体现使用广度也体现受欢迎程度。仅统计前台可见文章（不含隐私/回收站）。
+    """
+    limit = request.args.get("limit", 20, type=int)
+    if limit <= 0 or limit > 50:
+        limit = 20
+    rows = []
+    for t in Tag.query.all():
+        posts = [p for p in t.posts if not p.in_trash and p.published
+                 and (not p.is_private) and (p.scheduled_at is None or p.scheduled_at <= datetime.utcnow())]
+        if not posts:
+            continue
+        views = sum(p.views or 0 for p in posts)
+        weight = len(posts) * 2 + views // 1000
+        rows.append({"name": t.name, "slug": t.slug, "count": len(posts),
+                     "views": views, "weight": weight})
+    rows.sort(key=lambda x: x["weight"], reverse=True)
+    return jsonify({"items": rows[:limit]})
+
+
 @api_bp.route("/category/<slug>")
 def posts_by_category(slug):
     c = Category.query.filter_by(slug=slug).first_or_404()
@@ -279,6 +318,59 @@ def posts_by_tag(slug):
     items = visible_posts_query().filter(Post.tags.any(id=t.id)).order_by(Post.is_pinned.desc(), Post.created_at.desc()).all()
     return jsonify({"name": t.name, "slug": t.slug,
                     "items": [_post_summary(p) for p in items]})
+
+
+# ---------- RSS 按分类 / 标签订阅（v3.0.0 功能10）----------
+def _rss_xml(posts, title, desc, base):
+    """把文章列表拼成 RSS 2.0 XML（复用 routes.py 的 feed() 逻辑，纯本地、无外部依赖）。"""
+    items = []
+    for p in posts:
+        link = f"{base}/post/{p.slug}"
+        pub = p.created_at.strftime("%a, %d %b %Y %H:%M:%S +0000")
+        summary = escape((p.summary or (p.content or "")[:200]).strip())
+        items.append(
+            "    <item>\n"
+            f"      <title>{escape(p.title)}</title>\n"
+            f"      <link>{escape(link)}</link>\n"
+            f"      <guid>{escape(link)}</guid>\n"
+            f"      <pubDate>{pub}</pubDate>\n"
+            f"      <description>{summary}</description>\n"
+            "    </item>"
+        )
+    last = posts[0].created_at.strftime("%a, %d %b %Y %H:%M:%S +0000") if posts else ""
+    xml = (
+        '<?xml version="1.0" encoding="UTF-8"?>\n'
+        '<rss version="2.0">\n'
+        "  <channel>\n"
+        f"    <title>{escape(title)}</title>\n"
+        f"    <link>{escape(base + '/')}</link>\n"
+        f"    <description>{escape(desc)}</description>\n"
+        f"    <lastBuildDate>{last}</lastBuildDate>\n"
+        + "\n".join(items) + "\n"
+        "  </channel>\n"
+        "</rss>\n"
+    )
+    return Response(xml, mimetype="application/rss+xml")
+
+
+@api_bp.route("/rss/category/<slug>")
+def rss_category(slug):
+    """分类 RSS：该分类下已发布文章的订阅源。"""
+    c = Category.query.filter_by(slug=slug).first_or_404()
+    posts = visible_posts_query().filter_by(category_id=c.id)\
+        .order_by(Post.is_pinned.desc(), Post.created_at.desc()).limit(20).all()
+    base = (current_app.config.get("SITE_URL") or request.url_root.rstrip("/")).rstrip("/")
+    return _rss_xml(posts, f"{c.name} - RSS", f"{c.name} 分类文章更新", base)
+
+
+@api_bp.route("/rss/tag/<slug>")
+def rss_tag(slug):
+    """标签 RSS：带该标签的已发布文章的订阅源。"""
+    t = Tag.query.filter_by(slug=slug).first_or_404()
+    posts = visible_posts_query().filter(Post.tags.any(id=t.id))\
+        .order_by(Post.is_pinned.desc(), Post.created_at.desc()).limit(20).all()
+    base = (current_app.config.get("SITE_URL") or request.url_root.rstrip("/")).rstrip("/")
+    return _rss_xml(posts, f"{t.name} - RSS", f"标签「{t.name}」相关文章更新", base)
 
 
 # ---------- 归档时间线 ----------
@@ -307,6 +399,38 @@ def links():
         {"name": l.name, "url": l.url, "description": l.description or ""}
         for l in FriendLink.query.order_by(FriendLink.sort).all()
     ])
+
+
+@api_bp.route("/link-apply", methods=["POST"])
+def link_apply():
+    """友情链接自助申请（v3.0.0 功能6）。
+
+    前台访客提交友链申请，进入待审核队列（不直接写 FriendLink 表，避免 spam）。
+    限流 + 基础校验（名称/URL 必填、URL 格式、同 URL 24h 内不可重复申请）。
+    审核通过后由后台写入 FriendLink 列表。
+    """
+    if not rate_limit(client_key("api_link_apply"), limit=10, window=86400):
+        return jsonify({"error": "申请过于频繁，请 24 小时后再试"}), 429
+    data = request.get_json(silent=True) or request.form
+    name = (data.get("name") or "").strip()
+    url = (data.get("url") or "").strip()
+    description = (data.get("description") or "").strip()
+    email = (data.get("email") or "").strip()
+    if not name or not url:
+        return jsonify({"error": "站点名称和链接不能为空"}), 400
+    import re as _re
+    if not _re.match(r"^https?://[^\s]+$", url):
+        return jsonify({"error": "链接格式不正确（需以 http:// 或 https:// 开头）"}), 400
+    # 同一 URL 未处理的申请不重复接收
+    dup = LinkApplication.query.filter_by(url=url, status="pending").first()
+    if dup:
+        return jsonify({"ok": True, "message": "该链接已在审核队列中，请耐心等待"}), 201
+    ip = stats.client_ip()
+    app_row = LinkApplication(name=name[:100], url=url[:300], description=description[:200],
+                              email=email[:160], status="pending", applicant_ip=ip)
+    db.session.add(app_row)
+    db.session.commit()
+    return jsonify({"ok": True, "message": "申请已提交，管理员审核通过后会展示在友情链接"}), 201
 
 
 # ---------- 点赞 ----------
@@ -340,6 +464,15 @@ def comment(slug):
     author = author or (data.get("author") or "").strip()
     if not author or not content:
         return jsonify({"error": "昵称和评论内容不能为空"}), 400
+    # v3.0.0 功能2：垃圾评论关键词过滤（站点设置 comment_spam_keywords 逗号分隔）。
+    # 命中任一关键词直接拒绝提交，避免垃圾评论进入审核队列。关键词大小写不敏感。
+    spam_kw = (Setting.query.filter_by(key="comment_spam_keywords").first())
+    if spam_kw and spam_kw.value:
+        kw_list = [k.strip().lower() for k in spam_kw.value.replace("，", ",").split(",") if k.strip()]
+        low = content.lower()
+        hit = next((k for k in kw_list if k and k in low), None)
+        if hit:
+            return jsonify({"error": "评论包含不被允许的词汇，已被过滤"}), 400
     # 嵌套回复：parent_id 必须属于同一篇文章，reply_to 默认取父评论作者
     parent_id = data.get("parent_id") or 0
     reply_to = (data.get("reply_to") or "").strip()
@@ -405,8 +538,17 @@ def stats_read():
 
 @api_bp.route("/stats/summary")
 def stats_summary():
-    """统计汇总（累计访问 / 区域排行 / 热读文章 / 常搜词 / 时段分布）。"""
+    """统计汇总（累计访问 / 区域排行 / 热读文章 / 常搜词 / 时段分布 / 访客趋势）。"""
     return jsonify(stats.compute_summary())
+
+
+@api_bp.route("/stats/trend")
+def stats_trend():
+    """访客趋势（v3.0.0 功能9）：最近 N 天 PV/UV，供访客趋势图使用。"""
+    days = request.args.get("days", 30, type=int)
+    if days <= 0 or days > 90:
+        days = 30
+    return jsonify({"trend": stats.compute_trend(days)})
 
 
 # ---------- 社交聚合页（广场）----------
@@ -573,6 +715,46 @@ def related_posts(slug):
     return jsonify({"items": [_post_summary(c) for _, c in scored[:5]]})
 
 
+@api_bp.route("/post/<slug>/also-viewed")
+def also_viewed(slug):
+    """「看了又看」协同过滤推荐（v3.0.0 功能8）。
+
+    思路（零外部依赖、纯共现）：
+    1. 找出读过当前文章 slug 的访客 IP 集合；
+    2. 这些访客还读过哪些其他文章，按「共同阅读人数」打分（协同过滤核心）；
+    3. 再叠加一层「相似标签」加权（同标签/同分类），冷启动（无共现）时退化为基础相似推荐；
+    4. 仅返回前台可见文章，按分数倒序取前 5。
+    """
+    p = visible_posts_query().filter_by(slug=slug).first_or_404()
+    # 当前文章的访客 IP
+    base_readers = {r.ip for r in ReadLog.query.filter_by(post_id=p.id).all()}
+    scored = {}
+    if base_readers:
+        # 这些访客读过的其它文章
+        other = (ReadLog.query.filter(ReadLog.post_id != p.id,
+                                       ReadLog.ip.in_(list(base_readers)))
+                 .with_entities(ReadLog.post_id).all())
+        for (pid,) in other:
+            scored[pid] = scored.get(pid, 0) + 1
+    # 相似度加权（标签/分类）
+    p_tags = set(t.id for t in p.tags)
+    for c in visible_posts_query().filter(Post.id != p.id).all():
+        c_tags = set(t.id for t in c.tags)
+        sim = len(p_tags & c_tags)
+        if p.category_id and p.category_id == c.category_id:
+            sim += 1
+        if sim > 0:
+            scored[c.id] = scored.get(c.id, 0) + sim * 0.5
+    # 排序
+    ranked = sorted(scored.items(), key=lambda x: x[1], reverse=True)[:5]
+    items = []
+    for pid, _ in ranked:
+        post = db.session.get(Post, pid)
+        if post and post.id != p.id and _is_visible(post):
+            items.append(_post_summary(post))
+    return jsonify({"items": items})
+
+
 # ---------- 站点公告 / 置顶（D4）----------
 @api_bp.route("/announcements")
 def announcements():
@@ -684,12 +866,37 @@ def unsubscribe():
                     "message": "确认退订？请用 POST 请求确认"})
 
 
-# ---------- 全文搜索（FTS5 优先，失败回退 LIKE，B5）----------
+# ---------- 全文搜索（FTS5 优先，失败回退 LIKE，B5；v3.0.0 功能3 增加分页 + 高亮）----------
 @api_bp.route("/search")
 def search_api():
     q = (request.args.get("q") or "").strip()
+    page = request.args.get("page", 1, type=int)
+    per_page = request.args.get("per_page", 10, type=int)
+    if per_page <= 0 or per_page > 50:
+        per_page = 10
     if not q:
-        return jsonify({"items": [], "total": 0, "engine": "none"})
+        return jsonify({"items": [], "total": 0, "pages": 0, "page": page, "engine": "none",
+                        "query": ""})
+    # 高亮命中词：取摘要里包含 q 的片段，用 <mark> 包裹（前端渲染时信任该结构——
+    # 内容本身来自本站数据库、q 已转义，无 XSS 风险）
+    def make_highlight(p):
+        text = (p.summary or (p.content or "")).replace("\n", " ").strip()
+        idx = text.lower().find(q.lower())
+        if idx < 0:
+            snippet = text[:120]
+        else:
+            start = max(0, idx - 30)
+            end = min(len(text), idx + len(q) + 60)
+            snippet = ("…" if start > 0 else "") + text[start:end] + ("…" if end < len(text) else "")
+        # 转义后高亮（先 escape 全文，再替换命中词为 <mark>）
+        esc_text = escape(snippet)
+        esc_q = escape(q)
+        # 大小写不敏感地包裹命中词
+        import re as _re
+        esc_text = _re.sub(_re.escape(esc_q), lambda m: f"<mark>{m.group(0)}</mark>",
+                           esc_text, flags=_re.IGNORECASE)
+        return esc_text
+
     try:
         import fts as fts_mod
         ids = fts_mod.search(q)
@@ -698,12 +905,24 @@ def search_api():
     if ids is not None:
         posts = [db.session.get(Post, i) for i in ids]
         posts = [p for p in posts if _is_visible(p)]
-        return jsonify({"items": [_post_summary(p) for p in posts], "total": len(posts), "engine": "fts5"})
-    like = f"%{q}%"
-    rows = (visible_posts_query()
-            .filter(db.or_(Post.title.ilike(like), Post.summary.ilike(like), Post.content.ilike(like)))
-            .order_by(Post.is_pinned.desc(), Post.created_at.desc()).limit(30).all())
-    return jsonify({"items": [_post_summary(p) for p in rows], "total": len(rows), "engine": "like"})
+        engine = "fts5"
+    else:
+        like = f"%{q}%"
+        posts = (visible_posts_query()
+                 .filter(db.or_(Post.title.ilike(like), Post.summary.ilike(like), Post.content.ilike(like)))
+                 .order_by(Post.is_pinned.desc(), Post.created_at.desc()).all())
+        engine = "like"
+    total = len(posts)
+    pages = (total + per_page - 1) // per_page if per_page else 1
+    start = (page - 1) * per_page
+    page_items = posts[start:start + per_page]
+    items = []
+    for p in page_items:
+        s = _post_summary(p)
+        s["highlight"] = make_highlight(p)
+        items.append(s)
+    return jsonify({"items": items, "total": total, "pages": pages, "page": page,
+                    "engine": engine, "query": q})
 
 
 # ---------- 站内通知（A4 评论 @ 通知）----------

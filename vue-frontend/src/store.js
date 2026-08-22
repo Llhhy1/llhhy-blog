@@ -7,10 +7,55 @@ export const state = reactive({
           site_description: "", accent_color: "#1a73e8",
           footer_text: "", beian_code: "", about_content: "",
           theme_mode: "system", theme_radius: "md", theme_font: "md",
-          nav_style: "light", custom_css: "" },
+          nav_style: "light", custom_css: "", site_lang: "zh" },
   user: null,           // { id, username, role, is_admin, ... } 或 null
   loaded: false,
+  lang: "zh",           // v3.0.0 功能11：界面语言（zh / en）
 });
+
+// v3.0.0 功能11：轻量 i18n 词典（覆盖核心导航与常用文案）
+const I18N = {
+  zh: {
+    "home": "首页", "archive": "归档", "stats": "统计", "about": "关于",
+    "links": "友链", "square": "广场", "series": "系列", "hot_tags": "热门标签",
+    "guestbook": "留言墙", "login": "登录", "register": "注册", "logout": "退出",
+    "admin": "后台", "write": "写文章", "theme": "主题",
+    "search_placeholder": "搜索文章…",
+  },
+  en: {
+    "home": "Home", "archive": "Archive", "stats": "Stats", "about": "About",
+    "links": "Links", "square": "Square", "series": "Series", "hot_tags": "Hot Tags",
+    "guestbook": "Guestbook", "login": "Login", "register": "Register", "logout": "Logout",
+    "admin": "Admin", "write": "Write", "theme": "Theme",
+    "search_placeholder": "Search posts…",
+  },
+};
+
+// 取翻译（缺省回退中文，再回退原 key）
+export function t(key) {
+  const dict = I18N[state.lang] || I18N.zh;
+  return dict[key] || I18N.zh[key] || key;
+}
+
+// 切换语言并持久化（v3.0.0 功能11）
+export function setLang(lang) {
+  if (!I18N[lang]) lang = "zh";
+  state.lang = lang;
+  try { localStorage.setItem("lang", lang); } catch (e) {}
+  document.documentElement.setAttribute("lang", lang === "en" ? "en" : "zh-CN");
+}
+
+// 初次加载时按优先级决定语言：本地选择 > 后台 site_lang > 默认中文
+export function initLang(siteLang) {
+  let lang = "zh";
+  try {
+    const saved = localStorage.getItem("lang");
+    if (saved && I18N[saved]) lang = saved;
+    else if (siteLang && I18N[siteLang]) lang = siteLang;
+  } catch (e) {}
+  state.lang = lang;
+  document.documentElement.setAttribute("lang", lang === "en" ? "en" : "zh-CN");
+}
 
 // 主题美化：把后台设置转成 CSS 变量（圆角/字号/导航栏）
 function applyThemeVars(s) {
@@ -60,6 +105,7 @@ export async function initSite() {
     applyDefaultTheme(s);
     injectCustomCss(s.custom_css);
     document.title = s.site_name || s.site_title || "我的博客";
+    initLang(s.site_lang);  // v3.0.0 功能11：按本地/后台设置初始化语言
   } catch (e) { console.warn("站点设置加载失败", e); }
   try {
     const m = await apiGet("/api/auth/me");

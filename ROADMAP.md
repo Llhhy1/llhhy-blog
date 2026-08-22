@@ -142,3 +142,29 @@
 - **后台分页+筛选**：`dashboard`/`my_posts` 支持关键词 + 状态（已发布/草稿/定时/置顶）+ 分类筛选，分页 12/页；模板加筛选表单与分页导航。
 - **定时一键提前公开**：新增 `/api/post/<id>/publish-now`（登录+权限校验）与后台同名 SSR 路由，立即翻 `published=True` 并清空 `scheduled_at`，触发推送+邮件。
 - **安全审计**：第二十一轮，无高危问题；冒烟测试覆盖列迁移、置顶排序、阅读去重、一键发布、WebP 降级，全部通过。
+
+## 十、v3.0.0 功能迭代（14 项功能整合）
+
+> v3.0.0 为**大型功能整合**版本：一次性落地 14 项功能（系列目录增强、字数统计、评论批量+垃圾过滤、操作日志、版本历史/回收站、友链申请、热门标签、看了又看、访客趋势图、分类/标签 RSS、多语言、隐私空间、打赏），全部经安全审计（R7）与冒烟测试（24 项通过）。
+
+### 10.1 新增功能清单
+- **系列目录页 + 阅读进度**：`SeriesDetailView` 新增带编号章节 TOC（系列 TOC）；前台全局阅读进度条（App.vue `reading-progress`）持续生效。
+- **字数统计 + 阅读时长**：`Post.word_count`/`reading_minutes` + `utils.count_words`（中文字符 + 英文/数字 token，分钟 = max(1, round(字数/300))）；编辑/详情页展示。
+- **评论批量 + 垃圾过滤**：后台 `/comments/batch-approve`、`/comments/batch-delete`（多选 + `@admin_required`）；评论提交命中 `Setting.comment_spam_keywords` 即 400 拒收。
+- **后台操作日志**：`AuditLog` 模型 + `/admin/audit-logs`、`/admin/clear-audit_logs`（均 `@super_required`，`log_audit` 辅助函数贯穿关键写操作）。
+- **版本历史 / 回收站**：`PostHistory`（每篇上限 20 版，`_save_post_history` 自动留存）；删除改为软删除（`in_trash=True` + `RecycleBin` 快照），支持 `/admin/post/<id>/restore`、`/purge`、`/history`、回滚。
+- **友链申请 + 自助审核**：`LinkApplication` 模型 + 前台 `/api/link-apply`（限流 10/24h + URL 正则 + 去重）、后台 `/admin/link-applications` 审核通过/拒绝。
+- **热门标签云**：`/api/hot-tags`（权重 = 文章数×2 + 阅读量//1000），前台 `HotTagsView` 独立页。
+- **「看了又看」协同过滤**：`/api/post/<slug>/also-viewed`（ReadLog 共现 + 标签/分类相似度加权，冷启动退化为相似推荐）。
+- **访客趋势图**：`stats.compute_trend(days)` + `/api/stats/trend`；`StatsView` 纯 SVG 折线（PV 蓝 / UV 绿）。
+- **RSS 按分类 / 标签**：`/api/rss/category/<slug>`、`/api/rss/tag/<slug>`（复用 `_rss_xml` 助手）。
+- **多语言 i18n**：`store.js` 内置 `I18N` 中英词典 + `t()`/`setLang()`/`initLang()`；导航 + 抽屉 + 部分界面文案随 `state.lang` 切换；后台可设 `site_lang` 默认语言。
+- **隐私空间**：`Post.is_private`；`visible_posts_query(user)` 对非超管过滤；`post_detail` 传入当前 user，超管登录可见本人隐私文章，其余人 404。
+- **文章打赏**：`Post.reward_enabled`/`reward_qr`（仅超管编辑时开关）；前台 `PostView` 展示 `post.reward_qr` 或站点 `reward_qr_default`；后台设置可设默认收款码。
+
+### 10.2 新增/变更接口与环境变量
+- 新增接口：`/api/hot-tags`、`/api/post/<slug>/also-viewed`、`/api/stats/trend`、`/api/rss/category/<slug>`、`/api/rss/tag/<slug>`、`/api/search`（分页 + 高亮）、`/api/link-apply`。
+- 新增后台页：`/admin/audit-logs`、`/admin/recycle-bin`、`/admin/link-applications`、`/admin/post/<id>/history`。
+- 新增站点设置：`comment_spam_keywords`（垃圾评论关键词，逗号分隔）、`site_lang`（默认语言 `zh`/`en`）、`reward_qr_default`（默认打赏收款码 URL）。
+- **自动迁移**：重启时 `app.py` 的 `_migrate_*` 自动补列（Post 7 个新字段）+ 新建 4 张表（audit_log / recycle_bin / link_application / post_history），无需手动 SQL。
+- **安全审计**：第七轮（R7），修复 `/api/link-apply` 模型未导入导致的 500 与隐私空间超管自查看不到的问题；24 项冒烟测试全部通过。

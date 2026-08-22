@@ -12,6 +12,7 @@ from werkzeug.security import generate_password_hash
 from models import (db, Post, Category, Tag, Comment, FriendLink, Setting, User,
                    ROLE_SUPER, Moment, MomentComment, SocialAccount,
                    Series, Announcement, Guestbook, Subscriber, Notification,
+                   AuditLog, RecycleBin, LinkApplication, PostHistory,
                    visible_posts_query)
 from utils import make_slug
 from routes import main_bp
@@ -69,7 +70,13 @@ def _migrate_post_table():
     if "post" in ins.get_table_names():
         cols = [c["name"] for c in ins.get_columns("post")]
         specs = {"author_id": "INTEGER", "series_id": "INTEGER", "scheduled_at": "DATETIME",
-                  "is_pinned": "BOOLEAN", "seo_description": "TEXT", "seo_keywords": "VARCHAR(300)"}
+                  "is_pinned": "BOOLEAN", "seo_description": "TEXT", "seo_keywords": "VARCHAR(300)",
+                  "pin_requested": "BOOLEAN",
+                  # v3.0.0 新增列
+                  "word_count": "INTEGER DEFAULT 0", "reading_minutes": "INTEGER DEFAULT 0",
+                  "reward_enabled": "BOOLEAN DEFAULT 0", "reward_qr": "VARCHAR(500) DEFAULT ''",
+                  "is_private": "BOOLEAN DEFAULT 0", "in_trash": "BOOLEAN DEFAULT 0",
+                  "deleted_at": "DATETIME"}
         need = [c for c in specs if c not in cols]
         if need:
             db.session.remove()
@@ -146,6 +153,26 @@ def _migrate_subscriber_table():
             with db.engine.begin() as conn:
                 conn.execute(db.text("ALTER TABLE subscriber ADD COLUMN unsub_token VARCHAR(64) DEFAULT ''"))
             print("已迁移 subscriber 表：新增 unsub_token 列")
+
+
+def _migrate_new_tables_v3():
+    """v3.0.0 新增表：若数据库中尚不存在这些表，则建表（幂等，可重复调用）。
+
+    新增：audit_log（审计日志）、recycle_bin（回收站）、link_application（友链申请）、
+    post_history（文章版本历史）。旧库升级时自动补建，无需手动 SQL。
+    """
+    from sqlalchemy import inspect
+    from models import (AuditLog, RecycleBin, LinkApplication, PostHistory)
+    ins = inspect(db.engine)
+    existing = set(ins.get_table_names())
+    new_tables = [AuditLog, RecycleBin, LinkApplication, PostHistory]
+    need = [t for t in new_tables if t.__tablename__ not in existing]
+    if need:
+        try:
+            db.create_all()
+            print("已迁移：新建 v3.0.0 数据表（" + ", ".join(t.__tablename__ for t in need) + "）")
+        except Exception as e:
+            print("v3.0.0 建表失败（可忽略，下次启动重试）:", e)
 
 
 def count_unique_view(post_id, ip):
@@ -322,6 +349,7 @@ def create_app():
         _migrate_friendlink_table()
         _migrate_guestbook_table()
         _migrate_subscriber_table()
+        _migrate_new_tables_v3()
         try:
             import fts
             fts.ensure()

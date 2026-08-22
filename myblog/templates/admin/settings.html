@@ -73,6 +73,20 @@
       <span>评论需审核（开启后，新评论先标记为「待审核」，通过后才在前台显示；关闭则直接显示）</span>
     </label>
 
+    <label style="margin-top:24px;font-size:15px;color:var(--accent);">🛡️ v3.0.0 新增设置</label>
+
+    <label>垃圾评论过滤关键词（功能2：英文逗号分隔，命中任一关键词的评论将被直接拒绝，如「代开发票, 办证, 赌博」；留空不过滤）</label>
+    <input type="text" name="comment_spam_keywords" value="{{ settings.comment_spam_keywords }}" placeholder="例如：代开发票, 办证, 赌博">
+
+    <label>前台默认语言（功能11：i18n；目前支持 zh=中文 / en=英文，未登录访客按此展示界面文案）</label>
+    <select name="site_lang">
+      <option value="zh" {{ 'selected' if (settings.site_lang or 'zh') == 'zh' }}>中文</option>
+      <option value="en" {{ 'selected' if settings.site_lang == 'en' }}>English</option>
+    </select>
+
+    <label>打赏默认收款二维码 URL（功能14：超管在单篇文章开启打赏但未单独指定二维码时，使用此默认图；留空则要求每篇单独上传）</label>
+    <input type="text" name="reward_qr_default" value="{{ settings.reward_qr_default }}" placeholder="https://.../reward.png">
+
     <button type="submit" class="btn">保存设置</button>
   </form>
 {% endblock %}

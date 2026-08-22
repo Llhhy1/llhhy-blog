@@ -26,9 +26,23 @@ class Post(db.Model):
     # 定时发布时间：为空=立即发布/已发布；不为空且未来时间=定时待发布（到点后由后台线程翻 published）
     scheduled_at = db.Column(db.DateTime, nullable=True)
     is_pinned = db.Column(db.Boolean, default=False)               # 是否置顶（首页/列表优先展示）
+    # 置顶申请（v2.8.1）：普通用户无直接置顶权，需向超管申请；超管批准后才 is_pinned=True
+    pin_requested = db.Column(db.Boolean, default=False)           # 是否已提交置顶申请（待审批）
     # SEO 单独字段（v2.8.0）：独立的页面描述与关键词，缺省回退到 summary/标签
     seo_description = db.Column(db.Text)                            # 页面 meta description（搜索引擎摘要）
     seo_keywords = db.Column(db.String(300))                        # 页面 meta keywords（逗号分隔）
+    # ===== v3.0.0 新增字段 =====
+    # 字数统计 + 预计阅读时长（由正文自动计算，存储以便排序/展示）
+    word_count = db.Column(db.Integer, default=0)                   # 正文中文字数（粗略：中文字+英文词）
+    reading_minutes = db.Column(db.Integer, default=0)             # 预计阅读时长（分钟，按 300 字/分估算）
+    # 文章打赏（仅超级管理员可在每篇结尾开关，v3.0.0 功能14）
+    reward_enabled = db.Column(db.Boolean, default=False)         # 该篇是否开启打赏
+    reward_qr = db.Column(db.String(500), default="")               # 打赏二维码图片 URL（留空用全局默认）
+    # 超级管理员隐私空间（v3.0.0 功能13）：is_private=True 的文章仅超管可见
+    is_private = db.Column(db.Boolean, default=False)              # 是否隐私文章（仅超管可见）
+    # 回收站（v3.0.0 功能5）：deleted=True 表示进入回收站（软删除），不出现在前台/列表
+    in_trash = db.Column(db.Boolean, default=False)                 # 是否已在回收站（软删除）
+    deleted_at = db.Column(db.DateTime, nullable=True)             # 进入回收站时间（用于排序/保留期）
     views = db.Column(db.Integer, default=0)                       # 阅读量
     likes = db.Column(db.Integer, default=0)                       # 点赞数
     comments = db.relationship("Comment", backref="post", cascade="all, delete-orphan", lazy="dynamic")
@@ -259,19 +273,99 @@ class Notification(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
 
-def visible_posts_query():
-    """返回「对访客可见」的文章查询（已发布 且 未到定时发布时间的视为不可见）。
+class AuditLog(db.Model):
+    """后台操作日志（审计 trail，v3.0.0 功能4）。
+
+    记录后台关键写操作（增删改文章/评论/用户/设置等），含操作人、动作、对象、
+    来源 IP，便于事后追溯与责任定位。仅超管可见、可导出、可清空（保留 90 天以上）。
+    """
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=True)
+    username = db.Column(db.String(40), default="")     # 冗余存用户名，账号删除后仍可读
+    action = db.Column(db.String(40), nullable=False)   # 动作类别：create/post/login/delete/...
+    target = db.Column(db.String(60), default="")        # 操作对象类型：post/comment/user/setting/...
+    target_id = db.Column(db.Integer, nullable=True)     # 操作对象 id
+    detail = db.Column(db.String(300), default="")       # 简述，如文章标题/动作结果
+    ip = db.Column(db.String(64), default="")
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+
+class RecycleBin(db.Model):
+    """回收站：被删除文章的软删除存档（v3.0.0 功能5）。
+
+    删除文章时不真正从 post 表移除，而是把快照存入回收站，并标记原 post.in_trash=True。
+    支持从回收站还原（恢复 in_trash=False）或彻底删除（真正从 post 表移除 + 删 FTS）。
+    """
+    id = db.Column(db.Integer, primary_key=True)
+    post_id = db.Column(db.Integer, nullable=True)      # 原 post.id（彻底删除后失效）
+    title = db.Column(db.String(200), default="")
+    slug = db.Column(db.String(220), default="")
+    summary = db.Column(db.String(400))
+    content = db.Column(db.Text)
+    cover = db.Column(db.String(500))
+    category_id = db.Column(db.Integer, nullable=True)
+    author_id = db.Column(db.Integer, nullable=True)
+    series_id = db.Column(db.Integer, nullable=True)
+    deleted_by = db.Column(db.String(40), default="")   # 删除操作执行者用户名
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)  # 入站时间
+    restored = db.Column(db.Boolean, default=False)     # 是否已还原（避免重复还原）
+
+
+class LinkApplication(db.Model):
+    """友情链接自助申请（v3.0.0 功能6）。
+
+    访客在前台提交友链申请，后台审核通过后才正式加入 FriendLink 列表；
+    审核中/被拒均可查看状态。避免开放前台直接写 FriendLink 表带来的 spam 风险。
+    """
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(100), nullable=False)
+    url = db.Column(db.String(300), nullable=False)
+    description = db.Column(db.String(200), default="")
+    email = db.Column(db.String(160), default="")       # 申请人联系邮箱（可选）
+    status = db.Column(db.String(16), default="pending") # pending（待审）/ approved（通过）/ rejected（拒绝）
+    applicant_ip = db.Column(db.String(64), default="")
+    reviewer = db.Column(db.String(40), default="")      # 审核人用户名
+    review_note = db.Column(db.String(200), default="") # 审核备注
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    reviewed_at = db.Column(db.DateTime, nullable=True)
+
+
+class PostHistory(db.Model):
+    """文章版本历史（v3.0.0 功能5）。
+
+    每次保存/发布文章时，若正文或标题有变化，自动存一份快照（标题/正文/摘要/作者）。
+    保留最近若干版本，支持对比与回滚（把某历史版本写回当前 post）。
+    """
+    id = db.Column(db.Integer, primary_key=True)
+    post_id = db.Column(db.Integer, db.ForeignKey("post.id"), nullable=False)
+    title = db.Column(db.String(200), default="")
+    summary = db.Column(db.String(400))
+    content = db.Column(db.Text)
+    author = db.Column(db.String(40), default="")        # 编辑者用户名（冗余存，便于追溯）
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    __table_args__ = (db.Index("ix_post_history_post", "post_id"),)
+
+
+def visible_posts_query(user=None):
+    """返回「对访客可见」的文章查询（已发布 且 未到定时发布时间 且 未入回收站 且 非隐私）。
 
     定时发布：scheduled_at 为空或 <= 当前 UTC 时间，才对外可见；未来的定时文章
     暂不对外露出（列表/详情/搜索/归档/分类/标签/系列/热门/相关都走此条件）。
-    后台管理（dashboard/my_posts）仍用裸 Post.query，方便查看/编辑定时草稿。
+    回收站：in_trash=True 的文章（v3.0.0 软删除）前台永不出现。
+    隐私空间：is_private=True 的文章仅超级管理员可见（v3.0.0 功能13）。
+    后台管理（dashboard/my_posts）仍用裸 Post.query，方便查看/编辑定时草稿与隐私/回收站。
 
+    参数 user：传入当前登录用户对象时，超级管理员可见隐私文章；普通访客/未登录一律过滤隐私。
     注意：本函数只负责「可见性过滤」，排序由各调用方自行 order_by。
-    置顶优先：调用方应在 order_by 最前面加 Post.is_pinned.desc()，
-    例如 .order_by(Post.is_pinned.desc(), Post.created_at.desc())。
+    置顶优先：调用方应在 order_by 最前面加 Post.is_pinned.desc()。
     """
     now = datetime.utcnow()
-    return Post.query.filter(
+    q = Post.query.filter(
         Post.published == True,
+        Post.in_trash == False,
         db.or_(Post.scheduled_at.is_(None), Post.scheduled_at <= now),
     )
+    # 隐私文章：非超管不可见（传入 user 且为 super 才放行）
+    if not (user and getattr(user, "is_super", False)):
+        q = q.filter(Post.is_private == False)
+    return q

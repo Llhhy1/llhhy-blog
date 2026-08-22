@@ -26,6 +26,9 @@ class Post(db.Model):
     # 定时发布时间：为空=立即发布/已发布；不为空且未来时间=定时待发布（到点后由后台线程翻 published）
     scheduled_at = db.Column(db.DateTime, nullable=True)
     is_pinned = db.Column(db.Boolean, default=False)               # 是否置顶（首页/列表优先展示）
+    # SEO 单独字段（v2.8.0）：独立的页面描述与关键词，缺省回退到 summary/标签
+    seo_description = db.Column(db.Text)                            # 页面 meta description（搜索引擎摘要）
+    seo_keywords = db.Column(db.String(300))                        # 页面 meta keywords（逗号分隔）
     views = db.Column(db.Integer, default=0)                       # 阅读量
     likes = db.Column(db.Integer, default=0)                       # 点赞数
     comments = db.relationship("Comment", backref="post", cascade="all, delete-orphan", lazy="dynamic")

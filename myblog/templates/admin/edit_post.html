@@ -28,6 +28,12 @@
     <label>标签（逗号分隔，如：生活, 技术）</label>
     <input type="text" name="tags" value="{{ tag_names if tag_names else '' }}">
 
+    <label>SEO 描述（可选，留空则自动用摘要；用于搜索引擎摘要）</label>
+    <textarea name="seo_description" rows="2" placeholder="独立页面描述，建议 50-120 字">{{ post.seo_description if post and post.seo_description else '' }}</textarea>
+
+    <label>SEO 关键词（可选，逗号分隔；留空则自动用标签）</label>
+    <input type="text" name="seo_keywords" value="{{ post.seo_keywords if post and post.seo_keywords else '' }}" placeholder="如：Flask, 博客, 教程">
+
     <label>封面图（URL，可填外链或点下面按钮上传）</label>
     <div class="upload-row">
       <input type="text" name="cover" id="cover" value="{{ post.cover if post else '' }}" placeholder="https://… 或上传后自动填入">
@@ -75,6 +81,67 @@
       dt.addEventListener("change", function () {
         if (dt.value) chk.checked = false;  // 填了定时则取消立即发布
       });
+    })();
+
+    // 草稿自动保存（v2.8.0）：每 5 秒把当前编辑内容存到 localStorage，
+    // 下次进入同篇（或新建）编辑页时自动回填并提示「已恢复未保存草稿」。
+    // 仅在用户真正输入后才保存；点「保存」提交成功后清除草稿，避免陈旧恢复。
+    (function () {
+      var form = document.querySelector(".edit-form");
+      if (!form) return;
+      var postId = {{ post.id if post else 0 }};
+      var key = "draft:llhhy:" + (postId || "new");
+      var fields = ["title", "summary", "content", "cover", "tags", "seo_description", "seo_keywords"];
+      var restored = false;
+
+      function snapshot() {
+        var d = {};
+        fields.forEach(function (f) {
+          var el = form.querySelector('[name="' + f + '"]');
+          if (el) d[f] = el.value;
+        });
+        var cat = form.querySelector('[name="category_id"]');
+        var ser = form.querySelector('[name="series_id"]');
+        if (cat) d.category_id = cat.value;
+        if (ser) d.series_id = ser.value;
+        return d;
+      }
+      function restore() {
+        try {
+          var raw = localStorage.getItem(key);
+          if (!raw) return;
+          var d = JSON.parse(raw);
+          if (!d || !d.title) return;
+          fields.forEach(function (f) {
+            var el = form.querySelector('[name="' + f + '"]');
+            if (el && d[f] != null) el.value = d[f];
+          });
+          if (d.category_id) { var c = form.querySelector('[name="category_id"]'); if (c) c.value = d.category_id; }
+          if (d.series_id) { var s = form.querySelector('[name="series_id"]'); if (s) s.value = d.series_id; }
+          restored = true;
+          var bar = document.createElement("div");
+          bar.className = "draft-tip";
+          bar.style.cssText = "background:#fff8e6;color:#8a6d1a;border:1px solid #f3e2b8;padding:8px 12px;border-radius:8px;margin-bottom:14px;font-size:13px;";
+          bar.textContent = "📝 已恢复上次未保存的草稿，继续编辑或重新保存即可覆盖。";
+          form.insertBefore(bar, form.firstChild);
+        } catch (e) {}
+      }
+      function clearDraft() { try { localStorage.removeItem(key); } catch (e) {} }
+
+      // 进入页面先尝试恢复
+      restore();
+
+      // 定时快照
+      var timer = setInterval(function () {
+        try {
+          var d = snapshot();
+          // 只有在有标题内容（用户真的写了东西）时才存
+          if (d.title && d.title.trim()) localStorage.setItem(key, JSON.stringify(d));
+        } catch (e) {}
+      }, 5000);
+
+      // 提交成功即清除草稿（form 提交时拦截判断）
+      form.addEventListener("submit", function () { clearDraft(); if (timer) clearInterval(timer); });
     })();
   </script>
 {% endblock %}

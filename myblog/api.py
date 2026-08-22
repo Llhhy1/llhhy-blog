@@ -118,6 +118,9 @@ def _post_summary(p):
         "views": p.views,
         "likes": p.likes,
         "is_pinned": bool(p.is_pinned),  # 是否置顶（首页/列表优先展示）
+        # SEO 单独字段（v2.8.0）：独立描述/关键词，缺省回退
+        "seo_description": p.seo_description or p.summary or "",
+        "seo_keywords": p.seo_keywords or "",
         "category": {"name": p.category.name, "slug": p.category.slug} if p.category else None,
         "tags": [{"name": t.name, "slug": t.slug} for t in p.tags],
     }
@@ -217,9 +220,11 @@ def posts():
 @api_bp.route("/post/<slug>")
 def post_detail(slug):
     p = visible_posts_query().filter_by(slug=slug).first_or_404()
-    # 阅读量 +1
-    p.views += 1
-    db.session.commit()
+    # 阅读量 +1（防刷：同 IP 24h 内只计一次真实阅读）
+    from app import count_unique_view
+    if count_unique_view(p.id, stats.client_ip()):
+        p.views += 1
+        db.session.commit()
 
     data = _post_summary(p)
     data["html"] = _render_html(p.content)
@@ -880,3 +885,43 @@ def webhook_deploy():
             return jsonify({"ok": True, "triggered": False, "error": f"部署脚本启动失败: {e}"}), 500
     return jsonify({"ok": True, "triggered": triggered,
                     "message": "部署已触发" if triggered else "授权通过但未配置 DEPLOY_SCRIPT，请手动部署"})
+
+
+# ---------- 定时文章一键提前公开（v2.8.0）----------
+@api_bp.route("/post/<int:post_id>/publish-now", methods=["POST"])
+def publish_now(post_id):
+    """立即发布一篇「定时待发布」的文章（清空 scheduled_at 并翻 published）。
+
+    鉴权：登录用户且对文章有编辑权（管理员全部 / 普通用户仅自己文章）。
+    立即发布后触发新文章推送（Telegram/企业微信）+ 邮件群发订阅者（均静默失败）。
+    安全：未授权返回 403；普通用户只能操作自己 author_id 的文章。
+    """
+    uid = session.get("user_id")
+    if not uid:
+        return jsonify({"error": "请先登录"}), 401
+    u = db.session.get(User, uid)
+    if not u:
+        return jsonify({"error": "请先登录"}), 401
+    p = db.session.get(Post, post_id)
+    if not p:
+        return jsonify({"error": "文章不存在"}), 404
+    # 权限：管理员全部可操作；普通用户仅自己文章
+    if not u.is_admin_role and not (p.author_id is not None and p.author_id == u.id):
+        return jsonify({"error": "没有权限操作这篇文章"}), 403
+    if p.published:
+        return jsonify({"ok": True, "message": "文章已处于发布状态", "published": True})
+    p.published = True
+    p.scheduled_at = None  # 清空定时，避免后台线程重复触发
+    db.session.commit()
+    # 发布后推送 + 邮件（与正常发布一致，全部静默）
+    try:
+        import notify as _notify
+        _notify.notify_new_post(p, current_app.config.get("SITE_URL", ""))
+    except Exception:
+        pass
+    try:
+        import mail_notify as _mail
+        _mail.notify_subscribers_async(p)
+    except Exception:
+        pass
+    return jsonify({"ok": True, "message": "已立即发布", "published": True})

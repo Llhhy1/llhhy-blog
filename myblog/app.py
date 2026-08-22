@@ -68,7 +68,8 @@ def _migrate_post_table():
     ins = inspect(db.engine)
     if "post" in ins.get_table_names():
         cols = [c["name"] for c in ins.get_columns("post")]
-        specs = {"author_id": "INTEGER", "series_id": "INTEGER", "scheduled_at": "DATETIME", "is_pinned": "BOOLEAN"}
+        specs = {"author_id": "INTEGER", "series_id": "INTEGER", "scheduled_at": "DATETIME",
+                  "is_pinned": "BOOLEAN", "seo_description": "TEXT", "seo_keywords": "VARCHAR(300)"}
         need = [c for c in specs if c not in cols]
         if need:
             db.session.remove()
@@ -145,6 +146,69 @@ def _migrate_subscriber_table():
             with db.engine.begin() as conn:
                 conn.execute(db.text("ALTER TABLE subscriber ADD COLUMN unsub_token VARCHAR(64) DEFAULT ''"))
             print("已迁移 subscriber 表：新增 unsub_token 列")
+
+
+def count_unique_view(post_id, ip):
+    """阅读量防刷（v2.8.0）。
+
+    同一访客 IP 在 24 小时内对同一篇文章只累加一次真实阅读量（Post.views），
+    但保留 ReadLog 的「反复阅读」累计（用于统计深度阅读，不污染公开阅读数）。
+    返回 True 表示本次应 +1（新访客 / 超 24h 未读），False 表示已计过、不重复加。
+
+    使用说明：调用方在文章详情页先调用本函数，返回 True 时再 p.views += 1。
+    """
+    from models import ReadLog, db as _db
+    import datetime as _dt
+    cutoff = _dt.datetime.utcnow() - _dt.timedelta(hours=24)
+    recent = (ReadLog.query.filter_by(post_id=post_id, ip=ip)
+              .filter(ReadLog.updated_at >= cutoff).first())
+    if recent:
+        return False
+    # 记录/更新去重计数
+    rec = ReadLog.query.filter_by(post_id=post_id, ip=ip).first()
+    if rec:
+        rec.read_count += 1
+        rec.updated_at = _dt.datetime.utcnow()
+    else:
+        rec = ReadLog(post_id=post_id, ip=ip, read_count=1)
+        _db.session.add(rec)
+    _db.session.commit()
+    return True
+
+
+def maybe_convert_webp(path, max_side=1600):
+    """上传图片若体积较大则转 WebP 以省流量（v2.8.0）。
+
+    需要 Pillow；未安装（零依赖降级）则直接返回原路径，不做转换。
+    转换成功会原地替换文件为 .webp 并返回新路径。失败/非图片也安全回退原路径。
+    """
+    try:
+        from PIL import Image
+        import os as _os
+        if not _os.path.exists(path):
+            return path
+        # 仅处理常见位图；gif 动图不转（会丢帧）
+        ext = _os.path.splitext(path)[1].lower()
+        if ext in (".webp", ".gif"):
+            return path
+        im = Image.open(path)
+        im = im.convert("RGB")
+        # 超长边等比缩放，避免超大图直接转 WebP 仍占用过多存储
+        if max(im.size) > max_side:
+            ratio = max_side / max(im.size)
+            im = im.resize((int(im.size[0] * ratio), int(im.size[1] * ratio)),
+                           Image.LANCZOS)
+        new_path = _os.path.splitext(path)[0] + ".webp"
+        im.save(new_path, "WEBP", quality=82)
+        # 释放原文件，避免上传目录堆积
+        try:
+            if _os.path.abspath(new_path) != _os.path.abspath(path):
+                _os.remove(path)
+        except Exception:
+            pass
+        return new_path
+    except Exception:
+        return path
 
 
 def _ensure_super_admin(app):

@@ -99,8 +99,12 @@ def index():
 @main_bp.route("/post/<slug>")
 def post(slug):
     p = visible_posts_query().filter_by(slug=slug).first_or_404()
-    p.views += 1
-    db.session.commit()
+    # 阅读量 +1（防刷：同 IP 24h 内只计一次真实阅读）
+    from app import count_unique_view
+    from stats import client_ip
+    if count_unique_view(p.id, client_ip()):
+        p.views += 1
+        db.session.commit()
     _render(p)
     comments = p.comments.filter_by(approved=True).order_by(Comment.created_at.asc()).all()
     return render_template("post.html", post=p, comments=comments)

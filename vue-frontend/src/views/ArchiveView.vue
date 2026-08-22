@@ -9,7 +9,7 @@
           <h4 class="tl-month">{{ m.month }} 月</h4>
           <p v-for="p in m.posts" :key="p.slug" class="tl-item">
             <router-link :to="`/post/${p.slug}`">{{ p.title }}</router-link>
-            <span class="tl-date">{{ (p.created_at || "").slice(0, 10) }}</span>
+            <span class="tl-date">{{ (p.created_at || "").slice(0, 10) }}<template v-if="p.author"> · {{ p.author }}</template></span>
           </p>
         </div>
       </div>

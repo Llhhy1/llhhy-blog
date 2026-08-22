@@ -161,11 +161,12 @@ function setOgMeta(p) {
     m.setAttribute("content", content || "");
   };
   set("og:title", p.title);
-  set("og:description", p.summary || (p.content || "").slice(0, 120));
+  set("og:description", p.seo_description || p.summary || (p.content || "").slice(0, 120));
   set("og:image", p.cover || "");
   set("og:url", location.href);
   set("og:type", "article");
-  set("description", p.summary || "");
+  set("description", p.seo_description || p.summary || "");
+  set("keywords", p.seo_keywords || (p.tags || []).map((t) => t.name).join(","));
 }
 
 function sharePost() {

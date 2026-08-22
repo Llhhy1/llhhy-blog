@@ -24,7 +24,16 @@ _ALLOWED_ATTRS = {
 
 def clean_html(html):
     """白名单清理 HTML，去除脚本与危险属性。"""
-    return bleach.clean(html, tags=_ALLOWED_TAGS, attributes=_ALLOWED_ATTRS, strip=True)
+    cleaned = bleach.clean(html, tags=_ALLOWED_TAGS, attributes=_ALLOWED_ATTRS, strip=True)
+    # 图片懒加载（v2.8.0）：给正文图片统一加 loading="lazy"，首屏外图片延迟加载省流量。
+    # 用正则补属性，避免污染 bleach 白名单（loading 非标准白名单属性会被剥离）。
+    if "<img" in cleaned:
+        cleaned = re.sub(
+            r"<img(?![^>]*\bloading=)",
+            '<img loading="lazy"',
+            cleaned,
+        )
+    return cleaned
 
 
 def render_markdown(content):

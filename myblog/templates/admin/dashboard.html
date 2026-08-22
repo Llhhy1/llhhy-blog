@@ -64,7 +64,28 @@
 
   <div class="dash-grid">
     <div class="panel section-box">
-      <h3>📚 全部文章（{{ posts | length }}）</h3>
+      <h3>📚 全部文章（筛选 / 分页）</h3>
+      <!-- 筛选表单（v2.8.0）：关键词 + 状态 + 分类 -->
+      <form method="get" class="filter-form" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px;align-items:center;">
+        <input type="text" name="q" value="{{ filter_q or '' }}" placeholder="搜索标题/正文" style="width:auto;flex:1;min-width:160px;">
+        <select name="status" style="width:auto;">
+          <option value="">全部状态</option>
+          <option value="published" {% if filter_status=='published' %}selected{% endif %}>已发布</option>
+          <option value="draft" {% if filter_status=='draft' %}selected{% endif %}>草稿</option>
+          <option value="scheduled" {% if filter_status=='scheduled' %}selected{% endif %}>定时</option>
+          <option value="pinned" {% if filter_status=='pinned' %}selected{% endif %}>置顶</option>
+        </select>
+        <select name="category_id" style="width:auto;">
+          <option value="">全部分类</option>
+          {% for c in cats %}
+            <option value="{{ c.id }}" {% if filter_cat and filter_cat|string == c.id|string %}selected{% endif %}>{{ c.name }}</option>
+          {% endfor %}
+        </select>
+        <button type="submit" class="btn ghost" style="padding:8px 14px;">筛选</button>
+        {% if filter_q or filter_status or filter_cat %}
+          <a class="btn ghost" href="{{ url_for('admin.dashboard') }}" style="padding:8px 14px;">清除</a>
+        {% endif %}
+      </form>
       <div class="table-scroll">
         <table class="admin-table">
           <thead>
@@ -78,6 +99,10 @@
                 <td>
                   {% if p.scheduled_at and not p.published %}
                     <span class="status-scheduled">⏰ 定时 {{ p.scheduled_at.strftime('%m-%d %H:%M') }}</span>
+                    <form method="post" action="{{ url_for('admin.publish_now', post_id=p.id) }}" class="inline-form">
+                      <input type="hidden" name="back" value="admin.dashboard">
+                      <button type="submit" class="link-btn">立即发布</button>
+                    </form>
                   {% elif p.published %}
                     已发布
                   {% else %}
@@ -94,11 +119,22 @@
                 </td>
               </tr>
             {% else %}
-              <tr><td colspan="5">还没有文章，点上方「写新文章」开始吧</td></tr>
+              <tr><td colspan="5">没有符合条件的文章</td></tr>
             {% endfor %}
           </tbody>
         </table>
       </div>
+      {% if pagination and pagination.pages > 1 %}
+      <nav class="pagination">
+        {% if pagination.page > 1 %}
+          <a href="{{ url_for('admin.dashboard', page=pagination.page-1, q=filter_q, status=filter_status, category_id=filter_cat) }}">← 上一页</a>
+        {% else %}<span class="disabled">← 上一页</span>{% endif %}
+        <span class="current">{{ pagination.page }} / {{ pagination.pages }}</span>
+        {% if pagination.page < pagination.pages %}
+          <a href="{{ url_for('admin.dashboard', page=pagination.page+1, q=filter_q, status=filter_status, category_id=filter_cat) }}">下一页 →</a>
+        {% else %}<span class="disabled">下一页 →</span>{% endif %}
+      </nav>
+      {% endif %}
     </div>
 
     <div class="dash-side">

@@ -12,7 +12,7 @@ os.makedirs(DATA_DIR, exist_ok=True)
 
 # 应用版本号：与 GitHub Release 标签保持一致（vX.Y.Z）。
 # 后台侧边栏左下角会显示该版本，用于确认服务器安装的代码是否为最新。
-APP_VERSION = "2.7.1"
+APP_VERSION = "2.8.0"
 
 
 class Config:

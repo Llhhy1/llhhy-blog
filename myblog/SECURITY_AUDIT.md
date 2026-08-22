@@ -538,4 +538,39 @@
 - 无高危/严重问题。置顶功能是纯数据属性增强，在既有安全框架内实现，攻击面无新增。
 - 设计要点：置顶与定时/立即发布三者独立并存（定时到点后变成"已发布+置顶"是合理组合），UI 上不做强制互斥，避免误清空用户意图。
 - 系列内部上下篇导航刻意不应用置顶排序，保证系列阅读顺序不被打乱。
+
+# 第二十一轮审计（v2.8.0 · 七项功能整合）
+
+## 21.1 本轮改动清单（对比 v2.7.1）
+
+- **SEO 单独字段**：`Post.seo_description`（TEXT）/ `seo_keywords`（VARCHAR(300)），自动迁移补列；后台编辑页新增输入框并保存；`_post_summary` 返回 `seo_description`/`seo_keywords`（缺省回退 summary/标签）；前台 `PostView.setOgMeta` 注入 `description` 与 `keywords` meta（独立优先于摘要）。
+- **多作者署名展示**：`PostCard.vue` 在 meta 行展示 `✍️ author`；`ArchiveView.vue` 时间轴补作者；`PostView` 已有；所有列表视图共用 `PostCard` 故统一生效。
+- **阅读量防刷**：新增 `app.count_unique_view(post_id, ip)`——同一访客 IP 24h 内对同一篇只计一次真实阅读（`Post.views` 由调用方在返回 True 时 +1），保留 `ReadLog` 的反复阅读累计；`routes.py` 的 `post()` 与 `api.py` 的 `post_detail()` 两处均接入。
+- **图片懒加载 + WebP**：`utils.clean_html` 给正文 `<img>` 统一补 `loading="lazy"`（首屏外延迟加载）；后台 `upload` 接口接 `app.maybe_convert_webp`——Pillow 可用时大图转 WebP 省流量，未装则零依赖降级保持原格式；封面图模板已 `loading="lazy"`。
+- **草稿自动保存**：`edit_post.html` 新增前端 JS，每 5 秒把标题/正文/摘要/封面/标签/SEO/分类/系列快照存入 `localStorage`（按 post id 区分），进入编辑页自动恢复并提示，保存提交成功后清除。纯前端，无后端改动。
+- **后台文章分页+筛选**：`dashboard` / `my_posts` 支持关键词 + 状态（已发布/草稿/定时/置顶）+ 分类筛选，分页 12/页；模板加筛选表单与分页导航。
+- **定时文章一键提前公开**：新增 `/api/post/<id>/publish-now`（登录+权限校验，限管理员或文章作者）与后台 SSR 同名路由，立即翻 `published=True` 并清空 `scheduled_at`，触发推送+邮件（静默）。
+
+## 21.2 维度审计
+
+| 维度 | 本轮涉及 | 评估 |
+|------|---------|------|
+| XSS | `clean_html` 用正则给 img 加静态 `loading="lazy"`（无注入点）；SEO 字段经 `set()` 以字符串写入 meta `content`（非 innerHTML）；作者名来自 ORM 关联，列表模板 `{{ }}` 自动转义 | ✅ 通过 |
+| SQL 注入 | 筛选用 `db.or_(ilike)` / `filter(==int(cat_id))` 全参数化；分页 `paginate` ORM；无字符串拼接 | ✅ 通过 |
+| 越权 | `publish_now`（api/admin）均校验 `@login_required` + `_can_edit_post`/管理员；普通用户只能操作自己 `author_id` 文章；未授权返回 401/403 | ✅ 通过 |
+| SSRF | WebP 转换仅处理已上传本地文件，无外部 URL 拉取；无新增外部请求 | ✅ 不涉及 |
+| CSRF | 所有 POST（`publish_now`、删除、筛选为 GET）均经 `enforce_same_origin` | ✅ 通过 |
+| 密钥泄漏 | 无新增硬编码密钥/环境变量；`SECRET_KEY`/`ADMIN_PASSWORD` 仍仅环境变量 | ✅ 不涉及 |
+| 文件/资源泄漏 | `maybe_convert_webp` 用 `PIL.Image.open` 上下文自动关闭，转换后 `os.remove` 原文件；无悬挂句柄；`open(sample,'wb')` 仅测试 | ✅ 通过 |
+| 限流 | `publish-now` 属后台鉴权操作，沿用同源+会话；阅读去重本身即防刷；无新写接口面放大风险 | ✅ 通过 |
+| 并发 | `count_unique_view` 在独立事务内查/插/更新 `ReadLog`，`Post.views += 1` 由调用方提交 | ✅ 不涉及 |
+
+## 21.3 安全评估
+
+- 无高危/严重问题。本轮为功能增强，全部落在既有安全框架内（ORM 参数化、CSRF 同源校验、登录鉴权、XSS 白名单清理）。
+- 设计要点：
+  1. 阅读量防刷采用"IP+24h 去重"而非纯 localStorage（前端易伪造），真实阅读数更可信；同时保留 `ReadLog` 累计满足"反复阅读"统计需求，二者职责分离。
+  2. WebP 转码以"零依赖降级"为前提——Pillow 未装时完全跳过，不影响上传主流程，部署无需新增系统依赖。
+  3. 草稿自动保存纯前端 `localStorage`，不落库、不发请求，无隐私/安全外溢风险；按 post id 隔离避免串稿。
+  4. 一键提前公开复用既有权限函数 `_can_edit_post`，与定时发布线程互斥（清空 `scheduled_at` 避免重复触发）。
 - 冒烟测试（隔离临时库）覆盖：列迁移、置顶优先排序、API 序列化字段，**全部通过**。

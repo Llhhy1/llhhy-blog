@@ -204,13 +204,70 @@ def logout():
 @admin_bp.route("/")
 @admin_required
 def dashboard():
-    posts = Post.query.order_by(Post.created_at.desc()).all()
+    # 后台文章列表分页 + 状态/分类/关键词筛选（v2.8.0）
+    q = request.args.get("q", "").strip()
+    status = request.args.get("status", "").strip()
+    cat_id = request.args.get("category_id", "").strip()
+    page = request.args.get("page", 1, type=int)
+    per_page = 12
+    query = Post.query
+    if q:
+        like = f"%{q}%"
+        query = query.filter(db.or_(Post.title.ilike(like), Post.content.ilike(like)))
+    if status == "published":
+        query = query.filter(Post.published == True, Post.scheduled_at.is_(None))
+    elif status == "draft":
+        query = query.filter(Post.published == False, Post.scheduled_at.is_(None))
+    elif status == "scheduled":
+        query = query.filter(Post.scheduled_at.isnot(None), Post.published == False)
+    elif status == "pinned":
+        query = query.filter(Post.is_pinned == True)
+    if cat_id:
+        query = query.filter(Post.category_id == int(cat_id))
+    pagination = query.order_by(Post.is_pinned.desc(), Post.created_at.desc()).paginate(
+        page=page, per_page=per_page, error_out=False)
     pending = Comment.query.filter_by(approved=False).count()
     recent_comments = Comment.query.order_by(Comment.created_at.desc()).limit(6).all()
     from stats import compute_summary
     summary = compute_summary()
-    return render_template("admin/dashboard.html", posts=posts, pending=pending,
+    cats = Category.query.order_by(Category.id).all()
+    return render_template("admin/dashboard.html", posts=pagination.items,
+                           pagination=pagination, filter_q=q, filter_status=status,
+                           filter_cat=cat_id, cats=cats, pending=pending,
                            summary=summary, recent_comments=recent_comments)
+
+
+@admin_bp.route("/post/<int:post_id>/publish-now", methods=["POST"])
+@login_required
+def publish_now(post_id):
+    """定时文章一键提前公开（后台 SSR，v2.8.0）。
+
+    校验登录与编辑权限（管理员全部 / 普通用户仅自己文章），立即翻 published 并清空
+    scheduled_at。成功后回退到来源页（dashboard / my_posts），并提示已发布。
+    """
+    post = Post.query.get_or_404(post_id)
+    user = db.session.get(User, session.get("user_id"))
+    if not _can_edit_post(user, post):
+        flash("只能操作自己发表的文章")
+        return redirect(url_for("admin.my_posts"))
+    if not post.published:
+        post.published = True
+        post.scheduled_at = None
+        db.session.commit()
+        try:
+            notify.notify_new_post(post, current_app.config.get("SITE_URL", ""))
+        except Exception:
+            pass
+        try:
+            mail_notify.notify_subscribers_async(post)
+        except Exception:
+            pass
+        flash("已立即发布该文章")
+    else:
+        flash("该文章已处于发布状态")
+    # 回到来源页（后台一键发布入口可能在 dashboard 或 my_posts）
+    back = request.args.get("back") or "admin.dashboard"
+    return redirect(url_for(back))
 
 
 @admin_bp.route("/post/new", methods=["GET", "POST"])
@@ -234,10 +291,13 @@ def new_post():
             published = False
         is_pinned = request.form.get("is_pinned") == "on"
         series_id = request.form.get("series_id") or None
+        seo_description = (request.form.get("seo_description") or "").strip()
+        seo_keywords = (request.form.get("seo_keywords") or "").strip()
         post = Post(
             title=title, slug=unique_slug(title), summary=summary, content=content,
             cover=cover, category_id=category_id, published=published,
             scheduled_at=scheduled_at, is_pinned=is_pinned,
+            seo_description=seo_description, seo_keywords=seo_keywords,
             series_id=int(series_id) if series_id else None,
             author_id=session.get("user_id"),  # 记录作者：普通用户发表的文章归属自己
         )
@@ -275,10 +335,28 @@ def new_post():
 @admin_bp.route("/my-posts")
 @login_required
 def my_posts():
-    """「我的文章」：普通用户查看/管理自己发表的文章。"""
+    """「我的文章」：普通用户查看/管理自己发表的文章（支持分页+筛选，v2.8.0）。"""
     user = db.session.get(User, session.get("user_id"))
-    posts = Post.query.filter_by(author_id=user.id).order_by(Post.created_at.desc()).all()
-    return render_template("admin/my_posts.html", posts=posts)
+    q = request.args.get("q", "").strip()
+    status = request.args.get("status", "").strip()
+    page = request.args.get("page", 1, type=int)
+    per_page = 12
+    query = Post.query.filter_by(author_id=user.id)
+    if q:
+        like = f"%{q}%"
+        query = query.filter(db.or_(Post.title.ilike(like), Post.content.ilike(like)))
+    if status == "published":
+        query = query.filter(Post.published == True, Post.scheduled_at.is_(None))
+    elif status == "draft":
+        query = query.filter(Post.published == False, Post.scheduled_at.is_(None))
+    elif status == "scheduled":
+        query = query.filter(Post.scheduled_at.isnot(None), Post.published == False)
+    elif status == "pinned":
+        query = query.filter(Post.is_pinned == True)
+    pagination = query.order_by(Post.is_pinned.desc(), Post.created_at.desc()).paginate(
+        page=page, per_page=per_page, error_out=False)
+    return render_template("admin/my_posts.html", posts=pagination.items,
+                           pagination=pagination, filter_q=q, filter_status=status)
 
 
 @admin_bp.route("/post/<int:post_id>/edit", methods=["GET", "POST"])
@@ -315,6 +393,8 @@ def edit_post(post_id):
         post.published = published
         post.scheduled_at = scheduled_at
         post.is_pinned = request.form.get("is_pinned") == "on"
+        post.seo_description = (request.form.get("seo_description") or "").strip()
+        post.seo_keywords = (request.form.get("seo_keywords") or "").strip()
         _sync_tags(post, request.form.get("tags", ""))
         db.session.commit()
         try:
@@ -388,7 +468,16 @@ def upload():
     filename = f"{int(time.time())}-{filename}"
     save_dir = current_app.config["UPLOAD_FOLDER"]
     os.makedirs(save_dir, exist_ok=True)
-    file.save(os.path.join(save_dir, filename))
+    save_path = os.path.join(save_dir, filename)
+    file.save(save_path)
+    # 图片优化：体积较大时转 WebP 省流量（Pillow 未装则零依赖降级，保持原格式）
+    try:
+        from app import maybe_convert_webp
+        new_path = maybe_convert_webp(save_path)
+        if new_path != save_path:
+            filename = os.path.basename(new_path)
+    except Exception:
+        pass
     url = url_for("static", filename=f"uploads/{filename}")
     return jsonify({"url": url})
 

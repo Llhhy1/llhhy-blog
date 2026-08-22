@@ -9,6 +9,7 @@
     </h2>
     <p class="post-meta">
       <span>{{ (post.created_at || "").slice(0, 10) }}</span>
+      <span v-if="post.author"> · ✍️ {{ post.author }}</span>
       <span v-if="post.category"> · <router-link :to="`/category/${post.category.slug}`">{{ post.category.name }}</router-link></span>
       <span> · {{ post.views || 0 }} 阅读</span>
     </p>

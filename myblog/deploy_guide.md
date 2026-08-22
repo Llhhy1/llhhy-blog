@@ -162,7 +162,7 @@
 | 首页 | `https://你的域名/` | 文章列表、侧边栏（含「📬 邮件订阅」框）、天气组件 |
 | 文章页 | `https://你的域名/post/xxx` | 打开文章，**直接刷新不 404** |
 | 登录/注册 | `https://你的域名/login`、`/register` | 页面正常，可注册 |
-| 后台 | `https://你的域名/admin` | 用新账号登录进仪表盘；**左下角显示版本号**（如 v3.1.1，点它直达 GitHub Releases 比对最新版） |
+| 后台 | `https://你的域名/admin` | 用新账号登录进仪表盘；**左下角显示版本号**（如 v3.1.3，点它直达 GitHub Releases 比对最新版） |
 | 广场 | `https://你的域名/square` | 微动态 + 博客圈 + 社交账号墙可打开 |
 | 系列 | `https://你的域名/series` | 系列列表页可打开（空列表正常） |
 | 留言墙 | `https://你的域名/guestbook` | 留言页可打开，登录后可留言 |
@@ -301,7 +301,7 @@ supervisorctl status
 - **新增数据库字段**：`post` 表新增 `scheduled_at` 列（DATETIME，可空）。**无需手动 SQL**——重启后端时 `app.py` 的 `_migrate_post_table()` 会自动 `ALTER TABLE` 补列（旧库无缝升级）。
 - **新增后台行为**：后端启动后会起一个守护线程，每 60 秒扫描"已设未来时间、到点但未发布"的文章，自动翻成已发布并触发推送/邮件群发。纯自动，无需配置。
 - **后台写文章新增「定时发布」**：选一个未来时间保存即可；与「立即发布」互斥。仪表盘/我的文章状态列会显示"⏰ 定时(时间)"徽标。
-- **升级步骤**：与其他版本一致——备份 `data/blog.db` + 覆盖后端 zip + **停止再启动** + 覆盖前端 zip + 无痕窗口验证左下角版本号 `v3.1.1`。
+- **升级步骤**：与其他版本一致——备份 `data/blog.db` + 覆盖后端 zip + **停止再启动** + 覆盖前端 zip + 无痕窗口验证左下角版本号 `v3.1.3`。
 
 ### v2.7.1 升级注意（文章置顶）
 
@@ -370,6 +370,8 @@ chmod +x /www/wwwroot/myblog/deploy.sh
 ```
 
 按你的环境修改脚本顶部的三个变量：`REPO`（默认已对）、`APP_DIR`、`FRONT_DIR`，以及 `RESTART_CMD`（重启方式，见脚本内注释）。
+
+> **v3.1.2 重要修复（跨用户 kill 权限）**：若一键更新卡在第⑥步 `Operation not permitted`（gunicorn 由宝塔 `www` 用户启动，脚本以 root 触发时跨用户 `kill` 被拒），请下载 v3.1.2 / v3.1.3 Release 里的 `deploy_scripts_v312fix.zip`，覆盖 `update.sh`/`deploy.sh` 到 `/www/wwwroot/myblog/`。新版默认 `PROJECT_NAME="myblog"`，重启优先走 `supervisorctl restart myblog`（supervisor 以 www 身份停+起，绕开跨用户 kill）；若宝塔 Python 项目名不是 `myblog`，把两个脚本里的 `PROJECT_NAME` 改成实际项目名即可。
 
 ### 第二步：告诉后端脚本路径
 

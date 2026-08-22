@@ -68,6 +68,12 @@
 ### v3.1.1 修复
 - **修复**：手机端抽屉菜单（`.drawer`）深色模式下仍为白底——`[data-theme="dark"]` 未重定义 `--nav-bg/--nav-fg/--nav-border` 变量，抽屉依赖变量导致不跟随；已在暗色段重定义并补充抽屉暗色适配（R9）。
 
+### v3.1.2 部署脚本修复（不含代码变更）
+- **修复**：一键更新第⑥步跨用户 `kill` 权限失败（`Operation not permitted`）。`update.sh`/`deploy.sh` 默认 `PROJECT_NAME="myblog"`，重启优先走 `supervisorctl restart myblog`（supervisor 以 www 身份停+起，绕开跨用户 kill）；root 身份运行时自动加 `sudo -u www` 保护。仅更新部署脚本，APP_VERSION 仍为 v3.1.1。
+
+### v3.1.3 抽屉深色补充修复
+- **修复**：在 `[data-theme="dark"]` 区块末尾追加 4 条直接写死暗色值的菜单抽屉规则（`.drawer` / `.drawer-nav a` / `.drawer-nav a:hover` / `.drawer-foot`），彻底覆盖旧变量规则，确保深色模式下抽屉视觉稳定（R10，纯前端 CSS，无后端改动）。APP_VERSION 升为 3.1.3。
+
 ## 目录结构
 ```
 myblog/             # 后端（Flask + SQLite）

@@ -193,3 +193,22 @@
 
 ### 12.2 安全审计
 - 第九轮（R9）：纯 CSS 变量重定义，无动态内容/用户输入，无接口变更，无回归风险（亮色模式用 `:root` 原变量不受影响）。`vite build` 通过。
+
+## 十三、v3.1.2 部署脚本修复（不含代码变更）
+
+> v3.1.2 为**部署脚本修复**版本：解决一键更新卡在第⑥步跨用户 `kill` 权限失败（`Operation not permitted`）。仅更新 `update.sh` / `deploy.sh`，APP_VERSION 仍为 v3.1.1。
+
+### 13.1 修复清单
+- **跨用户 kill 权限失败**：gunicorn 由宝塔以 `www` 用户启动，一键更新脚本以 root 触发时 `kill -TERM <pid>` 被系统拒绝。
+- **修复**：脚本默认 `PROJECT_NAME="myblog"`，重启优先走 `supervisorctl restart myblog`（supervisor 以 www 身份停+起，根本不碰跨用户 kill）；root 身份运行时自动加 `sudo -u www` 保护；兜底 kill 段同样加 `sudo -u www`。
+
+## 十四、v3.1.3 抽屉深色补充修复
+
+> v3.1.3 为**纯前端 CSS 修复**版本：在 `[data-theme="dark"]` 区块末尾追加 4 条直接写死暗色值的菜单抽屉规则，彻底覆盖旧变量规则，确保深色模式下抽屉视觉稳定。
+
+### 14.1 修复清单
+- **抽屉深色样式仍可能不稳定**：v3.1.1 仅靠重定义变量，个别抽屉子元素仍可能回退浅色。
+- **修复**：在 `[data-theme="dark"]` 区块末尾追加 `.drawer { background:#1d2025; border-color:#2a2e35 }`、`.drawer-nav a { color:#c7ccd1 }`、`.drawer-nav a:hover { background:rgba(124,176,255,.12); color:#fff }`、`.drawer-foot { color:#9aa0a6; border-top-color:#2a2e35 }`，置于文件末尾后定义覆盖前定义（预期行为）。APP_VERSION 升为 3.1.3。
+
+### 14.2 安全审计
+- 第十轮（R10）：纯静态 CSS 规则，无动态内容/用户输入/接口变更，无新增攻击面；4 条规则置于文件末尾特异性与旧规则相同，覆盖行为符合预期，不影响亮色模式。`py_compile` 通过（仅版本字符串）、`vite build` 通过、package.py 打包校验通过（APP_VERSION=3.1.3，不含 data/）。

@@ -633,6 +633,12 @@ button:hover, .btn:hover { background: color-mix(in srgb, var(--accent), #000 15
 [data-theme="dark"] .link-apply-box { background: #1d2025; border-color: #2a2e35; }
 [data-theme="dark"] .link-apply-form input { background: #23272e; border-color: #333; color: #e3e6e9; }
 
+/* 修复：菜单抽屉深色模式 */
+[data-theme="dark"] .drawer { background: #1d2025; border-color: #2a2e35; }
+[data-theme="dark"] .drawer-nav a { color: #c7ccd1; }
+[data-theme="dark"] .drawer-nav a:hover { background: rgba(124, 176, 255, .12); color: #fff; }
+[data-theme="dark"] .drawer-foot { color: #9aa0a6; border-top-color: #2a2e35; }
+
 /* 语言切换按钮（v3.0.0 功能11） */
 .lang-toggle { margin-left: 22px; background: transparent; border: 1px solid var(--nav-border); color: var(--nav-fg); border-radius: 8px; padding: 4px 10px; font-size: 13px; cursor: pointer; }
 .lang-toggle:hover { color: var(--accent); border-color: var(--accent); }

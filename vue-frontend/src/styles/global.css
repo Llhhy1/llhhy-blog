@@ -202,8 +202,10 @@ button:hover, .btn:hover { background: color-mix(in srgb, var(--accent), #000 15
   .sidebar { width: 100%; }
 }
 
-/* v2.6.0 mobile 抽屉式导航 */
-@media (max-width: 760px) {
+/* v2.6.0 mobile 抽屉式导航；v3.2.1 起把断点从 760px 提到 1004px：
+   平板(768~1004)桌面 nav 链接过多放不下会换行/竖排，统一改用汉堡抽屉，
+   桌面内联 nav 仅在大屏(>1004px，容器达 1040px 上限能从容排开)才显示。 */
+@media (max-width: 1004px) {
   .header-inner { padding: 0 12px; height: 52px; }
   /* 桌面 nav 在 mobile 隐藏 */
   .site-header > .container > nav { display: none; }
@@ -460,12 +462,8 @@ button:hover, .btn:hover { background: color-mix(in srgb, var(--accent), #000 15
 /* 平板及以下 */
 @media (max-width: 768px) {
   .container { padding: 0 16px; }
-  .header-inner { flex-wrap: wrap; height: auto; padding: 10px 0; row-gap: 8px; }
-  /* 导航：Logo 独占第一行，nav 整体换到第二行并支持内部换行（避免链接被挤成竖排每字一列） */
-  .site-header nav { width: 100%; flex-wrap: wrap; gap: 4px 16px; padding-top: 4px; }
-  .site-header nav a { margin-left: 0; font-size: 14px; padding: 4px 0; }
-  .nav-user { margin-left: 0; padding-left: 14px; border-left: 1px solid var(--nav-border); }
-  .theme-toggle { margin-left: auto; }
+  /* 注：头部在 <=1004px 已由上方抽屉式导航统一处理（桌面 nav 隐藏、汉堡显示、单行 header），
+     此处不再对 .header-inner / .site-header nav 做换行，避免与抽屉断点冲突导致竖排。 */
   .layout { gap: 18px; padding-top: 20px; }
   .post-card { padding: 16px 18px; }
   .post-detail { padding: 20px 18px; }

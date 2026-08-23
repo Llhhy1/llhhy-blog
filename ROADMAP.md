@@ -324,3 +324,17 @@ v3.1.7 修复 CSRF 隐藏域乱码后，用户反馈「退出登录按钮失效�
 - R16 审计：越权 / XSS·注入 / CSRF / 资源依赖 / 降级兼容 5 维度全 ✅（详见 SECURITY_AUDIT.md 第二十六轮）。
 - `py_compile` + 前端 build（dist_v316）+ `smoke_v320.py` 专项冒烟（默认配置 / 单场景关闭 / 全局关闭 / 长度配置 / 后台页面登录 GET·POST 保存）全部通过。
 - APP_VERSION 升为 v3.2.0。
+
+## 21. v3.2.1：前台平板断点（768–1004px）头部竖排修复（R17 审计通过）
+
+### 21.1 背景
+用户反馈前台在视口宽度 `768px ≤ W < 1004px` 时，顶部导航文字变成纵向排布、非常难看。
+
+### 21.2 修复
+- `vue-frontend/src/styles/global.css`：把汉堡/抽屉断点从 `760px` 提到 `1004px`，整个平板区间统一走「汉堡 + 抽屉」干净布局，桌面内联 nav 仅在大屏（>1004px，容器达 1040px 上限能从容排开）才显示；并删除 `max-width:768px` 断点里与抽屉断点冲突的头部换行规则（`.header-inner`/`.site-header nav` 的 `flex-wrap`/`width:100%`），根除竖排根因。
+- `vue-frontend/src/App.vue`：因平板区间桌面 nav 被隐藏，原 nav 内语言切换按钮会一并消失，遂在抽屉底部补等价语言切换按钮（`drawer-lang`），保持功能一致。
+
+### 21.3 验证
+- R17 审计：越权 / XSS·注入 / CSRF / 资源依赖 / 降级兼容 5 维度全 ✅（纯前端改动，无新增安全面，详见 SECURITY_AUDIT.md 第二十七轮）。
+- 前端 build（dist_v317）编译通过；后端本轮无 Python 改动。
+- APP_VERSION 升为 v3.2.1。

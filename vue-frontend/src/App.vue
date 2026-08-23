@@ -30,6 +30,7 @@
         <router-link class="drawer-link" to="/register" @click="drawerOpen = false">注册</router-link>
       </template>
       <button class="drawer-link drawer-theme" type="button" @click="toggleTheme(); drawerOpen = false">主题：{{ themeIcon }}</button>
+      <button class="drawer-link drawer-lang" type="button" @click="toggleLang(); drawerOpen = false">{{ state.lang === 'en' ? '中文' : 'EN' }}</button>
     </div>
   </aside>
 

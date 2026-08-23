@@ -31,6 +31,7 @@ dist_v313/
 dist_v314/
 dist_v315/
 dist_v316/
+dist_v317/
 
 # 临时构建目录（规避本地删除保护，等同 dist/）
 _vite_build2/

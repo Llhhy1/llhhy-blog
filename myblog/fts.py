@@ -80,14 +80,37 @@ def delete_post(post_id):
         db.session.rollback()
 
 
+def escape_fts_query(q):
+    """转义 FTS5 MATCH 查询中的特殊字符，防止用户输入语法错误 / 查询注入。
+
+    FTS5 把 " * : - ( ) + ^ / < > ~ 等视为语法符号；用户直接输入会导致
+    sqlite3 抛出语法错误（OperationalError），进而 search() 返回 None 回退到 LIKE。
+    处理方式：按空白切分为词组，每个词组用双引号包裹成对短语，词组内双引号转义为 ""。
+    这样所有特殊字符都被当作字面量，且中文 / 多词搜索语义基本不变（空格=AND）。
+    """
+    if not q:
+        return ""
+    terms = []
+    for raw in q.split():
+        if not raw:
+            continue
+        # 双引号内部转义：连续两个双引号
+        safe = raw.replace('"', '""')
+        terms.append('"%s"' % safe)
+    return " ".join(terms)
+
+
 def search(q, limit=30):
     """全文搜索：FTS5 命中返回 post id 列表（按相关度），失败返回 None（调用方回退）。"""
     if not available() or not q:
         return None
+    q_escaped = escape_fts_query(q)
+    if not q_escaped:
+        return None
     try:
         rows = db.session.execute(db.text(
             "SELECT rowid FROM post_fts WHERE post_fts MATCH :q ORDER BY rank LIMIT :lim"
-        ), {"q": q, "lim": limit}).fetchall()
+        ), {"q": q_escaped, "lim": limit}).fetchall()
         return [r[0] for r in rows]
     except Exception:
         return None

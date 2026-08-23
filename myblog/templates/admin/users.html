@@ -11,7 +11,7 @@
   <form method="post" action="{{ url_for('admin.add_user') }}" class="user-add-form">
     <input type="text" name="username" placeholder="用户名（2-20 字符）" minlength="2" maxlength="20" required>
     <input type="email" name="email" placeholder="邮箱（可选）">
-    <input type="password" name="password" placeholder="密码（至少 6 位）" minlength="6" required>
+    <input type="password" name="password" placeholder="密码（至少 8 位）" minlength="8" required>
     <select name="role">
       <option value="user">普通用户</option>
       <option value="admin">管理员（可进后台管理内容）</option>
@@ -48,7 +48,7 @@
               <span class="muted">不可操作</span>
             {% else %}
               <form method="post" action="{{ url_for('admin.reset_password', uid=u.id) }}" class="inline-form"
-                    onsubmit="var p=prompt('输入该用户的新密码（至少 6 位）：'); if(!p||p.length<6){alert('密码无效');return false;} this.new_password.value=p;">
+                    onsubmit="var p=prompt('输入该用户的新密码（至少 8 位）：'); if(!p||p.length<8){alert('密码无效');return false;} this.new_password.value=p;">
                 <input type="hidden" name="new_password">
                 <button type="submit" class="link-btn">重置密码</button>
               </form>

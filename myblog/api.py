@@ -62,8 +62,8 @@ def auth_register():
         return jsonify({"error": "用户名和密码不能为空"}), 400
     if len(username) < 2 or len(username) > 20:
         return jsonify({"error": "用户名长度需在 2-20 个字符"}), 400
-    if len(password) < 6:
-        return jsonify({"error": "密码至少 6 位"}), 400
+    if len(password) < 8:
+        return jsonify({"error": "密码至少 8 位"}), 400
     if User.query.filter_by(username=username).first():
         return jsonify({"error": "该用户名已被注册"}), 409
     u = User(username=username, email=email, role=ROLE_USER)

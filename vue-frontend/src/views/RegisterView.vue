@@ -6,8 +6,8 @@
       <form class="comment-form" @submit.prevent="submit">
         <input type="text" v-model="username" placeholder="用户名（2-20 字符）" minlength="2" maxlength="20" required />
         <input type="email" v-model="email" placeholder="邮箱（可选）" />
-        <input type="password" v-model="password" placeholder="密码（至少 6 位）" minlength="6" required />
-        <input type="password" v-model="confirm" placeholder="确认密码" minlength="6" required />
+        <input type="password" v-model="password" placeholder="密码（至少 8 位）" minlength="8" required />
+        <input type="password" v-model="confirm" placeholder="确认密码" minlength="8" required />
         <div>
           <button type="submit">注册</button>
           <span class="comment-status" :class="statusClass" style="margin-left: 10px;">{{ status }}</span>

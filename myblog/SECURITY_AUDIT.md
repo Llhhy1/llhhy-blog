@@ -738,3 +738,42 @@
 | R11-6 | 回归风险 | 重启逻辑与面板「停止→启动」等效；若 bt/runuser 均不可用则降级为提示手动，绝不误报成功 | ✅ 通过 |
 
 **评估**：纯部署脚本修正，无代码风险。`bash -n` 语法校验通过（update.sh / deploy.sh）。部署包 `deploy_scripts_v314fix.zip` 含修正后脚本，代码包沿用 v3.1.3 产物（myblog-backend.zip / vue-frontend-dist.zip）。
+
+---
+
+# 第二十二轮审计（v3.1.5 · 安全加固四项）
+
+> 背景：外部安全审计清单核对后，确认 Webhook HMAC（compare_digest）、Markdown XSS（bleach 白名单）、
+> RSS SSRF（私有地址拦截）、上传大小限制、SMTP 头注入、内存限流等**已落地**；以下为清单中**确属真实缺口**的
+> 四项补齐，外加对一键更新脚本的完整性校验增强。
+
+**改动文件清单**：
+- `myblog/fts.py`：新增 `escape_fts_query()`，FTS5 `MATCH` 查询前转义特殊字符（`" * : - ( )` 等）。
+- `myblog/api.py`：注册接口密码最小长度 6 → 8（第 65 行）。
+- `myblog/admin.py`：后台改密 / 创建用户 / 重置他人密码 / 首次设置四处密码校验 6 → 8；审计日志 CSV 导出新增 `_csv_guard()` 防公式注入。
+- `myblog/routes.py`：前台公开注册表单密码校验 6 → 8。
+- `vue-frontend/src/views/RegisterView.vue`：注册页 `minlength` 与提示文本 6 → 8。
+- `myblog/templates/admin/*.html`：后台活跃模板（change_password / setup / users / register）密码提示与 `minlength` / JS 校验 6 → 8。
+- `update.sh`：一键更新下载后校验 `sha256.txt`（Release 附带），失败阻断覆盖，防中间人篡改 / 下载损坏。
+- `package.py`：打包时生成 `sha256.txt`（后端 + 前端包 SHA256）。
+- `myblog/config.py`：APP_VERSION 3.1.3 → 3.1.5（对齐 Release tag）。
+
+**维度审计**：
+
+| 编号 | 维度 | 结论 |
+|---|---|---|
+| R12-1 | FTS 注入/异常 | 用户输入经 `escape_fts_query` 转义（双引号包裹 + 内部 `""` 转义），所有 FTS5 语法符号视为字面量；`search()` 失败仍回退 LIKE，不中断 | ✅ 通过 |
+| R12-2 | 密码策略 | 后端 6 处 + 前端 6 处（Vue + 后台模板）统一 8 位下限，前后端一致；弱口令风险降低 | ✅ 通过 |
+| R12-3 | CSV 公式注入 | 审计日志导出对 `= + - @` 及空白控制字符开头的单元格前缀 `'`，Excel/Numbers 不再当作公式执行 | ✅ 通过 |
+| R12-4 | 更新包完整性 | `update.sh` 下载后端/前端包后比对 Release 附带的 `sha256.txt`，不一致直接 `fail_exit` 终止，杜绝恶意包覆盖；缺失 checksum 文件时降级为告警（不阻断） | ✅ 通过 |
+| R12-5 | 回归风险 | FTS 转义仅影响搜索建议接口（前台 `/search` 走 LIKE 参数化不受影响）；密码提示文本变更无逻辑影响；CSV 防护仅在导出路径生效 | ✅ 通过 |
+| R12-6 | 命令注入 | `update.sh` 校验逻辑变量均内置常量，`sha256sum` 入参为固定文件名，无外部输入拼接 | ✅ 不涉及 |
+
+**残余风险（记录，非阻塞）**：
+- 清单提及的「CSRF Token 显式校验」本项目以 SameSite=Lax + Origin 同源校验作纵深防御，未引入独立 Token；当前威胁模型下可接受，后续如需更严格可补。
+- 上传模块未做文件魔数校验（仅后缀白名单 + secure_filename + Pillow 转 WebP 拒绝非图片），实际风险低。
+- feed_agg SSRF 未处理 DNS 重绑定（攻击者需控制域名解析），风险低。
+
+**评估**：四项安全缺口全部补齐，无新增风险。`py_compile` 全量编译通过；隔离单元冒烟测试（FTS 转义 5/5、CSV 防护 6/6、密码校验逻辑）通过；`bash -n` 校验 update.sh / deploy.sh 通过；`package.py` 生成 `sha256.txt` 验证通过。
+
+**上线前必配（可选）**：若启用一键在线更新，发布时务必在 GitHub Release 附带 `sha256.txt`（已由 package.py 自动生成）；未附带时更新脚本会告警但不阻断。

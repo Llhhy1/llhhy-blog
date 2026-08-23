@@ -248,8 +248,8 @@ def setup():
         confirm = request.form.get("confirm_password", "")
         if not new_username or len(new_username) < 2 or len(new_username) > 20:
             flash("用户名长度需在 2-20 个字符")
-        elif len(new_password) < 6:
-            flash("新密码至少 6 位")
+        elif len(new_password) < 8:
+            flash("新密码至少 8 位")
         elif new_password != confirm:
             flash("两次输入的新密码不一致")
         else:
@@ -1233,8 +1233,8 @@ def change_password():
         confirm = request.form.get("confirm_password", "")
         if not user.check_password(old):
             flash("原密码错误")
-        elif len(new) < 6:
-            flash("新密码至少 6 位")
+        elif len(new) < 8:
+            flash("新密码至少 8 位")
         elif new != confirm:
             flash("两次输入的新密码不一致")
         else:
@@ -1268,8 +1268,8 @@ def add_user():
         flash("用户名已存在")
     elif role not in (ROLE_ADMIN, ROLE_USER):
         flash("无效的角色")
-    elif len(password) < 6:
-        flash("密码至少 6 位")
+    elif len(password) < 8:
+        flash("密码至少 8 位")
     else:
         u = User(username=username, role=role, email=(request.form.get("email") or "").strip())
         u.set_password(password)
@@ -1315,8 +1315,8 @@ def reset_password(uid):
         flash("超级管理员的密码请使用「修改密码」自行修改")
         return redirect(url_for("admin.users"))
     new = request.form.get("new_password", "")
-    if len(new) < 6:
-        flash("新密码至少 6 位")
+    if len(new) < 8:
+        flash("新密码至少 8 位")
     else:
         target.set_password(new)
         db.session.commit()
@@ -1365,19 +1365,28 @@ def export_audit_logs():
     import datetime as _dt
     logs = AuditLog.query.order_by(AuditLog.created_at.desc()).all()
 
+    # ---- CSV 公式注入防护 ----
+    # 单元格以 = + - @ 开头时，Excel/Numbers 会当成公式执行（如 "=cmd|..." 或 "=1+1"），
+    # 攻击者可通过审计日志里用户可控字段（用户名/说明）注入。前缀单引号可 neutral 化。
+    def _csv_guard(v):
+        s = "" if v is None else str(v)
+        if s and s[0] in ("=", "+", "-", "@", "\t", "\r", "\n"):
+            return "'" + s
+        return s
+
     # ---- CSV ----
     csv_buf = io.StringIO()
     writer = csv.writer(csv_buf)
     writer.writerow(["时间", "操作人", "动作", "对象", "结果", "说明", "来源IP"])
     for l in logs:
         writer.writerow([
-            l.created_at.strftime("%Y-%m-%d %H:%M:%S") if l.created_at else "",
-            l.username or "",
-            l.action or "",
-            (l.target or "") + (f"#{l.target_id}" if l.target_id else ""),
+            _csv_guard(l.created_at.strftime("%Y-%m-%d %H:%M:%S") if l.created_at else ""),
+            _csv_guard(l.username or ""),
+            _csv_guard(l.action or ""),
+            _csv_guard((l.target or "") + (f"#{l.target_id}" if l.target_id else "")),
             "成功" if l.success else "失败",
-            l.detail or "",
-            l.ip or "",
+            _csv_guard(l.detail or ""),
+            _csv_guard(l.ip or ""),
         ])
     csv_bytes = csv_buf.getvalue().encode("utf-8-sig")  # BOM 让 Excel 正确识别中文
 

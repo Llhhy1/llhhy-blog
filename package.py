@@ -19,6 +19,7 @@ llhhy-blog 发布打包脚本。
 import os
 import re
 import sys
+import hashlib
 import zipfile
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
@@ -117,6 +118,24 @@ def package_frontend(front_dir):
     return out
 
 
+def sha256_of(path):
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(1024 * 1024), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def write_checksums(files):
+    """生成 sha256.txt（每行：哈希 文件名），供 update.sh 校验完整性防篡改。"""
+    out = os.path.join(ROOT, "sha256.txt")
+    with open(out, "w", encoding="utf-8") as f:
+        for p in files:
+            f.write("%s  %s\n" % (sha256_of(p), os.path.basename(p)))
+    print("  [checksum] %s" % out)
+    return out
+
+
 def main():
     explicit = None
     if "--front-dir" in sys.argv:
@@ -127,10 +146,12 @@ def main():
         raise SystemExit("无法从 config.py 解析 APP_VERSION")
     print("目标版本: v%s" % version)
     print("打包后端 ...")
-    package_backend(version)
+    backend = package_backend(version)
     print("打包前端 ...")
-    package_frontend(find_front_dir(explicit))
-    print("完成。两个 zip 已生成在项目根目录（已被 .gitignore 忽略）。")
+    frontend = package_frontend(find_front_dir(explicit))
+    print("生成校验文件 ...")
+    write_checksums([backend, frontend])
+    print("完成。两个 zip + sha256.txt 已生成在项目根目录（已被 .gitignore 忽略）。")
 
 
 if __name__ == "__main__":

@@ -1,5 +1,6 @@
 # 部署产物
 *.zip
+sha256.txt
 
 # 数据库与运行时数据
 data/
@@ -27,6 +28,7 @@ _vite_build2/
 dist_v311/
 dist_v312/
 dist_v313/
+dist_v314/
 
 # 临时构建目录（规避本地删除保护，等同 dist/）
 _vite_build2/

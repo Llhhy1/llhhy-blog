@@ -27,6 +27,17 @@ GUNICORN_CONF="$APP_DIR/gunicorn_conf.py" # 宝塔实际用的 conf 名（注意
 #   RESTART_CMD="bt stop myblog && bt start myblog"
 RESTART_CMD=""
 
+# ===== 自动以 APP_USER 身份运行（避免跨身份 rm/cp 权限失败）=====
+# 若当前是 root 且不是 APP_USER，重跑本脚本为 APP_USER（保留参数）。
+# mw 对 /www/wwwroot/myblog 及其下文件有完整权限，可正常 rm/cp/写状态文件。
+if [ "$(id -u)" = "0" ] && [ "$(id -un)" != "$APP_USER" ]; then
+  if command -v runuser >/dev/null 2>&1; then
+    exec runuser -u "$APP_USER" -- bash "$0" "$@"
+  elif command -v su >/dev/null 2>&1; then
+    exec su "$APP_USER" -c "bash $0 $*"
+  fi
+fi
+
 WORK="/tmp/llhhy_update"
 TS=$(date +%Y%m%d_%H%M%S)
 mkdir -p "$WORK"
@@ -180,6 +191,7 @@ LATEST_JSON=$(gh_fetch "https://api.github.com/repos/$REPO/releases/latest" "-")
 TAG=$(echo "$LATEST_JSON" | grep -o '"tag_name": *"[^"]*"' | sed 's/.*"\([^"]*\)".*/\1/' | head -1)
 BACKEND_URL=$(echo "$LATEST_JSON" | grep -o '"browser_download_url": *"[^"]*myblog-backend.zip"' | sed 's/.*"\(http[^"]*\)".*/\1/' | head -1)
 FRONT_URL=$(echo "$LATEST_JSON" | grep -o '"browser_download_url": *"[^"]*vue-frontend-dist.zip"' | sed 's/.*"\(http[^"]*\)".*/\1/' | head -1)
+CHECKSUM_URL=$(echo "$LATEST_JSON" | grep -o '"browser_download_url": *"[^"]*sha256.txt"' | sed 's/.*"\(http[^"]*\)".*/\1/' | head -1)
 if [ -z "$TAG" ] || [ -z "$BACKEND_URL" ]; then
   fail_exit "未找到最新 Release 部署包（tag=$TAG），请稍后重试"
 fi
@@ -190,6 +202,29 @@ log "② 下载部署包..."
 set_status "downloading" "正在下载部署包（$TAG）"
 gh_fetch "$BACKEND_URL" "backend.zip" || fail_exit "后端包下载失败（网络问题）。请检查服务器能否访问 GitHub 下载链接"
 gh_fetch "$FRONT_URL" "frontend.zip" || fail_exit "前端包下载失败（网络问题）。请检查服务器能否访问 GitHub 下载链接"
+# 2b. 完整性校验：下载 sha256.txt 并比对，防中间人篡改 / 下载损坏
+verify_checksum() {  # verify_checksum <file> <expected_name>
+  local f="$1" expect_name="$2" want got
+  if [ -z "$CHECKSUM_URL" ]; then
+    log "   ⚠️ Release 未附带 sha256.txt，跳过哈希校验（建议发布时附带）。"
+    return 0
+  fi
+  gh_fetch "$CHECKSUM_URL" "sha256.txt" 2>/dev/null || { log "   ⚠️ 校验文件下载失败，跳过哈希校验。"; return 0; }
+  want=$(grep -E "(^| )$expect_name\$" sha256.txt | awk '{print $1}' | head -1)
+  if [ -z "$want" ]; then
+    log "   ⚠️ sha256.txt 中未找到 $expect_name 的记录，跳过校验。"
+    return 0
+  fi
+  got=$(sha256sum "$f" 2>/dev/null | awk '{print $1}')
+  if [ "$got" = "$want" ]; then
+    log "   ✅ $expect_name 哈希校验通过。"
+    return 0
+  else
+    fail_exit "❌ $expect_name 哈希校验失败（期望 $want，实际 $got），疑似下载损坏或被篡改，已终止更新以防恶意包覆盖"
+  fi
+}
+verify_checksum "backend.zip" "myblog-backend.zip"
+verify_checksum "frontend.zip" "vue-frontend-dist.zip"
 log "   下载完成。"
 
 # 3. 备份数据（数据库 + 上传图片，永远不覆盖）
@@ -210,13 +245,23 @@ fi
 # 4. 覆盖后端（跳过 data/，数据库保留）
 log "④ 覆盖后端代码..."
 set_status "deploying" "正在覆盖后端代码"
-rm -rf backend_extract && mkdir backend_extract
+# 清理上一轮可能残留的 backend_extract（若之前以 mw 身份解压，当前身份可能删不掉 → 用 runuser 兜底）
+if [ -d backend_extract ]; then
+  rm -rf backend_extract 2>/dev/null || runuser -u "$APP_USER" -- rm -rf "$WORK/backend_extract" 2>/dev/null \
+    || rm -rf "$WORK/backend_extract" 2>/dev/null \
+    || fail_exit "无法清理临时目录 backend_extract（权限不足）。请手动执行: runuser -u $APP_USER -- rm -rf $WORK/backend_extract"
+fi
+mkdir backend_extract
 unzip -q backend.zip -d backend_extract || fail_exit "后端包解压失败（文件可能损坏）"
+# 统一以 APP_USER(mw) 身份覆盖，避免产生跨身份文件导致后续 rm/cp 权限失败
 if command -v rsync >/dev/null 2>&1; then
-  rsync -a --exclude='data' --exclude='__pycache__' backend_extract/myblog/ "$APP_DIR/"
+  runuser -u "$APP_USER" -- rsync -a --exclude='data' --exclude='__pycache__' "$WORK/backend_extract/myblog/" "$APP_DIR/" \
+    || rsync -a --exclude='data' --exclude='__pycache__' "$WORK/backend_extract/myblog/" "$APP_DIR/"
 else
-  # 无 rsync 时用 cp 逐个拷贝（排除 data）
-  find backend_extract/myblog -mindepth 1 -maxdepth 1 ! -name 'data' ! -name '__pycache__' -exec cp -r {} "$APP_DIR/" \;
+  # 无 rsync 时用 cp 逐个拷贝（排除 data），同样以 APP_USER 身份写
+  find "$WORK/backend_extract/myblog" -mindepth 1 -maxdepth 1 ! -name 'data' ! -name '__pycache__' -exec \
+    runuser -u "$APP_USER" -- cp -r {} "$APP_DIR/" \; \
+    || find "$WORK/backend_extract/myblog" -mindepth 1 -maxdepth 1 ! -name 'data' ! -name '__pycache__' -exec cp -r {} "$APP_DIR/" \;
 fi
 log "   完成（data/ 数据库保留）。"
 
@@ -224,9 +269,15 @@ log "   完成（data/ 数据库保留）。"
 if [ -d "$FRONT_DIR" ]; then
   log "⑤ 覆盖前端文件..."
   set_status "deploying" "正在覆盖前端文件"
-  rm -rf frontend_extract && mkdir frontend_extract
+  if [ -d frontend_extract ]; then
+    rm -rf frontend_extract 2>/dev/null || runuser -u "$APP_USER" -- rm -rf "$WORK/frontend_extract" 2>/dev/null \
+      || rm -rf "$WORK/frontend_extract" 2>/dev/null \
+      || fail_exit "无法清理临时目录 frontend_extract（权限不足）。请手动: runuser -u $APP_USER -- rm -rf $WORK/frontend_extract"
+  fi
+  mkdir frontend_extract
   unzip -q frontend.zip -d frontend_extract || fail_exit "前端包解压失败"
-  cp -r frontend_extract/. "$FRONT_DIR/"
+  runuser -u "$APP_USER" -- cp -r "$WORK/frontend_extract/." "$FRONT_DIR/" \
+    || cp -r "$WORK/frontend_extract/." "$FRONT_DIR/"
   log "   完成。"
 else
   log "   ⚠️ 前端目录 $FRONT_DIR 不存在，跳过（请检查路径）。"

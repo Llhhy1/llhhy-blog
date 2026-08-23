@@ -224,3 +224,16 @@
 
 ### 15.2 安全审计
 - 第十一轮（R11）：纯部署脚本修正，无后端/前端代码改动。以进程同身份 `mw` 操作，跨用户 kill 根因消除；所有变量为脚本内置常量无外部输入注入；仍优先 pidfile + 精确匹配避免误杀；若 bt/runuser 均不可用降级为提示手动，绝不误报成功。`bash -n` 语法校验通过（update.sh / deploy.sh）。
+
+## 十六、v3.1.5 安全加固四项
+
+> v3.1.5 为**安全加固**版本：补齐外部安全审计清单中确属真实缺口的四项，外加一键更新完整性校验。后端代码、前端代码、数据库结构均有改动，APP_VERSION 升为 3.1.5。
+
+### 16.1 修复清单
+- **FTS 搜索转义**：全文搜索（搜索建议接口 `/api/search/suggest`）原样把用户输入拼入 FTS5 `MATCH`，特殊字符（`" * : - ( )` 等）会导致查询语法异常。新增 `escape_fts_query()` 做短语包裹 + 内部双引号转义，`search()` 失败仍回退 LIKE。
+- **密码最小长度 6 → 8**：注册（`api.py`/`routes.py`/`RegisterView.vue`）、后台改密、创建用户、重置他人密码、首次设置五处后端校验 + 后台活跃模板（`change_password`/`setup`/`users`/`register`）+ 前端注册的 `minlength` 与提示文本，统一为 8 位下限，前后端一致。
+- **审计日志 CSV 公式注入防护**：后台审计日志导出（`/admin/audit-logs/export`）的 CSV 写入，对以 `= + - @` 及空白控制字符开头的单元格加前缀单引号，防止 Excel/Numbers 打开时执行恶意公式（如 `=cmd|...`）。
+- **一键更新哈希校验**：`update.sh` 下载后端/前端包后比对 Release 附带的 `sha256.txt`（由 `package.py` 自动生成），哈希不一致直接 `fail_exit` 终止更新，防中间人篡改 / 下载损坏；缺失 checksum 文件时降级为告警不阻断。
+
+### 16.2 安全审计
+- 第二十二轮（R12）：四项缺口全部补齐，无新增攻击面。`py_compile` 全量编译通过；隔离单元冒烟测试（FTS 转义 5/5、CSV 防护 6/6、密码校验逻辑）通过；`bash -n` 校验 update.sh / deploy.sh 通过；package.py 生成 sha256.txt 验证通过。残余风险（CSRF Token 显式校验、上传魔数校验、DNS 重绑定）已记录在 SECURITY_AUDIT.md，非阻塞。

@@ -38,8 +38,8 @@ def register():
             flash("用户名和密码不能为空")
         elif len(username) < 2 or len(username) > 20:
             flash("用户名长度需在 2-20 个字符")
-        elif len(password) < 6:
-            flash("密码至少 6 位")
+        elif len(password) < 8:
+            flash("密码至少 8 位")
         elif password != confirm:
             flash("两次输入的密码不一致")
         elif User.query.filter_by(username=username).first():

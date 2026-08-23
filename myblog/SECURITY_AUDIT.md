@@ -852,3 +852,30 @@
 - 前端无需改动（本次纯后端渲染修复）。
 
 **评估**：v3.1.6 引入的 CSRF 隐藏域乱码为**功能性 bug（非安全漏洞）**，已修复并经真实渲染验证。修复方式（Markup 包装服务端生成的 token）不引入新风险。
+
+---
+
+## 第二十五轮审计（R15，v3.1.8）：后台退出按钮 405 修复审计
+
+**背景**：v3.1.7 修复 CSRF 隐藏域乱码后，用户反馈「退出登录按钮失效，点击后显示 Method Not Allowed」。根因：v3.1.6 引入 CSRF 时把后台退出表单从 GET 改为 **POST + 隐藏域**（base.html `method="post"`），但 `/admin/logout` 路由声明仍为默认 GET-only（`@admin_bp.route("/logout")`），POST 请求命中 GET-only 路由 → Flask 返回 **405 Method Not Allowed**。
+
+**修复**（`myblog/admin.py`）：
+- `/admin/logout` 路由改为 `methods=["GET", "POST"]`——POST 服务退出表单（带 CSRF 隐藏域），GET 保留兼容旧链接/直接访问。
+- `logout()` 逻辑不变：清 `session["user_id"]` / `session["admin"]` 后跳首页。
+- 全仓库排查确认：这是唯一「表单 POST 提交但路由未声明 POST」的遗漏（其余表单 action 路由均已声明 POST）。
+
+**维度审计**：
+
+| 编号 | 维度 | 结论 |
+|---|---|---|
+| R15-1 | 功能性回归 | 真实验证（隔离临时库 + test_client）：登录后 POST `/admin/logout`（带 csrf 隐藏域）返回 302 不再 405；GET 兼容旧链接 302；退出后访问 `/admin/` 被重定向回登录页 | ✅ 通过 |
+| R15-2 | CSRF 有效性 | 退出仍强制走 POST + 会话绑定 CSRF Token（与全局校验一致），未因修复弱化防护；GET 方式保留但仅限无状态跳转 | ✅ 通过 |
+| R15-3 | 越权/会话 | logout 仅清当前会话，无越权面；退出后会话彻底失效（访问后台被重定向验证通过） | ✅ 通过 |
+| R15-4 | 回归风险 | 全量 py_compile + 冒烟 11 组通过；仅变更一个路由 methods 声明，不影响其他接口 | ✅ 通过 |
+
+**验证记录**：
+- `py_compile` 全量编译通过。
+- `smoke_v316.py` 冒烟测试 11 组全部通过（无回归）。
+- 隔离临时库 + `test_client` 实测退出链路：POST 302 / GET 302 / 退出后重定向，全部通过。
+
+**评估**：v3.1.6 CSRF 改造遗留的单一遗漏（logout 路由未加 POST），已修复并经真实请求验证。修复不改变安全模型（退出仍需 CSRF Token），无新增风险。

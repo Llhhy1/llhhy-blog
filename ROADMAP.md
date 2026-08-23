@@ -292,3 +292,18 @@ v3.1.6 上线后用户反馈「登录后台后出乱码」。根因：`csrf_inpu
 - R14 审计：功能回归 / XSS / CSRF 有效性 / 资源依赖 4 维度全部 ✅（详见 `myblog/SECURITY_AUDIT.md` 第二十四轮）。
 - 真实渲染验证（隔离临时库 + test_client）：后台 dashboard（`/admin/`）+ 前台登录页（`/login`）均含原生隐藏域、无 `&lt;input` 转义文本。
 - `py_compile` 编译通过。APP_VERSION 升为 v3.1.7。
+
+## 19. v3.1.8：后台退出按钮 405 修复（R15 审计通过）
+
+### 19.1 背景
+v3.1.7 修复 CSRF 隐藏域乱码后，用户反馈「退出登录按钮失效，点击显示 Method Not Allowed」。根因：v3.1.6 引入 CSRF 时把后台退出表单从 GET 改为 POST + 隐藏域（base.html），但 `/admin/logout` 路由声明仍为默认 GET-only，POST 命中 GET-only 路由 → 405。
+
+### 19.2 修复
+- `myblog/admin.py`：`/admin/logout` 路由改为 `methods=["GET", "POST"]`——POST 服务退出表单（带 CSRF 隐藏域），GET 保留兼容旧链接/直接访问。
+- `logout()` 逻辑不变（仅清会话后跳首页）。
+- 全仓库排查确认：这是唯一「表单 POST 但路由未声明 POST」的遗漏（其余表单 action 路由均已声明 POST）。
+
+### 19.3 验证
+- R15 审计：功能回归 / CSRF 有效性 / 越权会话 / 回归风险 4 维度全 ✅（详见 SECURITY_AUDIT.md 第二十五轮）。
+- 隔离临时库 + test_client 实测：POST `/admin/logout` 302（不再 405）、GET 兼容 302、退出后访问后台被重定向。
+- `py_compile` + 冒烟 11 组全通过。APP_VERSION 升为 v3.1.8。

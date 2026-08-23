@@ -110,7 +110,14 @@ llhhy-blog/
 
 - **根因**：`csrf_input()` 返回普通字符串的 `<input>` 隐藏域，Jinja2 默认 autoescape 把标签转义成 `&lt;input&gt;` 源码文本，导致登录后台后页面显示乱码。
 - **修复**：`csrf_input()` 改用 `markupsafe.Markup` 包装（服务端生成的 HMAC 签名 Token，无用户可控输入），隐藏域以原生 HTML 渲染。所有模板 `{{ csrf_input() }}` 调用一处修复全局生效。
-- **验证**：真实渲染验证（隔离临时库 + test_client）——后台 dashboard（`/admin/`）+ 前台登录页（`/login`）均含原生隐藏域、无转义乱码。无新增依赖（markupsafe 为 Flask 自带）。APP_VERSION 升为 v3.1.7。
+- **验证**：真实渲染验证（隔离临时库 + test_client）——后台 dashboard（`/admin/`）+ 前台登录页（`/login`）均含原生隐藏域、无转义乱码。无新增依赖（markupsafe 为 Flask 自带）。APP_VERSION 升为 v3.1.7（后被 v3.1.8 接续）。
+
+
+### v3.1.8 修复：后台退出按钮 405（R15 审计通过）
+
+- **根因**：v3.1.6 引入 CSRF 时把后台退出表单改成 POST + 隐藏域（base.html `method="post"`），但 `/admin/logout` 路由仍是默认 GET-only，POST 请求命中 GET-only 路由 → **405 Method Not Allowed**（点退出按钮失效）。
+- **修复**：`admin.py` 的 `/admin/logout` 路由改为 `methods=["GET", "POST"]`——POST 服务退出表单（带 CSRF 隐藏域），GET 保留兼容旧链接。全仓库排查确认这是唯一「表单 POST 但路由未声明 POST」的遗漏。
+- **验证**：隔离临时库 + test_client 实测——登录后 POST `/admin/logout` 返回 302 不再 405；GET 兼容 302；退出后访问后台被重定向回登录页。无回归（py_compile + 冒烟 11 组全过）。APP_VERSION 升为 v3.1.8。
 
 ## 快速开始（本地开发）
 
@@ -142,7 +149,7 @@ npm run dev              # 访问 http://localhost:5173
 - **后端**：gunicorn 运行 `myblog`，监听 8686；Nginx 反代 `/api/`、`/admin`、`/static/`；
 - **前端**：`vue-frontend` 执行 `npm run build`，把 `dist/` 作为静态站根目录；
 - **必配环境变量**：`SECRET_KEY`、`ADMIN_PASSWORD`（宝塔「Python 项目 → 设置 → 环境变量」）；可选安全项见 [deploy_guide.md](myblog/deploy_guide.md)（`REDIS_URL` / `CAPTCHA_ENABLED` / `SESSION_IDLE_MINUTES` / `AUDIT_LOG_DAYS` / `UPDATE_HMAC_KEY` 等，v3.1.6+）。
-- **版本确认**：登录后台，左下角显示当前版本（如 v3.1.7），与 [Releases](../../releases) 最新标签比对即可确认部署是否成功。
+- **版本确认**：登录后台，左下角显示当前版本（如 v3.1.8），与 [Releases](../../releases) 最新标签比对即可确认部署是否成功。
 - **升级（简单方式）**：用仓库根目录 `update.sh` 懒人版脚本（上传后 `bash update.sh`，自动下载最新包 + 备份数据 + 覆盖代码 + **自动重启**），详见部署文档「一键更新脚本」章节。
 - **升级（最懒方式，v2.5.0+）**：登录后台自动检测新版本 → 点「立即更新」→ 后台静默完成 → 刷新即用，详见部署文档「后台一键在线更新」章节。
 - **升级（手动方式）**：备份 `data/` 与 `static/uploads/` → 覆盖后端/前端 → 「停止」再「启动」项目 → 验证版本号。详见部署文档「版本升级」章节。

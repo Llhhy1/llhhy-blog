@@ -101,7 +101,14 @@
 
 - **根因**：`csrf_input()` 返回普通字符串的 `<input>` 隐藏域，Jinja2 默认 autoescape 把标签转义成 `&lt;input&gt;` 源码文本，导致登录后台后页面显示乱码。
 - **修复**：`csrf_input()` 改用 `markupsafe.Markup` 包装（服务端生成的 HMAC 签名 Token，无用户可控输入），隐藏域以原生 HTML 渲染。所有模板 `{{ csrf_input() }}` 调用一处修复全局生效。
-- **验证**：真实渲染验证（隔离临时库 + test_client）——后台 dashboard（`/admin/`）+ 前台登录页（`/login`）均含原生隐藏域、无转义乱码。无新增依赖（markupsafe 为 Flask 自带）。APP_VERSION 升为 v3.1.7。
+- **验证**：真实渲染验证（隔离临时库 + test_client）——后台 dashboard（`/admin/`）+ 前台登录页（`/login`）均含原生隐藏域、无转义乱码。无新增依赖（markupsafe 为 Flask 自带）。APP_VERSION 升为 v3.1.7（后被 v3.1.8 接续）。
+
+
+### v3.1.8 修复：后台退出按钮 405（R15 审计通过）
+
+- **根因**：v3.1.6 引入 CSRF 时把后台退出表单改成 POST + 隐藏域，但 `/admin/logout` 路由仍是默认 GET-only → 退出按钮点击报 **405 Method Not Allowed**。
+- **修复**：`admin.py` `/admin/logout` 路由改为 `methods=["GET", "POST"]`（POST 带 CSRF Token 退出，GET 兼容旧链接）。全仓库排查为唯一遗漏。
+- **验证**：隔离临时库 + test_client 实测退出链路 POST/GET 均 302、退出后后台被重定向。无回归。APP_VERSION 升为 v3.1.8。
 
 ## 目录结构
 ```
@@ -227,4 +234,4 @@ vue-frontend/       # 前端（Vue3 + Vite，构建成静态站）
 - **第三方脚本直接 POST 接口被 403（CSRF）**：v3.1.6 起所有写接口要求会话绑定的 CSRF Token。前端页面/后台表单已自动处理；第三方脚本需先 GET `/api/csrf` 拿 token 再带 `X-CSRF-Token` 头提交（或改用 webhook 等豁免接口）。
 - **评论/留言/注册要填验证码**：v3.1.6 起默认开启图形验证码（`CAPTCHA_ENABLED=true`）；如果服务器没装 Pillow 会自动降级关闭。若不想用，在环境变量设 `CAPTCHA_ENABLED=false` 并重启项目。
 - **升级 v3.1.6+ 后所有用户都要重新登录**：`session_version` 会话版本机制启动生效，旧会话全部失效（预期安全行为，登录一次即可）。
-- **登录后台后页面显示 `<input type="hidden" name="csrf_token" ...>` 源码乱码**：v3.1.6 的 `csrf_input()` 返回普通字符串被 Jinja2 autoescape 转义导致。**升级 v3.1.7 即可修复**（改用 Markup 原生渲染隐藏域）；不想升级的话，可在服务器手动把 `myblog/utils.py` 的 `csrf_input()` 返回值改成 `Markup(...)` 并重启项目。
+- **登录后台后页面显示 `<input type="hidden" name="csrf_token" ...>` 源码乱码**：v3.1.6 的 `csrf_input()` 返回普通字符串被 Jinja2 autoescape 转义导致。**升级 v3.1.7 即可修复**（改用 Markup 原生渲染隐藏域；v3.1.8 又修复了后台退出按钮 405）；不想升级的话，可在服务器手动把 `myblog/utils.py` 的 `csrf_input()` 返回值改成 `Markup(...)` 并重启项目。

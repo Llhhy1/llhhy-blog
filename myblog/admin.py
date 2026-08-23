@@ -315,7 +315,7 @@ def setup():
     return render_template("admin/setup.html", user=user)
 
 
-@admin_bp.route("/logout")
+@admin_bp.route("/logout", methods=["GET", "POST"])
 def logout():
     session.pop("user_id", None)
     session.pop("admin", None)

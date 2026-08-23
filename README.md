@@ -167,6 +167,15 @@ llhhy-blog/
 - **需新增依赖**：`cryptography>=41.0.0`（Fernet 加密必需）。**升级后必须 `pip install cryptography` 并「停止→启动」站点**，后台备份配置页的加密保存/解密才可用；不装则旧备份/恢复功能不降级，仅配置页加密保存报错。
 - **验证**：`py_compile` 全量通过；500 复现修复（POST 200 + 审计写入）；备份配置冒烟 7 项全过（加密落库无明文/掩码回显/合并配置/CLI 独立/环境变量优先）；前端本轮无改动（复用 dist_v317）。R20 七维审计全 ✅（详见 `myblog/SECURITY_AUDIT.md` 第三十轮）。APP_VERSION 升为 v3.4.0。
 
+### v3.4.1 前台视觉升级 + 汉堡菜单深色修复（R21 审计通过，纯前端）
+
+- **深色汉堡菜单不可读修复**（用户反馈「深色模式下汉堡菜单文字看不清」）：
+  - 根因：`vue-frontend/src/store.js#applyThemeVars()` 用内联 style 写死导航变量（--nav-fg 浅色 #555555），内联优先级高于 `[data-theme="dark"]` 的 CSS 变量重定义 → 暗色下抽屉 logo/关闭/导航/操作按钮文字仍是深灰，看不清。
+  - 修复① `App.vue#applyTheme()`：切暗色时内联覆盖导航变量为暗色值，切浅色按后台 nav_style 回写；修复② `global.css`：暗色下抽屉文字直接写死浅色，JS 未执行也兜底可读（双保险）。
+- **前台视觉整体升级**（与后台 inis 风格统一）：首页渐变 hero 横幅、页面标题主题色装饰条、卡片/widget hover 上浮、输入框 focus ring、按钮 ghost/danger 变体、分页胶囊、空态虚线卡片、热门标签云补齐、天气组件暗色适配、评论/留言/登录区明细补齐。
+- **部署**：纯前端升级——用新构建产物 `vue-frontend-dist.zip` 覆盖 `/www/wwwroot/vue-frontend`，无需动后端与数据库；CDN/浏览器缓存建议先清再验证。
+- **验证**：前端构建 `_vite_build15` 成功、`vite preview` HTTP 200；后端零改动。R21 七维审计全 ✅（详见 `myblog/SECURITY_AUDIT.md` 第三十一轮）。APP_VERSION 升为 v3.4.1。
+
 ## 快速开始（本地开发）
 
 后端（默认端口 5000）：

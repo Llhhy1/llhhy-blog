@@ -1069,3 +1069,46 @@ fetch('/api/version/update', {
 
 **评估**：500 为函数名笔误（NameError）导致的功能缺陷，非安全隐患；备份配置后台化为新增功能，密钥加密存储满足「绝不落明文」纪律。无新增高危风险。部署注意：① 服务器需 `pip install cryptography` 并「停止→启动」后，后台备份配置页才可加密保存/解密；② 升级前老环境变量配置不受影响（环境变量优先）；③ 若将来轮换 SECRET_KEY，已加密的备份密钥会无法解密（需重新在后台填入）。
 
+---
+
+## 第三十一轮审计（R21，v3.4.1）：前台视觉升级 + 汉堡菜单深色可读性修复
+
+**背景**：用户反馈「后台设计比前台精美，帮前台也设计一下，顺手修复深色模式下汉堡菜单文字看不清」。本轮为**纯前端改动**（vue-frontend），后端零改动。
+
+**修复与新增**：
+- **汉堡菜单深色修复（App.vue + global.css）**：
+  - 根因：`store.js#applyThemeVars()` 用内联 style 写死 `--nav-fg: #555555` 等导航变量（浅色值），**内联优先级高于 `[data-theme="dark"]` 的 CSS 变量重定义** → 暗色下抽屉 logo/关闭按钮/导航/操作按钮仍是深灰字（#555）叠深色底（#1d2025），对比度不足看不清。
+  - 修复①（App.vue）：`applyTheme()` 切到暗色时同步用内联 style 覆盖三个导航变量为暗色值（--nav-bg #1d2025 / --nav-fg #e6e8eb / --nav-border #2a2e35），浅色时按后台 nav_style 回写；
+  - 修复②（global.css）：暗色下抽屉内所有文字直接**写死浅色**（不依赖 --nav-fg），形成 JS 兜底（即使主题切换 JS 未执行也保证可读）。
+- **前台视觉升级（与后台设计语言对齐）**：
+  - 首页新增渐变 hero 横幅（与后台 `.hero-card` 同款：120° 渐变 + 装饰圆 + 阴影）；
+  - 页面标题加主题色装饰条 + 左侧徽章；
+  - 文章卡片 / 侧边栏 widget / 统计大卡 / 系列卡 / 搜索卡 / 留言项：**hover 上浮 + 阴影过渡**（与后台 `.stat-card:hover` 一致）；widget 顶部加主题色渐变装饰线；
+  - 输入框全网 focus ring（`box-shadow 0 0 0 3px rgba(26,115,232,.12)`，与后台一致）；
+  - 按钮体系补齐 ghost / danger / small 变体 + 暗色适配（与后台 `.btn.ghost` 一致）；
+  - 分页改胶囊样式；登录/注册卡升级为后台 `admin-auth-card` 同款（阴影 + 全宽按钮）；
+  - 空态从朴素文字改为虚线卡片；评论/留言区补齐标题、空态、正文暗色样式；
+  - **补齐热门标签云（HotTagsView）缺失样式**（胶囊 + hover 上浮 + 暗色适配，此前完全无样式）；
+  - 天气组件补暗色适配（w-btn / w-input / w-msg）；
+  - `page-title`、`.hint` 等补统一装饰样式；搜索页 `mark`、代码块、TOC hover 细化。
+- `config.py` `APP_VERSION=3.4.1`；vite 构建产物 `_vite_build15`。
+
+**维度审计**：
+
+| 编号 | 维度 | 结论 |
+|---|---|---|
+| R21-1 | XSS / 注入 | 本轮无新增 `v-html`/`innerHTML` 使用；hero 文案取自 `state.site`（后台设置，经后端清洗），`{{ }}` 插值自动转义；新样式均为静态 CSS，无用户输入拼接；主题变量由 `setProperty` 注入（值来源后台受控枚举：theme_radius/theme_font/nav_style，非自由文本） | ✅ 通过 |
+| R21-2 | SQL 注入 | 本轮纯前端，无 SQL 语句改动 | ✅ 通过 |
+| R21-3 | 越权 | 无后端路由改动；hero 仅展示站点设置（公开数据），不暴露登录态 | ✅ 通过 |
+| R21-4 | CSRF / 会话 | 无接口改动；主题切换仅写 `localStorage`（客户端本地），不影响会话/Cookie | ✅ 通过 |
+| R21-5 | 密钥 / 凭据 | 无新增密钥逻辑；内联样式仅含颜色值，无任何凭据 | ✅ 通过 |
+| R21-6 | 资源 / 泄漏 | 纯 CSS/模板改动，无新资源句柄；构建产物 `_vite_build15` 已加入 .gitignore | ✅ 通过 |
+| R21-7 | 回归风险 | 深色修复为「写死浅色兜底 + applyTheme 同步变量」双保险，不影响浅色显示；flex 改动已回退（post-meta 保持文本流）；`npm run build` 通过（vite 4.5.0 构建成功，产物 15 个 chunk 无报错）；后端后端 `py_compile` 无需重跑（零后端改动） | ✅ 通过 |
+
+**验证记录**：
+- `python -m py_compile` 后端零改动，跳过（git diff 确认仅 vue-frontend/ 与文档/config 变更）。
+- 前端构建：`_vite_build15` 构建成功（✓ built in 2.67s），`vite preview` HTTP 200。
+- 深色修复核查：App.vue `applyTheme` 内联覆盖（含浅色回写分支） + global.css 暗色抽屉写死浅色 7 条规则（logo/close/nav/user/foot/link）、双保险齐全。
+
+**评估**：本轮为纯视觉改动，风险集中在主题变量注入（来源受控）与样式覆盖（不影响后端）。无新增安全风险。部署注意：纯前端升级，仅需用新构建产物覆盖 `/www/wwwroot/vue-frontend` 并「停止→启动」（或重载 Nginx 缓存）即可，无需动后端。
+

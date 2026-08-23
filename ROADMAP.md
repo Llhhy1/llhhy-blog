@@ -394,3 +394,23 @@ v3.1.7 修复 CSRF 隐藏域乱码后，用户反馈「退出登录按钮失效�
 - 500 复现修复：POST `/admin/backup`（backup_now）200 + 审计写入。
 - 备份配置冒烟 7 项：加密落库/掩码回显/合并配置/CLI 独立/密钥环境变量优先/立即备份回归。
 - `py_compile` 全量通过。前端本轮无改动（复用 dist_v317）。APP_VERSION 升为 v3.4.0。
+
+## 25. v3.4.1：前台视觉升级 + 汉堡菜单深色修复（R21 审计通过，纯前端）
+
+### 25.1 背景
+用户反馈：「后台设计比前台精美，帮前台也设计一下，顺手修复深色模式下汉堡菜单文字看不清」。本轮仅改 `vue-frontend/`，后端零改动。
+
+### 25.2 实现
+- **深色汉堡菜单不可读修复（双保险）**：
+  - 根因：`src/store.js#applyThemeVars()` 用**内联 style** 写死导航变量（--nav-fg 浅色 #555555），内联优先级高于 `[data-theme="dark"]` 的 CSS 变量重定义 → 暗色下抽屉文字仍是深灰。
+  - 修复① `App.vue#applyTheme()`：切暗色时内联覆盖 --nav-bg/--nav-fg/--nav-border 为暗色值，切浅色按后台 nav_style 回写；
+  - 修复② `styles/global.css`：暗色下抽屉全部文字直接写死浅色（logo/close/nav/user/foot/link），JS 未执行也兜底。
+- **前台视觉升级（与后台 inis 风格统一）**：首页渐变 hero 横幅（同后台 hero-card）、页面标题主题色装饰条、卡片/widget hover 上浮 + 阴影、widget 顶部主题色装饰线、输入框 focus ring、按钮 ghost/danger/small 变体 + 暗色适配、分页胶囊、登录卡升级、空态虚线卡片、热门标签云补齐（此前无样式）、天气组件暗色适配、评论/留言/搜索/系列/统计页明细补齐、TOC hover 细化。
+- **构建**：`vite.config.js` outDir → `_vite_build15`（延续 _vite_buildN 序列规避删除保护）；根 .gitignore 同步加入。
+- `config.py` `APP_VERSION=3.4.1`。
+
+### 25.3 验证
+- R21 审计：XSS / SQL 注入 / 越权 / CSRF·会话 / 密钥 / 资源 / 回归 7 维度全 ✅（详见 SECURITY_AUDIT.md 第三十一轮）。
+- 前端构建 `_vite_build15` 成功（vite build 2.67s，产物 15 chunk），`vite preview` HTTP 200。
+- 深色修复核查：applyTheme 内联覆盖（暗色 + 浅色回写分支）+ global.css 暗色抽屉 7 条写死浅色规则齐全。
+- 后端零改动，`py_compile` 无需重跑。APP_VERSION 升为 v3.4.1。

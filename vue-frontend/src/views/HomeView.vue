@@ -1,23 +1,30 @@
 <template>
-  <div class="layout">
-    <main class="content">
-      <h1 class="page-title">最新文章</h1>
-      <p v-if="!items.length" class="empty">还没有文章。</p>
-      <PostCard v-for="p in items" :key="p.slug" :post="p" />
+  <div>
+    <!-- v3.4.1 首页渐变横幅：与后台 hero-card 同款设计语言 -->
+    <div class="home-hero">
+      <h2 class="home-hero-title">{{ state.site.site_name || state.site.site_title || '我的博客' }}</h2>
+      <p class="home-hero-sub">{{ state.site.site_description || '记录思考，分享知识' }}</p>
+    </div>
+    <div class="layout">
+      <main class="content">
+        <h1 class="page-title">✨ 最新文章</h1>
+        <p v-if="!items.length" class="empty">还没有文章。</p>
+        <PostCard v-for="p in items" :key="p.slug" :post="p" />
 
       <nav v-if="totalPages > 1" class="pagination">
-        <router-link v-if="page > 1" :to="{ query: { page: page - 1 } }">← 上一页</router-link>
-        <span v-else class="disabled">← 上一页</span>
-        <template v-for="(p, i) in pages" :key="i">
-          <span v-if="p === '…'" class="ellipsis">…</span>
-          <span v-else-if="p === page" class="current">{{ p }}</span>
-          <router-link v-else :to="{ query: { page: p } }">{{ p }}</router-link>
-        </template>
-        <router-link v-if="page < totalPages" :to="{ query: { page: page + 1 } }">下一页 →</router-link>
-        <span v-else class="disabled">下一页 →</span>
-      </nav>
-    </main>
-    <Sidebar />
+          <router-link v-if="page > 1" :to="{ query: { page: page - 1 } }">← 上一页</router-link>
+          <span v-else class="disabled">← 上一页</span>
+          <template v-for="(p, i) in pages" :key="i">
+            <span v-if="p === '…'" class="ellipsis">…</span>
+            <span v-else-if="p === page" class="current">{{ p }}</span>
+            <router-link v-else :to="{ query: { page: p } }">{{ p }}</router-link>
+          </template>
+          <router-link v-if="page < totalPages" :to="{ query: { page: page + 1 } }">下一页 →</router-link>
+          <span v-else class="disabled">下一页 →</span>
+        </nav>
+      </main>
+      <Sidebar />
+    </div>
   </div>
 </template>
 
@@ -25,6 +32,7 @@
 import { computed, onMounted, ref, watch } from "vue";
 import { useRoute } from "vue-router";
 import { apiGet } from "../lib/api.js";
+import { state } from "../store.js";
 import PostCard from "../components/PostCard.vue";
 import Sidebar from "../components/Sidebar.vue";
 

@@ -32,6 +32,7 @@ dist_v314/
 dist_v315/
 dist_v316/
 dist_v317/
+dist_v318/
 
 # 临时构建目录（规避本地删除保护，等同 dist/）
 _vite_build2/
@@ -62,10 +63,8 @@ _vite_build11/
 # 临时构建目录（规避本地删除保护）
 _vite_build12/
 _vite_build13/
-
 _vite_build14/
-
-_vite_build14/
+_vite_build15/
 
 # 项目内存目录（本地数据，不入版本库）
 .workbuddy/memory/

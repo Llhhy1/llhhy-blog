@@ -41,6 +41,7 @@
 - **用户系统与权限**：访客注册/登录（评论自动用用户名）；三级权限——超级管理员（管理用户，不可被删/降级）/ 管理员（管理内容）/ 普通用户
 - **后台修改密码** + **用户管理**（超级管理员专属：新增用户、调整角色、重置密码、删除用户）
 - **上线安全**：首次进入后台强制设置管理员用户名与密码，未设置前默认密码无法看到后台内容
+- **数据备份与异地容灾**（v3.3.0）：后台「💾 数据备份」一键备份/下载/恢复（超管 + 二次确认 + 审计），备份包内嵌 SHA256 manifest 完整性校验 + 路径白名单防穿越；可插拔异地目的地（本地 / OSS·COS·S3 / 备用机 SCP / 云盘 WebDAV），宝塔定时任务 `backup.sh` 每日自动备份
 
 ### v3.0.0 新增功能
 - **系列目录页增强**：系列详情页新增带编号的章节目录（系列 TOC）。
@@ -123,6 +124,13 @@
 - **修复**：汉堡/抽屉断点 `760px` → `1004px`，平板区间统一走「汉堡 + 抽屉」，桌面内联 nav 仅大屏（>1004px）显示；删除 768px 断点里冲突的头部换行规则。因平板区间桌面 nav 隐藏，原 nav 内语言切换按钮一并消失，已在抽屉底部补等价按钮。
 - **验证**：前端 build（dist_v317）通过；纯前端改动无后端变动、无新增安全面（R17 五维 ✅）。APP_VERSION 升为 v3.2.1。
 
+### v3.3.0 新增：数据备份与异地容灾（R18 审计通过）
+
+- **可插拔后端**（`myblog/backup.py`，纯标准库）：local（本地滚动保留）/ oss（对象存储，需 boto3）/ scp（备用机）/ webdav（云盘），各目的地由环境变量独立开关，远程失败只记录不阻断本地。
+- **安全**：备份包内嵌 `manifest.json`（每文件 SHA256 + 整包哈希）；`verify()` 路径白名单（`data/`、`static/uploads/`）拒绝 `..`/绝对路径防穿越；密钥只走环境变量，不落库不回显。
+- **恢复安全**：CLI 需 `--yes`；后台 `/admin/backup` 需超管 + CSRF + 二次确认 + 恢复前自动快照 + 审计日志，并提示宝塔「停止→启动」。
+- **定时**：`myblog/backup.sh` 供宝塔 `0 4 * * *` 定时任务调用。APP_VERSION 升为 v3.3.0。
+
 ## 目录结构
 ```
 myblog/             # 后端（Flask + SQLite）
@@ -138,9 +146,11 @@ myblog/             # 后端（Flask + SQLite）
 ├── admin.py        # 后台管理（登录/写文章/分类/标签/评论/设置/统计/用户/系列/公告/留言墙/订阅者）
 ├── api.py          # 前后端分离用的 JSON 接口（/api/*，含 /api/stats/* 埋点与汇总）
 ├── security.py     # 安全响应头 / 图形验证码 / SMTP 密码优先级（v3.1.6 新增）
+├── backup.py       # 数据备份与异地容灾（v3.3.0，可插拔：本地/OSS/SCP/WebDAV）
+├── backup.sh       # 宝塔定时任务入口（0 4 * * * 调用 backup.py run）
 ├── requirements.txt
 ├── deploy_guide.md # 宝塔部署手册（点按式，含 Nginx 反代配置）
-├── SECURITY_AUDIT.md # 安全审计报告（两轮）
+├── SECURITY_AUDIT.md # 安全审计报告（第一~二十八轮，R1-R18）
 ├── templates/      # 页面模板（含后台：admin/base.html 管理外壳、admin/stats.html 统计页等）
 ├── static/         # 样式与脚本（admin.css 后台样式、script.js、上传图片在 static/uploads/）
 └── data/           # 运行时自动生成的 SQLite 数据库 blog.db
@@ -221,6 +231,14 @@ vue-frontend/       # 前端（Vue3 + Vite，构建成静态站）
 - `CAPTCHA_ENABLED`：默认 `true`——注册/评论/留言图形验证码（未装 Pillow 自动降级关闭）。
 - `SECURITY_HEADERS`：默认 `true`——安全响应头（X-Frame-Options/CSP/X-Content-Type-Options/Referrer-Policy）。
 - `UPDATE_HMAC_KEY`：可选——为发布包生成 HMAC 签名并在 `update.sh` 校验（增强更新包完整性）。
+
+**v3.3.0 数据备份环境变量**（均为可选，不配默认只做本地备份；**密钥只走环境变量，绝不落库、后台不回显**）：
+- `BACKUP_DIR`：本地备份目录（默认项目上级 `backups/`）。
+- `BACKUP_RETENTION_DAYS`：本地滚动保留天数（默认 `14`）。
+- 对象存储（OSS/COS/S3，需服务端 `pip install boto3`）：`BACKUP_OSS_BUCKET` / `BACKUP_OSS_REGION` / `BACKUP_OSS_ENDPOINT` / `BACKUP_OSS_KEY` / `BACKUP_OSS_SECRET` / `BACKUP_OSS_PREFIX`（默认 `backups`）。
+- 备用机 SCP（需系统 scp + SSH 互信或私钥）：`BACKUP_SCP_HOST`（`user@host`）/ `BACKUP_SCP_DIR`（默认 `~/blog_backups`）/ `BACKUP_SCP_PORT`（默认 `22`）/ `BACKUP_SCP_KEY`。
+- 云盘 WebDAV（坚果云/Nextcloud/群晖，需系统 curl）：`BACKUP_WEBDAV_URL` / `BACKUP_WEBDAV_USER` / `BACKUP_WEBDAV_PASS`。
+- 定时任务：宝塔「计划任务 → Shell 脚本」配 `0 4 * * * bash /www/wwwroot/myblog/backup.sh`。
 
 > 安全设计：源码开源后，以上密钥不会以任何弱默认值出现在代码里，请在部署环境通过环境变量注入。
 

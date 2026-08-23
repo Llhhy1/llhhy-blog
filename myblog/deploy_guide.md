@@ -193,7 +193,7 @@
 - **改后台样式（admin.css / script.js）**：后台静态资源已绑定 `APP_VERSION` 版本戳，并对这两个文件加 `no-cache` 响应头——**发版后浏览器/微信自动拉新**，无需手动清缓存；若手动替换文件，重启项目 + 强刷（Ctrl+F5）即可。
 - **改前端**：以后修改 `vue-frontend` 源码后**本地重新 `npm run build`**（不构建就上传等于没改），把新的 `index.html` + `assets/` 覆盖上传即可（**无需重启**，记得强刷浏览器）。
 - **看后端日志**：「网站 → Python项目」→ 项目右侧 **「日志」**。
-- **备份（重要）**：定期下载这两个：
+- **备份（重要）**：v3.3.0 起**推荐改用后台「💾 数据备份」页一键备份 + 宝塔定时任务 `backup.sh`**（见下方「v3.3.0 升级注意」），自动打包 `blog.db` + 上传目录并可选同步 OSS/SCP/WebDAV，无需手动记命令。以下手动方式仍可用作兜底：
   - `/www/wwwroot/myblog/data/blog.db`（全部数据：文章、评论、用户、设置、点赞、访问统计）
   - `/www/wwwroot/myblog/static/uploads/`（上传的图片）
 
@@ -398,6 +398,20 @@ supervisorctl status
 - **新增**：后台「🛡️ 验证码设置」（`/admin/captcha-settings`，超管）可单独配置全局开关、长度、干扰强度、排除易混字符，以及**注册 / 评论 / 留言各场景独立开关**，存 `Setting` 表。
 - **依赖修复**：`requirements.txt` 新增 `Pillow>=10.0.0`。**升级后必须 `pip install Pillow` 并停止再启动**，否则验证码图片仍无法生成（设置页会实时提示 Pillow 是否可用）。
 - **升级步骤**：备份 `data/blog.db` → 覆盖后端 zip → **停止再启动**（仅重启可能不生效）→ 覆盖前端 zip（`dist_v316`）→ 无痕窗口验证左下角版本号 `v3.2.0` → 后台「验证码设置」确认开关与 Pillow 状态正常。
+
+### v3.3.0 升级注意（数据备份与异地容灾）
+
+- **新增**：内置自动备份模块 `myblog/backup.py` + 后台「💾 数据备份」页（`/admin/backup`，超管专属）+ 宝塔定时任务脚本 `myblog/backup.sh`（已随包分发）。
+- **升级后配置（可选但强烈建议）**：
+  - 后台「💾 数据备份」页可一键「立即备份」、查看备份列表、下载、恢复（恢复需二次确认 + 超管 + CSRF + 审计）。
+  - 配置宝塔「计划任务 → Shell 脚本」，**每天凌晨 4 点**执行：`bash /www/wwwroot/myblog/backup.sh`。脚本会自动调用 `python backup.py run`（本地 + 已启用的远程目的地）。
+  - 如需异地容灾，在宝塔 Python 项目「环境变量」配对应 `BACKUP_*` 密钥（不配则只做本地备份，**密钥只走环境变量，绝不填库、不在后台回显**）：
+    - **对象存储 OSS/COS/S3**：`BACKUP_OSS_BUCKET` / `BACKUP_OSS_REGION` / `BACKUP_OSS_ENDPOINT` / `BACKUP_OSS_KEY` / `BACKUP_OSS_SECRET`（服务端需 `pip install boto3`）。
+    - **备用机 SCP**：`BACKUP_SCP_HOST`（`user@host`）/ `BACKUP_SCP_DIR`（默认 `~/blog_backups`）/ `BACKUP_SCP_PORT`（默认 22）/ `BACKUP_SCP_KEY`（私钥路径）。
+    - **云盘 WebDAV**：`BACKUP_WEBDAV_URL` / `BACKUP_WEBDAV_USER` / `BACKUP_WEBDAV_PASS`（服务器需系统 `curl`）。
+    - 本地保留天数：`BACKUP_RETENTION_DAYS`（默认 14）；本地目录：`BACKUP_DIR`（默认项目上级 `backups/`）。
+- **恢复注意事项（高危）**：后台「恢复」会把 `blog.db` 与 `static/uploads/` 覆盖回备份时点；SQLite 在站点运行时被覆盖有风险，**恢复后务必到宝塔「停止」再「启动」站点**使数据库生效（页面会给出「恢复前快照」文件名，异常可回退）。恢复前系统自动打一份快照并写审计日志。
+- **升级步骤**：备份 `data/blog.db` → 覆盖后端 zip → **停止再启动**（仅重启可能不生效）→ 覆盖前端 zip（本轮前端无变动，可沿用 `dist_v317`）→ 无痕窗口验证左下角版本号 `v3.3.0`。
 
 ## 邮件设置（新文章通知订阅者 · 后台配置）
 

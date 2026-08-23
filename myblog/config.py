@@ -12,7 +12,7 @@ os.makedirs(DATA_DIR, exist_ok=True)
 
 # 应用版本号：与 GitHub Release 标签保持一致（vX.Y.Z）。
 # 后台侧边栏左下角会显示该版本，用于确认服务器安装的代码是否为最新。
-APP_VERSION = "3.2.1"
+APP_VERSION = "3.3.0"
 
 
 class Config:
@@ -139,6 +139,31 @@ class Config:
     # Redis 全局限流（高优）：REDIS_URL 配置后（如 redis://127.0.0.1:6379/0），
     # rate_limit 改用 Redis 计数（多 worker 全局一致）；未配置自动回退内存计数（单进程）。
     REDIS_URL = os.environ.get("REDIS_URL", "")
+
+    # ===== v3.3.0 数据备份与异地容灾（D3 · 运维）=====
+    # backup.py 通过环境变量独立开关各远程后端；未配置则自动跳过，远程失败不阻断本地。
+    # 本地：BACKUP_DIR（默认项目上级 backups/）、BACKUP_RETENTION_DAYS（默认 14 天滚动保留）
+    # 对象存储（阿里云 OSS / 腾讯云 COS / S3 兼容，需服务端 pip install boto3）：
+    #   BACKUP_OSS_BUCKET / REGION / ENDPOINT / KEY / SECRET / PREFIX
+    # SCP 到备用机（需 SSH 互信或 BACKUP_SCP_KEY）：BACKUP_SCP_HOST(user@host) / DIR / PORT / KEY
+    # 网盘/云盘 WebDAV（坚果云 / Nextcloud / 群晖 Drive 等，需系统 curl）：
+    #   BACKUP_WEBDAV_URL / USER / PASS
+    # 密钥只走环境变量，绝不落库、不在任何接口回显。
+    BACKUP_DIR = os.environ.get("BACKUP_DIR", "")
+    BACKUP_RETENTION_DAYS = int(os.environ.get("BACKUP_RETENTION_DAYS", "14"))
+    BACKUP_OSS_BUCKET = os.environ.get("BACKUP_OSS_BUCKET", "")
+    BACKUP_OSS_REGION = os.environ.get("BACKUP_OSS_REGION", "")
+    BACKUP_OSS_ENDPOINT = os.environ.get("BACKUP_OSS_ENDPOINT", "")
+    BACKUP_OSS_KEY = os.environ.get("BACKUP_OSS_KEY", "")
+    BACKUP_OSS_SECRET = os.environ.get("BACKUP_OSS_SECRET", "")
+    BACKUP_OSS_PREFIX = os.environ.get("BACKUP_OSS_PREFIX", "backups")
+    BACKUP_SCP_HOST = os.environ.get("BACKUP_SCP_HOST", "")
+    BACKUP_SCP_DIR = os.environ.get("BACKUP_SCP_DIR", "~/blog_backups")
+    BACKUP_SCP_PORT = os.environ.get("BACKUP_SCP_PORT", "22")
+    BACKUP_SCP_KEY = os.environ.get("BACKUP_SCP_KEY", "")
+    BACKUP_WEBDAV_URL = os.environ.get("BACKUP_WEBDAV_URL", "")
+    BACKUP_WEBDAV_USER = os.environ.get("BACKUP_WEBDAV_USER", "")
+    BACKUP_WEBDAV_PASS = os.environ.get("BACKUP_WEBDAV_PASS", "")
 
 
 # 确保上传目录存在（图片保存在 static/uploads，随项目一起）

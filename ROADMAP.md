@@ -338,3 +338,20 @@ v3.1.7 修复 CSRF 隐藏域乱码后，用户反馈「退出登录按钮失效�
 - R17 审计：越权 / XSS·注入 / CSRF / 资源依赖 / 降级兼容 5 维度全 ✅（纯前端改动，无新增安全面，详见 SECURITY_AUDIT.md 第二十七轮）。
 - 前端 build（dist_v317）编译通过；后端本轮无 Python 改动。
 - APP_VERSION 升为 v3.2.1。
+
+## 22. v3.3.0：数据备份与异地容灾（R18 审计通过）
+
+### 22.1 背景
+此前仅有手动打包，缺自动备份与多目的地容灾；服务器误删 / 被黑 / 磁盘坏道会导致文章与上传图片永久丢失。用户明确选择「本地 + OSS + SCP + 云盘」四类目的地全覆盖，并采用「仅超管 + 二次确认」的恢复策略。
+
+### 22.2 实现
+- `myblog/backup.py`（纯标准库）：`create_backup()` 打包 `data/blog.db` + `static/uploads/*` 为带 `manifest.json` 的 zip，落本地后同步已启用的远程后端，并按 `RETENTION_DAYS` 滚动清理；`sync_oss/sync_scp/sync_webdav` 各自 env 开关、`ImportError`/异常仅记录不阻断；`verify()` 校验 manifest + 每文件 SHA256 + 路径白名单；`restore()` 需 `yes=True`，恢复前自动 `_snapshot_before_restore()`，路径白名单 `_safe_rel()` 防穿越。
+- `myblog/config.py`：新增全部 `BACKUP_*` 环境变量（密钥仅环境变量，不落库）。
+- `myblog/admin.py` + `templates/admin/backup.html`：超管专属 `/admin/backup`（GET 列表 / POST 备份·下载·恢复），恢复需 `confirm=yes` + CSRF + 审计日志。
+- `myblog/backup.sh`：宝塔定时任务入口（`0 4 * * * bash .../backup.sh`）。
+- `templates/admin/base.html`：系统设置组加「💾 数据备份」菜单。
+
+### 22.3 验证
+- R18 审计：越权 / XSS·注入 / CSRF / 资源依赖 / 降级兼容 5 维度全 ✅（详见 SECURITY_AUDIT.md 第二十八轮）。
+- `py_compile` 全量通过；隔离临时库 roundtrip（create → verify → restore → snapshot）通过。
+- 前端本轮无改动（复用 dist_v317）。APP_VERSION 升为 v3.3.0。

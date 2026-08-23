@@ -1,0 +1,84 @@
+{% extends "admin/base.html" %}
+{% block title %}数据备份{% endblock %}
+{% block content %}
+<h1 class="page-title">💾 数据备份与容灾</h1>
+<p class="stats-tip">
+  备份内容：数据库 <code>data/blog.db</code> + 上传目录 <code>static/uploads/</code>，每个备份包内嵌
+  <code>manifest.json</code>（含每个文件 SHA256，恢复前强制校验）。本地保留 {{ retention }} 天滚动；
+  若配置了对象存储 / SCP / WebDAV 环境变量，会自动同步到异地（密钥只走环境变量，页面不回显）。
+</p>
+
+<div class="stats-grid" style="grid-template-columns:1fr 1fr 1fr 1fr;">
+  <div class="stats-card"><h3>本地备份目录</h3><p style="word-break:break-all;">{{ remote_status.local_dir }}</p></div>
+  <div class="stats-card"><h3>对象存储 OSS</h3><p>{{ '✅ 已配置' if remote_status.oss else '未配置（跳过）' }}</p></div>
+  <div class="stats-card"><h3>SCP 备用机</h3><p>{{ '✅ 已配置' if remote_status.scp else '未配置（跳过）' }}</p></div>
+  <div class="stats-card"><h3>WebDAV 云盘</h3><p>{{ '✅ 已配置' if remote_status.webdav else '未配置（跳过）' }}</p></div>
+</div>
+
+<form method="post" action="{{ url_for('admin.backup') }}" style="margin:18px 0;">
+  {{ csrf_input() }}
+  <input type="hidden" name="action" value="backup_now">
+  <button type="submit" class="btn primary">📦 立即备份一次</button>
+</form>
+
+<h3 style="margin:22px 0 10px;">本地备份列表（保留 {{ retention }} 天）</h3>
+{% if backups %}
+<div class="table-scroll">
+  <table class="backup-table">
+    <thead><tr><th>文件名</th><th>创建时间</th><th>文件数</th><th>版本</th><th>完整性</th><th>大小</th><th>操作</th></tr></thead>
+    <tbody>
+    {% for b in backups %}
+      <tr>
+        <td style="word-break:break-all;">{{ b.file }}</td>
+        <td>{{ b.created_at or '—' }}</td>
+        <td>{{ b.file_count or '—' }}</td>
+        <td>{{ b.app_version or '—' }}</td>
+        <td>{{ b.integrity }}</td>
+        <td>{{ (b.size // 1024) }} KB</td>
+        <td class="bk-actions">
+          <form method="post" action="{{ url_for('admin.backup') }}" style="display:inline;">
+            {{ csrf_input() }}
+            <input type="hidden" name="action" value="download">
+            <input type="hidden" name="file" value="{{ b.file }}">
+            <button type="submit" class="btn ghost">下载</button>
+          </form>
+          <form method="post" action="{{ url_for('admin.backup') }}" style="display:inline;"
+                onsubmit="return confirm('确认从【{{ b.file }}】恢复？将用备份覆盖当前数据库与上传文件，不可撤销（恢复前会自动打快照）。恢复后请到宝塔停止再启动站点。');">
+            {{ csrf_input() }}
+            <input type="hidden" name="action" value="restore">
+            <input type="hidden" name="file" value="{{ b.file }}">
+            <label class="bk-confirm"><input type="checkbox" name="confirm" value="yes" required> 确认恢复</label>
+            <button type="submit" class="btn danger">恢复</button>
+          </form>
+        </td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% else %}
+<p class="stats-empty">暂无备份。点上方「立即备份一次」生成第一个备份。</p>
+{% endif %}
+
+<p class="stats-tip">
+  定时自动备份：在宝塔「计划任务」加一条 Shell：<code>0 4 * * * bash /www/wwwroot/myblog/backup.sh</code>
+  （路径按实际部署目录调整，backup.sh 随后端发布包分发在 myblog/ 下）。<br>
+  恢复前务必先在宝塔「停止」站点，恢复后「启动」，否则 SQLite 文件可能被占用导致不一致。
+</p>
+
+<style>
+  .backup-table { width:100%; border-collapse:collapse; background:#fff; border-radius:12px; overflow:hidden; box-shadow:0 1px 3px rgba(0,0,0,.03); }
+  [data-theme="dark"] .backup-table { background:#1d2025; }
+  .backup-table th, .backup-table td { padding:11px 12px; text-align:left; font-size:13px; border-bottom:1px solid #eee; }
+  [data-theme="dark"] .backup-table th, [data-theme="dark"] .backup-table td { border-color:#2a2e35; }
+  .backup-table th { background:#fafbfc; color:#555; font-weight:600; }
+  [data-theme="dark"] .backup-table th { background:#23272e; color:#c7ccd3; }
+  .bk-actions { white-space:nowrap; }
+  .bk-confirm { font-size:12px; margin:0 6px 0 2px; color:#c0392b; }
+  [data-theme="dark"] .bk-confirm { color:#ff8a80; }
+  .btn.danger { background:#c0392b; color:#fff; border:none; padding:5px 12px; border-radius:6px; cursor:pointer; font-size:13px; }
+  .btn.primary { background:var(--accent,#1a73e8); color:#fff; border:none; padding:9px 18px; border-radius:8px; cursor:pointer; font-size:14px; }
+  .btn.ghost { background:#f1f3f4; color:#333; border:none; padding:5px 12px; border-radius:6px; cursor:pointer; font-size:13px; }
+  [data-theme="dark"] .btn.ghost { background:#2a2e35; color:#eef0f2; }
+</style>
+{% endblock %}

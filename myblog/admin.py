@@ -1251,6 +1251,67 @@ def captcha_settings():
                            captcha_cfg=get_captcha_config())
 
 
+@admin_bp.route("/backup", methods=["GET", "POST"])
+@super_required
+def backup():
+    """数据备份管理（v3.3.0）：列表 / 立即备份 / 下载 / 恢复。
+
+    恢复是高危操作：仅超管（@super_required）+ 全局 CSRF 校验 + 表单二次确认
+    （confirm=yes）+ 恢复前自动快照 + 写审计日志。密钥只走环境变量，页面不回显。
+    """
+    import backup as backup_mod
+    remote_status = {
+        "local_dir": backup_mod.BACKUP_ROOT,
+        "oss": bool(os.environ.get("BACKUP_OSS_BUCKET")),
+        "scp": bool(os.environ.get("BACKUP_SCP_HOST")),
+        "webdav": bool(os.environ.get("BACKUP_WEBDAV_URL")),
+    }
+    backups = backup_mod.list_backups()
+    if request.method == "POST":
+        action = request.form.get("action", "")
+        if action == "backup_now":
+            try:
+                arc, man, sync = backup_mod.create_backup()
+                msg = "备份成功：%s（%d 个文件）" % (os.path.basename(arc), man["file_count"])
+                for name, ok, s in sync:
+                    msg += "；远程[%s]%s" % (name, "✅" if ok else "⚠️" + s)
+                add_audit("backup", target="创建备份", detail=msg, success=True)
+                flash(msg)
+            except Exception as e:
+                add_audit("backup", target="创建备份", detail=str(e)[:200], success=False)
+                flash("备份失败：" + str(e)[:200])
+            return redirect(url_for("admin.backup"))
+        fn = request.form.get("file", "")
+        fp = os.path.join(backup_mod.BACKUP_ROOT, fn) if fn else ""
+        safe = bool(fn and os.path.basename(fn) == fn and fn.startswith("blog_backup_")
+                    and os.path.exists(fp))
+        if action == "download":
+            if safe:
+                return send_file(fp, as_attachment=True, download_name=fn)
+            flash("备份文件不存在")
+            return redirect(url_for("admin.backup"))
+        if action == "restore":
+            if request.form.get("confirm") != "yes":
+                flash("恢复是高危操作，需勾选二次确认")
+                return redirect(url_for("admin.backup"))
+            if not safe:
+                flash("备份文件不存在")
+                return redirect(url_for("admin.backup"))
+            try:
+                r = backup_mod.restore(fp, yes=True, tag="admin")
+                flash("已从 %s 恢复（恢复前快照 %s）。请到宝塔「停止」再「启动」站点使数据库生效。"
+                      % (fn, os.path.basename(r["snapshot"])))
+                add_audit("backup_restore", target="恢复备份", target_id=fn,
+                          detail="快照 %s" % os.path.basename(r["snapshot"]), success=True)
+            except Exception as e:
+                add_audit("backup_restore", target="恢复备份", target_id=fn,
+                          detail=str(e)[:200], success=False)
+                flash("恢复失败：" + str(e)[:200])
+            return redirect(url_for("admin.backup"))
+    return render_template("admin/backup.html", backups=backups, remote_status=remote_status,
+                           retention=backup_mod.RETENTION_DAYS)
+
+
 @admin_bp.route("/email-settings", methods=["GET", "POST"])
 @super_required
 def email_settings():

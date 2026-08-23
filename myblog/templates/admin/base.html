@@ -56,6 +56,7 @@
         <a href="{{ url_for('admin.users') }}" class="{{ 'active' if ep == 'admin.users' }}"><span class="nav-emoji">👥</span>用户管理</a>
         <a href="{{ url_for('admin.link_applications') }}" class="{{ 'active' if ep == 'admin.link_applications' }}"><span class="nav-emoji">🔗</span>友链申请{% if pending_comments %}{% endif %}</a>
         <a href="{{ url_for('admin.audit_logs') }}" class="{{ 'active' if ep == 'admin.audit_logs' }}"><span class="nav-emoji">🧾</span>操作日志</a>
+        <a href="{{ url_for('admin.backup') }}" class="{{ 'active' if ep == 'admin.backup' }}"><span class="nav-emoji">💾</span>数据备份</a>
         {% endif %}
         {% else %}
         <p class="side-group">我的创作</p>

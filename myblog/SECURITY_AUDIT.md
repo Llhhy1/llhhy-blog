@@ -952,3 +952,37 @@
 - 视觉验证：768–1004px 区间头部为单行「☰ 汉堡 + Logo」，导航收进抽屉，不再竖排。
 
 **评估**：纯前端响应式修复，无新增安全面，未弱化任何既有防护。部署注意：本次仅前端变更，服务器更新前端 zip（`vue-frontend-dist.zip`）后刷新即可；无需后端 `pip install` 或重启（除非顺带更新后端 zip）。
+
+---
+
+## 第二十八轮审计（R18，v3.3.0）：数据备份与异地容灾审计
+
+**背景**：此前博客仅有手动打包，缺自动备份与多目的地容灾。一旦服务器误删、被入侵或磁盘损坏，文章库（`data/blog.db`）与上传图片（`static/uploads/`）将永久丢失。v3.3.0 新增 `myblog/backup.py` 可插拔备份模块，覆盖本地 + OSS + SCP + WebDAV 四类目的地；并配套超管后台页 `/admin/backup`、宝塔定时任务脚本 `backup.sh`。关键安全约束：备份包自带完整性 manifest、恢复强制路径白名单与二次确认、所有密钥仅走环境变量。
+
+**改动文件**：
+- `myblog/backup.py`（新增，纯标准库）：`create_backup()` / `list_backups()` / `verify()` / `restore()` / `sync_oss()` / `sync_scp()` / `sync_webdav()` / `sync_remotes()` / `prune_local()` / `_snapshot_before_restore()` / `_safe_rel()` / `main()`。
+- `myblog/config.py`：新增 `BACKUP_*` 系列环境变量（共 14 项）。
+- `myblog/admin.py`：`/admin/backup` 路由（超管 + CSRF + 二次确认）。
+- `myblog/templates/admin/backup.html`（新增）+ `base.html` 菜单项。
+- `myblog/backup.sh`（新增）。
+
+**维度审计**：
+
+| 编号 | 维度 | 结论 |
+|---|---|---|
+| R18-1 | 越权 / 恢复权限 | 恢复端点 `@super_required` 且仅超管可见菜单；`restore()` 在 CLI 需显式 `--yes`，在 Web 需 `confirm=yes` + 全局 CSRF（`_csrf_protect` 默认对所有 POST 生效）+ `add_audit("backup_restore")` 留痕；下载端点 `safe` 校验 `os.path.basename(fn)==fn and fn.startswith("blog_backup_")`，杜绝路径穿越下载任意文件 | ✅ 通过 |
+| R18-2 | 路径穿越 / 注入 | `_safe_rel()` 拒绝 `/` 开头、`..` 及白名单前缀（`data/`、`static/uploads/`）之外路径；`verify()` 与 `restore()` 在读取/写出每个条目前均二次调用 `_safe_rel()`，被篡改的备份包无法借恢复写任意路径；`manifest.json` 缺失或含非法路径即拒绝恢复 | ✅ 通过 |
+| R18-3 | 完整性 / 篡改 | 备份包内嵌 `manifest.json`（每文件 SHA256 + `archive_sha256`），`verify()` 逐文件重算比对；下载/恢复前必过 `verify()`，哈希不一致直接拒绝（防坏档/被篡改恢复） | ✅ 通过 |
+| R18-4 | 密钥泄漏 | 所有远程凭证（OSS KEY/SECRET、SCP KEY/密码、WebDAV USER/PASS）仅从环境变量读取；`config.py` 注释明确「不落库、不在任何接口回显」；后台 `remote_status` 只暴露布尔开关，**绝不回显密钥值**；`backup.py` 失败信息 `str(e)[:200]` 不打印密钥 | ✅ 通过 |
+| R18-5 | 资源 / 依赖 / 降级 | 纯标准库实现，零新增第三方依赖（`boto3` 仅运行时可选 import，未装则 `sync_oss` 返回跳过）；远程同步异常被各自 `try/except` 捕获仅记录，**不阻断本地落盘与发文章主流程**；临时目录 `tmp_dir` 在 `finally` 中 `rmtree` 清理，无句柄/磁盘泄漏 | ✅ 通过 |
+| R18-6 | 命令执行 / SSRF | `sync_scp`/`sync_webdav` 通过 `subprocess.run([...])` 列表式传参（非 shell 拼接），参数来自环境变量且非用户可控表单输入，无命令注入面；`scp`/`curl` 目标为主配置域名，无用户控制的 URL（无 SSRF） | ✅ 通过 |
+| R18-7 | CSRF / XSS | 后台备份页所有表单含 `{{ csrf_input() }}`，恢复/下载 POST 受全局 CSRF 校验保护；页面仅展示文件名/时间/版本等转义文本，无 `|safe` 渲染用户内容，无 XSS 面 | ✅ 通过 |
+
+**验证记录**：
+- `py_compile` 全量编译通过（myblog 全部 .py，含新增 backup.py）。
+- 隔离临时库 roundtrip 实测：写入 2 个文件 → `create_backup()` → `verify()` 返回 True（哈希一致 + 路径合法）→ `restore(yes=True)` 写回 2 文件并自动生成 `blog_prerestore_*` 快照 → 比对还原内容一致，全部通过。
+- 路径穿越防御单测：`_safe_rel("../../etc/passwd")` / `"/abs/path"` / `"static/uploads/../x"` 均返回 False；合法 `data/blog.db`、`static/uploads/a.png` 返回 True。
+- 前端本轮无改动（复用 dist_v317），无新增前端安全面。
+- `bash -n backup.sh` 语法校验通过。
+
+**评估**：备份/容灾模块安全约束完整（路径白名单、完整性校验、超管+二次确认+审计的恢复、密钥零回显、远程失败不阻断）。无新增高危风险。部署注意：① 选用远程后端时务必在宝塔/环境变量配置对应 `BACKUP_*` 密钥；② 配置宝塔定时任务 `0 4 * * * bash /www/wwwroot/myblog/backup.sh`（脚本已随包分发）；③ 恢复数据库属高危操作，后台恢复后需到宝塔「停止」再「启动」站点使 SQLite 文件生效。

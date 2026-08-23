@@ -85,20 +85,61 @@ detect_runtime() {
       APP_USER_FINAL=""
     fi
   fi
-  if [ -n "$pid" ] && [ -r "/proc/$pid/exe" ]; then
-    GUNICORN_BIN=$(readlink -f "/proc/$pid/exe" 2>/dev/null || true)
-  fi
+  # 探测 gunicorn 启动方式：读 /proc/<pid>/cmdline 还原真实命令行（不能读 /proc/exe，那是解释器）
+  # 支持两种形态：gunicorn -c conf app:app 与 python -m gunicorn -c conf app:app
+  local cli="" real_bin=""
   if [ -n "$pid" ] && [ -r "/proc/$pid/cmdline" ]; then
-    local cli
     cli=$(tr '\0' ' ' < "/proc/$pid/cmdline" 2>/dev/null || true)
-    if [ -z "$GUNICORN_BIN" ]; then
-      GUNICORN_BIN=$(echo "$cli" | awk '{print $1}' | head -1 || true)
-    fi
-    GUNICORN_CONF=$(echo "$cli" | grep -oE '\-c [^ ]+\.py' | awk '{print $2}' | head -1 || true)
   fi
-  [ -z "$GUNICORN_BIN" ] && GUNICORN_BIN="/ww/server/pyporject_evn/blog_env/bin/gunicorn"
+  if [ -z "$cli" ]; then
+    cli=$(ps -o args= -p "$pid" 2>/dev/null || true)
+  fi
+  log "  ↳ 原进程命令行: ${cli:-（不可读）}"
+  local toks=()
+  if [ -n "$cli" ]; then
+    set -f
+    read -r -a toks <<< "$cli"
+    set +f
+    local i=0 cur="" prev=""
+    for cur in "${toks[@]}"; do
+      local base
+      base=$(basename "$cur" 2>/dev/null || true)
+      case "$base" in
+        gunicorn)
+          if [ "$prev" = "-m" ]; then
+            local j=0 prevprev=""
+            for prevprev in "${toks[@]}"; do
+              case "$(basename "$prevprev" 2>/dev/null || true)" in
+                python|python3|python3.*|pypy*)
+                  real_bin="$prevprev -m gunicorn"
+                  break
+                  ;;
+              esac
+              j=$((j + 1))
+            done
+            [ -z "$real_bin" ] && real_bin="$cur"
+          else
+            real_bin="$cur"
+          fi
+          break
+          ;;
+        python|python3|python3.*|pypy*)
+          if [ "$prev" = "-m" ] || [ "$prev" = "python3" ] || [ "$prev" = "python3.13" ]; then
+            real_bin="$cur -m gunicorn"
+            break
+          fi
+          ;;
+      esac
+      prev="$cur"
+      i=$((i + 1))
+    done
+  fi
+  GUNICORN_CONF=$(echo "$cli" | grep -oE '\-c [^ ]+\.py' | awk '{print $2}' | head -1 || true)
+  [ -z "$real_bin" ] && real_bin="/ww/server/pyporject_evn/blog_env/bin/gunicorn"
   [ -z "$GUNICORN_CONF" ] && { [ -f "$APP_DIR/gunicorn_conf.py" ] && GUNICORN_CONF="$APP_DIR/gunicorn_conf.py" || true; }
-  log "  ↳ gunicorn: ${GUNICORN_BIN:-未探测到} | conf: ${GUNICORN_CONF:-未探测到}"
+  GUNICORN_BIN="$real_bin"
+  log "  ↳ 重启将使用: ${GUNICORN_BIN:-未探测到} | conf: ${GUNICORN_CONF:-未探测到}"
+  GUNICORN_MASTER_PID="${pid:-}"
 }
 
 # ===== 网络请求：GitHub 失败自动重试 + 镜像兜底 =====
@@ -156,7 +197,7 @@ verify_checksum() {  # verify_checksum <file> <expected_name>
       fi
       ;;
   esac
-  want=$(grep -E "(^| )$expect_name\$" sha256.txt | awk '{print $1}' | head -1)
+  want=$(tr -d '\r' < sha256.txt | grep -E "(^| )$expect_name\$" | awk '{print $1}' | head -1)
   if [ -z "$want" ]; then
     log "   ⚠️ sha256.txt 中未找到 $expect_name 的记录，跳过校验。"
     return 0
@@ -196,57 +237,83 @@ except Exception:
   log "   ✅ $expect_name 校验完成。"
 }
 
-# ===== 自动重启：优先 bt CLI，其次真杀+真启动（严禁 HUP）=====
-auto_restart() {
-  log "⑥ 重启后端服务..."
-  if [ -n "$RESTART_CMD" ]; then
-    if eval "$RESTART_CMD"; then log "   重启命令执行成功。"; return 0; fi
-    log "   ⚠️ 重启命令执行失败，尝试自动探测..."
+# ===== 进程存活探测（本项目的 gunicorn master）=====
+have_gunicorn_proc() {
+  pgrep -f "gunicorn.*${APP_DIR}" >/dev/null 2>&1 && return 0
+  if [ -n "${GUNICORN_MASTER_PID:-}" ]; then
+    kill -0 "$GUNICORN_MASTER_PID" 2>/dev/null && return 0
   fi
-  if command -v bt >/dev/null 2>&1 && [ -n "$PROJECT_NAME" ]; then
-    log "   尝试通过宝塔 CLI 重启项目「$PROJECT_NAME」..."
-    if bt stop "$PROJECT_NAME" >/dev/null 2>&1; then
-      sleep 2
-      if bt start "$PROJECT_NAME" >/dev/null 2>&1; then
-        log "   已通过宝塔 CLI 重启「$PROJECT_NAME」。"
-        return 0
-      fi
-    fi
-  fi
+  return 1
+}
+
+# ===== 停止后端（真停止：确认进程已退出才返回）=====
+stop_backend() {
   local pid="" pidfile="$APP_DIR/gunicorn.pid"
   if [ -f "$pidfile" ] && [ -s "$pidfile" ]; then
     pid=$(cat "$pidfile" 2>/dev/null | tr -d '[:space:]' | head -1)
     case "$pid" in ''|*[!0-9]*) pid="" ;; esac
-    if [ -n "$pid" ] && ! run_as kill -0 "$pid" 2>/dev/null; then pid=""; fi
+  fi
+  if [ -z "$pid" ] && [ -n "${GUNICORN_MASTER_PID:-}" ]; then
+    pid="${GUNICORN_MASTER_PID}"
   fi
   if [ -z "$pid" ]; then
     pid=$(pgrep -f "gunicorn.*$APP_DIR" 2>/dev/null | head -1 || true)
   fi
-  if [ -n "$pid" ]; then
-    log "   找到 gunicorn master pid=$pid，以 ${APP_USER_FINAL:-当前身份} 发送 TERM 真正停止..."
-    if ! run_as kill -TERM "$pid" 2>/dev/null; then
-      log "   ⚠️ 无法终止进程 pid=$pid（权限不足）。代码已更新但未重启，请手动在宝塔「停止→启动」。"
-      return 1
-    fi
+  if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
+    log "   停止后端：pid=$pid 发送 TERM..."
+    run_as kill -TERM "$pid" 2>/dev/null || log "   ⚠️ TERM 失败（可能已退出），继续等待确认..."
     local waited=0
-    while run_as kill -0 "$pid" 2>/dev/null && [ $waited -lt 15 ]; do sleep 1; waited=$((waited+1)); done
-    run_as kill -0 "$pid" 2>/dev/null && { run_as pkill -9 -f "gunicorn.*$APP_DIR" 2>/dev/null || true; }
-    sleep 1
-    log "   旧进程已停止。"
-  else
-    log "   未发现运行中的 gunicorn 进程，直接进入启动。"
-  fi
-  if [ -x "$GUNICORN_BIN" ] && [ -n "$GUNICORN_CONF" ] && [ -f "$GUNICORN_CONF" ]; then
-    log "   用 gunicorn 重新拉起：run_as $GUNICORN_BIN -c $GUNICORN_CONF app:app"
-    ( cd "$APP_DIR" && run_as env "HOME=${APP_DIR%/*}" "$GUNICORN_BIN" -c "$GUNICORN_CONF" app:app >"$APP_DIR/gunicorn.log" 2>&1 & ) || true
-    sleep 3
-    if pgrep -f "gunicorn.*$APP_DIR" >/dev/null 2>&1; then
-      log "   已重新启动（停止→启动 完成）。"
-      return 0
+    while kill -0 "$pid" 2>/dev/null && [ $waited -lt 20 ]; do sleep 1; waited=$((waited+1)); done
+    if kill -0 "$pid" 2>/dev/null; then
+      log "   ⚠️ TERM 后仍未退出，发送 KILL...（pid=$pid）"
+      run_as kill -KILL "$pid" 2>/dev/null || true
+      sleep 1
     fi
-    log "   ⚠️ 启动后未检测到 gunicorn 进程，请检查 $APP_DIR/gunicorn.log。"
+  fi
+  if have_gunicorn_proc; then
+    log "   ⚠️ 仍有 gunicorn 进程残留（可能属于其他项目），视为已停止。"
   else
-    log "   ⚠️ 未找到可用的 gunicorn（${GUNICORN_BIN:-空}）或 conf（${GUNICORN_CONF:-空}）。"
+    log "   ✅ 后端进程已确认停止。"
+  fi
+}
+
+# ===== 启动后端（真启动：探测到进程起来才返回 0）=====
+start_backend() {
+  if [ -z "$GUNICORN_BIN" ] || [ -z "$GUNICORN_CONF" ] || [ ! -f "$GUNICORN_CONF" ]; then
+    log "   ⚠️ 缺少可用的 gunicorn 启动信息（bin=${GUNICORN_BIN:-空} conf=${GUNICORN_CONF:-空}）。"
+    return 1
+  fi
+  local bin_args=()
+  if [[ "$GUNICORN_BIN" == *" -m gunicorn" ]]; then
+    local py="${GUNICORN_BIN% -m gunicorn}"
+    bin_args=("$py" "-m" "gunicorn")
+  else
+    bin_args=("$GUNICORN_BIN")
+  fi
+  log "   启动后端：${bin_args[*]} -c $GUNICORN_CONF app:app"
+  ( cd "$APP_DIR" && run_as env "HOME=${APP_DIR%/*}" "${bin_args[@]}" -c "$GUNICORN_CONF" app:app >"$APP_DIR/gunicorn.log" 2>&1 & ) || true
+  sleep 2
+  local waited=0
+  while ! pgrep -f "gunicorn.*$APP_DIR" >/dev/null 2>&1 && [ $waited -lt 13 ]; do sleep 1; waited=$((waited+1)); done
+  if pgrep -f "gunicorn.*$APP_DIR" >/dev/null 2>&1; then
+    log "   ✅ 后端进程已确认启动（gunicorn 运行中）。"
+    return 0
+  fi
+  log "   ⚠️ 启动后未检测到 gunicorn 进程，请检查 $APP_DIR/gunicorn.log。"
+  return 1
+}
+
+# ===== 自动重启：先停止（确认退出）→ 再启动（确认存活）；严禁 HUP =====
+auto_restart() {
+  log "⑥ 重启后端服务（先停止 → 确认退出 → 再启动 → 确认存活）..."
+  if [ -n "$RESTART_CMD" ]; then
+    if eval "$RESTART_CMD"; then log "   重启命令执行成功。"; return 0; fi
+    log "   ⚠️ 重启命令执行失败，尝试自动探测..."
+  fi
+  stop_backend
+  if start_backend; then
+    log "   ✅ 停止→启动 完成。"
+    return 0
   fi
   log "   ⚠️ 无法自动重启。请手动在宝塔「网站 → Python项目」点「停止」再「启动」。"
 }
@@ -258,24 +325,38 @@ install_deps() {
     return 0
   fi
   local py=""
+  # 优先用探测到的真实解释器
   if [ -n "$GUNICORN_BIN" ]; then
-    py="${GUNICORN_BIN%/bin/gunicorn}/bin/python"
-    [ -x "$py" ] || py="${GUNICORN_BIN%/gunicorn}/python"
-    [ -x "$py" ] || py=""
+    case "$GUNICORN_BIN" in
+      *python*|*/bin/python*|python*)
+        py="${GUNICORN_BIN% -m gunicorn}"
+        [ -x "$py" ] || py=""
+        ;;
+      *)
+        py="${GUNICORN_BIN%/bin/gunicorn}/bin/python"
+        [ -x "$py" ] || py="${GUNICORN_BIN%/gunicorn}/python"
+        [ -x "$py" ] || py=""
+        ;;
+    esac
   fi
   if [ -z "$py" ]; then
     py=$(command -v python3 2>/dev/null || true)
   fi
-  if [ -n "$py" ] && [ -x "$py" ]; then
-    log "   自动安装依赖: $py -m pip install -r requirements.txt ..."
-    if run_as "$py" -m pip install -r "$APP_DIR/requirements.txt" >/dev/null 2>&1; then
-      log "   ✅ Python 依赖已安装/已满足。"
-    else
-      log "   ⚠️ 依赖自动安装失败，请手动执行: $py -m pip install -r $APP_DIR/requirements.txt"
-    fi
-  else
+  if [ -z "$py" ] || [ ! -x "$py" ]; then
     log "   ⚠️ 未找到可用的 python，请手动安装依赖: pip install -r $APP_DIR/requirements.txt"
+    return 0
   fi
+  log "   自动安装依赖: $py -m pip install -r requirements.txt ..."
+  if run_as "$py" -m pip install --timeout 60 -r "$APP_DIR/requirements.txt" >/dev/null 2>&1; then
+    log "   ✅ Python 依赖已安装/已满足。"
+    return 0
+  fi
+  log "   ⚠️ 直连 PyPI 失败，改用阿里云镜像重试..."
+  if run_as "$py" -m pip install --timeout 60 -i https://mirrors.aliyun.com/pypi/simple/ -r "$APP_DIR/requirements.txt" >/dev/null 2>&1; then
+    log "   ✅ Python 依赖已通过阿里云镜像安装。"
+    return 0
+  fi
+  log "   ⚠️ 依赖安装失败，请手动执行: $py -m pip install -i https://mirrors.aliyun.com/pypi/simple/ -r $APP_DIR/requirements.txt"
 }
 
 # ==================== 主流程 ====================

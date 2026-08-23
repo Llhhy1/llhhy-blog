@@ -369,3 +369,28 @@ v3.1.7 修复 CSRF 隐藏域乱码后，用户反馈「退出登录按钮失效�
 - R19 审计：功能回归 / CSRF 有效性 / 越权 / 回归风险 4 维度全 ✅（详见 SECURITY_AUDIT.md 第二十九轮）。
 - 隔离临时库冒烟：带 token 调 `/api/version/update` → 400「未找到更新脚本」（CSRF 放行）；不带 token → 仍 403（防护未失效）。
 - `py_compile` 全量通过。前端本轮无改动（复用 dist_v317）。APP_VERSION 升为 v3.3.1。
+
+## 24. v3.4.0：备份配置后台化 + 立即备份 500 修复（R20 审计通过）
+
+### 24.1 背景
+两件事合并为 v3.4.0：
+1. 用户反馈后台「立即备份」点击报 500；
+2. 用户要求备份配置直接在后台管理（不再依赖环境变量）。
+
+### 24.2 实现
+- **500 修复**：`admin.py` backup 路由 4 处 `add_audit` → `log_audit`（函数名笔误，NameError 导致 500；备份文件实际已生成，仅审计写入崩）。修复后立即备份 200 + 审计正常。
+- **`myblog/backup_settings.py`（新增）**：
+  - 非密钥字段（目录/桶名/域名/保留天数等）存 Setting 表，库值优先、环境变量兜底；
+  - 密钥字段（OSS SecretKey / WebDAV 密码 / SCP 私钥路径）用 **SECRET_KEY 派生的 Fernet 密钥（PBKDF2-HMAC-SHA256、固定盐）加密**后存库，页面只回显掩码；
+  - 密钥读取优先级：环境变量优先 → 库加密值兜底（老配置兼容无迁移）；
+  - `apply_env()` 写回 `os.environ`，backup.py 同步函数与 CLI（无 Flask 上下文，sqlite3 直连 Setting 表）均自动读后台配置。
+- **`admin.py`**：新增 `/admin/backup-settings`（`@super_required` + 全局 CSRF + 掩码回显 + 保存后热生效）。
+- **`backup.py`**：启动应用后台配置；新增 `remote_status()`（含来源标记）。
+- **模板**：`admin/backup_settings.html`（新增）+ `backup.html` 来源标记/入口 + `base.html` 菜单「⚙️ 备份配置」。
+- **`requirements.txt`**：新增 `cryptography>=41.0.0`；`config.py` `APP_VERSION=3.4.0`。
+
+### 24.3 验证
+- R20 审计：XSS / CSRF / 越权 / 密钥管理 / SSRF·命令注入 / 资源依赖 / 回归风险 7 维度全 ✅（详见 SECURITY_AUDIT.md 第三十轮）。
+- 500 复现修复：POST `/admin/backup`（backup_now）200 + 审计写入。
+- 备份配置冒烟 7 项：加密落库/掩码回显/合并配置/CLI 独立/密钥环境变量优先/立即备份回归。
+- `py_compile` 全量通过。前端本轮无改动（复用 dist_v317）。APP_VERSION 升为 v3.4.0。

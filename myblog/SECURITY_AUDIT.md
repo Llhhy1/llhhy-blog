@@ -1021,3 +1021,51 @@ fetch('/api/version/update', {
 - 前端本轮无改动（复用 dist_v317）。
 
 **评估**：功能缺陷（前端 fetch 漏带 token），非安全隐患；修复未弱化任何既有防护。无新增高危风险。部署注意：仅需更新后端 zip（`myblog-backend.zip`）并「停止 → 启动」站点即可，前端无需更新。
+
+---
+
+## 第三十轮审计（R20，v3.4.0）：备份配置后台化 + 立即备份 500 修复审计
+
+**背景**：两件事合并为 v3.4.0：
+1. 用户反馈后台「立即备份」点击报 500 —— 根因为 `admin.py` backup 路由调用未定义的 `add_audit`（正确函数为 `log_audit`），备份文件实际已生成但审计写入抛 `NameError` → except 分支再次调用 `add_audit` → 再次 NameError → 未捕获 → 500。
+2. 用户要求备份配置直接在后台管理（不再依赖环境变量）——新增 `/admin/backup-settings` 后台配置页。
+
+**修复与新增**：
+- **500 修复**：`admin.py` backup 路由 4 处 `add_audit` → `log_audit`（备份成功/失败/恢复成功/恢复失败各一处）。
+- **`myblog/backup_settings.py`（新增）**：后台配置与密钥加密管理。
+  - 非密钥字段（目录/桶名/域名/保留天数等）存 Setting 表，库值优先、环境变量兜底；
+  - 密钥字段（OSS SecretKey / WebDAV 密码 / SCP 私钥路径）用 **SECRET_KEY 派生的 Fernet 密钥加密**后存库（PBKDF2-HMAC-SHA256 派生，固定盐保证重启后可解密），页面只回显掩码；
+  - 密钥读取优先级：环境变量优先 → 库加密值兜底（老用户无需迁移）；
+  - `apply_env()` 把合并结果写回 `os.environ`，backup.py 的同步函数与 CLI 均自动读取后台配置（CLI 无 Flask 上下文时用 sqlite3 直连 Setting 表，保持纯标准库独立运行）。
+- **`admin.py`**：新增 `/admin/backup-settings` 路由（`@super_required` + 全局 CSRF + 掩码回显 + 保存后热生效）。
+- **`backup.py`**：启动时应用后台配置；新增 `remote_status()`（含配置来源标记）；backup 路由改用该方法。
+- **模板**：`admin/backup_settings.html`（新增）、`backup.html` 状态卡加配置来源标记 + 配置页入口、`base.html` 菜单加「⚙️ 备份配置」。
+- **`requirements.txt`**：新增 `cryptography>=41.0.0`（Fernet 必需）；`config.py` `APP_VERSION=3.4.0`。
+
+**维度审计**：
+
+| 编号 | 维度 | 结论 |
+|---|---|---|
+| R20-1 | XSS / 注入 | 新增模板全部 `{{ }}` 自动转义；掩码回显无明文；`values`/`enabled` 均为受控字符串/布尔。无拼接用户输入到 HTML | ✅ 通过 |
+| R20-2 | CSRF | `/admin/backup-settings` POST 受全局 `_csrf_protect` 校验，表单含 `{{ csrf_input() }}`；未加入豁免名单 | ✅ 通过 |
+| R20-3 | 越权 | 路由 `@super_required`；菜单仅超管可见（`{% if user.is_super %}` 包裹区）；非超管无法访问/配置 | ✅ 通过 |
+| R20-4 | 密钥管理 | 密钥永不落明文：OSS SecretKey / WebDAV 密码 / SCP 私钥路径均 Fernet 加密（PBKDF2 派生密钥，固定盐）存储；页面只回显掩码；读取时环境变量优先（老配置兼容）；密文无法解密时安全回退为空（不抛异常） | ✅ 通过 |
+| R20-5 | SSRF / 命令注入 | 远程同步仍列表式传参（scp/curl 均 list，无 shell 拼接）；配置来源=超管本人（可信），与 R18 结论一致；`_run(str)` 分支未在同步链路使用 | ✅ 通过 |
+| R20-6 | 资源 / 依赖 | 新增依赖 `cryptography`（需 pip install 后重启才能用加密保存/解密）；未安装时 `import backup_settings` 顶层被 try/except 捕获，备份/恢复旧功能不降级；Fernet 密钥派生 20 万次 PBKDF2 仅在保存/读取密钥时执行，不影响主流程 | ✅ 通过 |
+| R20-7 | 回归风险 | `add_audit`→`log_audit` 修正 500 后，冒烟验证「立即备份」POST 200 成功写入审计；备份配置冒烟 7 项全过（加密落库/掩码回显/合并配置/CLI 独立/CKey 环境变量优先）；`py_compile` 全量通过 | ✅ 通过 |
+
+**验证记录**：
+- `py_compile` 全量编译通过（myblog 全部 .py，含新增 backup_settings.py）。
+- 500 复现修复：带 CSRF 的 POST `/admin/backup`（action=backup_now）返回 200 +「备份成功：blog_backup_*.zip」，审计日志写入成功；此前报 `NameError: add_audit`。
+- 备份配置冒烟（隔离临时库）：
+  1. GET `/admin/backup-settings` 渲染 200，含全部字段；
+  2. POST 保存（含 OSS Secret / WebDAV Pass / SCP Key）→ 落库均为 `bkenc$` 前缀密文，无明文；
+  3. 页面回显：敏感键显示掩码（`Su****23` 类），无明文泄漏；
+  4. `bs.get_config()` 合并配置解密正确（bucket/保留天数/密钥均取到）；
+  5. `backup.py` 的 `BACKUP_ROOT`/`RETENTION_DAYS` 读到后台值；
+  6. 设 `BACKUP_OSS_SECRET=EnvSecretOverride999` 后 apply_env → 环境变量优先生效（优先级正确）；
+  7. CLI 独立模式（无 Flask 上下文）`bk2.create_backup()` 成功（sqlite3 直连 Setting 表路径正确）。
+- 前端本轮无改动（复用 dist_v317）。
+
+**评估**：500 为函数名笔误（NameError）导致的功能缺陷，非安全隐患；备份配置后台化为新增功能，密钥加密存储满足「绝不落明文」纪律。无新增高危风险。部署注意：① 服务器需 `pip install cryptography` 并「停止→启动」后，后台备份配置页才可加密保存/解密；② 升级前老环境变量配置不受影响（环境变量优先）；③ 若将来轮换 SECRET_KEY，已加密的备份密钥会无法解密（需重新在后台填入）。
+

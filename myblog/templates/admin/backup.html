@@ -10,10 +10,13 @@
 
 <div class="stats-grid" style="grid-template-columns:1fr 1fr 1fr 1fr;">
   <div class="stats-card"><h3>本地备份目录</h3><p style="word-break:break-all;">{{ remote_status.local_dir }}</p></div>
-  <div class="stats-card"><h3>对象存储 OSS</h3><p>{{ '✅ 已配置' if remote_status.oss else '未配置（跳过）' }}</p></div>
-  <div class="stats-card"><h3>SCP 备用机</h3><p>{{ '✅ 已配置' if remote_status.scp else '未配置（跳过）' }}</p></div>
-  <div class="stats-card"><h3>WebDAV 云盘</h3><p>{{ '✅ 已配置' if remote_status.webdav else '未配置（跳过）' }}</p></div>
+  <div class="stats-card"><h3>对象存储 OSS</h3><p>{{ '✅ 已配置' if remote_status.oss else '未配置（跳过）' }}{{ ' · 后台' if remote_status.oss_from_db else (' · 环境变量' if remote_status.oss else '') }}</p></div>
+  <div class="stats-card"><h3>SCP 备用机</h3><p>{{ '✅ 已配置' if remote_status.scp else '未配置（跳过）' }}{{ ' · 后台' if remote_status.scp_from_db else (' · 环境变量' if remote_status.scp else '') }}</p></div>
+  <div class="stats-card"><h3>WebDAV 云盘</h3><p>{{ '✅ 已配置' if remote_status.webdav else '未配置（跳过）' }}{{ ' · 后台' if remote_status.webdav_from_db else (' · 环境变量' if remote_status.webdav else '') }}</p></div>
 </div>
+<p class="stats-tip">
+  <a href="{{ url_for('admin.backup_settings') }}" style="font-weight:600;">⚙️ 在「备份配置」页直接配置目的地 / 保留天数 / 密钥（v3.4.0，密钥加密存储）</a>
+</p>
 
 <form method="post" action="{{ url_for('admin.backup') }}" style="margin:18px 0;">
   {{ csrf_input() }}

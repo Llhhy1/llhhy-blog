@@ -1260,12 +1260,7 @@ def backup():
     （confirm=yes）+ 恢复前自动快照 + 写审计日志。密钥只走环境变量，页面不回显。
     """
     import backup as backup_mod
-    remote_status = {
-        "local_dir": backup_mod.BACKUP_ROOT,
-        "oss": bool(os.environ.get("BACKUP_OSS_BUCKET")),
-        "scp": bool(os.environ.get("BACKUP_SCP_HOST")),
-        "webdav": bool(os.environ.get("BACKUP_WEBDAV_URL")),
-    }
+    remote_status = backup_mod.remote_status()
     backups = backup_mod.list_backups()
     if request.method == "POST":
         action = request.form.get("action", "")
@@ -1275,10 +1270,10 @@ def backup():
                 msg = "备份成功：%s（%d 个文件）" % (os.path.basename(arc), man["file_count"])
                 for name, ok, s in sync:
                     msg += "；远程[%s]%s" % (name, "✅" if ok else "⚠️" + s)
-                add_audit("backup", target="创建备份", detail=msg, success=True)
+                log_audit("backup", target="创建备份", detail=msg)
                 flash(msg)
             except Exception as e:
-                add_audit("backup", target="创建备份", detail=str(e)[:200], success=False)
+                log_audit("backup", target="创建备份", detail=str(e)[:200], success=False)
                 flash("备份失败：" + str(e)[:200])
             return redirect(url_for("admin.backup"))
         fn = request.form.get("file", "")
@@ -1301,15 +1296,74 @@ def backup():
                 r = backup_mod.restore(fp, yes=True, tag="admin")
                 flash("已从 %s 恢复（恢复前快照 %s）。请到宝塔「停止」再「启动」站点使数据库生效。"
                       % (fn, os.path.basename(r["snapshot"])))
-                add_audit("backup_restore", target="恢复备份", target_id=fn,
-                          detail="快照 %s" % os.path.basename(r["snapshot"]), success=True)
+                log_audit("backup_restore", target="恢复备份", target_id=fn,
+                          detail="快照 %s" % os.path.basename(r["snapshot"]))
             except Exception as e:
-                add_audit("backup_restore", target="恢复备份", target_id=fn,
+                log_audit("backup_restore", target="恢复备份", target_id=fn,
                           detail=str(e)[:200], success=False)
                 flash("恢复失败：" + str(e)[:200])
             return redirect(url_for("admin.backup"))
     return render_template("admin/backup.html", backups=backups, remote_status=remote_status,
                            retention=backup_mod.RETENTION_DAYS)
+
+
+@admin_bp.route("/backup-settings", methods=["GET", "POST"])
+@super_required
+def backup_settings():
+    """备份配置后台化（v3.4.0）：目的地/保留天数/密钥等全部在后台配置。
+    非密钥字段存 Setting 表；密钥字段（OSS Secret / WebDAV 密码 / SCP 私钥路径）
+    用 SECRET_KEY 派生的 Fernet 密钥加密后存储，页面只回显掩码、绝不回显明文。
+    读取优先级：非密钥「库优先」；密钥「环境变量优先、库值兜底」。
+    """
+    import backup_settings as bs
+    from utils import get_setting
+    # 回显用：非敏感键回显库值（或占位空），敏感键回显掩码（或空=未设置）
+    values = {}
+    for skey in bs.ALL_FIELDS:
+        if skey in bs.SENSITIVE_KEYS:
+            values[skey] = bs.setting_value_for_admin(skey)  # 掩码
+        else:
+            values[skey] = get_setting(skey, "") or ""
+    # 各后端是否已配置（合并视角），用于提示当前生效来源
+    cfg = bs.get_config()
+    enabled = {
+        "local": True,
+        "oss": bool(cfg.get("BACKUP_OSS_BUCKET")),
+        "scp": bool(cfg.get("BACKUP_SCP_HOST")),
+        "webdav": bool(cfg.get("BACKUP_WEBDAV_URL")),
+    }
+    if request.method == "POST":
+        for skey, (env, default) in bs.ALL_FIELDS.items():
+            if skey in bs.SENSITIVE_KEYS:
+                # 敏感键：留空 = 保持不变；非空则加密覆盖
+                new_val = (request.form.get(skey) or "").strip()
+                cur_db = bs.read_setting_db(skey) or ""
+                if new_val and new_val != bs.mask_value(bs.decrypt_secret(cur_db or "")):
+                    bs.write_setting_db(skey, bs.encrypt_secret(new_val))
+                # 密码留空：保持原库值（不回显、不覆盖）
+            else:
+                val = (request.form.get(skey) or "").strip() if skey != "backup_retention_days" \
+                    else (request.form.get(skey) or "14").strip()
+                if skey == "backup_retention_days":
+                    try:
+                        int(val)
+                    except ValueError:
+                        flash("保留天数必须是数字")
+                        return redirect(url_for("admin.backup_settings"))
+                bs.write_setting_db(skey, val)
+        # 重新合并进环境变量，本次进程立即生效
+        bs.apply_env()
+        try:
+            import backup as backup_mod
+            backup_mod.BACKUP_ROOT = backup_mod._DEF_BACKUP_DIR if bs.get_config().get("BACKUP_DIR") == backup_mod._DEF_BACKUP_DIR \
+                else bs.get_config().get("BACKUP_DIR") or backup_mod._DEF_BACKUP_DIR
+            backup_mod.RETENTION_DAYS = int(bs.get_config().get("BACKUP_RETENTION_DAYS") or 14)
+        except Exception:
+            pass
+        flash("备份配置已保存")
+        return redirect(url_for("admin.backup_settings"))
+    return render_template("admin/backup_settings.html", values=values, enabled=enabled,
+                           settings_cfg=cfg)
 
 
 @admin_bp.route("/email-settings", methods=["GET", "POST"])

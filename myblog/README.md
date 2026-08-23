@@ -42,6 +42,7 @@
 - **后台修改密码** + **用户管理**（超级管理员专属：新增用户、调整角色、重置密码、删除用户）
 - **上线安全**：首次进入后台强制设置管理员用户名与密码，未设置前默认密码无法看到后台内容
 - **数据备份与异地容灾**（v3.3.0）：后台「💾 数据备份」一键备份/下载/恢复（超管 + 二次确认 + 审计），备份包内嵌 SHA256 manifest 完整性校验 + 路径白名单防穿越；可插拔异地目的地（本地 / OSS·COS·S3 / 备用机 SCP / 云盘 WebDAV），宝塔定时任务 `backup.sh` 每日自动备份
+- **备份配置后台化**（v3.4.0）：新增后台「⚙️ 备份配置」页（`/admin/backup-settings`，超管专属）——本地目录/保留天数/OSS/SCP/WebDAV 目的地与密钥全部后台直接填写，保存即生效，无需再配环境变量。**密钥（OSS SecretKey / WebDAV 密码 / SCP 私钥路径）用 SECRET_KEY 派生的 Fernet 密钥（PBKDF2）加密后存库，页面只回显掩码，绝不落明文**。读取优先级：非密钥字段「后台配置优先 → 环境变量兜底」；密钥字段「环境变量优先 → 后台加密值兜底」——老环境变量配置无需迁移。定时任务 `backup.sh`（CLI）自动读后台配置
 
 ### v3.0.0 新增功能
 - **系列目录页增强**：系列详情页新增带编号的章节目录（系列 TOC）。
@@ -138,6 +139,16 @@
 - **修复**：`templates/admin/base.html` 的 fetch 请求头补 `'X-CSRF-Token': '{{ csrf_token }}'`（模板上下文本就注入该值）。**单行改动，未把接口加入豁免名单，CSRF 防护完整保留。**
 - **验证**：隔离临时库冒烟——带 token 返回 400「未找到更新脚本」（CSRF 放行，本地无 update.sh 属预期）；不带 token 仍 403（防护未失效）。`py_compile` 通过。R19 四维审计全 ✅（详见 `SECURITY_AUDIT.md` 第二十九轮）。APP_VERSION 升为 v3.3.1。
 
+### v3.4.0 新增：备份配置后台化 + 立即备份 500 修复（R20 审计通过）
+
+- **500 修复**：后台「💾 数据备份 → 立即备份一次」此前点击报 500。根因：`admin.py` backup 路由 4 处把审计函数名误写为未定义的 `add_audit`（正确为 `log_audit`），备份文件实际已生成但写审计日志抛 `NameError` → except 再调 `add_audit` → 再次 NameError → 500。已全部修正。
+- **备份配置后台化**：新增后台「⚙️ 备份配置」页（`/admin/backup-settings`，超管专属）——本地目录 / 保留天数 / OSS / SCP / WebDAV 目的地与密钥全部后台填写，**保存即生效、无需再配环境变量**。
+  - **密钥加密存储**：OSS SecretKey / WebDAV 密码 / SCP 私钥路径用 **SECRET_KEY 派生的 Fernet 密钥（PBKDF2-HMAC-SHA256 固定盐）加密**后存库，页面只回显掩码（`Su****23` 类），**绝不落明文、不回显明文**。
+  - **读取优先级**：非密钥字段「后台配置优先 → 环境变量兜底」；密钥字段「环境变量优先 → 后台加密值兜底」——老环境变量配置无需迁移。
+  - **定时任务兼容**：`backup.sh`（CLI 无 Flask 上下文）自动读后台配置（sqlite3 直连 Setting 表），保持纯标准库独立运行。
+- **需新增依赖**：`cryptography>=41.0.0`（Fernet 必需）。
+- **验证**：`py_compile` 全量通过；500 复现修复（POST 200 + 审计写入）；备份配置冒烟 7 项全过（加密落库/掩码回显/合并配置/CLI 独立/密钥环境变量优先）；前端本轮无改动（复用 dist_v317）。R20 七维审计全 ✅（详见 `SECURITY_AUDIT.md` 第三十轮）。APP_VERSION 升为 v3.4.0。
+
 ## 目录结构
 ```
 myblog/             # 后端（Flask + SQLite）
@@ -154,6 +165,7 @@ myblog/             # 后端（Flask + SQLite）
 ├── api.py          # 前后端分离用的 JSON 接口（/api/*，含 /api/stats/* 埋点与汇总）
 ├── security.py     # 安全响应头 / 图形验证码 / SMTP 密码优先级（v3.1.6 新增）
 ├── backup.py       # 数据备份与异地容灾（v3.3.0，可插拔：本地/OSS/SCP/WebDAV）
+├── backup_settings.py # 备份配置后台化 + 密钥加密（v3.4.0，Fernet/Setting 表）
 ├── backup.sh       # 宝塔定时任务入口（0 4 * * * 调用 backup.py run）
 ├── requirements.txt
 ├── deploy_guide.md # 宝塔部署手册（点按式，含 Nginx 反代配置）

@@ -53,8 +53,36 @@ except Exception:  # pragma: no cover - 独立运行时也能跑
     _DEF_BACKUP_DIR = os.path.join(os.path.dirname(BASE_DIR), "backups")
     _DEF_RETENTION = 14
 
+# v3.4.0：合并「后台配置（Setting 表）+ 环境变量」，把最终值写入 os.environ，
+# 使 sync_* 函数与 BACKUP_ROOT/RETENTION_DAYS 均读到后台配置。
+_BS = None
+try:
+    import backup_settings as _BS
+    _BS.apply_env()   # 后台配置优先（非密钥），环境变量兜底（密钥）
+except Exception:
+    pass  # 纯标准库兜底：import 失败不影响旧行为
+
 BACKUP_ROOT = os.environ.get("BACKUP_DIR") or _DEF_BACKUP_DIR
 RETENTION_DAYS = int(os.environ.get("BACKUP_RETENTION_DAYS") or _DEF_RETENTION)
+
+
+def remote_status():
+    """返回各远程后端是否已配置（供后台页显示状态卡；v3.4.0 起读合并配置）。"""
+    def _db_set(k):
+        try:
+            return _BS.read_setting_db(k) if _BS else None
+        except Exception:
+            return None
+    return {
+        "local_dir": BACKUP_ROOT,
+        "oss": bool(os.environ.get("BACKUP_OSS_BUCKET")),
+        "scp": bool(os.environ.get("BACKUP_SCP_HOST")),
+        "webdav": bool(os.environ.get("BACKUP_WEBDAV_URL")),
+        # 配置来源标记（后台配置 vs 环境变量），供页面提示
+        "oss_from_db": bool(_db_set("backup_oss_bucket")),
+        "scp_from_db": bool(_db_set("backup_scp_host")),
+        "webdav_from_db": bool(_db_set("backup_webdav_url")),
+    }
 
 
 def _sha256_file(path):

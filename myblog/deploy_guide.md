@@ -405,7 +405,8 @@ supervisorctl status
 - **升级后配置（可选但强烈建议）**：
   - 后台「💾 数据备份」页可一键「立即备份」、查看备份列表、下载、恢复（恢复需二次确认 + 超管 + CSRF + 审计）。
   - 配置宝塔「计划任务 → Shell 脚本」，**每天凌晨 4 点**执行：`bash /www/wwwroot/myblog/backup.sh`。脚本会自动调用 `python backup.py run`（本地 + 已启用的远程目的地）。
-  - 如需异地容灾，在宝塔 Python 项目「环境变量」配对应 `BACKUP_*` 密钥（不配则只做本地备份，**密钥只走环境变量，绝不填库、不在后台回显**）：
+  - 如需异地容灾，**v3.4.0 起推荐直接在后台「⚙️ 备份配置」页填写**（超管专属，保存即生效、无需 SSH）：目的地/保留天数/密钥全在后台改。密钥（OSS SecretKey / WebDAV 密码 / SCP 私钥路径）用 **SECRET_KEY 派生的 Fernet 密钥加密存储**，页面只回显掩码，**绝不落明文**。
+  - **老环境变量仍兼容**（密钥环境变量优先，非密钥后台优先）：若已在宝塔 Python 项目「环境变量」配过 `BACKUP_*`，无需迁移，自动生效。参数对照：
     - **对象存储 OSS/COS/S3**：`BACKUP_OSS_BUCKET` / `BACKUP_OSS_REGION` / `BACKUP_OSS_ENDPOINT` / `BACKUP_OSS_KEY` / `BACKUP_OSS_SECRET`（服务端需 `pip install boto3`）。
     - **备用机 SCP**：`BACKUP_SCP_HOST`（`user@host`）/ `BACKUP_SCP_DIR`（默认 `~/blog_backups`）/ `BACKUP_SCP_PORT`（默认 22）/ `BACKUP_SCP_KEY`（私钥路径）。
     - **云盘 WebDAV**：`BACKUP_WEBDAV_URL` / `BACKUP_WEBDAV_USER` / `BACKUP_WEBDAV_PASS`（服务器需系统 `curl`）。
@@ -418,6 +419,14 @@ supervisorctl status
 - **修复**：后台「系统设置 → 立即更新」此前用 `fetch()` POST `/api/version/update` 时漏带 `X-CSRF-Token` 请求头，点击报「CSRF 校验失败，请刷新页面后重试」；本轮在模板 `templates/admin/base.html` 请求头补 token（单行改动，CSRF 防护完整保留）。
 - **升级步骤**：仅后端变更——备份 `data/blog.db` → 覆盖后端 zip（`myblog-backend.zip`）→ **停止再启动**（仅重启可能不生效）→ 无痕窗口验证左下角版本号 `v3.3.1`。**前端无需更新**（本轮无前端改动）。
 - 若升级前正好卡在该报错上：升级后回到后台「系统设置 → 立即更新」重新点击即可正常触发；如需立即验证，也可先手动在服务器把 `base.html` 该 fetch 请求头补上再重启，效果等价。
+
+### v3.4.0 升级注意（备份配置后台化 + 立即备份 500 修复）
+
+- **500 修复**：后台「💾 数据备份 → 立即备份一次」此前点击报 500 —— 根因是 `admin.py` backup 路由 4 处把审计函数名误写为未定义的 `add_audit`（正确为 `log_audit`），备份文件实际已生成但写审计日志抛 `NameError`。升级后立即备份恢复正常（返回 200 + 成功提示 + 审计日志）。
+- **备份配置后台化**：新增后台「⚙️ 备份配置」页（`/admin/backup-settings`，超管专属）——本地目录 / 保留天数 / OSS / SCP / WebDAV 目的地与密钥全部后台填写保存即生效。**密钥（OSS SecretKey / WebDAV 密码 / SCP 私钥路径）用 SECRET_KEY 派生的 Fernet 密钥加密存储，页面只回显掩码，绝不落明文**。
+- **⚠️ 必须新增依赖**：`requirements.txt` 新增 `cryptography>=41.0.0`。**升级后必须 `pip install cryptography` 并「停止→启动」站点**，后台备份配置页才可加密保存/解密；不装则旧备份/恢复功能不降级，仅配置页加密保存会报错。
+- **老环境变量无需迁移**：密钥字段仍环境变量优先、后台加密值兜底；非密钥字段后台优先、环境变量兜底。已在宝塔配过 `BACKUP_*` 的继续生效。
+- **升级步骤**：备份 `data/blog.db` → 覆盖后端 zip → **停止再启动**（仅重启可能不生效）→ `pip install cryptography`（宝塔 Python 项目「依赖安装」勾选自动装，或命令行手动装）→ 再停止启动一次 → 无痕窗口验证左下角版本号 `v3.4.0` → 后台「⚙️ 备份配置」页确认/配置远程目的地。**前端无需更新**（复用 dist_v317）。
 
 ## 邮件设置（新文章通知订阅者 · 后台配置）
 

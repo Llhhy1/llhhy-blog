@@ -1,0 +1,87 @@
+{% extends "admin/base.html" %}
+{% block title %}备份配置{% endblock %}
+{% block content %}
+<h1 class="page-title">⚙️ 备份配置</h1>
+<p class="stats-tip">
+  在后台直接配置自动备份目的地（v3.4.0）。非密钥字段存数据库；<b>密钥字段（OSS SecretKey / WebDAV 密码 / SCP 私钥路径）
+  以 SECRET_KEY 派生密钥加密后存储，页面只回显掩码</b>，绝不落明文。
+  读取优先级：非密钥「后台配置优先」；密钥「环境变量优先、后台配置兜底」——老环境变量配置无需迁移。
+</p>
+
+{% set enabled = enabled or {} %}
+<div class="stats-grid" style="grid-template-columns:1fr 1fr 1fr 1fr; margin:14px 0;">
+  <div class="stats-card"><h3>本地</h3><p>{{ '✅ 默认启用' if enabled.get('local') else '—' }}</p></div>
+  <div class="stats-card"><h3>OSS 对象存储</h3><p>{{ '✅ 已配置' if enabled.get('oss') else '未配置' }}</p></div>
+  <div class="stats-card"><h3>SCP 备用机</h3><p>{{ '✅ 已配置' if enabled.get('scp') else '未配置' }}</p></div>
+  <div class="stats-card"><h3>WebDAV 云盘</h3><p>{{ '✅ 已配置' if enabled.get('webdav') else '未配置' }}</p></div>
+</div>
+
+<form method="post" action="{{ url_for('admin.backup_settings') }}">
+  {{ csrf_input() }}
+  <div class="settings-section">
+    <h3>本地保留</h3>
+    <div class="form-row">
+      <label>本地备份目录（留空 = 默认项目上级 backups/）</label>
+      <input type="text" name="backup_dir" value="{{ values.backup_dir }}" placeholder="/www/wwwroot/backups 或留空" style="width:100%;">
+    </div>
+    <div class="form-row">
+      <label>本地保留天数（默认 14，0 = 永不清理）</label>
+      <input type="number" name="backup_retention_days" value="{{ values.backup_retention_days or '14' }}" min="0" max="3650" style="width:200px;">
+    </div>
+  </div>
+
+  <div class="settings-section">
+    <h3>对象存储 OSS / COS / S3</h3>
+    <div class="form-row"><label>Bucket（留空 = 关闭该后端）</label>
+      <input type="text" name="backup_oss_bucket" value="{{ values.backup_oss_bucket }}" placeholder="my-blog-backups"></div>
+    <div class="form-row"><label>Region</label>
+      <input type="text" name="backup_oss_region" value="{{ values.backup_oss_region }}" placeholder="oss-cn-hangzhou"></div>
+    <div class="form-row"><label>Endpoint（S3 兼容才填）</label>
+      <input type="text" name="backup_oss_endpoint" value="{{ values.backup_oss_endpoint }}" placeholder="https://oss-cn-hangzhou.aliyuncs.com"></div>
+    <div class="form-row"><label>AccessKey</label>
+      <input type="text" name="backup_oss_key" value="{{ values.backup_oss_key }}" placeholder="LTAI..."></div>
+    <div class="form-row"><label>SecretKey（加密存储，留空 = 不变）</label>
+      <input type="password" name="backup_oss_secret" value="{{ values.backup_oss_secret }}" placeholder="{{ '已设置' if values.backup_oss_secret else '输入 OSS SecretKey' }}"></div>
+    <div class="form-row"><label>对象前缀（默认 backups）</label>
+      <input type="text" name="backup_oss_prefix" value="{{ values.backup_oss_prefix or 'backups' }}"></div>
+  </div>
+
+  <div class="settings-section">
+    <h3>SCP 备用机</h3>
+    <div class="form-row"><label>主机（user@host，留空 = 关闭该后端）</label>
+      <input type="text" name="backup_scp_host" value="{{ values.backup_scp_host }}" placeholder="root@192.168.1.10"></div>
+    <div class="form-row"><label>目标目录（默认 ~/blog_backups）</label>
+      <input type="text" name="backup_scp_dir" value="{{ values.backup_scp_dir or '~/blog_backups' }}"></div>
+    <div class="form-row"><label>端口（默认 22）</label>
+      <input type="text" name="backup_scp_port" value="{{ values.backup_scp_port or '22' }}"></div>
+    <div class="form-row"><label>私钥路径（加密存储，留空 = 用 SSH 互信）</label>
+      <input type="password" name="backup_scp_key" value="{{ values.backup_scp_key }}" placeholder="{{ '已设置' if values.backup_scp_key else '/root/.ssh/id_ed25519' }}"></div>
+  </div>
+
+  <div class="settings-section">
+    <h3>WebDAV 云盘（坚果云 / Nextcloud / 群晖）</h3>
+    <div class="form-row"><label>WebDAV URL（留空 = 关闭该后端）</label>
+      <input type="text" name="backup_webdav_url" value="{{ values.backup_webdav_url }}" placeholder="https://dav.jianguoyun.com/dav/blogbackup"></div>
+    <div class="form-row"><label>用户名</label>
+      <input type="text" name="backup_webdav_user" value="{{ values.backup_webdav_user }}" placeholder="your@mail.com"></div>
+    <div class="form-row"><label>密码 / 应用密码（加密存储，留空 = 不变）</label>
+      <input type="password" name="backup_webdav_pass" value="{{ values.backup_webdav_pass }}" placeholder="{{ '已设置' if values.backup_webdav_pass else '输入 WebDAV 密码' }}"></div>
+  </div>
+
+  <p class="stats-tip">💡 保存后立即生效（无需重启）。定时任务不变：宝塔计划任务 <code>0 4 * * * bash /www/wwwroot/myblog/backup.sh</code> 会自动使用新配置。</p>
+  <button type="submit" class="btn primary">💾 保存备份配置</button>
+  <a href="{{ url_for('admin.backup') }}" class="btn ghost" style="margin-left:8px;">← 返回备份页</a>
+</form>
+
+<style>
+  .settings-section { background:#fff; border-radius:12px; padding:16px 18px; margin:16px 0; box-shadow:0 1px 3px rgba(0,0,0,.03); }
+  [data-theme="dark"] .settings-section { background:#1d2025; }
+  .settings-section h3 { margin:0 0 12px; font-size:15px; color:#333; }
+  [data-theme="dark"] .settings-section h3 { color:#eef0f2; }
+  .form-row { margin-bottom:12px; }
+  .form-row label { display:block; font-size:13px; color:#555; margin-bottom:4px; }
+  [data-theme="dark"] .form-row label { color:#c7ccd3; }
+  .form-row input { border:1px solid #ddd; border-radius:8px; padding:8px 10px; font-size:13px; background:#fafbfc; color:#333; }
+  [data-theme="dark"] .form-row input { border-color:#333; background:#23272e; color:#eef0f2; }
+</style>
+{% endblock %}

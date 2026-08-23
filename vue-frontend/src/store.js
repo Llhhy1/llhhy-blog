@@ -1,6 +1,6 @@
 // 全局站点状态：站点设置 + 登录用户（简单响应式 store，不引额外依赖）
 import { reactive, readonly } from "vue";
-import { apiGet, apiPost } from "./lib/api.js";
+import { apiGet, apiPost, setCsrfToken, clearCsrfToken } from "./lib/api.js";
 
 export const state = reactive({
   site: { site_name: "我的博客", site_title: "我的博客", site_note: "",
@@ -110,6 +110,7 @@ export async function initSite() {
   try {
     const m = await apiGet("/api/auth/me");
     state.user = m.user || null;
+    if (m.csrf_token) setCsrfToken(m.csrf_token);
   } catch (e) { state.user = null; }
   state.loaded = true;
 }
@@ -117,16 +118,20 @@ export async function initSite() {
 export async function login(username, password) {
   const data = await apiPost("/api/auth/login", { username, password });
   state.user = data.user;
+  // 登录成功后会话变化：更新 CSRF Token 缓存（auth/me 或登录响应均带新 token）
+  if (data.csrf_token) setCsrfToken(data.csrf_token);
   return data.user;
 }
 
-export async function register(username, email, password) {
-  const data = await apiPost("/api/auth/register", { username, email, password });
+export async function register(username, email, password, captcha = "") {
+  const data = await apiPost("/api/auth/register", { username, email, password, captcha });
   state.user = data.user;
+  if (data.csrf_token) setCsrfToken(data.csrf_token);
   return data.user;
 }
 
 export async function logout() {
   try { await apiPost("/api/auth/logout", {}); } catch (e) {}
   state.user = null;
+  clearCsrfToken();
 }

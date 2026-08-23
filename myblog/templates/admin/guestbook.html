@@ -5,6 +5,7 @@
     <h1 class="page-title" style="margin:0;">📝 留言墙管理</h1>
     {% if pending_guestbook %}
     <form method="post" action="{{ url_for('admin.mark_all_guestbook_read') }}" class="inline-form">
+          {{ csrf_input() }}
       <button type="submit" class="btn small">✅ 全部标记已读</button>
     </form>
     {% endif %}
@@ -20,10 +21,12 @@
           <td>
             {% if not g.is_read %}
             <form method="post" action="{{ url_for('admin.mark_guestbook_read', gid=g.id) }}" class="inline-form">
+                  {{ csrf_input() }}
               <button type="submit" class="link-mark">标为已读</button>
             </form>
             {% endif %}
             <form method="post" action="{{ url_for('admin.delete_guestbook', gid=g.id) }}" class="inline-form" onsubmit="return confirm('确定删除该留言？');">
+                  {{ csrf_input() }}
               <button type="submit" class="link-danger">删除</button>
             </form>
           </td>

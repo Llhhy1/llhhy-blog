@@ -6,6 +6,7 @@
   设置会保存到数据库（无需再配环境变量）；若已配置环境变量 SMTP_*，此处留空则沿用环境变量值。</p>
 
   <form method="post" action="{{ url_for('admin.email_settings') }}" class="edit-form">
+        {{ csrf_input() }}
     <input type="hidden" name="action" value="save">
     <label>SMTP 服务器地址（如 smtp.qq.com / smtp.163.com）</label>
     <input type="text" name="mail_host" value="{{ settings.mail_host or '' }}" placeholder="smtp.qq.com">
@@ -34,6 +35,7 @@
 
   <h3 style="margin-top:0;">✉️ 发送测试邮件</h3>
   <form method="post" action="{{ url_for('admin.email_settings') }}" class="edit-form" style="max-width:520px;">
+        {{ csrf_input() }}
     <input type="hidden" name="action" value="test">
     <label>测试收件人邮箱</label>
     <input type="email" name="test_to" required placeholder="you@example.com">

@@ -12,7 +12,7 @@ from models import (db, Post, Category, Tag, Comment, FriendLink, Setting,
                     User, ROLE_SUPER, ROLE_ADMIN, ROLE_USER, SocialAccount,
                     Series, Announcement, Guestbook, Subscriber,
                     AuditLog, RecycleBin, LinkApplication, PostHistory)
-from utils import make_slug, count_words
+from utils import make_slug, count_words, validate_password
 from config import APP_VERSION
 import stats as stats_mod
 import fts
@@ -90,6 +90,21 @@ def super_required(view):
     return wrapped
 
 
+def _weak_password(raw):
+    """v3.1.6 中优：弱密码统一校验（黑名单 + 复杂度）。返回错误文案；通过返回空字符串。"""
+    try:
+        from flask import current_app as _app
+        cfg = _app.config
+        ok, err = validate_password(
+            raw or "", min_len=8,
+            strong=cfg.get("STRONG_PASSWORD", True),
+            mixed_case=cfg.get("STRONG_PASSWORD_MIXED_CASE", False),
+        )
+        return "" if ok else err
+    except Exception:
+        return "" if len(raw or "") >= 8 else "密码至少 8 位"
+
+
 def _can_edit_post(user, post):
     """判断当前用户能否编辑/删除该文章：管理员可编辑全部；普通用户只能编辑自己的。"""
     if user.is_admin_role:
@@ -145,8 +160,13 @@ def log_login_attempt(username, success, ip=""):
         db.session.commit()
     except Exception:
         pass
-    # 顺带清理超过 30 天的旧审计日志（含登录日志），避免表无限膨胀（v3.1.0）
-    _purge_audit_logs_older_than(30)
+    # 顺带清理超过保留周期的旧审计日志（含登录日志），避免表无限膨胀（v3.1.0；v3.1.6 周期可配）
+    try:
+        from flask import current_app as _app
+        days = _app.config.get("AUDIT_LOG_DAYS", 90)
+    except Exception:
+        days = 90
+    _purge_audit_logs_older_than(days)
 
 
 def _purge_audit_logs_older_than(days):
@@ -158,6 +178,30 @@ def _purge_audit_logs_older_than(days):
             db.session.commit()
     except Exception:
         pass
+
+
+def _audit_log_query_with_filters():
+    """按 query 参数（from / to）构造审计日志查询（v3.1.6 中优·导出时间筛选）。
+
+    支持 ?from=YYYY-MM-DD 与 ?to=YYYY-MM-DD（均为本地日期，按 UTC 存储比较）。
+    无参数时返回全部（保留周期内）。
+    """
+    q = AuditLog.query
+    frm = (request.args.get("from") or "").strip()
+    to = (request.args.get("to") or "").strip()
+    if frm:
+        try:
+            d = datetime.datetime.strptime(frm, "%Y-%m-%d")
+            q = q.filter(AuditLog.created_at >= d)
+        except ValueError:
+            pass
+    if to:
+        try:
+            d = datetime.datetime.strptime(to, "%Y-%m-%d") + datetime.timedelta(days=1)
+            q = q.filter(AuditLog.created_at < d)
+        except ValueError:
+            pass
+    return q, frm, to
 
 
 def _current_user_or_none():
@@ -220,6 +264,7 @@ def login():
         if user and user.check_password(password):
             log_login_attempt(username, True)
             session["user_id"] = user.id
+            session["session_version"] = user.session_version or 0  # v3.1.6：会话版本绑定
             if user.is_super and user.must_change_password:
                 return redirect(url_for("admin.setup"))
             # 按角色分流
@@ -248,8 +293,8 @@ def setup():
         confirm = request.form.get("confirm_password", "")
         if not new_username or len(new_username) < 2 or len(new_username) > 20:
             flash("用户名长度需在 2-20 个字符")
-        elif len(new_password) < 8:
-            flash("新密码至少 8 位")
+        elif _weak_password(new_password):
+            flash(_weak_password(new_password))
         elif new_password != confirm:
             flash("两次输入的新密码不一致")
         else:
@@ -260,7 +305,11 @@ def setup():
                 user.username = new_username
                 user.set_password(new_password)
                 user.must_change_password = False
+                user.session_version = (user.session_version or 0) + 1  # v3.1.6：改密码销毁旧会话
                 db.session.commit()
+                # 重新登录：用新密码建立新会话（旧会话版本已失效）
+                session["user_id"] = user.id
+                session["session_version"] = user.session_version
                 flash("账号设置完成，欢迎使用后台！")
                 return redirect(url_for("admin.dashboard"))
     return render_template("admin/setup.html", user=user)
@@ -761,15 +810,49 @@ def allowed_file(filename):
     return "." in filename and filename.rsplit(".", 1)[1].lower() in current_app.config["ALLOWED_EXTENSIONS"]
 
 
+# v3.1.6 高优：上传文件魔数（magic bytes）校验，不只依赖后缀名。
+# 魔数表：png/jpg/jpeg/gif/webp 的真实文件头。不匹配即拒绝，防伪装成图片的脚本/HTML 上传。
+_MAGIC_PATTERNS = {
+    b"\x89PNG\r\n\x1a\n": ("png", "png"),
+    b"\xff\xd8\xff": ("jpg", "jpeg"),
+    b"GIF87a": ("gif", "gif"),
+    b"GIF89a": ("gif", "gif"),
+    b"RIFF": ("webp", None),  # RIFF....WEBP：进一步精验
+}
+
+
+def _detect_image_magic(header, ext):
+    """根据文件头魔数 + 期望后缀判断是否匹配。返回 False 拒绝，True 通过。
+    对 webp 追加 RIFF 后的 'WEBP' 四个字节精验；其余按魔数前缀匹配。
+    """
+    for magic, (mtype, _) in _MAGIC_PATTERNS.items():
+        if header.startswith(magic):
+            if mtype == "webp":
+                if len(header) >= 12 and header[8:12] == b"WEBP":
+                    return True
+                return False
+            return True
+    return False
+
+
 @admin_bp.route("/upload", methods=["POST"])
 @login_required
 def upload():
-    """接收后台上传的图片，保存到 static/uploads，返回可访问的 URL。"""
+    """接收后台上传的图片，保存到 static/uploads，返回可访问的 URL。
+
+    v3.1.6 安全加固：不仅要后缀名在白名单，还须校验文件内容魔数（magic bytes），
+    防「伪装成 .png/.jpg 的脚本或 HTML」上传后被访问执行（XSS/钓鱼）。
+    """
     file = request.files.get("file")
     if not file or file.filename == "":
         return jsonify({"error": "没有选择文件"}), 400
     if not allowed_file(file.filename):
         return jsonify({"error": "只支持 png/jpg/jpeg/gif/webp 图片"}), 400
+    # v3.1.6：读文件头 16 字节做魔数校验（不落盘判断，防后缀伪装）
+    header = file.stream.read(16)
+    file.stream.seek(0)  # 读完回卷，让 file.save 能从头保存
+    if not _detect_image_magic(header, file.filename.rsplit(".", 1)[1].lower()):
+        return jsonify({"error": "文件内容与图片格式不符，已拒绝（仅允许真实图片）"}), 400
     filename = secure_filename(file.filename)
     # 用时间戳前缀避免重名覆盖
     filename = f"{int(time.time())}-{filename}"
@@ -1233,15 +1316,18 @@ def change_password():
         confirm = request.form.get("confirm_password", "")
         if not user.check_password(old):
             flash("原密码错误")
-        elif len(new) < 8:
-            flash("新密码至少 8 位")
+        elif _weak_password(new):
+            flash(_weak_password(new))
         elif new != confirm:
             flash("两次输入的新密码不一致")
         else:
             user.set_password(new)
+            user.session_version = (user.session_version or 0) + 1  # v3.1.6：改密码销毁全部旧会话
             db.session.commit()
-            flash("密码修改成功，下次登录请使用新密码")
-            return redirect(url_for("admin.dashboard"))
+            # 销毁当前会话，强制用新密码重新登录（含其它已登录设备一并失效）
+            session.clear()
+            flash("密码修改成功，所有旧会话已失效，请使用新密码重新登录")
+            return redirect(url_for("admin.login"))
     return render_template("admin/change_password.html")
 
 
@@ -1268,8 +1354,8 @@ def add_user():
         flash("用户名已存在")
     elif role not in (ROLE_ADMIN, ROLE_USER):
         flash("无效的角色")
-    elif len(password) < 8:
-        flash("密码至少 8 位")
+    elif _weak_password(password):
+        flash(_weak_password(password))
     else:
         u = User(username=username, role=role, email=(request.form.get("email") or "").strip())
         u.set_password(password)
@@ -1315,12 +1401,32 @@ def reset_password(uid):
         flash("超级管理员的密码请使用「修改密码」自行修改")
         return redirect(url_for("admin.users"))
     new = request.form.get("new_password", "")
-    if len(new) < 8:
-        flash("新密码至少 8 位")
+    if _weak_password(new):
+        flash(_weak_password(new))
     else:
         target.set_password(new)
+        target.session_version = (target.session_version or 0) + 1  # v3.1.6：重置密码同样销毁旧会话
         db.session.commit()
-        flash(f"已重置 {target.username} 的密码")
+        flash(f"已重置 {target.username} 的密码（其旧会话已全部失效）")
+    return redirect(url_for("admin.users"))
+
+
+@admin_bp.route("/user/<int:uid>/kick", methods=["POST"])
+@login_required
+@super_required
+def kick_user(uid):
+    """超管踢下线（v3.1.6 中优·会话管理）：使目标用户所有会话立即失效（session_version+1），
+    不清除密码、不删除账号。超级管理员本人不可被踢（避免误操作锁死自己）。"""
+    target = db.session.get(User, uid)
+    if not target:
+        abort(404)
+    if target.is_super:
+        flash("超级管理员不能被踢下线（请直接改密码注销旧会话）")
+        return redirect(url_for("admin.users"))
+    ver = target.bump_session_version()
+    db.session.commit()
+    log_audit("kick", "user", uid, f"踢下线用户：{target.username}（会话版本 {ver}）", user=_current_user_or_none())
+    flash(f"已踢下线：{target.username}，其所有登录会话已失效")
     return redirect(url_for("admin.users"))
 
 
@@ -1346,24 +1452,38 @@ def delete_user(uid):
 @login_required
 @super_required
 def audit_logs():
-    """操作日志列表（仅超管可见）：分页展示，按时间倒序。"""
-    page = request.args.get("page", 1, type=int)
-    pagination = AuditLog.query.order_by(AuditLog.created_at.desc()).paginate(
+    """操作日志列表（仅超管可见）：分页展示，按时间倒序。
+
+    v3.1.6 中优：支持 ?from= / ?to= 时间筛选（导出与页面共用同一过滤）。
+    """
+    from flask import request as _req
+    q, frm, to = _audit_log_query_with_filters()
+    page = _req.args.get("page", 1, type=int)
+    pagination = q.order_by(AuditLog.created_at.desc()).paginate(
         page=page, per_page=30, error_out=False)
+    try:
+        from flask import current_app as _app
+        keep_days = _app.config.get("AUDIT_LOG_DAYS", 90)
+    except Exception:
+        keep_days = 90
+    from utils import csrf_input as _csrf_input  # 模板用 {{ csrf_input() }}
     return render_template("admin/audit_logs.html", logs=pagination.items,
-                           pagination=pagination)
+                           pagination=pagination, filter_from=frm, filter_to=to,
+                           keep_days=keep_days, csrf_input=_csrf_input)
 
 
 @admin_bp.route("/audit-logs/export")
 @login_required
 @super_required
 def export_audit_logs():
-    """打包下载全部审计日志（v3.1.0 新增）：生成 CSV + 可读 TXT 的 zip，内存打包不落盘。"""
+    """打包下载审计日志（v3.1.0 新增；v3.1.6 中优支持 ?from=/&to= 时间筛选）：
+    生成 CSV + 可读 TXT 的 zip，内存打包不落盘。"""
     import io
     import csv
     import zipfile
     import datetime as _dt
-    logs = AuditLog.query.order_by(AuditLog.created_at.desc()).all()
+    q, frm, to = _audit_log_query_with_filters()
+    logs = q.order_by(AuditLog.created_at.desc()).all()
 
     # ---- CSV 公式注入防护 ----
     # 单元格以 = + - @ 开头时，Excel/Numbers 会当成公式执行（如 "=cmd|..." 或 "=1+1"），
@@ -1391,8 +1511,14 @@ def export_audit_logs():
     csv_bytes = csv_buf.getvalue().encode("utf-8-sig")  # BOM 让 Excel 正确识别中文
 
     # ---- TXT（人类可读）----
+    try:
+        from flask import current_app as _app
+        keep_days = _app.config.get("AUDIT_LOG_DAYS", 90)
+    except Exception:
+        keep_days = 90
+    scope = f"时间范围：{frm or '起始'} → {to or '最新'}" if (frm or to) else f"保留 {keep_days} 天内的全部记录"
     lines = ["llhhy-blog 后台审计日志导出", "生成时间：" + _dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-             "共 %d 条记录（保留 30 天）" % len(logs), "=" * 60]
+             "共 %d 条记录（%s）" % (len(logs), scope), "=" * 60]
     for l in logs:
         ts = l.created_at.strftime("%Y-%m-%d %H:%M:%S") if l.created_at else "?"
         obj = (l.target or "") + (f"#{l.target_id}" if l.target_id else "")
@@ -1420,12 +1546,17 @@ def export_audit_logs():
 @login_required
 @super_required
 def clear_audit_logs():
-    """清空操作日志（谨慎操作，不可恢复）。保留最近 30 天（v3.1.0 起统一为 30 天保留期）。"""
-    cutoff = datetime.datetime.utcnow() - datetime.timedelta(days=30)
+    """清空操作日志（谨慎操作，不可恢复）。保留最近 AUDIT_LOG_DAYS 天（v3.1.0；v3.1.6 保留周期可配）。"""
+    try:
+        from flask import current_app as _app
+        days = _app.config.get("AUDIT_LOG_DAYS", 90)
+    except Exception:
+        days = 90
+    cutoff = datetime.datetime.utcnow() - datetime.timedelta(days=days)
     deleted = AuditLog.query.filter(AuditLog.created_at < cutoff).delete()
     db.session.commit()
-    log_audit("clear", "audit_log", None, f"清空 30 天前的审计日志 {deleted} 条", user=_current_user_or_none())
-    flash(f"已清理 {deleted} 条 30 天前的旧日志（近 30 天记录保留）")
+    log_audit("clear", "audit_log", None, f"清空 {days} 天前的审计日志 {deleted} 条", user=_current_user_or_none())
+    flash(f"已清理 {deleted} 条 {days} 天前的旧日志（近 {days} 天记录保留）")
     return redirect(url_for("admin.audit_logs"))
 
 

@@ -6,6 +6,11 @@
 
       <form class="guestbook-form" @submit.prevent="submit" v-if="state.user">
         <textarea v-model="content" placeholder="写点什么留给站长…（必填，500 字内）" maxlength="500" rows="4" required></textarea>
+        <!-- v3.1.6 可选增强：留言验证码 -->
+        <div v-if="captchaEnabled" class="captcha-row">
+          <input type="text" v-model="captcha" placeholder="验证码（不区分大小写）" maxlength="4" required />
+          <img :src="captchaUrl" alt="验证码" class="captcha-img" @click="refreshCaptcha" title="点击刷新" />
+        </div>
         <div>
           <button type="submit">发送留言</button>
           <span :class="'comment-status ' + statusClass" style="margin-left:10px;">{{ status }}</span>
@@ -36,6 +41,29 @@ const items = ref([]);
 const content = ref("");
 const status = ref("");
 const statusClass = ref("");
+const captcha = ref("");
+const captchaEnabled = ref(true);
+const captchaUrl = ref("");
+
+// v3.1.6 可选增强：留言验证码（CAPTCHA_ENABLED；后端/PIL 不可用时会返回降级关闭）
+function refreshCaptcha() {
+  captchaUrl.value = "/api/captcha?" + Date.now() + "&from=guestbook";
+}
+async function initCaptcha() {
+  try {
+    const r = await fetch("/api/captcha?" + Date.now(), { credentials: "same-origin" });
+    const ct = r.headers.get("content-type") || "";
+    if (ct.includes("image")) {
+      captchaEnabled.value = true;
+      captchaUrl.value = r.url;
+    } else {
+      captchaEnabled.value = false;
+    }
+  } catch (e) {
+    captchaEnabled.value = false;
+  }
+}
+initCaptcha();
 
 async function load() {
   try { const d = await apiGet("/api/guestbook"); items.value = d.items || []; }
@@ -43,12 +71,15 @@ async function load() {
 }
 async function submit() {
   if (!content.value.trim()) { status.value = "留言不能为空"; statusClass.value = "error"; return; }
+  const body = { content: content.value.trim() };
+  if (captchaEnabled.value) body.captcha = captcha.value.trim();
   status.value = "发送中…"; statusClass.value = "";
   try {
-    await apiPost("/api/guestbook", { content: content.value.trim() });
+    await apiPost("/api/guestbook", body);
     status.value = "留言成功！"; statusClass.value = "success"; content.value = "";
+    if (captchaEnabled.value) refreshCaptcha();
     load();
-  } catch (e) { status.value = e.message || "网络错误"; statusClass.value = "error"; }
+  } catch (e) { status.value = e.message || "网络错误"; statusClass.value = "error"; if (captchaEnabled.value) refreshCaptcha(); }
 }
 async function like(g) {
   try { const r = await apiPost(`/api/guestbook/${g.id}/like`); g.likes = r.likes; }

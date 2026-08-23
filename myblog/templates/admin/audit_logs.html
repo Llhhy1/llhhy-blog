@@ -3,12 +3,20 @@
 {% block content %}
   <div class="admin-actions">
     <h1 class="page-title" style="margin:0;">🧾 后台操作日志（审计 trail）</h1>
-    <form method="post" action="{{ url_for('admin.clear_audit_logs') }}" class="inline-form" onsubmit="return confirm('确定清空 30 天前的旧日志？近 30 天记录会保留。');">
+    <form method="get" class="inline-form">
+      <input type="date" name="from" value="{{ filter_from or '' }}" title="起始日期">
+      <span>→</span>
+      <input type="date" name="to" value="{{ filter_to or '' }}" title="结束日期">
+      <button type="submit" class="btn small">筛选</button>
+      {% if filter_from or filter_to %}<a class="btn small ghost" href="{{ url_for('admin.audit_logs') }}">清除筛选</a>{% endif %}
+    </form>
+    <form method="post" action="{{ url_for('admin.clear_audit_logs') }}" class="inline-form" onsubmit="return confirm('确定清空 {{ keep_days or 90 }} 天前的旧日志？近 {{ keep_days or 90 }} 天记录会保留。');">
+      {{ csrf_input() }}
       <button type="submit" class="btn small ghost">🧹 清理旧日志</button>
     </form>
-    <a class="btn small" href="{{ url_for('admin.export_audit_logs') }}">⬇️ 打包下载</a>
+    <a class="btn small" href="{{ url_for('admin.export_audit_logs', from=filter_from or '', to=filter_to or '') }}">⬇️ 打包下载{% if filter_from or filter_to %}（筛选后）{% endif %}</a>
   </div>
-  <p class="stats-tip">记录后台关键写操作（增删改文章/评论/用户/设置等）与每次登录（含成功/失败），含操作人、动作、对象、来源 IP，便于事后追溯。仅超级管理员可见。日志保留 30 天，自动清理更早记录。</p>
+  <p class="stats-tip">记录后台关键写操作（增删改文章/评论/用户/设置等）与每次登录（含成功/失败），含操作人、动作、对象、来源 IP，便于事后追溯。仅超级管理员可见。日志默认保留 {{ keep_days or 90 }} 天（环境变量 AUDIT_LOG_DAYS 可调），自动清理更早记录。</p>
   <table class="admin-table">
     <thead><tr><th>时间</th><th>操作人</th><th>动作</th><th>对象</th><th>结果</th><th>说明</th><th>来源 IP</th></tr></thead>
     <tbody>
@@ -23,18 +31,18 @@
           <td><code>{{ l.ip or '—' }}</code></td>
         </tr>
       {% else %}
-        <tr><td colspan="7">暂无操作日志</td></tr>
+        <tr><td colspan="7">暂无操作日志{% if filter_from or filter_to %}（当前筛选条件下无记录）{% endif %}</td></tr>
       {% endfor %}
     </tbody>
   </table>
   {% if pagination and pagination.pages > 1 %}
   <nav class="pagination">
     {% if pagination.page > 1 %}
-      <a href="{{ url_for('admin.audit_logs', page=pagination.page-1) }}">← 上一页</a>
+      <a href="{{ url_for('admin.audit_logs', page=pagination.page-1, from=filter_from or '', to=filter_to or '') }}">← 上一页</a>
     {% else %}<span class="disabled">← 上一页</span>{% endif %}
     <span class="current">{{ pagination.page }} / {{ pagination.pages }}</span>
     {% if pagination.page < pagination.pages %}
-      <a href="{{ url_for('admin.audit_logs', page=pagination.page+1) }}">下一页 →</a>
+      <a href="{{ url_for('admin.audit_logs', page=pagination.page+1, from=filter_from or '', to=filter_to or '') }}">下一页 →</a>
     {% else %}<span class="disabled">下一页 →</span>{% endif %}
   </nav>
   {% endif %}

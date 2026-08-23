@@ -4,3 +4,5 @@ markdown==3.6
 bleach==6.1.0
 gunicorn==22.0.0
 feedparser==6.0.11
+# v3.1.6 可选：配置 REDIS_URL 后用于多 worker 全局限流（未配置不安装也不报错，自动回退内存限流）
+redis>=4.5.0

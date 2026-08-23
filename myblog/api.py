@@ -41,9 +41,12 @@ def _user_pub(u):
 
 
 def _login_user(u):
-    """登录：Flask session 与 Astro 前端通过 header X-User-Id 共用同一会话。"""
+    """登录：Flask session 与 Astro 前端通过 header X-User-Id 共用同一会话。
+    v3.1.6：登录后会话变化，响应带新 csrf_token 供前端立即更新缓存。
+    """
     session["user_id"] = u.id
-    return jsonify({"ok": True, "user": _user_pub(u)})
+    session["session_version"] = u.session_version or 0  # v3.1.6：会话版本绑定，改密码/踢下线后旧会话失效
+    return jsonify({"ok": True, "user": _user_pub(u), "csrf_token": _csrf_token()})
 
 
 @api_bp.route("/auth/register", methods=["POST"])
@@ -55,6 +58,15 @@ def auth_register():
     # 注册开关：生产可设 BLOG_OPEN_REGISTER=false 关闭公开注册
     if not current_app.config.get("BLOG_OPEN_REGISTER"):
         return jsonify({"error": "本站已关闭公开注册"}), 403
+    # v3.1.6 可选增强：注册验证码（CAPTCHA_ENABLED=true 时要求通过验证码或直接带验证码文本）
+    from security import captcha_required, consume_captcha_pass, verify_captcha
+    if captcha_required():
+        passed = consume_captcha_pass()  # 一次性票据（先验票再消费）
+        if not passed:
+            code = (data.get("captcha") or "").strip()
+            if not code or not verify_captcha(code):
+                return jsonify({"error": "请先完成验证码校验"}), 400
+            consume_captcha_pass()  # 直接带文本校验通过后消费票据防重放
     username = (data.get("username") or "").strip()
     email = (data.get("email") or "").strip()
     password = data.get("password") or ""
@@ -62,8 +74,16 @@ def auth_register():
         return jsonify({"error": "用户名和密码不能为空"}), 400
     if len(username) < 2 or len(username) > 20:
         return jsonify({"error": "用户名长度需在 2-20 个字符"}), 400
-    if len(password) < 8:
-        return jsonify({"error": "密码至少 8 位"}), 400
+    # v3.1.6 中优：弱密码黑名单 + 复杂度校验（STRONG_PASSWORD 开关，见 config）
+    from utils import validate_password
+    cfg = current_app.config
+    ok_pwd, pwd_err = validate_password(
+        password, min_len=8,
+        strong=cfg.get("STRONG_PASSWORD", True),
+        mixed_case=cfg.get("STRONG_PASSWORD_MIXED_CASE", False),
+    )
+    if not ok_pwd:
+        return jsonify({"error": pwd_err}), 400
     if User.query.filter_by(username=username).first():
         return jsonify({"error": "该用户名已被注册"}), 409
     u = User(username=username, email=email, role=ROLE_USER)
@@ -85,9 +105,26 @@ def auth_login():
     if not u or not u.check_password(password):
         # v3.1.0：记录失败的登录尝试（含尝试的用户名与 IP，便于发现爆破）
         log_login_attempt(username, False)
+        # v3.1.6 中优：消除用户名枚举——失败统一文案（无论用户是否存在）+ 统一延迟，防时序侧信道
+        _login_delay()
         return jsonify({"error": "用户名或密码错误"}), 401
     log_login_attempt(username, True)
     return _login_user(u)
+
+
+def _login_delay():
+    """v3.1.6：登录失败统一延迟（LOGIN_DELAY_SECONDS 默认 1 秒），
+    让「用户不存在」与「密码错误」耗时一致，杜绝通过响应时间枚举用户名。
+    仅对失败路径生效，不影响正常登录体验。异常静默。
+    """
+    try:
+        import time as _t
+        from flask import current_app
+        delay = current_app.config.get("LOGIN_DELAY_SECONDS", 1.0)
+        if delay > 0:
+            _t.sleep(delay)
+    except Exception:
+        pass
 
 
 @api_bp.route("/auth/logout", methods=["POST"])
@@ -100,12 +137,58 @@ def auth_logout():
 def auth_me():
     uid = session.get("user_id")
     if not uid:
-        return jsonify({"user": None}), 200
+        return jsonify({"user": None, "csrf_token": _csrf_token()}), 200
     u = db.session.get(User, uid)
     if not u:
         session.pop("user_id", None)
-        return jsonify({"user": None}), 200
-    return jsonify({"user": _user_pub(u)}), 200
+        return jsonify({"user": None, "csrf_token": _csrf_token()}), 200
+    return jsonify({"user": _user_pub(u), "csrf_token": _csrf_token()}), 200
+
+
+@api_bp.route("/csrf")
+def csrf():
+    """获取当前会话的 CSRF Token（Vue 前端在 apiPost 前调用，放入 X-CSRF-Token 头）。"""
+    return jsonify({"csrf_token": _csrf_token()}), 200
+
+
+def _csrf_token():
+    """从会话取 CSRF Token；不存在则生成（每次生成都会写入会话）。"""
+    from utils import generate_csrf_token
+    try:
+        tok, _ = generate_csrf_token()
+        return tok
+    except Exception:
+        return ""
+
+
+# ---------- 图形验证码（v3.1.6 可选增强：可开关）----------
+@api_bp.route("/captcha")
+def captcha_image():
+    """获取注册/评论验证码图片（GET）。返回 PNG 图；CAPTCHA_ENABLED=false 时该项自动停用。
+    生成后答案存会话（captcha_answer），前端刷新图片时可重新生成。"""
+    from security import generate_captcha, captcha_required
+    if not captcha_required():
+        return jsonify({"error": "验证码未启用"}), 404
+    img, _ = generate_captcha()
+    if img is None:
+        # PIL 不可用降级：返回纯文本模式（前端显示为普通输入，不校验——零依赖稳妥）
+        return jsonify({"captcha": "off", "message": "服务器未安装图像库，验证码已降级停用"}), 200
+    return Response(img.getvalue(), mimetype="image/png",
+                    headers={"Cache-Control": "no-store"})
+
+
+@api_bp.route("/captcha/verify", methods=["POST"])
+def captcha_verify():
+    """前端提交验证码文本，校验通过后会话标记 captcha_passed（一次性票据）。
+    注册/评论提交时随请求携带该票据（或直接把验证码文本带上由注册接口自行校验）。"""
+    data = request.get_json(silent=True) or request.form
+    code = (data.get("captcha") or "").strip()
+    from security import verify_captcha, consume_captcha_pass
+    if not code:
+        return jsonify({"error": "请输入验证码"}), 400
+    if not verify_captcha(code):
+        return jsonify({"error": "验证码错误，请重新输入"}), 400
+    return jsonify({"ok": True, "captcha_passed": True}), 200
 
 
 # ---------- 小工具 ----------
@@ -458,6 +541,15 @@ def comment(slug):
     if not rate_limit(client_key("api_comment"), limit=10, window=60):
         return jsonify({"error": "评论过于频繁，请稍后再试"}), 429
     data = request.get_json(silent=True) or request.form
+    # v3.1.6 可选增强：评论验证码（CAPTCHA_ENABLED=true 时要求通过验证码或直接带验证码文本）
+    from security import captcha_required, consume_captcha_pass, verify_captcha
+    if captcha_required():
+        passed = consume_captcha_pass()  # 一次性票据（先验票再消费）
+        if not passed:
+            code = (data.get("captcha") or "").strip()
+            if not code or not verify_captcha(code):
+                return jsonify({"error": "请先完成验证码校验"}), 400
+            consume_captcha_pass()  # 直接带文本校验通过后消费票据防重放
     content = (data.get("content") or "").strip()
     # 已登录用户自动用其用户名；否则需填昵称
     author = ""
@@ -795,6 +887,15 @@ def post_guestbook():
     if not rate_limit(client_key("api_guestbook"), limit=10, window=60):
         return jsonify({"error": "留言过于频繁，请稍后再试"}), 429
     data = request.get_json(silent=True) or request.form
+    # v3.1.6 可选增强：留言验证码（CAPTCHA_ENABLED=true 时要求通过验证码或直接带验证码文本）
+    from security import captcha_required, consume_captcha_pass, verify_captcha
+    if captcha_required():
+        passed = consume_captcha_pass()  # 一次性票据（先验票再消费）
+        if not passed:
+            code = (data.get("captcha") or "").strip()
+            if not code or not verify_captcha(code):
+                return jsonify({"error": "请先完成验证码校验"}), 400
+            consume_captcha_pass()  # 直接带文本校验通过后消费票据防重放
     content = (data.get("content") or "").strip()
     u = _current_user()
     author = (u.username if u else (data.get("author") or "").strip())
@@ -1096,6 +1197,18 @@ def webhook_deploy():
     import hmac
     if not hmac.compare_digest(token, secret):
         return jsonify({"error": "密钥错误"}), 403
+    # v3.1.6 可选增强：timestamp 防重放（WH_REPLAY_WINDOW，默认 300 秒；设 0 关闭）
+    # 要求请求头携带 X-Deploy-Time（Unix 秒），与服务器时间偏差超过窗口即拒绝，
+    # 防止攻击者截获合法 webhook 请求后在窗口外重放触发部署。
+    window = current_app.config.get("WH_REPLAY_WINDOW", 300)
+    if window > 0:
+        try:
+            import time as _t
+            ts = int(request.headers.get("X-Deploy-Time") or "")
+            if abs(_t.time() - ts) > window:
+                return jsonify({"error": "部署请求时间戳过期或缺失，已拒绝（防重放）"}), 403
+        except (TypeError, ValueError):
+            return jsonify({"error": "缺少有效的 X-Deploy-Time 时间戳，已拒绝（防重放）"}), 403
     script = current_app.config.get("DEPLOY_SCRIPT", "")
     triggered = False
     if script:

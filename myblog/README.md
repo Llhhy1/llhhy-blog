@@ -83,6 +83,20 @@
 - **审计日志 CSV 公式注入防护**：导出审计日志时，对以 `= + - @` 开头的单元格加前缀，防止 Excel 打开执行恶意公式。
 - **一键更新哈希校验**：`update.sh` 下载部署包后比对 Release 附带的 `sha256.txt`，不一致直接终止更新，防中间人篡改 / 下载损坏（由 `package.py` 自动生成校验文件）。APP_VERSION 升为 v3.1.5。
 
+### v3.1.6 安全加固 12 项（全量落地）
+- **更新包完整性双重互证**：`package.py` 将各 zip 的「内容区」SHA256（剥离 EOCD 尾注释后的字节）写入 zip 注释，`sha256.txt` 记录含注释的整文件哈希；`update.sh` 同时比对 `sha256.txt` + zip 注释 + 可选 `UPDATE_HMAC_KEY` HMAC 签名——解决「sha256.txt 本身被替换」的漏洞（R13 审计通过）。注释哈希按内容区计算，不能对含注释的整文件算（注释参与字节后必然对不上）。
+- **上传文件魔数校验**：后缀白名单 + PNG / JPG / GIF / WebP 文件头 magic bytes 双重校验，伪造扩展名文件被拒。
+- **SMTP 密码不存库**：`SMTP_PASSWORD_ENV_FIRST`（默认 true）——SMTP 密码优先读环境变量，库值仅兜底。
+- **多 worker 全局限流**：`REDIS_URL` 配置后走 Redis INCR+EXPIRE 全局计数（多 worker 共享）；未配置自动回退内存滑动窗口（单 worker 等价）。
+- **CSRF Token 双重防护**：同源校验 + 会话绑定 HMAC Token，全局 POST / PUT / DELETE / PATCH 均校验；前端 apiPost 自动携带 `X-CSRF-Token`，服务端表单自动注入隐藏域。
+- **RSS DNS 重绑定缓解**：`feed_agg` 先解析域名再校验解析结果不含内网 / 回环 / 保留地址。
+- **弱密码黑名单 + 复杂度开关**：`STRONG_PASSWORD`（黑名单 + 字母/数字）与 `STRONG_PASSWORD_MIXED_CASE`（大小写混合）可独立开关，前后端统一提示。
+- **登录防枚举 + 会话踢下线**：失败统一文案 + `LOGIN_DELAY_SECONDS`（默认 1s）统一延迟，消除用户名枚举与时序侧信道；`session_version` 机制 + 超管「踢下线」路由实现「改密码销毁全部旧会话」。
+- **审计日志时间筛选与保留**：后台支持 `?from=&to=` 日期筛选；`AUDIT_LOG_DAYS`（默认 90）自动清理超期日志；导出支持筛选。
+- **可开关验证码**：`CAPTCHA_ENABLED`（默认 true）——注册 / 评论 / 留言图形验证码，一次性票据防重放，未装 Pillow 自动降级关闭。
+- **安全响应头**：`SECURITY_HEADERS`（默认 true）——全局追加 X-Frame-Options / CSP / X-Content-Type-Options / Referrer-Policy。
+- **会话超时 + Webhook 防重放**：`SESSION_IDLE_MINUTES`（默认 60）闲置超时强制重登；Webhook 必须带 `X-Deploy-Time` 时间戳（`WH_REPLAY_WINDOW` 默认 300s 窗口校验）。APP_VERSION 升为 v3.1.6。
+
 ## 目录结构
 ```
 myblog/             # 后端（Flask + SQLite）
@@ -93,10 +107,11 @@ myblog/             # 后端（Flask + SQLite）
 ├── notify.py       # 新文章推送通知（Telegram / 企业微信，环境变量驱动，静默失败）
 ├── feed_agg.py     # 友链 RSS 聚合（15 分钟内存缓存 + SSRF 防护 + bleach 清洗）
 ├── stats.py        # 访问统计：IP 属地解析（缓存+在线接口）、埋点记录、汇总
-├── utils.py        # 小工具（生成网址 slug、clean_html 白名单清洗、限流、安全跳转）
+├── utils.py        # 小工具（生成网址 slug、clean_html 白名单清洗、限流、安全跳转、弱密码校验、CSRF Token）
 ├── routes.py       # 前台页面 + 注册/登录 + 评论提交 + 天气接口
 ├── admin.py        # 后台管理（登录/写文章/分类/标签/评论/设置/统计/用户/系列/公告/留言墙/订阅者）
 ├── api.py          # 前后端分离用的 JSON 接口（/api/*，含 /api/stats/* 埋点与汇总）
+├── security.py     # 安全响应头 / 图形验证码 / SMTP 密码优先级（v3.1.6 新增）
 ├── requirements.txt
 ├── deploy_guide.md # 宝塔部署手册（点按式，含 Nginx 反代配置）
 ├── SECURITY_AUDIT.md # 安全审计报告（两轮）
@@ -166,8 +181,20 @@ vue-frontend/       # 前端（Vue3 + Vite，构建成静态站）
 - `CORS_ORIGIN`：默认空（不开启跨域）；前后端分离时才填允许的前端域名列表（逗号分隔）。
 - `SITE_URL`：站点对外地址，如 `https://blog.example.com`（RSS/sitemap 生成绝对链接用）。
 - `DATABASE_URL`：默认 `sqlite:///data/blog.db`；可覆盖为其他 SQLite 路径或 Postgres/MySQL 连接串（此时 FTS5 自动降级 LIKE）。
-- `WH_DEPLOY_SECRET`：设置后 `/api/webhook/deploy` 才可用（Header `X-Deploy-Token` 或 `?token=` 携带，HMAC 恒定时间比对）。
+- `WH_DEPLOY_SECRET`：设置后 `/api/webhook/deploy` 才可用（Header `X-Deploy-Token` 或 `?token=` 携带，HMAC 恒定时间比对）。**v3.1.6 起另需 `X-Deploy-Time` 时间戳头**（可选，缺省仅鉴权）。
 - `TELEGRAM_BOT_TOKEN` / `TELEGRAM_CHAT_ID` / `WECOM_WEBHOOK_URL`：新文章推送渠道（均可选，不配置自动跳过）。
+
+**v3.1.6 安全加固新增环境变量**（均为可选，不配用默认值）：
+- `REDIS_URL`：多 worker 部署时启用 Redis 全局限流（如 `redis://127.0.0.1:6379/0`）；不配自动回退内存滑动窗口（单 worker 等价）。
+- `SMTP_PASSWORD_ENV_FIRST`：默认 `true`——SMTP 密码优先环境变量 `SMTP_PASSWORD`，库值仅兜底。
+- `STRONG_PASSWORD`：默认 `true`——弱密码黑名单 + 字母/数字复杂度校验；`false` 关闭。
+- `STRONG_PASSWORD_MIXED_CASE`：默认 `false`——`true` 时额外要求大小写混合。
+- `LOGIN_DELAY_SECONDS`：默认 `1`——登录失败统一延迟（防用户名枚举时序侧信道）。
+- `SESSION_IDLE_MINUTES`：默认 `60`——会话闲置超时；`0` 关闭。
+- `AUDIT_LOG_DAYS`：默认 `90`——审计日志保留天数。
+- `CAPTCHA_ENABLED`：默认 `true`——注册/评论/留言图形验证码（未装 Pillow 自动降级关闭）。
+- `SECURITY_HEADERS`：默认 `true`——安全响应头（X-Frame-Options/CSP/X-Content-Type-Options/Referrer-Policy）。
+- `UPDATE_HMAC_KEY`：可选——为发布包生成 HMAC 签名并在 `update.sh` 校验（增强更新包完整性）。
 
 > 安全设计：源码开源后，以上密钥不会以任何弱默认值出现在代码里，请在部署环境通过环境变量注入。
 
@@ -191,3 +218,6 @@ vue-frontend/       # 前端（Vue3 + Vite，构建成静态站）
 - **订阅者列表是空的**：订阅入口在**前台侧边栏「📬 邮件订阅」**（访客填邮箱提交）。要让订阅者真正收到新文章邮件，需在后台「📧 邮件设置」配置 SMTP（QQ/163 邮箱用授权码）并保存。
 - **后台左下角没有版本号**：说明后端代码未更新到 v2.2.0+，请按「更新后后台还是旧界面」排查。
 - **测试邮件发送失败**：检查后台「📧 邮件设置」——端口/SSL 开关是否匹配（465=勾选 SSL，587=取消）、授权码是否正确（不是登录密码）、发件邮箱是否已在邮箱后台开启 SMTP 服务。
+- **第三方脚本直接 POST 接口被 403（CSRF）**：v3.1.6 起所有写接口要求会话绑定的 CSRF Token。前端页面/后台表单已自动处理；第三方脚本需先 GET `/api/csrf` 拿 token 再带 `X-CSRF-Token` 头提交（或改用 webhook 等豁免接口）。
+- **评论/留言/注册要填验证码**：v3.1.6 起默认开启图形验证码（`CAPTCHA_ENABLED=true`）；如果服务器没装 Pillow 会自动降级关闭。若不想用，在环境变量设 `CAPTCHA_ENABLED=false` 并重启项目。
+- **升级 v3.1.6 后所有用户都要重新登录**：`session_version` 会话版本机制启动生效，旧会话全部失效（预期安全行为，登录一次即可）。

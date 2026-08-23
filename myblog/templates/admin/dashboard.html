@@ -100,6 +100,7 @@
                   {% if p.scheduled_at and not p.published %}
                     <span class="status-scheduled">⏰ 定时 {{ p.scheduled_at.strftime('%m-%d %H:%M') }}</span>
                     <form method="post" action="{{ url_for('admin.publish_now', post_id=p.id) }}" class="inline-form">
+                          {{ csrf_input() }}
                       <input type="hidden" name="back" value="admin.dashboard">
                       <button type="submit" class="link-btn">立即发布</button>
                     </form>
@@ -117,19 +118,23 @@
                   {% if current_user and current_user.is_super %}
                     {% if p.pin_requested and not p.is_pinned %}
                       <form method="post" action="{{ url_for('admin.approve_pin', post_id=p.id) }}" class="inline-form">
+                            {{ csrf_input() }}
                         <button type="submit" class="link-btn">批准置顶</button>
                       </form>
                       <form method="post" action="{{ url_for('admin.reject_pin', post_id=p.id) }}" class="inline-form">
+                            {{ csrf_input() }}
                         <button type="submit" class="link-danger">拒绝</button>
                       </form>
                     {% endif %}
                     {% if p.is_pinned %}
                       <form method="post" action="{{ url_for('admin.unpin', post_id=p.id) }}" class="inline-form" onsubmit="return confirm('确定取消置顶？');">
+                            {{ csrf_input() }}
                         <button type="submit" class="link-btn">取消置顶</button>
                       </form>
                     {% endif %}
                   {% endif %}
                   <form method="post" action="{{ url_for('admin.delete_post', post_id=p.id) }}" class="inline-form" onsubmit="return confirm('确定删除？');">
+                        {{ csrf_input() }}
                     <button type="submit" class="link-danger">删除</button>
                   </form>
                 </td>

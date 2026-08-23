@@ -4,6 +4,7 @@
   <h1 class="page-title">系列 / 专栏管理</h1>
   <p class="hint">把多篇文章归到一个系列，前台会显示专栏页与上下篇导航。</p>
   <form method="post" action="{{ url_for('admin.manage_series') }}" class="link-form">
+        {{ csrf_input() }}
     <input type="text" name="name" placeholder="系列名称" required>
     <input type="text" name="description" placeholder="简介（可选）">
     <input type="text" name="cover" placeholder="封面图 URL（可选）">
@@ -20,6 +21,7 @@
           <td>{{ s.posts.filter_by(published=True).count() }}</td>
           <td>
             <form method="post" action="{{ url_for('admin.delete_series', sid=s.id) }}" class="inline-form" onsubmit="return confirm('确定删除该系列？其下文章不会删除，仅解除关联。');">
+                  {{ csrf_input() }}
               <button type="submit" class="link-danger">删除</button>
             </form>
           </td>

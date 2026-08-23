@@ -13,9 +13,11 @@
           <td>{{ r.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
           <td>
             <form method="post" action="{{ url_for('admin.restore_post', rid=r.id) }}" class="inline-form">
+                  {{ csrf_input() }}
               <button type="submit" class="link-mark">还原</button>
             </form>
             <form method="post" action="{{ url_for('admin.purge_post', rid=r.id) }}" class="inline-form" onsubmit="return confirm('彻底删除不可恢复，确定？');">
+                  {{ csrf_input() }}
               <button type="submit" class="link-danger">彻底删除</button>
             </form>
           </td>

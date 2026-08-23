@@ -34,6 +34,7 @@
     {% endfor %}
 
     <form class="comment-form" method="post" action="{{ url_for('main.add_comment', slug=post.slug) }}">
+          {{ csrf_input() }}
       <input type="text" name="author" placeholder="昵称（可留空）" maxlength="80">
       <textarea name="content" rows="3" placeholder="说点什么…" required></textarea>
       <button type="submit">提交评论</button>

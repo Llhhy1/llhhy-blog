@@ -4,6 +4,7 @@
   <div class="auth-box">
     <h1 class="page-title">登录</h1>
     <form method="post" action="{{ url_for('main.login') }}">
+          {{ csrf_input() }}
       <label>用户名</label>
       <input type="text" name="username" required>
       <label>密码</label>

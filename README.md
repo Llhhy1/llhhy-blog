@@ -14,8 +14,9 @@ llhhy-blog/
 │   ├── models.py              # 数据模型（文章/评论/用户/统计/系列/公告/留言/订阅者等）
 │   ├── fts.py                 # SQLite FTS5 全文搜索（不支持时自动降级 LIKE）
 │   ├── notify.py              # 新文章推送（Telegram / 企业微信）
-│   ├── feed_agg.py            # 友链 RSS 聚合（广场「博客圈」，防 SSRF + 清洗）
+│   ├── feed_agg.py            # 友链 RSS 聚合（广场「博客圈」，防 SSRF + DNS 重绑定缓解）
 │   ├── stats.py               # 访问统计与 IP 属地解析
+│   ├── security.py            # 安全响应头 / 图形验证码 / SMTP 密码优先级（v3.1.6）
 │   ├── config.py              # 配置（含 APP_VERSION 版本号自检）
 │   ├── templates/             # Jinja2 模板（含后台管理界面）
 │   ├── static/                # 样式脚本与上传目录
@@ -90,6 +91,21 @@ llhhy-blog/
 - **审计日志 CSV 公式注入防护**：导出审计日志时，对以 `= + - @` 开头的单元格加前缀，防止 Excel 打开执行恶意公式。
 - **一键更新哈希校验**：`update.sh` 下载部署包后比对 Release 附带的 `sha256.txt`，不一致直接终止更新，防中间人篡改 / 下载损坏（由 `package.py` 自动生成校验文件）。APP_VERSION 升为 v3.1.5。
 
+### v3.1.6 安全加固 12 项（全量落地）
+
+- **更新包完整性双重互证**：`package.py` 将各 zip 的「内容区」SHA256（剥离 EOCD 尾注释后的字节）写入 zip 注释，`sha256.txt` 记录含注释的整文件哈希；`update.sh` 同时比对 `sha256.txt` + zip 注释 + 可选 `UPDATE_HMAC_KEY` HMAC 签名——解决「sha256.txt 本身被替换」的漏洞（R13）。注释哈希按内容区计算，不能对含注释的整文件算（注释参与字节后必然对不上）。
+- **上传文件魔数校验**：后缀白名单 + PNG / JPG / GIF / WebP 文件头 magic bytes 双重校验，伪造扩展名文件被拒。
+- **SMTP 密码不存库**：`SMTP_PASSWORD_ENV_FIRST`（默认 true）——SMTP 密码优先读环境变量，库值仅兜底（数据库泄露时密码不直接暴露）。
+- **多 worker 全局限流**：`REDIS_URL` 配置后走 Redis INCR+EXPIRE 全局计数（多 worker 共享）；未配置自动回退内存滑动窗口（单 worker 等价）。
+- **CSRF Token 双重防护**：同源校验 + 会话绑定 HMAC Token，全局 POST / PUT / DELETE / PATCH 均校验；前端 apiPost 自动携带 `X-CSRF-Token`，服务端表单自动注入隐藏域。
+- **RSS DNS 重绑定缓解**：`feed_agg` 先解析域名再校验解析结果不含内网 / 回环 / 保留地址。
+- **弱密码黑名单 + 复杂度开关**：`STRONG_PASSWORD`（黑名单 + 字母/数字）与 `STRONG_PASSWORD_MIXED_CASE`（大小写混合）可独立开关，前后端统一提示。
+- **登录防枚举 + 会话踢下线**：失败统一文案 + `LOGIN_DELAY_SECONDS`（默认 1s）统一延迟，消除用户名枚举与时序侧信道；`session_version` 机制 + 超管「踢下线」路由实现「改密码销毁全部旧会话」。
+- **审计日志时间筛选与保留**：后台支持 `?from=&to=` 日期筛选；`AUDIT_LOG_DAYS`（默认 90）自动清理超期日志；导出支持筛选。
+- **可开关验证码**：`CAPTCHA_ENABLED`（默认 true）——注册 / 评论 / 留言图形验证码，一次性票据防重放，未装 Pillow 自动降级关闭。
+- **安全响应头**：`SECURITY_HEADERS`（默认 true）——全局追加 X-Frame-Options / CSP / X-Content-Type-Options / Referrer-Policy。
+- **会话超时 + Webhook 防重放**：`SESSION_IDLE_MINUTES`（默认 60）闲置超时强制重登；Webhook 必须带 `X-Deploy-Time` 时间戳（`WH_REPLAY_WINDOW` 默认 300s 窗口校验）。APP_VERSION 升为 v3.1.6。
+
 ## 快速开始（本地开发）
 
 后端（默认端口 5000）：
@@ -119,8 +135,8 @@ npm run dev              # 访问 http://localhost:5173
 
 - **后端**：gunicorn 运行 `myblog`，监听 8686；Nginx 反代 `/api/`、`/admin`、`/static/`；
 - **前端**：`vue-frontend` 执行 `npm run build`，把 `dist/` 作为静态站根目录；
-- **必配环境变量**：`SECRET_KEY`、`ADMIN_PASSWORD`（宝塔「Python 项目 → 设置 → 环境变量」）。
-- **版本确认**：登录后台，左下角显示当前版本（如 v3.1.3），与 [Releases](../../releases) 最新标签比对即可确认部署是否成功。
+- **必配环境变量**：`SECRET_KEY`、`ADMIN_PASSWORD`（宝塔「Python 项目 → 设置 → 环境变量」）；可选安全项见 [deploy_guide.md](myblog/deploy_guide.md)（`REDIS_URL` / `CAPTCHA_ENABLED` / `SESSION_IDLE_MINUTES` / `AUDIT_LOG_DAYS` / `UPDATE_HMAC_KEY` 等，v3.1.6+）。
+- **版本确认**：登录后台，左下角显示当前版本（如 v3.1.6），与 [Releases](../../releases) 最新标签比对即可确认部署是否成功。
 - **升级（简单方式）**：用仓库根目录 `update.sh` 懒人版脚本（上传后 `bash update.sh`，自动下载最新包 + 备份数据 + 覆盖代码 + **自动重启**），详见部署文档「一键更新脚本」章节。
 - **升级（最懒方式，v2.5.0+）**：登录后台自动检测新版本 → 点「立即更新」→ 后台静默完成 → 刷新即用，详见部署文档「后台一键在线更新」章节。
 - **升级（手动方式）**：备份 `data/` 与 `static/uploads/` → 覆盖后端/前端 → 「停止」再「启动」项目 → 验证版本号。详见部署文档「版本升级」章节。
@@ -131,11 +147,13 @@ npm run dev              # 访问 http://localhost:5173
 
 - `SECRET_KEY` / `ADMIN_PASSWORD` 必须通过环境变量注入，**缺失即拒绝启动**，源码不含任何弱默认密钥；
 - 会话 Cookie `Secure` / `HttpOnly` / `SameSite=Lax` + 跨站请求同源校验（CSRF 防御）；
-- Markdown 渲染经白名单清理（防存储型 XSS）；RSS 聚合抓取同样清洗 + 防 SSRF（只允许 http/https、拦截内网地址）；
-- CORS 默认关闭；登录 / 注册 / 评论 / 留言 / 订阅 / 点赞按 IP 限流；
-- Webhook 部署接口使用 HMAC 恒定时间比较校验密钥，未配置密钥时接口不可用；
+- **v3.1.6 起叠加 CSRF Token 双重防护**：会话绑定 HMAC Token 全局校验 POST/PUT/DELETE/PATCH（前端自动携带、服务端表单自动注入）；
+- Markdown 渲染经白名单清理（防存储型 XSS）；RSS 聚合抓取同样清洗 + 防 SSRF（只允许 http/https、拦截内网地址 + DNS 重绑定缓解）；
+- CORS 默认关闭；登录 / 注册 / 评论 / 留言 / 订阅 / 点赞按 IP 限流（**v3.1.6 起支持 Redis 全局计数**，多 worker 共享）；
+- Webhook 部署接口使用 HMAC 恒定时间比较校验密钥，未配置密钥时接口不可用；**v3.1.6 起叠加 `X-Deploy-Time` 时间戳防重放**；
 - 推送通知（Telegram / 企业微信）密钥仅走环境变量，异常静默处理，不入库不入仓；
-- 图片上传禁用 SVG（防内嵌脚本 XSS）。
+- 图片上传禁用 SVG（防内嵌脚本 XSS）+ **v3.1.6 起文件头魔数校验**；
+- **v3.1.6 起**：弱密码黑名单 + 复杂度校验、登录失败统一延迟（防枚举）、`SESSION_IDLE_MINUTES` 会话闲置超时、改密码/踢下线后旧会话全部失效、审计日志自动清理（`AUDIT_LOG_DAYS`）、安全响应头（X-Frame-Options / CSP / X-Content-Type-Options / Referrer-Policy）。
 - **修复记录**：第二轮审计修复 Webhook 密钥未从环境变量载入导致恒 403 的缺陷（R1）；第三轮（v2.3.0）修复邮件注入 / 文件句柄泄漏 / 邮箱枚举；v3.1.1（R9）修复手机端抽屉菜单在深色模式下仍为白底的问题，v3.1.3（R10）补充写死暗色值彻底稳定抽屉深色样式（汉堡菜单深色切换已在 v3.1.0 R8 修复）。
 
 ## 下载部署包

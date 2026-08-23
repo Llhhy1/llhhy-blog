@@ -26,9 +26,11 @@
           <td>
             {% if a.status == 'pending' %}
             <form method="post" action="{{ url_for('admin.approve_link_application', aid=a.id) }}" class="inline-form">
+                  {{ csrf_input() }}
               <button type="submit" class="link-mark">通过</button>
             </form>
             <form method="post" action="{{ url_for('admin.reject_link_application', aid=a.id) }}" class="inline-form" onsubmit="return confirm('确定拒绝该申请？');">
+                  {{ csrf_input() }}
               <button type="submit" class="link-danger">拒绝</button>
             </form>
             {% else %}

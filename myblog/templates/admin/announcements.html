@@ -3,6 +3,7 @@
 {% block content %}
   <h1 class="page-title">站点公告管理</h1>
   <form method="post" action="{{ url_for('admin.manage_announcements') }}" class="link-form" style="flex-direction:column;align-items:stretch;">
+        {{ csrf_input() }}
     <textarea name="content" rows="3" placeholder="公告内容（支持 Markdown）" required></textarea>
     <div class="ann-form-row">
       <select name="level">
@@ -25,9 +26,11 @@
           <td>{{ '启用' if a.active else '停用' }}</td>
           <td>
             <form method="post" action="{{ url_for('admin.toggle_announcement', aid=a.id) }}" class="inline-form">
+                  {{ csrf_input() }}
               <button type="submit" class="btn-sm">{{ '停用' if a.active else '启用' }}</button>
             </form>
             <form method="post" action="{{ url_for('admin.delete_announcement', aid=a.id) }}" class="inline-form" onsubmit="return confirm('确定删除？');">
+                  {{ csrf_input() }}
               <button type="submit" class="link-danger">删除</button>
             </form>
           </td>

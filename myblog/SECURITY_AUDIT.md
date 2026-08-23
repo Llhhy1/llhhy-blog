@@ -777,3 +777,51 @@
 **评估**：四项安全缺口全部补齐，无新增风险。`py_compile` 全量编译通过；隔离单元冒烟测试（FTS 转义 5/5、CSV 防护 6/6、密码校验逻辑）通过；`bash -n` 校验 update.sh / deploy.sh 通过；`package.py` 生成 `sha256.txt` 验证通过。
 
 **上线前必配（可选）**：若启用一键在线更新，发布时务必在 GitHub Release 附带 `sha256.txt`（已由 package.py 自动生成）；未附带时更新脚本会告警但不阻断。
+
+---
+
+# 第二十三轮审计（R13 · v3.1.6 安全加固 12 项）
+
+> 背景：外部安全审计清单共 16 项（高优 4 + 中优 5 + 可选增强 4 + 运维 3）。本版本对其中**确属真实缺口**的 12 项代码级加固全部落地，并完成文档/部署配套。此前已在 R12 确认的既有防护（HMAC compare_digest、bleach 白名单、SSRF 私有地址拦截、上传大小限制、SMTP 头注入加固、内存限流）继续保留，本轮在其上叠加双重防护。
+
+**改动文件清单**：
+- `myblog/config.py`：APP_VERSION 3.1.5 → 3.1.6；新增 `REDIS_URL` / `WH_REPLAY_WINDOW` / `SMTP_PASSWORD_ENV_FIRST` / `STRONG_PASSWORD` / `STRONG_PASSWORD_MIXED_CASE` / `LOGIN_DELAY_SECONDS` / `SESSION_IDLE_MINUTES` / `AUDIT_LOG_DAYS` / `CAPTCHA_ENABLED` / `SECURITY_HEADERS` / `UPDATE_HMAC_KEY` 配置。
+- `myblog/utils.py`：新增 `validate_password()`（弱密码黑名单 + 字母/数字复杂度）、`generate_csrf_token()` / `check_csrf_token()` / `csrf_input()`（HMAC 签名 Token）、`rate_limit()` Redis 模式（INCR+EXPIRE 全局计数，异常自动回退内存滑动窗口）。
+- `myblog/security.py`（新建）：`security_headers()`（X-Frame-Options / X-Content-Type-Options / Referrer-Policy / CSP）、图形验证码生成与校验（PIL 缺失自动降级）、`mail_password_precedence()`（SMTP 密码环境变量优先）。
+- `myblog/app.py`：全局 `after_request` 添加安全响应头；`_csrf_protect()` 全局 CSRF 校验（POST/PUT/DELETE/PATCH，豁免 webhook 与验证码接口）；`enforce_session_idle_timeout()` 会话闲置超时；`enforce_session_version()` 会话版本校验（改密码/踢下线后旧会话失效）；`_migrate_user_table()` 补 `session_version` 列。
+- `myblog/models.py`：User 表新增 `session_version`（默认 0）+ `bump_session_version()`。
+- `myblog/admin.py`：上传魔数校验（PNG/JPG/GIF/WebP magic bytes + 后缀白名单双重校验）、弱密码拦截接入 3 处、session_version 联动（setup/change_password/reset_password 后 +1 并销毁旧会话）、新增超管「踢下线」路由、审计日志 `?from=&to=` 时间筛选 + `AUDIT_LOG_DAYS` 保留周期 + 导出筛选。
+- `myblog/mail_notify.py`：SMTP 密码按 `SMTP_PASSWORD_ENV_FIRST` 优先环境变量，库值仅兜底。
+- `myblog/routes.py`：前台注册密码接入 `validate_password`。
+- `myblog/feed_agg.py`：DNS 重绑定缓解——域名先 `socket.getaddrinfo` 解析，解析结果含内网/回环/保留地址（`_is_private_ip`）即拒。
+- `myblog/api.py`：新增 `/api/csrf` 端点；登录失败统一文案 + `_login_delay()`；注册/评论/留言接入验证码（一次性票据防重放）；webhook 增加 `X-Deploy-Time` 时间戳防重放（`WH_REPLAY_WINDOW` 默认 300s）。
+- `myblog/requirements.txt`：加 `redis>=4.5.0`（可选，未配置不加载不报错）。
+- `package.py` + `update.sh`：更新包完整性升级——SHA256 写入 zip EOCD 注释（双源互证）+ 可选 `UPDATE_HMAC_KEY` HMAC 签名。
+- `myblog/templates/`（24 个表单模板）+ `vue-frontend`（api.js / store.js / RegisterView / CommentForm / GuestbookView / global.css）：CSRF 隐藏域批量注入、前端 apiPost 自动带 `X-CSRF-Token`、验证码 UI 三处接入。
+
+**维度审计**：
+
+| 编号 | 维度 | 结论 |
+|---|---|---|
+| R13-1 | CSRF 双重防护 | 同源校验（Origin + SameSite=Lax）之上叠加会话绑定 HMAC Token，全局 POST/PUT/DELETE/PATCH 校验；webhook/验证码接口按需豁免；前端 apiPost 自动取 token，后台表单自动注入隐藏域 | ✅ 通过 |
+| R13-2 | 登录防枚举 | 失败统一文案「用户名或密码错误」+ 统一延迟 `LOGIN_DELAY_SECONDS`（默认 1s），不存在用户与密码错误耗时一致，消除时序侧信道；限流 + 审计日志记录失败尝试 | ✅ 通过 |
+| R13-3 | 会话安全 | 闲置超时 `SESSION_IDLE_MINUTES` 强制重登；`session_version` 机制实现改密码/超管踢下线后旧会话全部失效（含跨 worker：版本号存库） | ✅ 通过 |
+| R13-4 | 弱密码 | 黑名单（password/123456/明文常见弱口令）+ 复杂度（字母+数字）双开关，前端/后端一致性同步（Vue 提示 + Jinja 提示） | ✅ 通过 |
+| R13-5 | SSRF / DNS 重绑定 | feed_agg 域名解析后校验非内网/回环/保留地址，攻击者自建域名指向内网 IP 时拒绝请求 | ✅ 通过 |
+| R13-6 | 上传魔数 | 后缀白名单 + magic bytes（PNG/JPG/GIF/WebP）双重校验，伪造扩展名文件被拒 | ✅ 通过 |
+| R13-7 | 密钥泄露 | SMTP 密码默认不再信任库值，优先环境变量；仓库内无硬编码密钥、无 .env 入库（复核） | ✅ 通过 |
+| R13-8 | 防重放 / 完整性 | webhook `X-Deploy-Time` 窗口防重放；更新包 SHA256 双源（sha256.txt + zip 注释）+ 可选 HMAC 签名互证，解决 sha256.txt 自身被替换的死角 | ✅ 通过 |
+| R13-9 | 验证码 | 注册/评论/留言图形验证码可开关（`CAPTCHA_ENABLED`），一次性票据消费防重放，PIL 缺失自动降级 | ✅ 通过 |
+| R13-10 | 限流 | `REDIS_URL` 配置后走 Redis 全局计数器（多 worker 共享）；未配置自动回退进程内内存滑动窗口，单 worker 等价，异常不中断 | ✅ 通过 |
+| R13-11 | 响应头 | X-Frame-Options（防点击劫持）/ X-Content-Type-Options / Referrer-Policy / CSP 全局追加，`SECURITY_HEADERS=false` 可关 | ✅ 通过 |
+| R13-12 | 资源泄漏 | 上传读取 16 字节头后 `seek(0)` 再保存，无句柄残留；sleep 延迟仅失败路径；Redis 连接异常即回退不持有 | ✅ 通过 |
+| R13-13 | 回归风险 | CSRF 严格模式对「纯 API 客户端/外部系统直接 POST」会 403——属于预期安全行为，前端已自动适配；升级后旧会话需重新登录一次（session_version 机制，正常现象） | ✅ 通过 |
+
+**验证记录**：
+- `py_compile` 全量编译通过（myblog 全部 .py）。
+- 隔离临时库冒烟测试 **11 组全部通过**：CSRF 拦截/豁免、弱密码黑名单+复杂度、session_version 自增与旧会话失效、登录防枚举（同文案+401+延迟≥0.5s）、验证码接口、安全响应头 4 项、审计日志时间筛选与保留周期、上传魔数函数存在、Redis 未配置回退内存限流、会话闲置超时拦截、DNS 私有 IP 判定。
+- 前端 Vue 源码验证码/CSRF 改动已在本轮文档同步中注明，最终以 `npm run build` 构建产物为准。
+- `bash -n` 校验 update.sh 通过（本轮未改动 deploy.sh 逻辑）。
+- **双源互证自指循环修复验证**：审计中发现「把哈希写入 zip 注释后，注释参与文件字节，『注释里的哈希 == 整文件哈希』必然不成立（等于破解 SHA256）」的数学缺陷。修复：zip 注释改存**内容区哈希**（剥离尾注释后的字节，写注释前后恒定），`sha256.txt` 记录含注释的整文件哈希；update.sh 两端分别按各自口径校验。修复后模拟 update.sh 完整双源互证：`myblog-backend.zip` 与 `vue-frontend-dist.zip` 的 ①整文件哈希、②内容区哈希均与各自记录一致，`testzip` 结构完整，全部通过。
+
+**评估**：清单 12 项代码级加固全部落地并经冒烟验证，无新增高危风险。升级注意：旧会话升级后需重新登录一次；第三方直接 POST 不带 CSRF Token 会被 403（预期安全行为）。

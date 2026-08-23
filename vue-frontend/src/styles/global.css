@@ -642,3 +642,9 @@ button:hover, .btn:hover { background: color-mix(in srgb, var(--accent), #000 15
 /* 语言切换按钮（v3.0.0 功能11） */
 .lang-toggle { margin-left: 22px; background: transparent; border: 1px solid var(--nav-border); color: var(--nav-fg); border-radius: 8px; padding: 4px 10px; font-size: 13px; cursor: pointer; }
 .lang-toggle:hover { color: var(--accent); border-color: var(--accent); }
+
+/* 验证码（v3.1.6 可选增强：可开关，注册/评论/留言共用） */
+.captcha-row { display: flex; align-items: center; gap: 10px; margin: 10px 0; }
+.captcha-row input { flex: 1; min-width: 0; }
+.captcha-img { height: 40px; width: 110px; border-radius: 6px; border: 1px solid #ddd; cursor: pointer; object-fit: cover; background: #f5f6f8; }
+[data-theme="dark"] .captcha-img { border-color: #333; background: #23272e; }

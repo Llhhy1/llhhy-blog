@@ -30,6 +30,7 @@
       {% endwith %}
 
       <form method="post" action="{{ url_for('admin.login') }}">
+            {{ csrf_input() }}
         <label>用户名</label>
         <input type="text" name="username" autocomplete="username" required autofocus>
         <label>密码</label>

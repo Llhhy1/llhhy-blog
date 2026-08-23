@@ -119,6 +119,7 @@ def package_frontend(front_dir):
 
 
 def sha256_of(path):
+    """完整文件哈希（含 zip 注释）。update.sh ① 用标准 sha256sum 对全文件比对。"""
     h = hashlib.sha256()
     with open(path, "rb") as f:
         for chunk in iter(lambda: f.read(1024 * 1024), b""):
@@ -126,14 +127,135 @@ def sha256_of(path):
     return h.hexdigest()
 
 
+def _strip_zip_comment(data):
+    """定位 EOCD 并剥离尾注释，返回「内容区」字节（EOCD 注释长度字段清零）。
+
+    内容区 = zip 除去尾注释后的全部字节。写入/修改注释只改变注释区，
+    内容区保持不变，因此「内容区哈希」在写注释前后恒定——这是双源互证
+    能成立的关键（若对含注释的整文件算哈希，注释本身参与文件字节，
+    「注释里的哈希 == 整文件哈希」就成了必须破解 SHA256 的自指循环）。
+    """
+    idx = data.rfind(b"\x50\x4b\x05\x06")
+    if idx < 0:
+        return data
+    # EOCD 固定 22 字节：签名(4) ... comment_length(2B, 偏移 20) comment
+    # 截到 idx+20 即把注释长度字段与注释整体去掉
+    return data[:idx + 20]
+
+
+def sha256_of_content(path):
+    """内容区哈希（剥离 zip 注释）。zip 注释内嵌的 SHA256 与之对应。"""
+    with open(path, "rb") as f:
+        data = f.read()
+    h = hashlib.sha256()
+    h.update(_strip_zip_comment(data))
+    return h.hexdigest()
+
+
 def write_checksums(files):
-    """生成 sha256.txt（每行：哈希 文件名），供 update.sh 校验完整性防篡改。"""
+    """生成 sha256.txt（每行：哈希 文件名），供 update.sh 校验完整性防篡改。
+
+    v3.1.6 增强（双源互证，防「sha256.txt 自身被篡改」）：
+    1. ZIP 注释内嵌「内容区哈希」：把每个 zip 剥离尾注释后的内容区 SHA256 写进
+       该 zip 的 ZIP comment（规范原生字段）。内容区在写注释前后恒定，因此
+       「注释里的哈希 == 内容区实际哈希」始终成立。
+       update.sh ② 用 python3 剥离注释后重新计算内容区哈希比对——
+       单独篡改包内容或单独篡改注释都会导致不一致。
+    2. sha256.txt 记录「完整文件哈希」（含注释），update.sh ① 用标准 sha256sum
+       比对——整体替换包或 sha256.txt 都会导致不一致。两层互相独立、互证。
+    3. sha256.txt 全文 HMAC 签名：用环境变量 UPDATE_HMAC_KEY 对 sha256.txt 内容做
+       HMAC-SHA256，签名以 "HMAC <hex>" 首行写入 sha256.txt。配置了该密钥的服务器
+       在 update.sh 里强制校验，未配置则跳过（向后兼容）。密钥属于部署侧机密，
+       不在 Release 包内。
+    """
+    hashes = {}
+    for p in files:
+        # 先取内容区哈希（写注释前），写入注释后内容区不变，注释哈希恒可与内容区对上；
+        # 再对含注释的整文件算哈希，写入 sha256.txt（update.sh ① 用 sha256sum 全文件比对）。
+        content_hash = sha256_of_content(p)
+        _embed_zip_comment(p, content_hash)
+        h = sha256_of(p)
+        hashes[os.path.basename(p)] = h
     out = os.path.join(ROOT, "sha256.txt")
+    lines = []
+    hmac_key = os.environ.get("UPDATE_HMAC_KEY", "")
+    if hmac_key:
+        lines.append("HMAC " + _hmac_hex(hmac_key, _checksum_body(hashes)))
+    for name in sorted(hashes):
+        lines.append("%s  %s" % (hashes[name], name))
     with open(out, "w", encoding="utf-8") as f:
-        for p in files:
-            f.write("%s  %s\n" % (sha256_of(p), os.path.basename(p)))
+        f.write("\n".join(lines) + "\n")
     print("  [checksum] %s" % out)
     return out
+
+
+def _checksum_body(hashes):
+    """sha256.txt 除 HMAC 首行外的正文（update.sh 用它重算签名）。"""
+    return "\n".join("%s  %s" % (hashes[n], n) for n in sorted(hashes)) + "\n"
+
+
+def _hmac_hex(key, body):
+    import hmac as _hmac
+    import hashlib as _hl
+    return _hmac.new(key.encode("utf-8"), body.encode("utf-8"), _hl.sha256).hexdigest()
+
+
+def _embed_zip_comment(path, sha256_hex):
+    """把哈希写入 zip 注释（ZIP comment，随 zip 一起分发，非独立文件）。
+    注释格式：开头保留原注释（若有），末尾追加 "SHA256=<hex>"。
+    """
+    try:
+        with open(path, "rb") as f:
+            data = f.read()
+        # 定位 EOCD（End of Central Directory）：从文件尾往前找 \x50\x4b\x05\x06
+        idx = data.rfind(b"\x50\x4b\x05\x06")
+        if idx < 0:
+            return
+        # EOCD 结构：... comment_length(2B) comment ... 其中 comment_length 在 idx+20 处
+        clen = int.from_bytes(data[idx + 20:idx + 22], "little")
+        old_comment = data[idx + 22:idx + 22 + clen].decode("utf-8", "replace") if clen else ""
+        # 保留旧注释（去掉可能已存在的旧 SHA256 行）
+        kept = "\n".join(
+            ln for ln in old_comment.splitlines() if not ln.startswith("SHA256=")
+        ).strip()
+        new_comment = (kept + "\nSHA256=" + sha256_hex).strip()
+        cb = new_comment.encode("utf-8")
+        # 注意：EOCD 固定 22 字节，注释长度字段位于签名后偏移 20 处。
+        # 正确做法：截到签名 + 20（不含旧注释长度字段），再写新长度 + 新注释。
+        # 之前写 data[:idx+22] 会保留旧的注释长度字段，导致 zip 工具读不到注释（Bug）。
+        body = data[:idx + 20] + len(cb).to_bytes(2, "little") + cb
+        with open(path, "wb") as f:
+            f.write(body)
+    except Exception as e:
+        print("  [checksum] 警告：zip 注释内嵌失败（不影响主流程）:", e)
+
+
+def verify_zip_comment(path, expected_hex):
+    """读取 zip 注释里的 SHA256 并比对「内容区实际哈希」（剥离注释后重算）。
+    返回 True/False；无注释或格式异常返回 False。
+    注意：expected_hex 必须是内容区哈希（sha256_of_content），不是整文件哈希。
+    """
+    try:
+        with open(path, "rb") as f:
+            data = f.read()
+        idx = data.rfind(b"\x50\x4b\x05\x06")
+        if idx < 0:
+            return False
+        clen = int.from_bytes(data[idx + 20:idx + 22], "little")
+        if clen <= 0:
+            return False
+        comment = data[idx + 22:idx + 22 + clen].decode("utf-8", "replace")
+        for ln in comment.splitlines():
+            ln = ln.strip()
+            if ln.startswith("SHA256="):
+                want = ln[7:].strip().lower()
+                # 用「内容区」重新计算实际哈希（剥离注释），与注释里的值比对
+                h = hashlib.sha256()
+                h.update(_strip_zip_comment(data))
+                return h.hexdigest() == want == (expected_hex or "").lower()
+        return False
+    except Exception:
+        return False
 
 
 def main():

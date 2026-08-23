@@ -5,6 +5,7 @@
     <h1 class="page-title">注册账号</h1>
     <p class="auth-tip">注册后可登录评论，昵称会显示在评论里。</p>
     <form method="post" action="{{ url_for('main.register') }}">
+          {{ csrf_input() }}
       <label>用户名</label>
       <input type="text" name="username" minlength="2" maxlength="20" required>
       <label>邮箱（可选）</label>

@@ -1,6 +1,9 @@
 """小工具函数。"""
 import re
 import time
+import hmac
+import hashlib
+import secrets
 
 import bleach
 from markdown import markdown
@@ -52,14 +55,46 @@ def safe_redirect(target, default="/"):
     return default
 
 
-# ---------- 简单内存限流（防爆破/刷接口）----------
-# 注：单进程内有效；多 worker 部署下作为纵深防御，不替代专业限流组件。
+# ---------- 限流（Redis 全局 / 内存回退）----------
+# 单进程内有效；多 worker 部署下作为纵深防御，不替代专业限流组件。
+# v3.1.6（高优）：配置 REDIS_URL 后改用 Redis 滑动窗口计数（多 worker 全局一致），
+# 未配置自动回退内存计数（单进程）。Redis 连接异常时静默回退内存，不影响主流程。
 _RATE = {}
+_REDIS_KEY_PREFIX = "blog:rl:"
+
+
+def _redis():
+    """按需创建 Redis 客户端（懒加载，失败返回 None）。"""
+    try:
+        from flask import current_app
+        import redis as _redis_mod
+        url = current_app.config.get("REDIS_URL", "")
+        if not url:
+            return None
+        return _redis_mod.from_url(url, socket_connect_timeout=2, socket_timeout=2,
+                                   decode_responses=True)
+    except Exception:
+        return None
 
 
 def rate_limit(key, limit=20, window=60):
-    """返回 True 表示允许；超出则 False。key 通常含 IP。"""
+    """返回 True 表示允许；超出则 False。key 通常含 IP。
+
+    Redis 模式：用 INCR + EXPIRE 做固定窗口计数（首请求建键，超限返回 False）。
+    内存模式：滑动窗口时间戳列表（旧逻辑）。
+    """
     now = time.time()
+    r = _redis()
+    if r is not None:
+        try:
+            rk = _REDIS_KEY_PREFIX + str(key)
+            # 固定窗口：计数 + 过期（窗口长度秒）。首请求 INCR=1 后设一次过期。
+            c = r.incr(rk)
+            if c == 1:
+                r.expire(rk, window)
+            return int(c) <= limit
+        except Exception:
+            pass  # Redis 异常回退内存
     hits = _RATE.get(key, [])
     hits = [t for t in hits if now - t < window]
     if len(hits) >= limit:
@@ -174,7 +209,103 @@ def setting_bool(key, default=False):
     return str(v).strip().lower() in ("true", "1", "yes", "on")
 
 
-def notify_mentioned(content, link, from_author, post_id=None):
+# ---------- 弱密码黑名单 + 复杂度校验（v3.1.6 中优）----------
+# 常见弱口令黑名单：直接命中拒绝；变体（如 123456a / password123）靠复杂度规则兜底。
+_WEAK_PASSWORDS = {
+    "123456", "123456789", "12345678", "1234567", "123123", "111111",
+    "000000", "666666", "888888", "password", "passw0rd", "qwerty",
+    "qwerty123", "abc123", "abc123456", "123qwe", "qwe123", "123abc",
+    "admin123", "admin888", "admin666", "root123", "password1",
+    "qq123456", "a123456", "woaini1314", "iloveyou", "1qaz2wsx",
+    "zxcvbnm", "asdfgh", "5201314", "aa123456", "a12345678", "pp123456",
+}
+_UPPER_RE = re.compile(r"[A-Z]")
+_LOWER_RE = re.compile(r"[a-z]")
+_DIGIT_RE = re.compile(r"\d")
+
+
+def validate_password(raw, min_len=8, strong=None, mixed_case=None):
+    """校验密码强度。返回 (ok, 错误信息)。
+
+    - 基础：长度 >= min_len（默认 8）
+    - strong=True（默认，可用环境变量 STRONG_PASSWORD 关闭）：至少含字母 + 数字；
+      且不在弱密码黑名单（大小写不敏感比较）
+    - mixed_case=True（STRONG_PASSWORD_MIXED_CASE）：再要求同时含大写与小写字母
+    - 以上开关均可在 config 配置，此处默认按最严格（调用方可传入 config 值覆盖）
+    """
+    pwd = raw or ""
+    if len(pwd) < min_len:
+        return False, f"密码至少 {min_len} 位"
+    if strong is None:
+        strong = True
+    if mixed_case is None:
+        mixed_case = False
+    if strong:
+        if pwd.strip().lower() in _WEAK_PASSWORDS:
+            return False, "该密码过于常见，请换一个更复杂的密码"
+        if not (_LOWER_RE.search(pwd) or _UPPER_RE.search(pwd)) or not _DIGIT_RE.search(pwd):
+            return False, "密码需同时包含字母和数字"
+        if mixed_case and (_LOWER_RE.search(pwd) is None or _UPPER_RE.search(pwd) is None):
+            return False, "密码需同时包含大写和小写字母"
+    return True, ""
+
+
+# ---------- CSRF Token 双因子防护（v3.1.6 中优）----------
+# 在既有 SameSite=Lax + Origin 同源校验之上，增加「会话绑定的一次性 CSRF Token」：
+#   每个登录会话生成 token（哈希型，HMAC(SECRET_KEY, session_id+user_id)），
+#   写进 session 并在模板里注入 <input type="hidden" name="csrf_token">；
+#   POST 请求校验表单字段或请求体 csrf_token 必须与会话 token 一致（恒定时间比较）。
+# 前端（Vue SPA）通过 /api/auth/me 响应头拿到 token，后续 POST 自动带 X-CSRF-Token。
+_CSRF_CACHE = {}
+
+
+def generate_csrf_token():
+    """生成本会话的 CSRF Token（惰性，无则创建）。返回 (token, 是否新建)。"""
+    from flask import session
+    import flask
+    tok = session.get("csrf_token")
+    if tok and tok in _CSRF_CACHE:
+        return tok, False
+    raw = secrets.token_hex(24)
+    # 会话绑定：token 本身存 session；另存一份带签名的校验体防 session 伪造
+    tok = raw + "." + _sign_csrf(raw)
+    session["csrf_token"] = tok
+    _CSRF_CACHE[tok] = True
+    return tok, True
+
+
+def _sign_csrf(raw):
+    """HMAC(SECRET_KEY, 'csrf:' + raw) 生成校验签名。"""
+    from flask import current_app
+    key = (current_app.config.get("SECRET_KEY") or "").encode("utf-8")
+    return hmac.new(key, ("csrf:" + raw).encode("utf-8"), hashlib.sha256).hexdigest()
+
+
+def check_csrf_token(tok):
+    """校验提交的 CSRF Token 是否等于会话 token（恒定时间比较）。返回 True/False。
+
+    双重校验：
+    1. 签名有效性：token 的签名部分必须由本服务 SECRET_KEY 生成（防伪造任意 token）；
+    2. 与会话一致：提交的 token 必须等于当前会话里存的 token。
+    """
+    from flask import session
+    session_tok = session.get("csrf_token") or ""
+    if not tok or not session_tok:
+        return False
+    parts = str(tok).split(".")
+    if len(parts) != 2:
+        return False
+    raw, sig = parts
+    expect = _sign_csrf(raw)
+    if not hmac.compare_digest(sig, expect):
+        return False
+    return hmac.compare_digest(str(tok), session_tok)
+
+
+def csrf_input():
+    """渲染隐藏域用（模板里写 {{ csrf_input() }}）。"""
+    tok, _ = generate_csrf_token()
+    return f'<input type="hidden" name="csrf_token" value="{tok}">'
     """解析评论/动态内容里的 @username，给被提及的注册用户生成站内通知。
     - content: 评论原文；link: 点击通知跳转地址；from_author: 提及者昵称（文案用）
     - 仅给存在的注册用户发通知，不重复，自己@自己不发

@@ -30,6 +30,7 @@
       {% endwith %}
 
       <form method="post" action="{{ url_for('admin.setup') }}">
+            {{ csrf_input() }}
         <label>新用户名（2-20 个字符）</label>
         <input type="text" name="username" autocomplete="username" required autofocus>
         <label>新密码（至少 8 位）</label>

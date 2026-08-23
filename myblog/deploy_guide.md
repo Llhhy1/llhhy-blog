@@ -65,6 +65,18 @@
    > - `COOKIE_SECURE=true`（HTTPS 部署推荐）、`BLOG_OPEN_REGISTER=false`（关闭公开注册）、`CORS_ORIGIN`（前后端分离时的前端域名列表，一般留空即可）。
    > - `WH_DEPLOY_SECRET`（开启 Webhook 自动部署接口）、`TELEGRAM_BOT_TOKEN` + `TELEGRAM_CHAT_ID` / `WECOM_WEBHOOK_URL`（新文章推送）、`DATABASE_URL`（默认 SQLite，一般不用填）。
    > - **邮件群发（v2.4.0 起不需要在环境变量配）**：登录后台 → 「📧 邮件设置」直接填 SMTP 即可（见下方「邮件设置」章节）。若你更想用环境变量，也可配 `SMTP_HOST` / `SMTP_PORT` / `SMTP_USERNAME` / `SMTP_PASSWORD` / `SMTP_FROM` / `SMTP_USE_SSL`（后台设置优先于环境变量）。
+   >
+   > **v3.1.6 安全加固新增可选配置**（不配用默认值即可）：
+   > - `REDIS_URL`：多 worker 部署时启用 Redis 全局限流计数（如 `redis://127.0.0.1:6379/0`）。**不配则自动回退进程内内存滑动窗口**，单 worker 无影响，多 worker 限流各自独立（略弱但可用）。
+   > - `SMTP_PASSWORD_ENV_FIRST`：默认 `true`——SMTP 密码优先读环境变量 `SMTP_PASSWORD`，库值仅兜底（避免数据库泄露时密码直接暴露）。
+   > - `STRONG_PASSWORD`：默认 `true`——启用弱密码黑名单 + 字母/数字复杂度校验；`false` 关闭。
+   > - `STRONG_PASSWORD_MIXED_CASE`：默认 `false`——`true` 时额外要求大小写混合。
+   > - `LOGIN_DELAY_SECONDS`：默认 `1`——登录失败统一延迟秒数（消除用户名枚举时序侧信道）。
+   > - `SESSION_IDLE_MINUTES`：默认 `60`——登录会话闲置多少分钟后强制重新登录；`0` 关闭。
+   > - `AUDIT_LOG_DAYS`：默认 `90`——审计日志保留天数，超期自动清理。
+   > - `CAPTCHA_ENABLED`：默认 `true`——注册/评论/留言启用图形验证码（服务器未装 Pillow 时自动降级关闭）。
+   > - `SECURITY_HEADERS`：默认 `true`——追加 X-Frame-Options / CSP / X-Content-Type-Options / Referrer-Policy 安全响应头。
+   > - `UPDATE_HMAC_KEY`：可选——为发布包生成 HMAC 签名并在 `update.sh` 校验（增强更新包完整性，见「一键更新」章节）。
 
 4. 点 **「提交」**。等待依赖安装完成（首次约 1-3 分钟，面板会显示进度）。
 5. 项目状态变为 **运行中（绿色）** 即成功。若报错，点项目右侧 **「日志」** 查看原因。
@@ -162,7 +174,7 @@
 | 首页 | `https://你的域名/` | 文章列表、侧边栏（含「📬 邮件订阅」框）、天气组件 |
 | 文章页 | `https://你的域名/post/xxx` | 打开文章，**直接刷新不 404** |
 | 登录/注册 | `https://你的域名/login`、`/register` | 页面正常，可注册 |
-| 后台 | `https://你的域名/admin` | 用新账号登录进仪表盘；**左下角显示版本号**（如 v3.1.5，点它直达 GitHub Releases 比对最新版） |
+| 后台 | `https://你的域名/admin` | 用新账号登录进仪表盘；**左下角显示版本号**（如 v3.1.6，点它直达 GitHub Releases 比对最新版） |
 | 广场 | `https://你的域名/square` | 微动态 + 博客圈 + 社交账号墙可打开 |
 | 系列 | `https://你的域名/series` | 系列列表页可打开（空列表正常） |
 | 留言墙 | `https://你的域名/guestbook` | 留言页可打开，登录后可留言 |
@@ -184,7 +196,26 @@
 - **备份（重要）**：定期下载这两个：
   - `/www/wwwroot/myblog/data/blog.db`（全部数据：文章、评论、用户、设置、点赞、访问统计）
   - `/www/wwwroot/myblog/static/uploads/`（上传的图片）
+
+> **备份自动化（v3.1.6 运维建议）**：建议在宝塔「计划任务」（或 crontab）加一条**每日凌晨**备份，一条命令搞定：
+> ```bash
+> # 宝塔「计划任务」→「Shell 脚本」，每天 03:00 执行：
+> mkdir -p /www/backup/myblog && cp /www/wwwroot/myblog/data/blog.db /www/backup/myblog/blog_$(date +%F).db && cp -r /www/wwwroot/myblog/static/uploads /www/backup/myblog/uploads_$(date +%F)
+> ```
+> 保留最近 N 份自动清理（可选，如只留 14 天）：
+> ```bash
+> find /www/backup/myblog -name '*.db' -mtime +14 -delete
+> ```
+
 - **恢复**：把 `blog.db` 传回 `myblog/data/`，重启 Python 项目即可。
+
+> **Nginx 真实 IP 转发（v3.1.6 运维建议）**：第 4 步反代配置已含 `X-Real-IP` / `X-Forwarded-For`，后端据此识别访客真实 IP（限流 / 访问统计 / 评论记录都依赖它）。**请确认** `location /api/`、`location /admin`、`location /static/` 三段都带全这两个头（上面配置模板已含，保持原样即可）。若站点再套了 CDN（如腾讯云 CDN / 又拍云），还要在 Nginx 里把 CDN 回源 IP 加入 `real_ip` 信任列表，否则统计/限流看到的是 CDN 节点 IP：
+> ```nginx
+> # 在 server{} 内（CDN 场景才需要）：
+> set_real_ip_from 你的CDN节点IP段;
+> real_ip_header X-Forwarded-For;
+> ```
+> **强制 HTTPS（强烈推荐）**：站点「设置 → SSL → 强制 HTTPS」打开后，所有 http 请求自动 301 到 https。配合 `COOKIE_SECURE=true` 环境变量，会话 Cookie 仅走 HTTPS，杜绝中间人窃取登录态。
 
 > ⚠️ **数据库保护说明**：部署包 `myblog-backend.zip` **不包含 `data/` 目录**，解压覆盖不会动你服务器上已有的 `blog.db`（文章/评论/设置都安全保留）。
 > 新增的表与列（统计表、评论嵌套字段、系列/公告/留言/订阅者表、is_read 列等）在项目**重启时自动迁移创建**，无需手动建表。
@@ -301,7 +332,7 @@ supervisorctl status
 - **新增数据库字段**：`post` 表新增 `scheduled_at` 列（DATETIME，可空）。**无需手动 SQL**——重启后端时 `app.py` 的 `_migrate_post_table()` 会自动 `ALTER TABLE` 补列（旧库无缝升级）。
 - **新增后台行为**：后端启动后会起一个守护线程，每 60 秒扫描"已设未来时间、到点但未发布"的文章，自动翻成已发布并触发推送/邮件群发。纯自动，无需配置。
 - **后台写文章新增「定时发布」**：选一个未来时间保存即可；与「立即发布」互斥。仪表盘/我的文章状态列会显示"⏰ 定时(时间)"徽标。
-- **升级步骤**：与其他版本一致——备份 `data/blog.db` + 覆盖后端 zip + **停止再启动** + 覆盖前端 zip + 无痕窗口验证左下角版本号 `v3.1.5`。
+- **升级步骤**：与其他版本一致——备份 `data/blog.db` + 覆盖后端 zip + **停止再启动** + 覆盖前端 zip + 无痕窗口验证左下角版本号 `v3.1.6`。
 
 ### v2.7.1 升级注意（文章置顶）
 
@@ -338,6 +369,15 @@ supervisorctl status
 
 > ⚠️ v3.0.0 首次启动会自动建表 + 补列，若数据库较大请预留启动时间；建表/补列失败会在启动日志打印提示但**不阻断启动**（下次启动重试）。
 
+### v3.1.6 升级注意（12 项安全加固）
+
+- **新增数据库字段**：`user` 表新增 `session_version` 列（INTEGER，默认 0）。**无需手动 SQL**——重启后端时 `_migrate_user_table()` 自动补列（旧库无缝升级）。
+- **升级后需重新登录**：本轮启用了「改密码/被踢下线后旧会话失效」，老会话在升级前存在的 cookie 会因会话版本机制被清理，**所有人需重新登录一次**（正常现象）。
+- **CSRF 双重防护（v3.1.6+）**：所有 POST/PUT/DELETE/PATCH 请求（除 webhook、验证码接口）必须携带会话绑定的 CSRF Token。**前端 Vue 已自动处理**（apiPost 自动先取 /api/csrf）；服务端渲染表单（后台）已自动注入隐藏域——**无需手动改动**。第三方直接用 POST 调 API 且不带 token 的会被 403 拒绝（这是预期安全行为）。
+- **验证码（默认开启）**：注册、评论、留言新增图形验证码。服务器未安装 Pillow 时自动降级关闭（不影响使用）。
+- **登录防枚举**：登录失败统一文案 + 默认延迟 1 秒（`LOGIN_DELAY_SECONDS` 可调）。暴力破解难度大幅提升。
+- **升级步骤**：与其他版本一致——**务必先备份 `data/blog.db` + `static/uploads/`** → 覆盖后端 zip → **停止再启动**（仅重启可能不生效）→ 覆盖前端 zip → 无痕窗口验证左下角版本号 `v3.1.6`。
+
 ## 邮件设置（新文章通知订阅者 · 后台配置）
 
 > 从 v2.4.0 起，邮件群发配置**不需要再填环境变量**，直接在后台操作（更便捷）。
@@ -373,7 +413,12 @@ chmod +x /www/wwwroot/myblog/deploy.sh
 
 > **一键更新重启权限（重要，v3.1.4 已根治）**：若一键更新卡在第⑥步 `Operation not permitted`，根因是 gunicorn 由宝塔以 **`mw` 用户**（非 `www`）启动，且宝塔 Python 项目**不是** supervisor 管理。请下载 **v3.1.4** Release 里的 `deploy_scripts_v314fix.zip`，覆盖 `update.sh`/`deploy.sh` 到 `/www/wwwroot/myblog/`。新版重启逻辑：宝塔 CLI（`bt stop/start <项目名>`）优先 → 以 `mw` 身份 `runuser -u mw` 真杀 + 宝塔真实 gunicorn 路径（`/ww/server/pyporject_evn/blog_env/bin/gunicorn -c gunicorn_conf.py`）重新拉起，彻底绕开跨用户 kill。若项目名不是 `myblog`，改两个脚本里的 `PROJECT_NAME`；若 gunicorn 属主不是 `mw`，改 `APP_USER`。
 
-> **一键更新完整性校验（v3.1.5+）**：从 v3.1.5 起，`update.sh` 下载后端/前端部署包后会自动比对 GitHub Release 附带的 `sha256.txt`，哈希不一致会**直接终止更新**并报错，防止下载损坏或被中间人篡改投毒。发布时请确保 `package.py` 生成的 `sha256.txt` 一并上传到 Release；若某次 Release 漏传 `sha256.txt`，脚本会告警但不阻断（降级为仅告警）。
+> **一键更新完整性校验（v3.1.5+ 三重防线）**：
+> - **① sha256.txt 列表比对**：`update.sh` 下载后端/前端部署包后比对 Release 附带的 `sha256.txt`，不一致**直接终止更新**（防止下载损坏/被篡改）。
+> - **② zip 注释内嵌哈希**（v3.1.6+）：`package.py` 打包时把每个 zip 的 **「内容区」SHA256**（= 剥离 EOCD 尾注释后的 zip 字节，写入/修改注释不影响内容区）写进该 zip 自身的 EOCD 注释；`update.sh` 用内置 python 同样剥离注释重算内容区哈希二次比对。即使 `sha256.txt` 被整体替换，注释哈希依然能发现不一致（双源互证，解决「sha256.txt 自身被篡改」的死角）。注意：注释哈希按内容区计算，不能对含注释的整文件算（注释参与文件字节后必然对不上）。
+> - **③ HMAC 签名**（v3.1.6+，可选）：若发布时设置了 `UPDATE_HMAC_KEY`，`package.py` 会为 `sha256.txt` 内容生成 HMAC 首行，`update.sh` 配置同一密钥后强制校验签名（不签名直接拒绝更新）。设置方法：本地打包机与服务器都配置同一个 `UPDATE_HMAC_KEY` 环境变量。
+>
+> 发布时请确保 `package.py` 生成的 `sha256.txt` 一并上传到 Release；若某次 Release 漏传，脚本会告警但不阻断（降级为仅告警）。
 
 ### 第二步：告诉后端脚本路径
 
@@ -400,6 +445,7 @@ DEPLOY_SCRIPT=/www/wwwroot/myblog/deploy.sh
 之后每次 `git push origin main`，GitHub 会 POST 到你的站点 → 后端校验 token → 自动执行 `deploy.sh` → 服务器自动更新。后台左下角版本号会变成最新版。
 
 > **安全说明**：token 放在 URL 里会出现在 GitHub 后台，介意可改用 Header：把 Payload URL 设为 `https://你的域名/api/webhook/deploy`，并在 GitHub Webhook 的 **Secret** 字段填同一字符串（后端同时支持 Header `X-Deploy-Token` 校验，二者任一匹配即通过）。
+> **防重放（v3.1.6+）**：Webhook 请求必须在 Header 带 `X-Deploy-Time`（Unix 秒级时间戳），后端会校验与服务器当前时间差是否在 `WH_REPLAY_WINDOW`（默认 300 秒）内，超窗或缺失一律拒绝（HTTP 400）。GitHub 原生 Webhook 不带此头时，可改用**自建小脚本**（如 GitHub Actions 里 `curl -H "X-Deploy-Time: $(date +%s)" ...`）触发；或跳过该头后仍可用 URL token 校验（防重放会降级为仅鉴权——若需严格防重放请带该头）。
 > **不会误伤数据**：`deploy.sh` 覆盖代码前会先备份 `data/blog.db` 和 `static/uploads/` 到 `data/backup/`，且解压时排除 `data/`，数据库永远不会被覆盖。
 
 ## 访问统计功能说明（新增）

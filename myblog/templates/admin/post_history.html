@@ -14,6 +14,7 @@
           <td>{{ (v.content or '')|length }}</td>
           <td>
             <form method="post" action="{{ url_for('admin.rollback_post', post_id=post.id, hid=v.id) }}" class="inline-form" onsubmit="return confirm('确定回滚到该版本？当前内容会先自动备份一份。');">
+                  {{ csrf_input() }}
               <button type="submit" class="link-mark">回滚到此版本</button>
             </form>
           </td>

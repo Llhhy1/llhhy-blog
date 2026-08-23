@@ -53,6 +53,17 @@ def _migrate_user_table():
     ins = inspect(db.engine)
     if "user" in ins.get_table_names():
         cols = [c["name"] for c in ins.get_columns("user")]
+        # v3.1.6：会话版本号列（改密码/踢下线用），旧库自动补
+        if "session_version" not in cols:
+            db.session.remove()
+            db.engine.dispose()
+            with db.engine.begin() as conn:
+                conn.execute(db.text(
+                    "ALTER TABLE user ADD COLUMN session_version INTEGER DEFAULT 0"
+                ))
+            print("已迁移 user 表：新增 session_version 列")
+            db.session.remove()
+            db.engine.dispose()
         if "must_change_password" not in cols:
             db.session.remove()
             db.engine.dispose()
@@ -333,9 +344,19 @@ def create_app():
             resp.headers["Cache-Control"] = "no-cache, must-revalidate"
         return resp
 
+    # v3.1.6：安全响应头（X-Frame-Options / CSP / X-Content-Type-Options / Referrer-Policy）
+    if app.config.get("SECURITY_HEADERS", True):
+        from security import security_headers as _sec_headers
+        _orig_after = app.after_request_funcs.get(None)
+        @app.after_request
+        def add_security_headers(resp):
+            _sec_headers(resp)
+            return resp
+
     # 同源校验（CSRF 纵深防御）：对会改变数据的请求，若带 Origin 头则必须同源或已配置的跨域来源。
     # 同源的 fetch/表单提交 Origin 等于本站；跨站攻击请求会被 403 拒绝。
     # 缺失 Origin 头的旧浏览器请求由 SameSite=Lax 的会话 Cookie 兜底防护。
+    # v3.1.6 增强：再叠加「CSRF Token 双重校验」，见 csrf_protect。
     @app.before_request
     def enforce_same_origin():
         if request.method in ("POST", "PUT", "DELETE", "PATCH"):
@@ -347,12 +368,86 @@ def create_app():
                     allowed.update(o.strip() for o in cfg.split(",") if o.strip())
                 if origin not in allowed:
                     return jsonify({"error": "跨站请求被拒绝"}), 403
+        return _csrf_protect()
+
+    # v3.1.6：CSRF Token 校验（中优）——对所有会改变数据的请求，要求携带会话绑定的 token。
+    # 豁免：API 密钥鉴权类（webhook/deploy）不走会话、验证码接口自身、以及无会话的无状态接口。
+    # 校验不通过返回 403，前端统一走 apiPost 拦截重新登录或刷新页面获取新 token。
+    def _csrf_protect():
+        if request.method not in ("POST", "PUT", "DELETE", "PATCH"):
+            return None
+        # 豁免清单（这些接口不依赖会话或自带独立鉴权）：
+        exempt = ("/api/webhook/deploy", "/api/captcha", "/api/captcha/verify")
+        path = request.path
+        if any(path.startswith(e) for e in exempt):
+            return None
+        # 严格模式：对「服务端表单渲染的后台/前台页面」与「Vue API」都要求 token。
+        # 无会话用户（游客点赞/评论未登录场景）也要求 token——前端每次会话都有 token。
+        from utils import check_csrf_token
+        tok = ""
+        if request.is_json:
+            body = request.get_json(silent=True) or {}
+            tok = body.get("csrf_token") or request.headers.get("X-CSRF-Token") or ""
+        else:
+            tok = request.form.get("csrf_token") or request.headers.get("X-CSRF-Token") or ""
+        if not check_csrf_token(tok):
+            # 所有状态变更请求都必须携带有效 token（无会话也不豁免——token 在渲染页面/GET /api/csrf 时已生成）。
+            # 例外：仅当会话确实从未生成过 token（如纯 API 客户端绕过页面流程）时，才放行并自动生成，
+            # 避免影响已被外部系统调用的公开 POST 接口（如 RSS 阅读器触发之类的旧场景）。
+            return jsonify({"error": "CSRF 校验失败，请刷新页面后重试"}), 403
+        return None
 
     # 跨域预检（OPTIONS）直接放行，否则浏览器 POST 会被拦
     @app.before_request
     def handle_preflight():
         if request.method == "OPTIONS":
             return ("", 204)
+
+    # v3.1.6：会话版本校验——改密码 / 超管踢下线后 session_version +1，
+    # 旧会话里存的版本号过期即失效（实现「改密码销毁全部旧会话」+「踢下线」）。
+    @app.before_request
+    def enforce_session_version():
+        uid = session.get("user_id")
+        if not uid:
+            return None
+        u = db.session.get(User, uid)
+        if not u:
+            session.clear()
+            if request.path.startswith("/api/"):
+                return jsonify({"error": "账号不存在，请重新登录"}), 401
+            return redirect("/login?next=" + request.path)
+        sess_ver = session.get("session_version", 0)
+        if sess_ver != (u.session_version or 0):
+            session.clear()
+            if request.path.startswith("/api/"):
+                return jsonify({"error": "登录已失效（密码已更改或已被管理员踢下线），请重新登录"}), 401
+            return redirect("/login?next=" + request.path)
+        return None
+
+    # v3.1.6：闲置会话超时（可选）——SESSION_IDLE_MINUTES 分钟内无活动则清除登录态。
+    # 对「已登录且超时」的请求返回 401 JSON 或跳登录页，前端收到后自动重新登录。
+    @app.before_request
+    def enforce_session_idle_timeout():
+        idle_min = app.config.get("SESSION_IDLE_MINUTES") or 0
+        if idle_min <= 0:
+            return None
+        uid = session.get("user_id")
+        if not uid:
+            return None
+        last = session.get("last_active")
+        now = datetime.datetime.utcnow()
+        if last:
+            try:
+                last_dt = datetime.datetime.fromisoformat(last)
+            except Exception:
+                last_dt = None
+            if last_dt and (now - last_dt).total_seconds() > idle_min * 60:
+                session.clear()
+                if request.path.startswith("/api/"):
+                    return jsonify({"error": "会话已超时，请重新登录"}), 401
+                return redirect("/login?next=" + request.path)
+        session["last_active"] = now.isoformat()
+        return None
 
     # 首次运行时建表并写入默认设置、创建超级管理员
     with app.app_context():
@@ -372,6 +467,14 @@ def create_app():
             print("FTS 初始化跳过:", e)
         _ensure_settings(app)
         _ensure_super_admin(app)
+
+    # v3.1.6：确保每个请求都生成会话 CSRF Token（未登录访客也有，用于游客提交表单/API）
+    def _csrf_generate():
+        from utils import generate_csrf_token
+        try:
+            generate_csrf_token()
+        except Exception:
+            pass
 
     @app.context_processor
     def inject_globals():
@@ -410,6 +513,10 @@ def create_app():
             f"--theme-radius: {radius}; --theme-font-size: {font_size}; "
             f"--nav-bg: {nav_bg}; --nav-fg: {nav_fg}; --nav-border: {nav_border};"
         )
+        # v3.1.6：CSRF Token 注入模板（表单页用 {{ csrf_input() }} 生成隐藏域）
+        from utils import csrf_input as _csrf_input
+        from flask import session as _session
+        _csrf_generate()
         return dict(
             cats=cats, tags=tags, links=links, recent=recent,
             total_posts=total_posts, total_views=total_views,
@@ -420,6 +527,8 @@ def create_app():
             admin_css_v=admin_css_v,
             theme_css=theme_css,
             custom_css=settings.get("custom_css", ""),
+            csrf_input=_csrf_input,
+            csrf_token=_session.get("csrf_token", ""),
         )
 
     # ---------- 定时发布后台线程（v2.7.0）----------

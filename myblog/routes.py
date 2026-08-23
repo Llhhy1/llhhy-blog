@@ -8,7 +8,7 @@ from flask import (Blueprint, render_template, request, redirect, url_for,
 from markupsafe import escape
 
 from models import db, Post, Category, Tag, Comment, Setting, User, ROLE_USER, visible_posts_query
-from utils import make_slug, render_markdown, safe_redirect, rate_limit, client_key
+from utils import make_slug, render_markdown, safe_redirect, rate_limit, client_key, validate_password
 # v3.1.0：登录审计（log_login_attempt 定义于 admin 模块，admin 不依赖 routes，无循环）
 from admin import log_login_attempt
 
@@ -38,8 +38,8 @@ def register():
             flash("用户名和密码不能为空")
         elif len(username) < 2 or len(username) > 20:
             flash("用户名长度需在 2-20 个字符")
-        elif len(password) < 8:
-            flash("密码至少 8 位")
+        elif _weak_password_text(password):
+            flash(_weak_password_text(password))
         elif password != confirm:
             flash("两次输入的密码不一致")
         elif User.query.filter_by(username=username).first():
@@ -79,6 +79,21 @@ def login():
 def logout():
     session.pop("user_id", None)
     return redirect(url_for("main.index"))
+
+
+def _weak_password_text(raw):
+    """v3.1.6：前台注册密码强度校验（弱密码黑名单 + 复杂度）。返回错误文案，通过返回空串。"""
+    try:
+        from flask import current_app as _app
+        cfg = _app.config
+        ok, err = validate_password(
+            raw or "", min_len=8,
+            strong=cfg.get("STRONG_PASSWORD", True),
+            mixed_case=cfg.get("STRONG_PASSWORD_MIXED_CASE", False),
+        )
+        return "" if ok else err
+    except Exception:
+        return "" if len(raw or "") >= 8 else "密码至少 8 位"
 
 
 def _render(post):

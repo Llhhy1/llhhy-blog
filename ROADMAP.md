@@ -42,12 +42,12 @@
 ### 模块 C：互动与社区 ✅
 - **C1 留言墙 Guestbook** ✅
 - **C2 评论嵌套回复**：`parent_id` / `reply_to`，同文章校验 ✅
-- **C3 邮件订阅 / Newsletter**：侧边栏订阅框 + `/api/subscribe`（去重 + 限流）+ **后台「✉️ 订阅者」可查看/删除/启用停用** + **后台「📧 邮件设置」SMTP 配置与测试发送** + **新文章自动群发（带退订链接）** ✅ 全部落地
+- **C3 邮件订阅 / Newsletter**：侧边栏订阅框 + `/api/subscribe`（去重 + 限流）+ 后台「✉️ 订阅者」可查看/删除/启用停用 + 后台「📧 邮件设置」SMTP 配置与测试发送 + 新文章自动群发（带退订链接） ✅ 全部落地
 
 ### 模块 D：运营与分发 ✅
 - **D1 一键分享卡片（OG 标签）** ✅
 - **D2 微信 / Telegram 新文推送**：`notify.py`（Telegram + 企业微信）✅
-- **D3 Webhook 自动部署**：`/api/webhook/deploy`（HMAC 校验）+ **`DEPLOY_SCRIPT` 自动执行部署脚本**（`deploy.sh` 模板随仓库发布）+ **后台一键在线更新**（v2.5.0：登录检测→确认→静默更新→完成刷新）✅
+- **D3 Webhook 自动部署**：`/api/webhook/deploy`（HMAC 校验）+ `DEPLOY_SCRIPT` 自动执行部署脚本（`deploy.sh` 模板随仓库发布）+ 后台一键在线更新（v2.5.0：登录检测→确认→静默更新→完成刷新）+ **v3.1.6 新增 `X-Deploy-Time` 时间戳防重放** ✅
 - **D4 站点公告 / 置顶动态**：全局可关闭横幅 ✅
 
 ---
@@ -149,7 +149,7 @@
 
 ### 10.1 新增功能清单
 - **系列目录页 + 阅读进度**：`SeriesDetailView` 新增带编号章节 TOC（系列 TOC）；前台全局阅读进度条（App.vue `reading-progress`）持续生效。
-- **字数统计 + 阅读时长**：`Post.word_count`/`reading_minutes` + `utils.count_words`（中文字符 + 英文/数字 token，分钟 = max(1, round(字数/300))）；编辑/详情页展示。
+- **字数统计 + 阅读时长**：`Post.word_count`/`reading_minutes` + `utils.count_words`（中文字数 + 英文/数字 token，分钟 = max(1, round(字数/300))）；编辑/详情页展示。
 - **评论批量 + 垃圾过滤**：后台 `/comments/batch-approve`、`/comments/batch-delete`（多选 + `@admin_required`）；评论提交命中 `Setting.comment_spam_keywords` 即 400 拒收。
 - **后台操作日志**：`AuditLog` 模型 + `/admin/audit-logs`、`/admin/clear-audit_logs`（均 `@super_required`，`log_audit` 辅助函数贯穿关键写操作）。
 - **版本历史 / 回收站**：`PostHistory`（每篇上限 20 版，`_save_post_history` 自动留存）；删除改为软删除（`in_trash=True` + `RecycleBin` 快照），支持 `/admin/post/<id>/restore`、`/purge`、`/history`、回滚。
@@ -185,7 +185,7 @@
 
 ## 十二、v3.1.1 修复迭代（抽屉深色模式）
 
-> v3.1.1 为**纯前端 CSS 修复**版本：修复手机端抽屉菜单（`.drawer`）在深色模式下仍为白底的问题。
+> v3.1.1 为**纯前端 CSS 修复**版本：修复手机端抽屉（`.drawer`）在深色模式下仍为白底的问题。
 
 ### 12.1 修复清单
 - **抽屉不跟随深色模式**：根因为 `[data-theme="dark"]` 段只重写了 `.site-header` 写死背景，未重定义 `--nav-bg / --nav-fg / --nav-border` 导航变量，而 `.drawer` 依赖这三个变量，导致暗色下仍是白底。
@@ -204,14 +204,14 @@
 
 ## 十四、v3.1.3 抽屉深色补充修复
 
-> v3.1.3 为**纯前端 CSS 修复**版本：在 `[data-theme="dark"]` 区块末尾追加 4 条直接写死暗色值的菜单抽屉规则，彻底覆盖旧变量规则，确保深色模式下抽屉视觉稳定。
+> v3.1.3 为**纯前端 CSS 修复**版本：在 `[data-theme="dark"]` 区块末尾追加 4 条直接写死暗色值的菜单抽屉规则，彻底覆盖旧规则，确保深色模式下抽屉视觉稳定。
 
 ### 14.1 修复清单
 - **抽屉深色样式仍可能不稳定**：v3.1.1 仅靠重定义变量，个别抽屉子元素仍可能回退浅色。
 - **修复**：在 `[data-theme="dark"]` 区块末尾追加 `.drawer { background:#1d2025; border-color:#2a2e35 }`、`.drawer-nav a { color:#c7ccd1 }`、`.drawer-nav a:hover { background:rgba(124,176,255,.12); color:#fff }`、`.drawer-foot { color:#9aa0a6; border-top-color:#2a2e35 }`，置于文件末尾后定义覆盖前定义（预期行为）。APP_VERSION 升为 3.1.3。
 
 ### 14.2 安全审计
-- 第十轮（R10）：纯静态 CSS 规则，无动态内容/用户输入/接口变更，无新增攻击面；4 条规则置于文件末尾特异性与旧规则相同，覆盖行为符合预期，不影响亮色模式。`py_compile` 通过（仅版本字符串）、`vite build` 通过、package.py 打包校验通过（APP_VERSION=3.1.3，不含 data/）。
+- 第十轮（R10）：纯 CSS 静态规则，无动态内容/用户输入/接口变更，无新增攻击面；4 条规则置于文件末尾特异性与旧规则相同，覆盖行为符合预期，不影响亮色模式。`py_compile` 通过（仅版本字符串）、`vite build` 通过、package.py 打包校验通过（APP_VERSION=3.1.3，不含 data/）。
 
 ## 十五、v3.1.4 部署脚本根因修复（不含代码变更）
 
@@ -237,3 +237,42 @@
 
 ### 16.2 安全审计
 - 第二十二轮（R12）：四项缺口全部补齐，无新增攻击面。`py_compile` 全量编译通过；隔离单元冒烟测试（FTS 转义 5/5、CSV 防护 6/6、密码校验逻辑）通过；`bash -n` 校验 update.sh / deploy.sh 通过；package.py 生成 sha256.txt 验证通过。残余风险（CSRF Token 显式校验、上传魔数校验、DNS 重绑定）已记录在 SECURITY_AUDIT.md，非阻塞。
+
+## 十七、v3.1.6 安全加固 12 项（全量落地）
+
+> v3.1.6 依据外部安全审计清单（高优 4 + 中优 5 + 可选增强 4 + 运维 3）逐项核对，将其中**确属真实缺口**的 12 项代码级加固全部落地，配套文档/部署脚本同步更新。经 R13 安全审计 + 11 组冒烟测试全部通过。
+
+### 17.1 新增/变更清单
+
+| 分类 | 项目 | 落地方式 |
+|---|---|---|
+| 高优 | 更新包 sha256.txt 自身完整性（双源互证） | `package.py` 把「内容区」SHA256（剥离 EOCD 尾注释后的字节）写入 zip 注释；`sha256.txt` 记录含注释的整文件哈希；`update.sh` 分别按各自口径比对 + 可选 HMAC 签名 |
+| 高优 | 上传文件魔数校验 | 后缀白名单 + PNG/JPG/GIF/WebP magic bytes 双重校验 |
+| 高优 | SMTP 密码不存库 | `SMTP_PASSWORD_ENV_FIRST`（默认 true）——密码优先环境变量，库值仅兜底 |
+| 高优 | 多 worker 全局限流 | `REDIS_URL` 配置后走 Redis INCR+EXPIRE 全局计数；未配置自动回退内存滑动窗口 |
+| 中优 | CSRF Token 双重防护 | 同源校验 + 会话绑定 HMAC Token，全局 POST/PUT/DELETE/PATCH 校验；前端 apiPost 自动带 `X-CSRF-Token` |
+| 中优 | RSS DNS 重绑定缓解 | feed_agg 域名先 `getaddrinfo` 解析，解析结果含内网/回环/保留地址即拒 |
+| 中优 | 弱密码黑名单 + 复杂度开关 | `STRONG_PASSWORD` / `STRONG_PASSWORD_MIXED_CASE`；前端/后端统一提示 |
+| 中优 | 登录防枚举 + 会话踢下线 | 失败统一文案 + `LOGIN_DELAY_SECONDS` 延迟；`session_version` 机制 + 超管「踢下线」路由 |
+| 中优 | 审计日志筛选与保留 | `?from=&to=` 时间筛选；`AUDIT_LOG_DAYS` 保留周期；导出支持筛选 |
+| 可选 | 可开关验证码 | `CAPTCHA_ENABLED`：注册/评论/留言图形验证码，一次性票据防重放，PIL 缺失自动降级 |
+| 可选 | 安全响应头 | `SECURITY_HEADERS`：X-Frame-Options / CSP / X-Content-Type-Options / Referrer-Policy 全局追加 |
+| 可选 | 会话超时 + 改密码销毁旧会话 | `SESSION_IDLE_MINUTES` 闲置超时；改密/重置/踢下线后 session_version+1 旧会话失效 |
+| 可选 | Webhook 防重放 | `X-Deploy-Time` 时间戳 + `WH_REPLAY_WINDOW`（默认 300s）窗口校验 |
+| 运维 | Nginx 真实 IP / HTTPS / 定期备份 | deploy_guide 新增 CDN real_ip、强制 HTTPS、宝塔计划任务每日备份命令 |
+
+### 17.2 新增环境变量
+
+`REDIS_URL`、`WH_REPLAY_WINDOW`、`SMTP_PASSWORD_ENV_FIRST`、`STRONG_PASSWORD`、`STRONG_PASSWORD_MIXED_CASE`、`LOGIN_DELAY_SECONDS`、`SESSION_IDLE_MINUTES`、`AUDIT_LOG_DAYS`、`CAPTCHA_ENABLED`、`SECURITY_HEADERS`、`UPDATE_HMAC_KEY`（详见 `myblog/deploy_guide.md` 与根 README）。
+
+### 17.3 升级注意
+
+- `user` 表新增 `session_version` 列，重启后端自动迁移；**升级后所有用户需重新登录一次**（预期行为）。
+- 第三方直接 POST 不带 CSRF Token 会被 403（预期安全行为），前端已自动适配。
+- 验证码默认开启，未装 Pillow 自动降级关闭。
+
+### 17.4 验证
+
+- R13 安全审计：13 个维度全部 ✅ 通过。
+- `py_compile` 全量通过；隔离临时库冒烟测试 11 组全部通过。
+- 前端 Vue 改动（api.js/store.js/RegisterView/CommentForm/GuestbookView/global.css）经 `npm run build` 构建验证。

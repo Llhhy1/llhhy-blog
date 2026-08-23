@@ -26,6 +26,12 @@ GUNICORN_CONF="$APP_DIR/gunicorn_conf.py" # 宝塔实际用的 conf 名（注意
 # 手动指定重启命令时填（优先使用，覆盖自动探测）：
 #   RESTART_CMD="bt stop myblog && bt start myblog"
 RESTART_CMD=""
+# ===== 更新包完整性更强校验（v3.1.6）=====
+# UPDATE_HMAC_KEY：可选。若配置（部署侧机密，与 Release 无关），update.sh 会校验 sha256.txt 首行
+#   HMAC 签名是否与正文匹配（防 sha256.txt 本身被篡改后连带伪造哈希）。
+#   生成方式：python -c "import hmac,hashlib;print(hmac.new(b'<你的密钥>',open('sha256.txt','rb').read().split(b'\n',1)[1],hashlib.sha256).hexdigest())"
+#   留空则仅校验 zip 注释内嵌哈希 + sha256.txt 列表（无签名校验，向后兼容）。
+UPDATE_HMAC_KEY="${UPDATE_HMAC_KEY:-}"
 
 # ===== 自动以 APP_USER 身份运行（避免跨身份 rm/cp 权限失败）=====
 # 若当前是 root 且不是 APP_USER，重跑本脚本为 APP_USER（保留参数）。
@@ -203,6 +209,14 @@ set_status "downloading" "正在下载部署包（$TAG）"
 gh_fetch "$BACKEND_URL" "backend.zip" || fail_exit "后端包下载失败（网络问题）。请检查服务器能否访问 GitHub 下载链接"
 gh_fetch "$FRONT_URL" "frontend.zip" || fail_exit "前端包下载失败（网络问题）。请检查服务器能否访问 GitHub 下载链接"
 # 2b. 完整性校验：下载 sha256.txt 并比对，防中间人篡改 / 下载损坏
+# v3.1.6 增强：
+#   ① HMAC 签名校验（可选）：sha256.txt 首行若为 "HMAC <hex>" 且配置了 UPDATE_HMAC_KEY，
+#      用密钥重算正文签名比对，防 sha256.txt 自身被篡改后连带伪造其内哈希。
+#   ② zip 注释内嵌哈希校验：每个发布包 zip 自身注释里写了一份「内容区」SHA256
+#      （= 剥离尾注释后的 zip 字节，package.py 写入），update.sh 用 python3 剥离注释
+#      重算内容区哈希比对——双源互证，攻击者需同时篡改包内容+注释+sha256.txt。
+#      注意：注释哈希不能对「含注释的整文件」算（注释参与字节后必然对不上——自指循环），
+#      必须与 package.py 同样按剥离注释后的内容区计算。
 verify_checksum() {  # verify_checksum <file> <expected_name>
   local f="$1" expect_name="$2" want got
   if [ -z "$CHECKSUM_URL" ]; then
@@ -210,18 +224,71 @@ verify_checksum() {  # verify_checksum <file> <expected_name>
     return 0
   fi
   gh_fetch "$CHECKSUM_URL" "sha256.txt" 2>/dev/null || { log "   ⚠️ 校验文件下载失败，跳过哈希校验。"; return 0; }
+  # ① HMAC 签名校验（仅当首行是 HMAC 且配置了密钥时强制）
+  local first_line
+  first_line=$(head -1 sha256.txt 2>/dev/null | tr -d '\r')
+  case "$first_line" in
+    "HMAC "*)
+      if [ -n "$UPDATE_HMAC_KEY" ]; then
+        local body sig want_sig
+        body=$(tail -n +2 sha256.txt 2>/dev/null)
+        want_sig=$(printf '%s' "$first_line" | awk '{print $2}')
+        if command -v python3 >/dev/null 2>&1; then
+          sig=$(python3 -c "import hmac,hashlib,sys;print(hmac.new(sys.argv[1].encode(),sys.argv[2].encode(),hashlib.sha256).hexdigest())" "$UPDATE_HMAC_KEY" "$body" 2>/dev/null)
+          if [ -z "$sig" ] || [ "$sig" != "$want_sig" ]; then
+            fail_exit "❌ sha256.txt 的 HMAC 签名校验失败：文件可能被篡改（发布者密钥与本地 UPDATE_HMAC_KEY 不一致或正文被改）。已终止更新。"
+          fi
+          log "   ✅ HMAC 签名校验通过（sha256.txt 未被篡改）。"
+        else
+          log "   ⚠️ 无 python3，跳过 HMAC 校验（仅靠哈希列表比对）。"
+        fi
+      else
+        log "   ⚠️ sha256.txt 带 HMAC 签名但未配置 UPDATE_HMAC_KEY，跳过签名校验（如有疑虑请配置密钥）。"
+      fi
+      ;;
+  esac
   want=$(grep -E "(^| )$expect_name\$" sha256.txt | awk '{print $1}' | head -1)
   if [ -z "$want" ]; then
     log "   ⚠️ sha256.txt 中未找到 $expect_name 的记录，跳过校验。"
     return 0
   fi
   got=$(sha256sum "$f" 2>/dev/null | awk '{print $1}')
-  if [ "$got" = "$want" ]; then
-    log "   ✅ $expect_name 哈希校验通过。"
-    return 0
-  else
+  if [ "$got" != "$want" ]; then
     fail_exit "❌ $expect_name 哈希校验失败（期望 $want，实际 $got），疑似下载损坏或被篡改，已终止更新以防恶意包覆盖"
   fi
+  # ② zip 注释内嵌哈希校验（双源互证）
+  # package.py 写入 zip 注释的是「内容区哈希」= 剥离尾注释后的 zip 字节的 SHA256。
+  # 内容区在写注释前后恒定，因此这里必须同样剥离注释重算哈希再比对，
+  # 不能对含注释的整文件算哈希（注释参与字节后就对不上了——自指循环）。
+  if command -v python3 >/dev/null 2>&1; then
+    local comment_ok
+    comment_ok=$(python3 -c "
+import sys, hashlib
+try:
+    data = open(sys.argv[1], 'rb').read()
+    idx = data.rfind(b'\x50\x4b\x05\x06')
+    if idx < 0: sys.exit(1)
+    clen = int.from_bytes(data[idx+20:idx+22], 'little')
+    if clen <= 0: sys.exit(1)
+    cm = data[idx+22:idx+22+clen].decode('utf-8', 'replace')
+    for ln in cm.splitlines():
+        if ln.strip().startswith('SHA256='):
+            h = hashlib.sha256()
+            h.update(data[:idx+20])  # 剥离注释后的内容区
+            sys.exit(0 if h.hexdigest() == ln.strip()[7:].strip().lower() == sys.argv[2].lower() else 1)
+    sys.exit(1)
+except Exception:
+    sys.exit(1)
+" "$f" "$want" 2>/dev/null)
+    if [ "$comment_ok" = "0" ]; then
+      log "   ✅ $expect_name 的 zip 注释内嵌哈希一致（双源互证通过）。"
+    else
+      fail_exit "❌ $expect_name 的 zip 注释内嵌 SHA256 与包内容不一致：包或注释可能被单独篡改。已终止更新。"
+    fi
+  else
+    log "   ⚠️ 无 python3，跳过 zip 注释双源校验（仅靠哈希列表比对）。"
+  fi
+  log "   ✅ $expect_name 校验完成。"
 }
 verify_checksum "backend.zip" "myblog-backend.zip"
 verify_checksum "frontend.zip" "vue-frontend-dist.zip"

@@ -12,7 +12,7 @@ os.makedirs(DATA_DIR, exist_ok=True)
 
 # 应用版本号：与 GitHub Release 标签保持一致（vX.Y.Z）。
 # 后台侧边栏左下角会显示该版本，用于确认服务器安装的代码是否为最新。
-APP_VERSION = "3.1.5"
+APP_VERSION = "3.1.6"
 
 
 class Config:
@@ -100,6 +100,45 @@ class Config:
     # webhook 校验通过后，若设置了 DEPLOY_SCRIPT 路径，会异步执行该脚本（如 git pull / 解压 zip / 重启）。
     # 脚本需有执行权限；未设置则 webhook 仅返回 {"ok":true}（保持旧行为）。
     DEPLOY_SCRIPT = os.environ.get("DEPLOY_SCRIPT", "")
+
+    # ===== v3.1.6 新增安全配置 =====
+    # Webhook timestamp 防重放（可选）：设置 WH_REPLAY_WINDOW（秒）后，
+    # /api/webhook/deploy 要求请求头携带 X-Deploy-Time（Unix 秒），与服务器时间偏差超过窗口即拒绝。
+    # 默认 300 秒；设 0 表示关闭 timestamp 校验（仅密钥鉴权，旧行为）。
+    WH_REPLAY_WINDOW = int(os.environ.get("WH_REPLAY_WINDOW", "300"))
+
+    # SMTP 密码优先读环境变量（高优）：SMTP_PASSWORD 优先于后台库中 mail_password。
+    # 后台「邮件设置」页仍可填密码，但仅当环境变量未配置时才回退使用（避免敏感信息落库）。
+    SMTP_PASSWORD_ENV_FIRST = os.environ.get("SMTP_PASSWORD_ENV_FIRST", "true").lower() != "false"
+
+    # 弱密码黑名单 + 复杂度强制开关（中优）：
+    #   STRONG_PASSWORD=true（默认）开启：密码至少 8 位 + 含字母 + 数字（可选含大小写混合，见下）；
+    #   STRONG_PASSWORD_MIXED_CASE=true（默认）再要求同时含大小写字母。
+    # 弱密码黑名单内置常见弱口令（123456/password/qq123456 等），前后端校验共用。
+    STRONG_PASSWORD = os.environ.get("STRONG_PASSWORD", "true").lower() != "false"
+    STRONG_PASSWORD_MIXED_CASE = os.environ.get("STRONG_PASSWORD_MIXED_CASE", "false").lower() != "false"
+
+    # 登录防枚举 + 会话管理（中优）：
+    #   LOGIN_DELAY_SECONDS：登录失败统一延迟（默认 1 秒），配合统一错误文案消除用户名枚举；
+    #   SESSION_IDLE_MINUTES：闲置会话超时（默认 60 分钟，0=关闭），改用永久会话需注意安全。
+    LOGIN_DELAY_SECONDS = float(os.environ.get("LOGIN_DELAY_SECONDS", "1"))
+    SESSION_IDLE_MINUTES = int(os.environ.get("SESSION_IDLE_MINUTES", "60"))
+
+    # 审计日志保留周期（中优）：AUDIT_LOG_DAYS 默认 90 天，后台「操作日志」页可查看/清空/导出；
+    # 清理函数与导出均按此周期执行（原写死 30 天改为可配置）。
+    AUDIT_LOG_DAYS = int(os.environ.get("AUDIT_LOG_DAYS", "90"))
+
+    # 验证码开关（可选）：CAPTCHA_ENABLED 默认 true。
+    # 开启时注册走图形验证码（后端生成 CAPTCHA_KEY 会话存答案，前端提交 /api/captcha/verify 换取一次性票据）。
+    CAPTCHA_ENABLED = os.environ.get("CAPTCHA_ENABLED", "true").lower() != "false"
+
+    # 安全响应头（可选）：SECURITY_HEADERS=true（默认）注入 X-Frame-Options / X-Content-Type-Options /
+    # Referrer-Policy / CSP（同源受限，允许内联样式/脚本，放宽 img 与 connect）。
+    SECURITY_HEADERS = os.environ.get("SECURITY_HEADERS", "true").lower() != "false"
+
+    # Redis 全局限流（高优）：REDIS_URL 配置后（如 redis://127.0.0.1:6379/0），
+    # rate_limit 改用 Redis 计数（多 worker 全局一致）；未配置自动回退内存计数（单进程）。
+    REDIS_URL = os.environ.get("REDIS_URL", "")
 
 
 # 确保上传目录存在（图片保存在 static/uploads，随项目一起）

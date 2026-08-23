@@ -9,6 +9,7 @@
 
   <h3>新增用户</h3>
   <form method="post" action="{{ url_for('admin.add_user') }}" class="user-add-form">
+        {{ csrf_input() }}
     <input type="text" name="username" placeholder="用户名（2-20 字符）" minlength="2" maxlength="20" required>
     <input type="email" name="email" placeholder="邮箱（可选）">
     <input type="password" name="password" placeholder="密码（至少 8 位）" minlength="8" required>
@@ -35,6 +36,7 @@
               <span class="role-tag role-super">超级管理员</span>
             {% else %}
               <form method="post" action="{{ url_for('admin.set_role', uid=u.id) }}" class="inline-form">
+                    {{ csrf_input() }}
                 <select name="role" onchange="this.form.submit()">
                   <option value="admin" {{ 'selected' if u.role == 'admin' }}>管理员</option>
                   <option value="user" {{ 'selected' if u.role == 'user' }}>普通用户</option>
@@ -49,11 +51,13 @@
             {% else %}
               <form method="post" action="{{ url_for('admin.reset_password', uid=u.id) }}" class="inline-form"
                     onsubmit="var p=prompt('输入该用户的新密码（至少 8 位）：'); if(!p||p.length<8){alert('密码无效');return false;} this.new_password.value=p;">
+                    {{ csrf_input() }}
                 <input type="hidden" name="new_password">
                 <button type="submit" class="link-btn">重置密码</button>
               </form>
               <form method="post" action="{{ url_for('admin.delete_user', uid=u.id) }}" class="inline-form"
                     onsubmit="return confirm('确定删除用户 {{ u.username }}？其历史评论会保留。');">
+                    {{ csrf_input() }}
                 <button type="submit" class="link-danger">删除</button>
               </form>
             {% endif %}

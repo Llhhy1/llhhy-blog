@@ -21,13 +21,24 @@ def load_mail_config():
     sender = current_app.config.get("SMTP_FROM", "") or user
     use_ssl = current_app.config.get("SMTP_USE_SSL", True)
     site_url = current_app.config.get("MAIL_SITE_URL") or current_app.config.get("SITE_URL", "") or ""
-    # Setting 表覆盖（后台配置优先）
+    # Setting 表覆盖（后台配置优先）：主机/端口/用户名/发件人/SSL 仍库值优先（便于后台调整）
     host = get_setting("mail_host", host) or host
     port = int(get_setting("mail_port", str(port)) or str(port))
     user = get_setting("mail_username", user) or user
-    pwd = get_setting("mail_password", pwd) or pwd
     sender = get_setting("mail_from", sender) or sender or user
     use_ssl = (get_setting("mail_use_ssl", "true" if use_ssl else "false") or "true").lower() != "false"
+    # v3.1.6 高优：SMTP 密码优先读环境变量（默认开启），避免授权码明文落库。
+    #   - SMTP_PASSWORD_ENV_FIRST=true（默认）：环境变量 SMTP_PASSWORD 非空即用它，库值仅作兜底；
+    #   - 设 false 则回退旧行为（库值优先，兼容已在后台填过密码的用户）。
+    env_first = current_app.config.get("SMTP_PASSWORD_ENV_FIRST", True)
+    db_pwd = get_setting("mail_password", "") or ""
+    if env_first:
+        if pwd:  # 环境变量有值，直接用（不落库、更安全）
+            pass
+        else:
+            pwd = db_pwd  # 环境变量未配置才回退库值
+    else:
+        pwd = db_pwd or pwd  # 库值优先（旧行为）
     return {"host": host, "port": port, "username": user, "password": pwd,
             "from": sender, "use_ssl": use_ssl, "site_url": site_url}
 

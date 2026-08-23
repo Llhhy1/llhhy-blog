@@ -68,7 +68,10 @@
           <span class="side-user-name">{{ current_user.username if current_user else '未登录' }}</span>
           <span class="side-user-role">{{ current_user.role_label if current_user else '—' }}</span>
         </div>
-        <a class="side-logout" href="{{ url_for('admin.logout') }}" title="退出登录">⏻</a>
+        <form method="post" action="{{ url_for('admin.logout') }}" class="side-logout-form" style="display:inline;margin:0;">
+          {{ csrf_input() }}
+          <button type="submit" class="side-logout" title="退出登录" style="background:none;border:none;cursor:pointer;font-size:18px;">⏻</button>
+        </form>
       </div>
       <a class="side-version" href="#" onclick="manualCheck();return false;" title="点击检查是否有新版本（后台直接判断，不跳转外部）">
         v{{ app_version }} <span class="version-link">检查更新</span>

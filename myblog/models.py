@@ -163,6 +163,8 @@ class User(db.Model):
     role = db.Column(db.String(16), default=ROLE_USER, nullable=False)
     must_change_password = db.Column(db.Boolean, default=True)  # True=首次进入后台需先设置账号密码
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    # v3.1.6 中优：会话版本号（改密码 / 超管踢下线时 +1，旧会话全部失效）
+    session_version = db.Column(db.Integer, default=0)
 
     def set_password(self, raw):
         from werkzeug.security import generate_password_hash
@@ -180,6 +182,12 @@ class User(db.Model):
     def is_admin_role(self):
         """能否进入后台（超级管理员 + 管理员）。"""
         return self.role in (ROLE_SUPER, ROLE_ADMIN)
+
+    def bump_session_version(self):
+        """v3.1.6：会话版本号 +1（改密码 / 超管踢下线时调用），使该用户所有旧会话立即失效。"""
+        self.session_version = (self.session_version or 0) + 1
+        db.session.commit()
+        return self.session_version
 
     @property
     def role_label(self):

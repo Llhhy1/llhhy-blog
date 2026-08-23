@@ -3,6 +3,7 @@
 {% block content %}
   <h1 class="page-title">站点设置</h1>
   <form method="post" action="{{ url_for('admin.settings') }}" class="edit-form">
+        {{ csrf_input() }}
     <label>博客名称（前台顶部 Logo 与浏览器标签页显示的名字，如「XX 的博客」）</label>
     <input type="text" name="site_name" value="{{ settings.site_name or settings.site_title }}">
 

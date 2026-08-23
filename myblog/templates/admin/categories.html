@@ -3,6 +3,7 @@
 {% block content %}
   <h1 class="page-title">分类管理</h1>
   <form method="post" action="{{ url_for('admin.categories') }}" class="inline-form">
+        {{ csrf_input() }}
     <input type="text" name="name" placeholder="新分类名称" required>
     <button type="submit" class="btn">添加</button>
   </form>
@@ -15,6 +16,7 @@
           <td>{{ c.slug }}</td>
           <td>
             <form method="post" action="{{ url_for('admin.delete_category', cid=c.id) }}" class="inline-form" onsubmit="return confirm('确定删除？该分类下文章会变无分类');">
+                  {{ csrf_input() }}
               <button type="submit" class="link-danger">删除</button>
             </form>
           </td>

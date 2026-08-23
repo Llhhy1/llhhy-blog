@@ -40,6 +40,11 @@
       </p>
       <input v-if="!state.user" type="text" v-model="author" placeholder="昵称（必填，2-20 字）" maxlength="20" required />
       <textarea v-model="content" placeholder="说点什么…（必填，2-500 字）" maxlength="500" required></textarea>
+      <!-- v3.1.6 可选增强：评论验证码 -->
+      <div v-if="captchaEnabled" class="captcha-row">
+        <input type="text" v-model="captcha" placeholder="验证码（不区分大小写）" maxlength="4" required />
+        <img :src="captchaUrl" alt="验证码" class="captcha-img" @click="refreshCaptcha" title="点击刷新" />
+      </div>
       <div>
         <button type="submit">提交{{ replyingTo ? "回复" : "评论" }}</button>
         <span class="comment-status" :class="statusClass" style="margin-left: 10px;">{{ status }}</span>
@@ -50,7 +55,7 @@
 
 <script setup>
 import { ref, computed } from "vue";
-import { apiPost } from "../lib/api.js";
+import { apiGet, apiPost } from "../lib/api.js";
 import { state } from "../store.js";
 
 const props = defineProps({ slug: String, comments: Array });
@@ -59,6 +64,29 @@ const content = ref("");
 const status = ref("");
 const statusClass = ref("");
 const replyingTo = ref(null);
+const captcha = ref("");
+const captchaEnabled = ref(true);
+const captchaUrl = ref("");
+
+// v3.1.6 可选增强：评论验证码（CAPTCHA_ENABLED；后端/PIL 不可用时会返回降级关闭）
+function refreshCaptcha() {
+  captchaUrl.value = "/api/captcha?" + Date.now() + "&from=comment";
+}
+async function initCaptcha() {
+  try {
+    const r = await fetch("/api/captcha?" + Date.now(), { credentials: "same-origin" });
+    const ct = r.headers.get("content-type") || "";
+    if (ct.includes("image")) {
+      captchaEnabled.value = true;
+      captchaUrl.value = r.url;
+    } else {
+      captchaEnabled.value = false;
+    }
+  } catch (e) {
+    captchaEnabled.value = false;
+  }
+}
+initCaptcha();
 
 const topComments = computed(() => (props.comments || []).filter((c) => !c.parent_id));
 function repliesOf(id) {
@@ -85,6 +113,7 @@ async function submit() {
     body.parent_id = replyingTo.value.id;
     body.reply_to = replyingTo.value.author;
   }
+  if (captchaEnabled.value) body.captcha = captcha.value.trim();
   status.value = "提交中…";
   statusClass.value = "";
   try {
@@ -97,6 +126,7 @@ async function submit() {
   } catch (e) {
     status.value = e.message || "网络错误";
     statusClass.value = "error";
+    if (captchaEnabled.value) refreshCaptcha();
   }
 }
 </script>

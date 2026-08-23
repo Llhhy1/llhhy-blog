@@ -5,6 +5,7 @@
     <h1 class="page-title" style="margin:0;">💬 评论管理（{{ comments | length }}）</h1>
     {% if pending_comments %}
     <form method="post" action="{{ url_for('admin.mark_all_comments_read') }}" class="inline-form">
+          {{ csrf_input() }}
       <button type="submit" class="btn small">✅ 全部标记已读</button>
     </form>
     {% endif %}
@@ -16,6 +17,7 @@
     <a class="{{ 'active' if status == 'approved' }}" href="{{ url_for('admin.comments', status='approved') }}">已通过</a>
   </div>
   <form id="batch-form" method="post">
+        {{ csrf_input() }}
     <div class="admin-actions">
       <h1 class="page-title" style="margin:0;">💬 评论管理（{{ comments | length }}）</h1>
       <div class="batch-actions">
@@ -47,17 +49,23 @@
             {% if not c.approved %}
             <form method="post" action="{{ url_for('admin.approve_comment', cid=c.id) }}" class="inline-form">
               <button type="submit" class="link-mark">通过</button>
+            
+                  {{ csrf_input() }}
+              <button type="submit" class="link-mark">通过</button>
             </form>
             <form method="post" action="{{ url_for('admin.reject_comment', cid=c.id) }}" class="inline-form" onsubmit="return confirm('确定驳回并删除该评论？');">
+                  {{ csrf_input() }}
               <button type="submit" class="link-danger">驳回</button>
             </form>
             {% endif %}
             {% if not c.is_read and c.approved %}
             <form method="post" action="{{ url_for('admin.mark_comment_read', cid=c.id) }}" class="inline-form">
+                  {{ csrf_input() }}
               <button type="submit" class="link-mark">标为已读</button>
             </form>
             {% endif %}
             <form method="post" action="{{ url_for('admin.delete_comment', cid=c.id) }}" class="inline-form" onsubmit="return confirm('确定删除？');">
+                  {{ csrf_input() }}
               <button type="submit" class="link-danger">删除</button>
             </form>
           </td>

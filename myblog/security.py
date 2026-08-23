@@ -12,10 +12,45 @@ import os
 import random
 import string
 
-from flask import session, current_app
+from flask import session, current_app, request
 
 _CAPTCHA_SESSION_KEY = "captcha_answer"
 _CAPTCHA_PASS_KEY = "captcha_passed"
+
+
+# ---------- 验证码配置（存 Setting 表，后台可单独设置；环境变量为默认值回退）----------
+def _cfg_get(key):
+    """读取 Setting 表的字符串值（延迟导入避免循环依赖）；缺省返回 None。"""
+    try:
+        from models import Setting
+        row = Setting.query.filter_by(key=key).first()
+        return row.value if row else None
+    except Exception:
+        return None
+
+
+def _cfg_bool(key, default=True):
+    v = _cfg_get(key)
+    if v is None:
+        return default
+    return str(v).strip().lower() == "true"
+
+
+def _cfg_int(key, default, lo, hi):
+    v = _cfg_get(key)
+    if v is None or str(v).strip() == "":
+        return default
+    try:
+        return max(lo, min(hi, int(str(v).strip())))
+    except ValueError:
+        return default
+
+
+def _cfg_str(key, default):
+    v = _cfg_get(key)
+    if v is None or str(v).strip() == "":
+        return default
+    return str(v).strip()
 
 
 # ---------- 安全响应头 ----------
@@ -46,9 +81,11 @@ def security_headers(resp):
 
 
 # ---------- 图形验证码 ----------
-def _gen_captcha_text(length=4):
-    """生成验证码文本：排除易混淆字符（0/O、1/I/L）。"""
-    chars = "23456789abcdefghjkmnpqrstuvwxyzABCDEFGHJKMNPQRSTUVWXYZ"
+def _gen_captcha_text():
+    """生成验证码文本：长度与是否排除易混淆字符均可后台配置。"""
+    length = _cfg_int("captcha_length", 4, 3, 8)
+    exclude = _cfg_bool("captcha_exclude_ambiguous", True)
+    chars = "23456789abcdefghjkmnpqrstuvwxyzABCDEFGHJKMNPQRSTUVWXYZ" if exclude else (string.ascii_letters + string.digits)
     return "".join(random.SystemRandom().choice(chars) for _ in range(length))
 
 
@@ -62,15 +99,17 @@ def _render_captcha_image(text):
         w, h = 120, 44
         img = Image.new("RGB", (w, h), (245, 246, 250))
         draw = ImageDraw.Draw(img)
-        # 干扰线 + 噪点
+        # 干扰线 + 噪点（强度由 captcha_difficulty 配置：low/normal/high）
+        diff = _cfg_str("captcha_difficulty", "normal")
+        lines, dots = {"low": (2, 20), "high": (6, 80)}.get(diff, (4, 40))
         rnd = random.SystemRandom()
-        for _ in range(4):
+        for _ in range(lines):
             draw.line(
                 [rnd.randint(0, w), rnd.randint(0, h), rnd.randint(0, w), rnd.randint(0, h)],
                 fill=(rnd.randint(150, 210), rnd.randint(150, 210), rnd.randint(150, 210)),
                 width=1,
             )
-        for _ in range(40):
+        for _ in range(dots):
             draw.point((rnd.randint(0, w), rnd.randint(0, h)),
                        fill=(rnd.randint(120, 220), rnd.randint(120, 220), rnd.randint(120, 220)))
         # 尝试用系统字体，找不到用默认
@@ -130,12 +169,51 @@ def verify_captcha(user_input):
     return ok
 
 
-def captcha_required():
-    """判断当前请求是否要求验证码（评论 / 注册场景，由各接口调用）。"""
-    cfg = current_app.config.get("CAPTCHA_ENABLED", True)
-    if not cfg:
+def _infer_captcha_scope():
+    """根据当前请求路径推断验证码场景（注册 / 评论 / 留言）。"""
+    try:
+        p = (request.path or "").lower().rstrip("/")
+    except Exception:
+        return None
+    if p.endswith("/register"):
+        return "register"
+    if "/comment" in p:
+        return "comment"
+    if "guestbook" in p:
+        return "guestbook"
+    return None
+
+
+def captcha_required(scope=None):
+    """判断当前请求是否要求验证码。
+
+    scope 可显式传入（如图片接口按 from 参数）；未传则按请求路径自动推断。
+    全局开关 captcha_enabled 关闭、或对应场景开关关闭时返回 False。
+    """
+    if scope is None:
+        scope = _infer_captcha_scope()
+    enabled = _cfg_bool("captcha_enabled", current_app.config.get("CAPTCHA_ENABLED", True))
+    if not enabled:
         return False
+    if scope in ("register", "comment", "guestbook"):
+        if not _cfg_bool("captcha_on_" + scope, True):
+            return False
     return True
+
+
+def get_captcha_config():
+    """返回验证码配置快照，供前端 /api/captcha/config 分场景显隐。"""
+    enabled = _cfg_bool("captcha_enabled", current_app.config.get("CAPTCHA_ENABLED", True))
+    # PIL 是否可用（决定能否出图）
+    available = True
+    try:
+        from PIL import Image  # noqa: F401
+    except Exception:
+        available = False
+    scenes = {}
+    for s in ("register", "comment", "guestbook"):
+        scenes[s] = bool(enabled and _cfg_bool("captcha_on_" + s, True))
+    return {"enabled": bool(enabled), "available": available, "scenes": scenes}
 
 
 def captcha_passed():

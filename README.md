@@ -119,6 +119,13 @@ llhhy-blog/
 - **修复**：`admin.py` 的 `/admin/logout` 路由改为 `methods=["GET", "POST"]`——POST 服务退出表单（带 CSRF 隐藏域），GET 保留兼容旧链接。全仓库排查确认这是唯一「表单 POST 但路由未声明 POST」的遗漏。
 - **验证**：隔离临时库 + test_client 实测——登录后 POST `/admin/logout` 返回 302 不再 405；GET 兼容 302；退出后访问后台被重定向回登录页。无回归（py_compile + 冒烟 11 组全过）。APP_VERSION 升为 v3.1.8。
 
+### v3.2.0 新增：后台验证码独立设置页 + Pillow 依赖修复（R16 审计通过）
+
+- **后台验证码设置页**：`/admin/captcha-settings`（超管专属）可单独配置——全局开关、验证码长度（3–8）、干扰强度（低/标准/高）、排除易混字符，以及**注册 / 评论 / 留言三个场景各自独立开关**。配置存 `Setting` 表，前端按场景自动显隐验证码框。
+- **修复「验证码用不了」根因**：`requirements.txt` 此前漏写 Pillow，导致服务器未装图像库时验证码整块降级停用。现补 `Pillow>=10.0.0`；**服务器升级后务必 `pip install Pillow` 并停止再启动**，验证码图片才会正常出图（设置页也会实时提示 Pillow 是否可用）。
+- `api.py` 新增 `GET /api/captcha/config`（返回全局/场景开关 + Pillow 可用性）；`/api/captcha` 图片接口按场景（`from` 参数）判断是否出图。
+- **验证**：py_compile + 前端 build（dist_v316）+ `smoke_v320.py` 专项冒烟（默认配置 / 单场景关闭 / 全局关闭 / 长度配置 / 后台页面登录 GET·POST 保存）全部通过。APP_VERSION 升为 v3.2.0。
+
 ## 快速开始（本地开发）
 
 后端（默认端口 5000）：

@@ -47,16 +47,13 @@ async function refreshCaptcha() {
   } catch (e) {}
 }
 async function initCaptcha() {
+  // v3.2.0：读取后台验证码配置，按「注册」场景显隐（全局关闭 / 场景关闭 / Pillow 缺失均自动隐藏）
   try {
-    const m = await apiGet("/api/version/check").catch(() => null);
-  } catch (e) {}
-  // 探测验证码是否可用：图片接口在 PIL 缺失时返回 JSON {captcha:"off"}
-  try {
-    const r = await fetch("/api/captcha?" + Date.now(), { credentials: "same-origin" });
-    const ct = r.headers.get("content-type") || "";
-    if (ct.includes("image")) {
+    const cfg = await apiGet("/api/captcha/config");
+    const ok = cfg && cfg.enabled && cfg.available && cfg.scenes && cfg.scenes.register;
+    if (ok) {
       captchaEnabled.value = true;
-      captchaUrl.value = r.url;
+      refreshCaptcha();
     } else {
       captchaEnabled.value = false;
     }

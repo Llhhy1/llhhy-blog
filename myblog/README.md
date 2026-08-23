@@ -110,6 +110,12 @@
 - **修复**：`admin.py` `/admin/logout` 路由改为 `methods=["GET", "POST"]`（POST 带 CSRF Token 退出，GET 兼容旧链接）。全仓库排查为唯一遗漏。
 - **验证**：隔离临时库 + test_client 实测退出链路 POST/GET 均 302、退出后后台被重定向。无回归。APP_VERSION 升为 v3.1.8。
 
+### v3.2.0 新增：后台验证码独立设置页 + Pillow 缺失修复（R16 审计通过）
+
+- 后台「🛡️ 验证码设置」（`/admin/captcha-settings`，超管）可单独配置：全局开关、长度（3–8）、干扰强度、排除易混字符、注册/评论/留言各场景独立开关，存 `Setting` 表。
+- **根因修复**：`requirements.txt` 补 `Pillow>=10.0.0`（此前遗漏 → 服务器未装时验证码恒降级停用）。升级后需 `pip install Pillow` 并重启。
+- 新增 `GET /api/captcha/config`；`/api/captcha` 按场景显隐。APP_VERSION 升为 v3.2.0。
+
 ## 目录结构
 ```
 myblog/             # 后端（Flask + SQLite）

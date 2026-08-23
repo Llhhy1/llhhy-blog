@@ -52,6 +52,7 @@
         {% if current_user.is_super %}
         <a href="{{ url_for('admin.settings') }}" class="{{ 'active' if ep == 'admin.settings' }}"><span class="nav-emoji">⚙️</span>站点设置</a>
         <a href="{{ url_for('admin.email_settings') }}" class="{{ 'active' if ep == 'admin.email_settings' }}"><span class="nav-emoji">📧</span>邮件设置</a>
+        <a href="{{ url_for('admin.captcha_settings') }}" class="{{ 'active' if ep == 'admin.captcha_settings' }}"><span class="nav-emoji">🛡️</span>验证码设置</a>
         <a href="{{ url_for('admin.users') }}" class="{{ 'active' if ep == 'admin.users' }}"><span class="nav-emoji">👥</span>用户管理</a>
         <a href="{{ url_for('admin.link_applications') }}" class="{{ 'active' if ep == 'admin.link_applications' }}"><span class="nav-emoji">🔗</span>友链申请{% if pending_comments %}{% endif %}</a>
         <a href="{{ url_for('admin.audit_logs') }}" class="{{ 'active' if ep == 'admin.audit_logs' }}"><span class="nav-emoji">🧾</span>操作日志</a>

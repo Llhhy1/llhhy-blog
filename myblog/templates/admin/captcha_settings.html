@@ -1,0 +1,62 @@
+{% extends "admin/base.html" %}
+{% block title %}验证码设置{% endblock %}
+{% block content %}
+  <h1 class="page-title">验证码设置</h1>
+
+  <div class="flash flash-info" style="margin-bottom:18px;line-height:1.7;">
+    🛡️ 验证码用于拦截注册 / 评论 / 留言的机器垃圾提交。可在此单独开关与调参，无需改环境变量。
+    {% if captcha_cfg %}
+      <br>当前状态：<b>全局{{ '已启用' if captcha_cfg.enabled else '已关闭' }}</b>；
+      图像库（Pillow）<b>{{ '可用 ✅' if captcha_cfg.available else '不可用 ❌（验证码图片无法生成，已降级停用）' }}</b>。
+      {% if not captcha_cfg.available %}
+        <br><span style="color:#c0392b;">服务器未安装 Pillow，请执行 <code>pip install Pillow</code> 并重启后验证码图片才会正常出图。</span>
+      {% endif %}
+    {% endif %}
+  </div>
+
+  <form method="post" action="{{ url_for('admin.captcha_settings') }}" class="edit-form">
+    {{ csrf_input() }}
+
+    <label class="checkbox-row">
+      <input type="checkbox" name="captcha_enabled" {{ 'checked' if (settings.captcha_enabled or 'true')|lower == 'true' }}>
+      <span><b>启用验证码</b>（总开关；关闭后所有场景均不要求验证码）</span>
+    </label>
+
+    <label style="margin-top:22px;font-size:15px;color:var(--accent);">⚙️ 图像参数</label>
+
+    <label>验证码长度（3–8 位）</label>
+    <input type="number" name="captcha_length" min="3" max="8" value="{{ settings.captcha_length or '4' }}">
+
+    <label>干扰强度（图片中干扰线与噪点的多少，越高越难识别）</label>
+    <select name="captcha_difficulty">
+      <option value="low" {{ 'selected' if (settings.captcha_difficulty or 'normal') == 'low' }}>低（清晰易读）</option>
+      <option value="normal" {{ 'selected' if (settings.captcha_difficulty or 'normal') == 'normal' }}>标准</option>
+      <option value="high" {{ 'selected' if settings.captcha_difficulty == 'high' }}>高（强干扰）</option>
+    </select>
+
+    <label class="checkbox-row">
+      <input type="checkbox" name="captcha_exclude_ambiguous" {{ 'checked' if (settings.captcha_exclude_ambiguous or 'true')|lower == 'true' }}>
+      <span>排除易混淆字符（0/O、1/I/L 等，开启后只使用不易看错的字符）</span>
+    </label>
+
+    <label style="margin-top:22px;font-size:15px;color:var(--accent);">🎯 各场景开关</label>
+    <p class="hint" style="margin:0 0 12px;">可分别对注册、评论、留言启用或关闭验证码（需先开启上方总开关）。</p>
+
+    <label class="checkbox-row">
+      <input type="checkbox" name="captcha_on_register" {{ 'checked' if (settings.captcha_on_register or 'true')|lower == 'true' }}>
+      <span>注册页启用验证码</span>
+    </label>
+
+    <label class="checkbox-row">
+      <input type="checkbox" name="captcha_on_comment" {{ 'checked' if (settings.captcha_on_comment or 'true')|lower == 'true' }}>
+      <span>评论区启用验证码</span>
+    </label>
+
+    <label class="checkbox-row">
+      <input type="checkbox" name="captcha_on_guestbook" {{ 'checked' if (settings.captcha_on_guestbook or 'true')|lower == 'true' }}>
+      <span>留言墙启用验证码</span>
+    </label>
+
+    <button type="submit" class="btn">保存设置</button>
+  </form>
+{% endblock %}

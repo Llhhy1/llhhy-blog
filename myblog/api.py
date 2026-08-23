@@ -161,13 +161,21 @@ def _csrf_token():
         return ""
 
 
-# ---------- 图形验证码（v3.1.6 可选增强：可开关）----------
+# ---------- 图形验证码（v3.1.6 可选增强：可开关；v3.2.0 后台可单独配置）----------
+@api_bp.route("/captcha/config")
+def captcha_config():
+    """返回验证码配置快照（全局启用 / PIL 是否可用 / 各场景开关），供前端分场景显隐。"""
+    from security import get_captcha_config
+    return jsonify(get_captcha_config())
+
+
 @api_bp.route("/captcha")
 def captcha_image():
-    """获取注册/评论验证码图片（GET）。返回 PNG 图；CAPTCHA_ENABLED=false 时该项自动停用。
+    """获取注册/评论/留言验证码图片（GET）。返回 PNG 图；该场景未启用或全局关闭时返回 404。
     生成后答案存会话（captcha_answer），前端刷新图片时可重新生成。"""
     from security import generate_captcha, captcha_required
-    if not captcha_required():
+    scope = request.args.get("from")
+    if not captcha_required(scope):
         return jsonify({"error": "验证码未启用"}), 404
     img, _ = generate_captcha()
     if img is None:

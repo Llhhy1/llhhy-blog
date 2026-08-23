@@ -73,12 +73,13 @@ function refreshCaptcha() {
   captchaUrl.value = "/api/captcha?" + Date.now() + "&from=comment";
 }
 async function initCaptcha() {
+  // v3.2.0：读取后台验证码配置，按「评论」场景显隐
   try {
-    const r = await fetch("/api/captcha?" + Date.now(), { credentials: "same-origin" });
-    const ct = r.headers.get("content-type") || "";
-    if (ct.includes("image")) {
+    const cfg = await apiGet("/api/captcha/config");
+    const ok = cfg && cfg.enabled && cfg.available && cfg.scenes && cfg.scenes.comment;
+    if (ok) {
       captchaEnabled.value = true;
-      captchaUrl.value = r.url;
+      refreshCaptcha();
     } else {
       captchaEnabled.value = false;
     }

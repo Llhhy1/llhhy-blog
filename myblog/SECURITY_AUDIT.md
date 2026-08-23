@@ -879,3 +879,43 @@
 - 隔离临时库 + `test_client` 实测退出链路：POST 302 / GET 302 / 退出后重定向，全部通过。
 
 **评估**：v3.1.6 CSRF 改造遗留的单一遗漏（logout 路由未加 POST），已修复并经真实请求验证。修复不改变安全模型（退出仍需 CSRF Token），无新增风险。
+
+---
+
+## 第二十六轮审计（R16，v3.2.0）：后台验证码独立设置页 + Pillow 依赖修复
+
+**背景**：用户反馈「验证码功能用不了」，并要求「在后台加一个可以单独设置的页面」。
+
+**根因一（功能不可用）**：`security.py` 的验证码生成用 `try: from PIL ... except: return None` 降级，服务器若未安装 Pillow，整块验证码降级停用（`/api/captcha` 返回 `{captcha:"off"}`）。而 `requirements.txt` **从未声明 Pillow**，部署安装依赖时不会自动装上 → 线上验证码恒为降级停用状态。
+
+**根因二（无法配置）**：验证码此前仅由环境变量 `CAPTCHA_ENABLED` 控制全局开关，参数（长度/难度/场景）全部硬编码，后台无入口单独配置。
+
+**修复**：
+- `requirements.txt` 新增 `Pillow>=10.0.0`（并注释说明：服务器升级后需 `pip install Pillow` 重启才会出图）。
+- `security.py` 新增配置读取辅助（`_cfg_get/_cfg_bool/_cfg_int/_cfg_str`，延迟导入 `Setting` 避免循环依赖），把验证码配置从硬编码改为读 `Setting` 表：
+  - `captcha_enabled`（全局开关，默认值回退环境变量 `CAPTCHA_ENABLED`）
+  - `captcha_length`（3–8，默认 4）、`captcha_difficulty`（low/normal/high，默认 normal）、`captcha_exclude_ambiguous`（默认 true）
+  - `captcha_on_register` / `captcha_on_comment` / `captcha_on_guestbook`（各场景独立开关，默认 true）
+  - `captcha_required(scope=None)`：未传 scope 时按 `request.path` 自动推断（register/comment/guestbook），使三处 API 调用点无需改动即生效；全局或场景关闭返回 False。
+  - 新增 `get_captcha_config()` 返回 `{enabled, available(PIL), scenes}`，供前端分场景显隐。
+- `api.py` 新增 `GET /api/captcha/config`；`/api/captcha` 图片接口按 `from` 参数判断场景（场景禁用返回 404）。
+- `admin.py` 新增 `@admin_bp.route("/captcha-settings", methods=[GET,POST])`（@super_required），读写上述 Setting；新增模板 `templates/admin/captcha_settings.html`，并在 `base.html` 系统设置组加「🛡️ 验证码设置」菜单项。
+- 前端 `RegisterView/CommentForm/GuestbookView` 的 `initCaptcha()` 改为读取 `/api/captcha/config` 的对应场景开关（`enabled && available && scenes.<scope>`）决定是否显示验证码框，替换原先「探测图片 MIME」的隐式逻辑。
+
+**维度审计**：
+
+| 编号 | 维度 | 结论 |
+|---|---|---|
+| R16-1 | 越权 | `/admin/captcha-settings` 受 `@super_required` 保护；写入仅操作 `Setting` 表字符串值，无用户数据越权面 | ✅ 通过 |
+| R16-2 | XSS / 注入 | 前台读取的是后端下发的 JSON 布尔/枚举（`enabled/scenes/difficulty`），无用户可控输入拼接到 HTML；后台表单值仅以 `value="{{ settings.x or '4' }}"` 回显（Jinja2 autoescape 转义）；难度 select 用服务端枚举校验，长度经 `_cfg_int` 限定 3–8 防越界 | ✅ 通过 |
+| R16-3 | CSRF | 设置页表单含 `{{ csrf_input() }}`，沿用全局 CSRF 双重防护；POST 保存路由未豁免 | ✅ 通过 |
+| R16-4 | 资源/依赖 | `security.py` 延迟导入 `Setting`（避免循环依赖），`get_captcha_config` 的 PIL 探测用独立 try；无文件句柄/连接泄漏；新增单依赖 Pillow（图形库，无网络回调） | ✅ 通过 |
+| R16-5 | 降级/兼容 | `Setting` 表缺省时回退默认值（含环境变量 `CAPTCHA_ENABLED`），升级前未配置也能正常工作；PIL 仍不可用时 `available=false` 前端自动隐藏框，不报错 | ✅ 通过 |
+
+**验证记录**：
+- `py_compile` 全量编译通过（myblog 全部 .py）。
+- 前端 `npm run build` 编译通过（输出 `dist_v316`，含三页面新版 `initCaptcha`）。
+- `smoke_v320.py` 专项冒烟（隔离临时库）：默认配置、单场景关闭、全局关闭、长度配置、后台页面登录 GET/POST 保存，全部通过。
+- 双源互证与 zip 版本号待打包后验证。
+
+**评估**：新增后台验证码独立设置能力，并修复 Pillow 缺失导致验证码恒降级停用的根因。改动局限在验证码子系统，复用既有 `Setting` 表与 CSRF/权限体系，未弱化任何既有防护，无新增高危风险。部署注意：服务器务必 `pip install Pillow` 并停止再启动，验证码图片才会正常出图；后台「验证码设置」可单独开关与调参。

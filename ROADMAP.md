@@ -307,3 +307,20 @@ v3.1.7 修复 CSRF 隐藏域乱码后，用户反馈「退出登录按钮失效�
 - R15 审计：功能回归 / CSRF 有效性 / 越权会话 / 回归风险 4 维度全 ✅（详见 SECURITY_AUDIT.md 第二十五轮）。
 - 隔离临时库 + test_client 实测：POST `/admin/logout` 302（不再 405）、GET 兼容 302、退出后访问后台被重定向。
 - `py_compile` + 冒烟 11 组全通过。APP_VERSION 升为 v3.1.8。
+
+## 20. v3.2.0：后台验证码独立设置页 + Pillow 缺失修复（R16 审计通过）
+
+### 20.1 背景
+用户反馈「验证码功能用不了」并要求「在后台加一个可以单独设置的页面」。根因有二：① `requirements.txt` 遗漏 Pillow，服务器未装图像库时验证码恒降级停用；② 验证码只能靠环境变量 `CAPTCHA_ENABLED` 控制全局，后台无配置入口。
+
+### 20.2 修复
+- `requirements.txt` 补 `Pillow>=10.0.0`。
+- `security.py`：验证码配置改为读 `Setting` 表（全局开关 / 长度 3–8 / 干扰强度 / 排除易混字符 / 注册·评论·留言各场景开关）；`captcha_required(scope)` 按请求路径自动推断场景；新增 `get_captcha_config()`。
+- `api.py`：新增 `GET /api/captcha/config`；`/api/captcha` 图片接口按场景（`from` 参数）显隐。
+- `admin.py` + 模板：新增 `/admin/captcha-settings`（超管）读写上述 Setting；`base.html` 系统设置组加「🛡️ 验证码设置」菜单。
+- 前端 `RegisterView/CommentForm/GuestbookView` 的 `initCaptcha()` 改为读 `/api/captcha/config` 按场景显隐。
+
+### 20.3 验证
+- R16 审计：越权 / XSS·注入 / CSRF / 资源依赖 / 降级兼容 5 维度全 ✅（详见 SECURITY_AUDIT.md 第二十六轮）。
+- `py_compile` + 前端 build（dist_v316）+ `smoke_v320.py` 专项冒烟（默认配置 / 单场景关闭 / 全局关闭 / 长度配置 / 后台页面登录 GET·POST 保存）全部通过。
+- APP_VERSION 升为 v3.2.0。

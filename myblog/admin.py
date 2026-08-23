@@ -1218,6 +1218,39 @@ def settings():
     return render_template("admin/settings.html", settings=settings)
 
 
+@admin_bp.route("/captcha-settings", methods=["GET", "POST"])
+@super_required
+def captcha_settings():
+    """验证码独立设置页（v3.2.0）：全局开关 + 长度 + 难度 + 排除易混字符 + 各场景开关，存 Setting 表。"""
+    keys = ["captcha_enabled", "captcha_length", "captcha_difficulty", "captcha_exclude_ambiguous",
+            "captcha_on_register", "captcha_on_comment", "captcha_on_guestbook"]
+    bool_keys = {"captcha_enabled", "captcha_exclude_ambiguous",
+                 "captcha_on_register", "captcha_on_comment", "captcha_on_guestbook"}
+    if request.method == "POST":
+        for k in keys:
+            val = "true" if (k in bool_keys and request.form.get(k)) else (
+                request.form.get(k, "").strip() if k not in bool_keys else "false")
+            row = Setting.query.filter_by(key=k).first()
+            if row:
+                row.value = val
+            else:
+                db.session.add(Setting(key=k, value=val))
+        db.session.commit()
+        flash("验证码设置已保存")
+        return redirect(url_for("admin.captcha_settings"))
+    settings = {s.key: s.value for s in Setting.query.all()}
+    defaults = {
+        "captcha_enabled": "true", "captcha_length": "4", "captcha_difficulty": "normal",
+        "captcha_exclude_ambiguous": "true", "captcha_on_register": "true",
+        "captcha_on_comment": "true", "captcha_on_guestbook": "true",
+    }
+    for k, v in defaults.items():
+        settings.setdefault(k, v)
+    from security import get_captcha_config
+    return render_template("admin/captcha_settings.html", settings=settings,
+                           captcha_cfg=get_captcha_config())
+
+
 @admin_bp.route("/email-settings", methods=["GET", "POST"])
 @super_required
 def email_settings():

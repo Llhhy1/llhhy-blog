@@ -97,6 +97,12 @@
 - **安全响应头**：`SECURITY_HEADERS`（默认 true）——全局追加 X-Frame-Options / CSP / X-Content-Type-Options / Referrer-Policy。
 - **会话超时 + Webhook 防重放**：`SESSION_IDLE_MINUTES`（默认 60）闲置超时强制重登；Webhook 必须带 `X-Deploy-Time` 时间戳（`WH_REPLAY_WINDOW` 默认 300s 窗口校验）。APP_VERSION 升为 v3.1.6。
 
+### v3.1.7 修复：CSRF 隐藏域乱码（R14 审计通过）
+
+- **根因**：`csrf_input()` 返回普通字符串的 `<input>` 隐藏域，Jinja2 默认 autoescape 把标签转义成 `&lt;input&gt;` 源码文本，导致登录后台后页面显示乱码。
+- **修复**：`csrf_input()` 改用 `markupsafe.Markup` 包装（服务端生成的 HMAC 签名 Token，无用户可控输入），隐藏域以原生 HTML 渲染。所有模板 `{{ csrf_input() }}` 调用一处修复全局生效。
+- **验证**：真实渲染验证（隔离临时库 + test_client）——后台 dashboard（`/admin/`）+ 前台登录页（`/login`）均含原生隐藏域、无转义乱码。无新增依赖（markupsafe 为 Flask 自带）。APP_VERSION 升为 v3.1.7。
+
 ## 目录结构
 ```
 myblog/             # 后端（Flask + SQLite）
@@ -220,4 +226,5 @@ vue-frontend/       # 前端（Vue3 + Vite，构建成静态站）
 - **测试邮件发送失败**：检查后台「📧 邮件设置」——端口/SSL 开关是否匹配（465=勾选 SSL，587=取消）、授权码是否正确（不是登录密码）、发件邮箱是否已在邮箱后台开启 SMTP 服务。
 - **第三方脚本直接 POST 接口被 403（CSRF）**：v3.1.6 起所有写接口要求会话绑定的 CSRF Token。前端页面/后台表单已自动处理；第三方脚本需先 GET `/api/csrf` 拿 token 再带 `X-CSRF-Token` 头提交（或改用 webhook 等豁免接口）。
 - **评论/留言/注册要填验证码**：v3.1.6 起默认开启图形验证码（`CAPTCHA_ENABLED=true`）；如果服务器没装 Pillow 会自动降级关闭。若不想用，在环境变量设 `CAPTCHA_ENABLED=false` 并重启项目。
-- **升级 v3.1.6 后所有用户都要重新登录**：`session_version` 会话版本机制启动生效，旧会话全部失效（预期安全行为，登录一次即可）。
+- **升级 v3.1.6+ 后所有用户都要重新登录**：`session_version` 会话版本机制启动生效，旧会话全部失效（预期安全行为，登录一次即可）。
+- **登录后台后页面显示 `<input type="hidden" name="csrf_token" ...>` 源码乱码**：v3.1.6 的 `csrf_input()` 返回普通字符串被 Jinja2 autoescape 转义导致。**升级 v3.1.7 即可修复**（改用 Markup 原生渲染隐藏域）；不想升级的话，可在服务器手动把 `myblog/utils.py` 的 `csrf_input()` 返回值改成 `Markup(...)` 并重启项目。

@@ -7,6 +7,7 @@ import secrets
 
 import bleach
 from markdown import markdown
+from markupsafe import Markup
 
 
 # ---------- HTML 清理（防 XSS）----------
@@ -303,9 +304,13 @@ def check_csrf_token(tok):
 
 
 def csrf_input():
-    """渲染隐藏域用（模板里写 {{ csrf_input() }}）。"""
+    """渲染隐藏域用（模板里写 {{ csrf_input() }}）。
+
+    必须返回 Markup（安全 HTML）：Jinja2 默认 autoescape，若返回普通字符串，
+    <input> 会被转义成 &lt;input&gt;，导致登录后台页面直接显示这段源码（乱码）。
+    """
     tok, _ = generate_csrf_token()
-    return f'<input type="hidden" name="csrf_token" value="{tok}">'
+    return Markup(f'<input type="hidden" name="csrf_token" value="{tok}">')
     """解析评论/动态内容里的 @username，给被提及的注册用户生成站内通知。
     - content: 评论原文；link: 点击通知跳转地址；from_author: 提及者昵称（文案用）
     - 仅给存在的注册用户发通知，不重复，自己@自己不发

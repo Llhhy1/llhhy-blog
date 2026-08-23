@@ -276,3 +276,19 @@
 - R13 安全审计：13 个维度全部 ✅ 通过。
 - `py_compile` 全量通过；隔离临时库冒烟测试 11 组全部通过。
 - 前端 Vue 改动（api.js/store.js/RegisterView/CommentForm/GuestbookView/global.css）经 `npm run build` 构建验证。
+
+## 18. v3.1.7：CSRF 隐藏域乱码修复（R14 审计通过）
+
+### 18.1 背景
+v3.1.6 上线后用户反馈「登录后台后出乱码」。根因：`csrf_input()` 返回普通字符串的 `<input>` 隐藏域，Jinja2 默认 autoescape 将其转义成 `&lt;input ...&gt;` 源码文本渲染到页面（尤其带表单的后台页）。
+
+### 18.2 修复
+- `myblog/utils.py` 的 `csrf_input()` 返回值改用 `markupsafe.Markup(...)` 包装——Markup 是已信任的安全 HTML，autoescape 不再转义，隐藏域以原生 `<input type="hidden" name="csrf_token" value="...">` 渲染。
+- `markupsafe` 是 Flask 自带传递依赖，**无新增 requirements**。
+- 一处修复全局生效：后台 24 个表单模板 + 前台登录/注册页 + base.html 退出按钮，全部走 `{{ csrf_input() }}`。
+- 前端无需改动。
+
+### 18.3 验证
+- R14 审计：功能回归 / XSS / CSRF 有效性 / 资源依赖 4 维度全部 ✅（详见 `myblog/SECURITY_AUDIT.md` 第二十四轮）。
+- 真实渲染验证（隔离临时库 + test_client）：后台 dashboard（`/admin/`）+ 前台登录页（`/login`）均含原生隐藏域、无 `&lt;input` 转义文本。
+- `py_compile` 编译通过。APP_VERSION 升为 v3.1.7。

@@ -106,6 +106,12 @@ llhhy-blog/
 - **安全响应头**：`SECURITY_HEADERS`（默认 true）——全局追加 X-Frame-Options / CSP / X-Content-Type-Options / Referrer-Policy。
 - **会话超时 + Webhook 防重放**：`SESSION_IDLE_MINUTES`（默认 60）闲置超时强制重登；Webhook 必须带 `X-Deploy-Time` 时间戳（`WH_REPLAY_WINDOW` 默认 300s 窗口校验）。APP_VERSION 升为 v3.1.6。
 
+### v3.1.7 修复：CSRF 隐藏域乱码（R14 审计通过）
+
+- **根因**：`csrf_input()` 返回普通字符串的 `<input>` 隐藏域，Jinja2 默认 autoescape 把标签转义成 `&lt;input&gt;` 源码文本，导致登录后台后页面显示乱码。
+- **修复**：`csrf_input()` 改用 `markupsafe.Markup` 包装（服务端生成的 HMAC 签名 Token，无用户可控输入），隐藏域以原生 HTML 渲染。所有模板 `{{ csrf_input() }}` 调用一处修复全局生效。
+- **验证**：真实渲染验证（隔离临时库 + test_client）——后台 dashboard（`/admin/`）+ 前台登录页（`/login`）均含原生隐藏域、无转义乱码。无新增依赖（markupsafe 为 Flask 自带）。APP_VERSION 升为 v3.1.7。
+
 ## 快速开始（本地开发）
 
 后端（默认端口 5000）：
@@ -136,7 +142,7 @@ npm run dev              # 访问 http://localhost:5173
 - **后端**：gunicorn 运行 `myblog`，监听 8686；Nginx 反代 `/api/`、`/admin`、`/static/`；
 - **前端**：`vue-frontend` 执行 `npm run build`，把 `dist/` 作为静态站根目录；
 - **必配环境变量**：`SECRET_KEY`、`ADMIN_PASSWORD`（宝塔「Python 项目 → 设置 → 环境变量」）；可选安全项见 [deploy_guide.md](myblog/deploy_guide.md)（`REDIS_URL` / `CAPTCHA_ENABLED` / `SESSION_IDLE_MINUTES` / `AUDIT_LOG_DAYS` / `UPDATE_HMAC_KEY` 等，v3.1.6+）。
-- **版本确认**：登录后台，左下角显示当前版本（如 v3.1.6），与 [Releases](../../releases) 最新标签比对即可确认部署是否成功。
+- **版本确认**：登录后台，左下角显示当前版本（如 v3.1.7），与 [Releases](../../releases) 最新标签比对即可确认部署是否成功。
 - **升级（简单方式）**：用仓库根目录 `update.sh` 懒人版脚本（上传后 `bash update.sh`，自动下载最新包 + 备份数据 + 覆盖代码 + **自动重启**），详见部署文档「一键更新脚本」章节。
 - **升级（最懒方式，v2.5.0+）**：登录后台自动检测新版本 → 点「立即更新」→ 后台静默完成 → 刷新即用，详见部署文档「后台一键在线更新」章节。
 - **升级（手动方式）**：备份 `data/` 与 `static/uploads/` → 覆盖后端/前端 → 「停止」再「启动」项目 → 验证版本号。详见部署文档「版本升级」章节。

@@ -825,3 +825,30 @@
 - **双源互证自指循环修复验证**：审计中发现「把哈希写入 zip 注释后，注释参与文件字节，『注释里的哈希 == 整文件哈希』必然不成立（等于破解 SHA256）」的数学缺陷。修复：zip 注释改存**内容区哈希**（剥离尾注释后的字节，写注释前后恒定），`sha256.txt` 记录含注释的整文件哈希；update.sh 两端分别按各自口径校验。修复后模拟 update.sh 完整双源互证：`myblog-backend.zip` 与 `vue-frontend-dist.zip` 的 ①整文件哈希、②内容区哈希均与各自记录一致，`testzip` 结构完整，全部通过。
 
 **评估**：清单 12 项代码级加固全部落地并经冒烟验证，无新增高危风险。升级注意：旧会话升级后需重新登录一次；第三方直接 POST 不带 CSRF Token 会被 403（预期安全行为）。
+
+---
+
+## 第二十四轮审计（R14，v3.1.7）：CSRF 隐藏域乱码修复审计
+
+**背景**：v3.1.6 上线后，用户反馈「登录后台后出乱码」。定位根因：`myblog/utils.py` 的 `csrf_input()` 返回**普通字符串**的 `<input>` 隐藏域，Jinja2 默认 autoescape 将其转义为 `&lt;input ...&gt;` 的**文本源码**渲染到页面上，用户看到的就是表单里显示出一段 HTML 源码（乱码）。
+
+**修复**（`myblog/utils.py`）：
+- `csrf_input()` 返回值改用 `markupsafe.Markup(...)` 包装——Markup 是「已信任的安全 HTML」，Jinja2 autoescape 不再转义，隐藏域以原生 `<input type="hidden" name="csrf_token" value="...">` 渲染。
+- `markupsafe` 为 Flask 自带依赖（Flask 底层渲染依赖），无需新增 requirements。
+- 该方法在所有模板中均以 `{{ csrf_input() }}` 调用（24 个表单模板 + 前台登录/注册页 + base.html），修复一处全局生效。
+
+**维度审计**：
+
+| 编号 | 维度 | 结论 |
+|---|---|---|
+| R14-1 | 功能性回归 | 真实渲染验证：后台 dashboard（`/admin/`）+ 前台登录页（`/login`）均含原生 `<input type="hidden" name="csrf_token"`，无 `&lt;input` 转义文本（隔离临时库 + test_client 实测） | ✅ 通过 |
+| R14-2 | XSS | Markup 仅包装**由服务端 `generate_csrf_token()` 生成的 token**（HMAC 签名，格式 `raw.signature`，值来自会话），不包含用户可控输入；不会因 Markup 引入 XSS | ✅ 通过 |
+| R14-3 | CSRF 防护有效性 | 隐藏域 `name="csrf_token"` 与全局 `_csrf_protect()` 校验的字段名一致，修复不影响校验逻辑（只是让隐藏域正确显示出来供浏览器提交） | ✅ 通过 |
+| R14-4 | 资源/依赖 | 未新增第三方依赖（markupsafe 已是 Flask 传递依赖）；无文件句柄/资源泄漏 | ✅ 通过 |
+
+**验证记录**：
+- `py_compile` 编译通过（`myblog/utils.py`）。
+- 隔离临时库 + `test_client` 实测：`/admin/login`（登录态跳转）、`/login`（200）、`/admin/` dashboard（200）三类页面渲染，原生隐藏域存在且无转义乱码。
+- 前端无需改动（本次纯后端渲染修复）。
+
+**评估**：v3.1.6 引入的 CSRF 隐藏域乱码为**功能性 bug（非安全漏洞）**，已修复并经真实渲染验证。修复方式（Markup 包装服务端生成的 token）不引入新风险。

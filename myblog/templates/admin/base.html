@@ -176,7 +176,7 @@
     yes.addEventListener('click', function () {
       yes.disabled = true;
       show('正在触发更新，请稍候…', false);
-      fetch('/api/version/update', { method: 'POST', headers: { Accept: 'application/json' } })
+      fetch('/api/version/update', { method: 'POST', headers: { Accept: 'application/json', 'X-CSRF-Token': '{{ csrf_token }}' } })
         .then(function (r) { return r.json().then(function (d) { return { ok: r.ok, d: d }; }); })
         .then(function (res) {
           if (!res.ok) { yes.disabled = false; show('更新触发失败：' + (res.d.error || ''), true); return; }

@@ -131,6 +131,13 @@
 - **恢复安全**：CLI 需 `--yes`；后台 `/admin/backup` 需超管 + CSRF + 二次确认 + 恢复前自动快照 + 审计日志，并提示宝塔「停止→启动」。
 - **定时**：`myblog/backup.sh` 供宝塔 `0 4 * * *` 定时任务调用。APP_VERSION 升为 v3.3.0。
 
+### v3.3.1 修复：后台「立即更新」CSRF 校验失败（R19 审计通过）
+
+- **背景**：后台「系统设置 → 立即更新」报错「CSRF 校验失败，请刷新页面后重试」。
+- **根因**：该按钮用 `fetch()` 发 JSON POST 到 `/api/version/update`，请求头漏带全局 CSRF 要求的 `X-CSRF-Token`（v3.1.6 起所有写接口强制校验会话绑定 token），点击即被拒绝。
+- **修复**：`templates/admin/base.html` 的 fetch 请求头补 `'X-CSRF-Token': '{{ csrf_token }}'`（模板上下文本就注入该值）。**单行改动，未把接口加入豁免名单，CSRF 防护完整保留。**
+- **验证**：隔离临时库冒烟——带 token 返回 400「未找到更新脚本」（CSRF 放行，本地无 update.sh 属预期）；不带 token 仍 403（防护未失效）。`py_compile` 通过。R19 四维审计全 ✅（详见 `SECURITY_AUDIT.md` 第二十九轮）。APP_VERSION 升为 v3.3.1。
+
 ## 目录结构
 ```
 myblog/             # 后端（Flask + SQLite）
@@ -150,7 +157,7 @@ myblog/             # 后端（Flask + SQLite）
 ├── backup.sh       # 宝塔定时任务入口（0 4 * * * 调用 backup.py run）
 ├── requirements.txt
 ├── deploy_guide.md # 宝塔部署手册（点按式，含 Nginx 反代配置）
-├── SECURITY_AUDIT.md # 安全审计报告（第一~二十八轮，R1-R18）
+├── SECURITY_AUDIT.md # 安全审计报告（第一~二十九轮，R1-R19）
 ├── templates/      # 页面模板（含后台：admin/base.html 管理外壳、admin/stats.html 统计页等）
 ├── static/         # 样式与脚本（admin.css 后台样式、script.js、上传图片在 static/uploads/）
 └── data/           # 运行时自动生成的 SQLite 数据库 blog.db

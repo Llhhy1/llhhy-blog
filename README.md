@@ -137,14 +137,6 @@ llhhy-blog/
 
 ### v3.3.0 新增：数据备份与异地容灾（R18 审计通过）
 
-- **内置备份模块**：新增 `myblog/backup.py`（纯标准库）——自动打包 `data/blog.db` + `static/uploads/` 为带 `manifest.json`（每文件 SHA256）的 zip，并按 `BACKUP_RETENTION_DAYS`（默认 14 天）本地滚动保留。
-- **四类可插拔异地目的地**（各自环境变量独立开关，未配置自动跳过，远程失败不阻断本地）：本地目录 / 对象存储（OSS·COS·S3，需 boto3）/ 备用机 SCP（需系统 scp）/ 云盘 WebDAV（坚果云·Nextcloud·群晖，需系统 curl）。**所有密钥仅走环境变量，绝不落库、不在后台回显。**
-- **后台「💾 数据备份」页**（`/admin/backup`，超管专属）：一键立即备份、备份列表（文件数/版本/完整性/大小）、下载、恢复。**恢复为高危操作**——仅超管 + CSRF + 表单二次确认（`confirm=yes`）+ 恢复前自动快照（`blog_prerestore_*`）+ 写审计日志；备份包恢复强制校验完整性 + 路径白名单（仅允许 `data/`、`static/uploads/`，拒绝 `..`/绝对路径，防路径穿越）。
-- **宝塔定时任务**：`myblog/backup.sh` 已随包分发，配置「计划任务 → Shell 脚本」`0 4 * * * bash /www/wwwroot/myblog/backup.sh` 即可每日凌晨自动备份。
-- **验证**：`py_compile` 全量通过；隔离临时库 roundtrip（create → verify → restore → 快照）通过；`_safe_rel` 穿越用例单测通过；前端本轮无改动（复用 dist_v317）。R18 七维审计全 ✅（详见 `myblog/SECURITY_AUDIT.md` 第二十八轮）。APP_VERSION 升为 v3.3.0。
-
-### v3.3.0 新增：数据备份与异地容灾（R18 审计通过）
-
 - **痛点**：此前只有手动打包，缺自动备份与多目的地容灾；服务器误删 / 被黑 / 磁盘坏道会导致文章与上传图片永久丢失。
 - **可插拔后端**（`myblog/backup.py`，纯标准库，零新增依赖）：
   - **local**：本地滚动保留（默认开，`BACKUP_DIR` / `BACKUP_RETENTION_DAYS`，默认 14 天）。
@@ -157,6 +149,13 @@ llhhy-blog/
 - **后台页** `/admin/backup`（超管）：远程状态卡、立即备份、列表/下载/恢复（带二次确认）。
 - **定时任务**：`myblog/backup.sh` 供宝塔定时任务 `0 4 * * *` 调用（已随包分发）。
 - **验证**：`py_compile` 全量通过；隔离临时库 roundtrip 实测（创建 → verify → restore → 快照）全部通过。APP_VERSION 升为 v3.3.0。
+
+### v3.3.1 修复：后台「立即更新」CSRF 校验失败（R19 审计通过）
+
+- **背景**：后台「系统设置 → 立即更新」报错「CSRF 校验失败，请刷新页面后重试」。
+- **根因**：该按钮用 `fetch()` 发 JSON POST 到 `/api/version/update`，但请求头漏带全局 CSRF 要求的 `X-CSRF-Token`（v3.1.6 起所有 POST 都必须带会话绑定 token），点击即被 `_csrf_protect()` 拒绝。
+- **修复**：`myblog/templates/admin/base.html` 的 fetch 请求头补上 `'X-CSRF-Token': '{{ csrf_token }}'`（模板上下文本就注入该值）。**单行改动，未把该接口加入豁免名单，CSRF 防护完整保留。**
+- **验证**：隔离临时库冒烟——带 token 调用返回 400「未找到更新脚本」（CSRF 放行，本地无 update.sh 属预期）；不带 token 仍 403（防护未失效）。`py_compile` 通过。R19 四维审计全 ✅（详见 `myblog/SECURITY_AUDIT.md` 第二十九轮）。APP_VERSION 升为 v3.3.1。
 
 ## 快速开始（本地开发）
 

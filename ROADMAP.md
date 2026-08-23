@@ -355,3 +355,17 @@ v3.1.7 修复 CSRF 隐藏域乱码后，用户反馈「退出登录按钮失效�
 - R18 审计：越权 / XSS·注入 / CSRF / 资源依赖 / 降级兼容 5 维度全 ✅（详见 SECURITY_AUDIT.md 第二十八轮）。
 - `py_compile` 全量通过；隔离临时库 roundtrip（create → verify → restore → snapshot）通过。
 - 前端本轮无改动（复用 dist_v317）。APP_VERSION 升为 v3.3.0。
+
+## 23. v3.3.1：后台「立即更新」CSRF 修复（R19 审计通过）
+
+### 23.1 背景
+用户反馈后台「系统设置 → 立即更新」报错「CSRF 校验失败，请刷新页面后重试」。v3.1.6 引入的全局 CSRF 要求所有 POST 携带会话绑定 token（表单字段或 `X-CSRF-Token` 请求头），而「立即更新」按钮用 `fetch()` 发 JSON POST 到 `/api/version/update`，此前未带 token，点击必 403。
+
+### 23.2 实现
+- `myblog/templates/admin/base.html`：`/api/version/update` 的 fetch 请求头补 `'X-CSRF-Token': '{{ csrf_token }}'`（模板上下文本就由 `inject_globals()` 注入该值）。**单行改动；接口未加入 CSRF 豁免名单，防护完整保留。**
+- `myblog/config.py`：`APP_VERSION` 升为 `3.3.1`。
+
+### 23.3 验证
+- R19 审计：功能回归 / CSRF 有效性 / 越权 / 回归风险 4 维度全 ✅（详见 SECURITY_AUDIT.md 第二十九轮）。
+- 隔离临时库冒烟：带 token 调 `/api/version/update` → 400「未找到更新脚本」（CSRF 放行）；不带 token → 仍 403（防护未失效）。
+- `py_compile` 全量通过。前端本轮无改动（复用 dist_v317）。APP_VERSION 升为 v3.3.1。

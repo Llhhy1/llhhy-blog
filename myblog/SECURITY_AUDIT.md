@@ -986,3 +986,38 @@
 - `bash -n backup.sh` 语法校验通过。
 
 **评估**：备份/容灾模块安全约束完整（路径白名单、完整性校验、超管+二次确认+审计的恢复、密钥零回显、远程失败不阻断）。无新增高危风险。部署注意：① 选用远程后端时务必在宝塔/环境变量配置对应 `BACKUP_*` 密钥；② 配置宝塔定时任务 `0 4 * * * bash /www/wwwroot/myblog/backup.sh`（脚本已随包分发）；③ 恢复数据库属高危操作，后台恢复后需到宝塔「停止」再「启动」站点使 SQLite 文件生效。
+
+---
+
+## 第二十九轮审计（R19，v3.3.1）：后台一键更新 CSRF 修复审计
+
+**背景**：用户在后台点击「系统设置 → 立即更新」时收到报错「CSRF 校验失败，请刷新页面后重试」。全局 CSRF 防护（v3.1.6 引入，`app.py::_csrf_protect()`）要求所有 POST 携带会话绑定 token（表单字段 `csrf_token` 或请求头 `X-CSRF-Token`），`inject_globals()` 已把 `csrf_token` 注入每个模板上下文——但后台 `base.html` 的「立即更新」是用 `fetch()` 发 JSON POST 到 `/api/version/update`，**此前没在请求头里带 token**，故点击即 403。
+
+**修复**（单行改动，`myblog/templates/admin/base.html`）：
+```js
+fetch('/api/version/update', {
+    method: 'POST',
+    headers: { Accept: 'application/json', 'X-CSRF-Token': '{{ csrf_token }}' }
+})
+```
+
+**改动文件**：
+- `myblog/templates/admin/base.html`：`/api/version/update` 的 fetch 请求头补 `X-CSRF-Token`。
+- `myblog/config.py`：`APP_VERSION` 升为 `3.3.1`（仅版本号，无逻辑改动）。
+
+**维度审计**：
+
+| 编号 | 维度 | 结论 |
+|---|---|---|
+| R19-1 | 功能回归 | 隔离临时库冒烟：登录 → 首次设置 → 进入后台 → 带 token 调用 `/api/version/update` 返回 **400「未找到更新脚本」**（CSRF 已放行，仅因本地无 update.sh）而非 403；**不带 token 的 POST 仍返回 403**，防护未失效 | ✅ 通过 |
+| R19-2 | CSRF 有效性 | 修复方式是「补发 token」，**不是**把 `/api/version/update` 加入豁免名单；`_csrf_protect()` 逻辑零改动，所有写接口（含本接口）仍强制校验会话绑定 token | ✅ 通过 |
+| R19-3 | 越权 | 无权限模型改动；`/api/version/update` 仍要求后台管理员会话，token 绑定会话，无法跨会话复用 | ✅ 通过 |
+| R19-4 | 回归风险 | 全 `templates/` 仅此一处 fetch POST 缺 token（已 grep 逐一核查，其余 fetch 均为 GET 不需要 token）；改动一行，模板上下文本就提供 `csrf_token`（app.py `inject_globals`），`py_compile` + 冒烟通过 | ✅ 通过 |
+
+**验证记录**：
+- `git diff` 确认本次代码改动仅 `myblog/templates/admin/base.html` 一行（加请求头）＋ `config.py` 版本号。
+- 冒烟实测两态：带 token → 400（CSRF 放行）；无 token → 403（防护生效）。`SMOKE OK`。
+- `py_compile` 全量编译通过（后端无逻辑改动，仅作回归确认）。
+- 前端本轮无改动（复用 dist_v317）。
+
+**评估**：功能缺陷（前端 fetch 漏带 token），非安全隐患；修复未弱化任何既有防护。无新增高危风险。部署注意：仅需更新后端 zip（`myblog-backend.zip`）并「停止 → 启动」站点即可，前端无需更新。

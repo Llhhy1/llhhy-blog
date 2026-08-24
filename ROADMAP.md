@@ -494,3 +494,14 @@ v3.1.7 修复 CSRF 隐藏域乱码后，用户反馈「退出登录按钮失效�
   - 修正 `RESTART_CMD` 注释：宝塔 `bt` 命令行是交互式菜单、不支持 `bt stop 项目名`，旧范例 `bt stop myblog && bt start myblog` 错误已删。
 - `py_compile` 全过 + `bash -n` 双脚本通过；APP_VERSION 升为 v3.4.6。
 - ⚠️ 升级顺序：服务器 `update.sh` / `deploy.sh` **必须覆盖 Release v3.4.6 的 `deploy_scripts_v346fix.zip`**，先覆盖脚本再跑一键更新，方可免除手动重启 + 生效 CSRF 修复。
+
+## 31. v3.4.7：评论者 IP 定位恢复（IP 属地多源兜底 + 防注入 + 自愈）+ 后台筛选表单美化（R29 审计通过）
+
+- **R29-① 评论者 IP 定位恢复**：用户反馈「评论的人的 IP 定位」没了。根因：原 `stats.py` IP 属地仅依赖 `api.vore.top`（已超时挂）与 `ip-api.com`（已 403 被封）两个源，全挂后 `region` 恒空 → 前台 `📍 {{ c.region }}` 不渲染。改为**国内源优先 + 国际源依次兜底**（太平洋 pconline → ipwho.is → api.ip.sb → ipinfo.io）；并修复旧逻辑「解析失败(空)也被缓存、永久不重试」的坑 → 改**仅缓存成功结果、外部源恢复后自动回填**（含历史空属地评论/访问）。
+- **R29-② 严格审计加固（协同 CodeReview 专家，0 Blocker）**：
+  - 新增 `_is_safe_public_ip()`：`ipaddress` 格式校验 + 要求 `is_global`，仅合法公网 IP 才查外部，排除私网/环回/链路本地/保留/CGNAT `100.64/10`，杜绝 XFF 伪造污染与内网 IP 无意义外发。
+  - `short_region` 补英文 / ISO2→中文整词归一（`_REGION_EN2CN` 含 `CN/US/JP/...` + `China/United States/...`），根治海外属地脏数据 `UnitedStatesCalifornia` 与 ipinfo 的 `CN` ISO 码误判（`CN Guangdong`→`中国广东`）。
+  - `_RECENT_FAIL` 加 `_FAIL_MAX=5000` 容量护栏 + 过期清理，防公网被扫描时 dict 无界增长（内存泄漏）。
+- **R29-③ 后台筛选表单美化**：`我的文章` / `仪表盘` 文章筛选表单卡片化（圆角容器 + 🔍 搜索图标 + 统一 38px 控件 + accent 焦点环 + 主 / ghost 按钮层级），适配深色模式；样式抽进 `admin.css` 的 `.filter-form`，去掉内联 style。
+- `py_compile` 全过；离线桩冒烟 14/14 PASS；R29 七维审计 0 Blocker。APP_VERSION 升为 v3.4.7；前端复用既有 `vue-frontend-dist.zip`（无前台改动）。
+- ⚠️ 升级顺序：服务器 `update.sh` / `deploy.sh` **必须覆盖 Release v3.4.7 的 `deploy_scripts_v347fix.zip`**（沿用 v3.4.6 自动重启加固），先覆盖脚本再跑一键更新。

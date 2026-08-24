@@ -201,6 +201,14 @@
 - **验证**：`py_compile` 全过；双 worker 共享 session 模拟复用 token 成功、`check_csrf_token` 对合法 / 篡改 / 无格式 / 空 token 判断均正确；`bash -n` 双脚本通过；R27+R28 七维审计全 ✅（详见 `SECURITY_AUDIT.md` 第三十七 / 三十八轮）。APP_VERSION 升为 v3.4.6。
 - **⚠️ 升级顺序（重要）**：服务器 `update.sh` / `deploy.sh` **必须覆盖 Release v3.4.6 的 `deploy_scripts_v346fix.zip`**（v3.4.5 及更早脚本的自动重启段仍是旧逻辑，覆盖后仍需手动重启）。**务必先手动覆盖脚本再跑一键更新**，即可免除手动重启 + 生效 CSRF 修复。
 
+### v3.4.7 评论者 IP 定位恢复（IP 属地多源兜底 + 防注入 + 自愈）+ 后台筛选表单美化（R29 审计通过）
+
+- **修复①「评论者 IP 定位没了」**：原 `stats.py` 的 IP 属地解析仅依赖 `api.vore.top`（已超时挂掉）与 `ip-api.com`（已 403 被封），二者全挂后 `region` 恒空 → 前台 `📍 属地` 不渲染。改为**国内源优先 + 国际源依次兜底**（pconline → ipwho.is → api.ip.sb → ipinfo.io）；并改「仅缓存成功结果、外部源恢复后自动回填」（修复旧逻辑把失败空值也永久缓存、无法自愈的坑）。
+- **加固（严格审计发现并修复）**：新增 `_is_safe_public_ip()` 仅公网 IP 才查外部（排除私网/环回/保留/CGNAT `100.64/10`）杜绝 XFF 伪造与内网外发；`short_region` 补英文/ISO2→中文归一（根治 `UnitedStatesCalifornia` 脏数据、ipinfo 的 `CN` 码误判）；`_RECENT_FAIL` 加 `_FAIL_MAX=5000` 容量护栏防内存无界增长。
+- **修复②后台筛选表单美化**：`我的文章`/`仪表盘` 筛选表单卡片化（圆角 + 🔍 图标 + 统一 38px 控件 + accent 焦点环 + 主/ghost 按钮），适配深色模式；样式抽进 `admin.css` 的 `.filter-form` 去内联 style。
+- **验证**：`py_compile` 全过；离线桩冒烟 14/14 PASS；R29 七维审计 0 Blocker（详见 `SECURITY_AUDIT.md` 第三十九轮）。APP_VERSION 升为 v3.4.7；前端复用既有 `vue-frontend-dist.zip`。
+- **⚠️ 升级顺序（重要）**：服务器 `update.sh` / `deploy.sh` **必须覆盖 Release v3.4.7 的 `deploy_scripts_v347fix.zip`**（沿用 v3.4.6 自动重启加固）再跑一键更新。
+
 ## 目录结构
 ```
 myblog/             # 后端（Flask + SQLite）

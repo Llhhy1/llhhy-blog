@@ -6,8 +6,10 @@
 - 对外提供 compute_summary()，同时供 /api/stats/summary 与后台统计页使用。
 """
 import datetime
+import ipaddress
 import json
 import threading
+import time
 import urllib.parse
 import urllib.request
 
@@ -29,69 +31,197 @@ def client_ip():
     return request.remote_addr or ""
 
 
+# 常见英文国家 / 地区名 → 中文（属地字段最终展示用，统一中文更清爽）
+# 同时收录 ISO 3166-1 alpha-2 两位码（ipinfo.io 等源返回 "CN"/"US"），
+# 归一后再做整词替换，杜绝 "CN广东" 这类不干净结果（v3.4.7 修复）。
+_REGION_EN2CN = {
+    "CN": "中国", "China": "中国", "HK": "中国香港", "MO": "中国澳门", "TW": "中国台湾",
+    "US": "美国", "USA": "美国", "United States": "美国", "UnitedStates": "美国",
+    "CA": "加拿大", "Canada": "加拿大",
+    "GB": "英国", "UK": "英国", "United Kingdom": "英国", "England": "英格兰", "Scotland": "苏格兰",
+    "JP": "日本", "Japan": "日本", "Tokyo": "东京",
+    "KR": "韩国", "Korea": "韩国", "South Korea": "韩国",
+    "SG": "新加坡", "Singapore": "新加坡",
+    "AU": "澳大利亚", "Australia": "澳大利亚",
+    "DE": "德国", "Germany": "德国", "FR": "法国", "France": "法国",
+    "RU": "俄罗斯", "Russia": "俄罗斯", "IN": "印度", "India": "印度",
+    "BR": "巴西", "Brazil": "巴西",
+    "California": "加利福尼亚", "Guangdong": "广东", "Beijing": "北京",
+    "Shanghai": "上海", "Zhejiang": "浙江", "New York": "纽约",
+}
+# 英文 state/region 常见后缀（仅用于信息性清理，不影响展示主体）
+_REGION_EN_SUFFIX = ("State", "Province", "Prefecture", "County", "City", "Region", "District")
+
 def short_region(raw):
-    """把"浙江省 杭州市"缩成"浙江·杭州"，排行展示更清爽。"""
+    """把"浙江省 杭州市"缩成"浙江·杭州"；英文属地统一转中文，排行展示更清爽。
+
+    v3.4.7 修复：旧实现只剥中文字尾（省/市/...），对国外 IP 返回的英文
+    "United States California" 仅去掉空格变成 "UnitedStatesCalifornia"，
+    既难看又会把英文塞进前端「📍 属地」展示。改为先做英文→中文归一
+    （含 ISO2 码如 CN→中国），再剥中文字尾，最终拿到干净的中文属地
+    （如「美国加利福尼亚」「广东广州」）。
+    """
     if not raw:
         return ""
-    raw = raw.replace(" ", "").replace("·", "")
+    raw = raw.replace("·", " ")
+    # 逐词英文→中文归一（国家名、州/省名优先整词替换）
+    for en, cn in _REGION_EN2CN.items():
+        raw = raw.replace(en, cn)
+    # 清理残留的英文州/省后缀标签（如 "California State" 已转"加利福尼亚"后无残留，
+    # 这里兜底处理未收录的英文地区名后缀）
+    for suf in _REGION_EN_SUFFIX:
+        raw = raw.replace(suf, "")
+    raw = raw.replace(" ", "")
     for suf in ("壮族自治区", "回族自治区", "维吾尔自治区", "特别行政区",
                 "自治区", "省", "市", "区", "县"):
         raw = raw.replace(suf, "")
     return raw
 
 
-def _fetch_json(url, timeout=3):
+def _is_safe_public_ip(ip):
+    """仅允许合法、且为公网可查的 IP 进入外部查询。
+
+    v3.4.7 加固：在格式校验(_is_valid_ip)基础上，额外排除私网/环回/链路本地/
+    保留/多播地址，避免把内网 IP（10.x / 192.168.x / 100.64.x 等）无意义地
+    发给外部地理库，也消除「内网 IP 查询泄密」的顾虑。
+    注意：100.64.0.0/10（CGNAT，RFC 6598）部分 Python 版本的 ipaddress 未归入
+    is_private，这里用 is_global 反向判断更稳（非全局可达即不查）。
+    """
+    try:
+        a = ipaddress.ip_address(ip)
+    except Exception:
+        return False
+    return a.is_global and not a.is_loopback and not a.is_multicast
+
+
+def _http_get_json(url, timeout=4):
+    """GET 并解析 JSON；兼容 GBK（太平洋 IP 库返回 GBK 编码）。"""
     req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0 (blog stats)"})
     with urllib.request.urlopen(req, timeout=timeout) as resp:
-        return json.loads(resp.read().decode("utf-8", "ignore"))
+        raw = resp.read()
+    try:
+        return json.loads(raw.decode("utf-8", "ignore"))
+    except Exception:
+        return json.loads(raw.decode("gbk", "ignore"))
+
+
+def _is_valid_ip(ip):
+    """仅允许合法、且为公网可查的 IP 进入外部查询，杜绝 XFF 可控时的参数污染
+    与内网 IP 被无意义外发。等价于 _is_safe_public_ip。"""
+    return _is_safe_public_ip(ip)
+
+
+# 失败节流：同一 IP 解析失败后 _FAIL_TTL 秒内不再打外部接口，避免接口全挂时狂打。
+# _RECENT_FAIL 设容量护栏 + 过期清理，防止公网被扫描/DoS 时字典无界增长拖垮内存。
+_RECENT_FAIL = {}
+_FAIL_TTL = 3600
+_FAIL_MAX = 5000
+
+
+def _record_recent_fail(ip, now):
+    """记录某 IP 解析失败，并做容量/过期裁剪（GIL 下 dict 操作原子，无需加锁）。"""
+    _RECENT_FAIL[ip] = now
+    if len(_RECENT_FAIL) > _FAIL_MAX:
+        expired = [k for k, t in _RECENT_FAIL.items() if now - t >= _FAIL_TTL]
+        for k in expired:
+            _RECENT_FAIL.pop(k, None)
+        while len(_RECENT_FAIL) > _FAIL_MAX:
+            _RECENT_FAIL.pop(next(iter(_RECENT_FAIL)))
 
 
 def _lookup_region(ip):
-    """在线查询 IP 属地；全部失败返回 None。"""
-    if not ip or ip in _LOCAL_IPS:
+    """在线查询 IP 属地；多源兜底，全部失败返回 None。
+
+    v3.4.7 修复：原实现只依赖 api.vore.top 与 ip-api.com 两个源，二者相继
+    失效（vore.top 超时、ip-api.com 403）后，所有评论/访问的 region 恒为空，
+    前台「📍 评论者属地」消失。改为国内源优先 + 国际源依次兜底的方案，并对
+    XFF 可控的 ip 做格式校验（仅合法 IP 才查询），降低注入面。
+    """
+    if not _is_valid_ip(ip) or ip in _LOCAL_IPS:
         return None
-    # 1) vore.top（国内可访问，返回 code=200 + ipdata.info1.{province,city}）
-    try:
-        d = _fetch_json("https://api.vore.top/api/IPdata?ip=" + urllib.parse.quote(ip))
-        if isinstance(d, dict) and d.get("code") == 200:
-            info = (d.get("ipdata") or {}).get("info1") or {}
-            province = (info.get("province") or "").strip()
-            city = (info.get("city") or "").strip()
-            if province:
-                return short_region(province + " " + city) or short_region(province)
-    except Exception:
-        pass
-    # 2) ip-api.com（国际通用，status=success，lang=zh-CN）
-    try:
-        d = _fetch_json("https://ip-api.com/json/" + urllib.parse.quote(ip) + "?lang=zh-CN")
-        if isinstance(d, dict) and d.get("status") == "success":
-            country = (d.get("country") or "").strip()
-            region = (d.get("regionName") or "").strip()
-            city = (d.get("city") or "").strip()
-            raw = (region + " " + city).strip() if country == "中国" else (country + " " + region).strip()
-            if raw:
-                return short_region(raw)
-    except Exception:
-        pass
+    for fn in (_lookup_pconline, _lookup_ipwho, _lookup_ipsb, _lookup_ipinfo):
+        try:
+            r = fn(ip)
+            if r:
+                return r
+        except Exception:
+            continue
     return None
 
 
+def _lookup_pconline(ip):
+    """太平洋电脑网 IP 库：国内源，对 CN IP 返回中文省/市；外国 IP 返回空（交国际源）。"""
+    d = _http_get_json("https://whois.pconline.com.cn/ipJson.jsp?ip=%s&json=true" % urllib.parse.quote(ip))
+    if not isinstance(d, dict):
+        return None
+    pro = (d.get("pro") or "").strip()
+    city = (d.get("city") or "").strip()
+    if not pro and not city:
+        return None
+    return short_region((pro + " " + city).strip())
+
+
+def _lookup_ipwho(ip):
+    d = _http_get_json("https://ipwho.is/%s" % urllib.parse.quote(ip))
+    if not isinstance(d, dict) or not d.get("success"):
+        return None
+    country = (d.get("country") or "").strip()
+    region = (d.get("region") or "").strip()
+    city = (d.get("city") or "").strip()
+    raw = (region + " " + city).strip() if country == "China" else (country + " " + region).strip()
+    return short_region(raw) if raw else None
+
+
+def _lookup_ipsb(ip):
+    d = _http_get_json("https://api.ip.sb/geoip/%s" % urllib.parse.quote(ip))
+    if not isinstance(d, dict):
+        return None
+    country = (d.get("country") or "").strip()
+    region = (d.get("region") or "").strip()
+    city = (d.get("city") or "").strip()
+    raw = (region + " " + city).strip() if country == "China" else (country + " " + region).strip()
+    return short_region(raw) if raw else None
+
+
+def _lookup_ipinfo(ip):
+    d = _http_get_json("https://ipinfo.io/%s/json" % urllib.parse.quote(ip))
+    if not isinstance(d, dict):
+        return None
+    country = (d.get("country") or "").strip()
+    region = (d.get("region") or "").strip()
+    city = (d.get("city") or "").strip()
+    raw = (region + " " + city).strip() if country == "China" else (country + " " + region).strip()
+    return short_region(raw) if raw else None
+
+
 def _ensure_region(ip):
-    """查缓存 → 在线解析 → 写缓存，返回区域字符串（可能为空）。"""
-    if not ip or ip in _LOCAL_IPS:
+    """查缓存 → 在线解析 → 写缓存，返回区域字符串（可能为空）。
+
+    v3.4.7 修复：旧实现把『解析失败(空)』也写进 IpRegion 缓存，导致外部源全挂时
+    空结果被永久缓存、永不重试，属地彻底消失且无法自愈。改为：仅缓存成功的非空
+    结果；失败不写入（并进入节流窗口），外部源恢复后下次访问即自动回填
+    （含历史空属地评论）。
+    """
+    if not _is_valid_ip(ip) or ip in _LOCAL_IPS:
         return ""
     row = IpRegion.query.filter_by(ip=ip).first()
     if row and row.region:
-        return row.region
+        return row.region          # 信任已缓存的成功结果
+    now = time.time()
+    if ip in _RECENT_FAIL and now - _RECENT_FAIL[ip] < _FAIL_TTL:
+        return ""                  # 节流：近期刚失败过，避免接口全挂时狂打
     region = _lookup_region(ip) or ""
-    if row:
-        row.region = region
+    if region:
+        if row:
+            row.region = region
+        else:
+            db.session.add(IpRegion(ip=ip, region=region))
+        try:
+            db.session.commit()
+        except Exception:
+            db.session.rollback()
     else:
-        db.session.add(IpRegion(ip=ip, region=region))
-    try:
-        db.session.commit()
-    except Exception:
-        db.session.rollback()
+        _record_recent_fail(ip, now)   # 记录失败时刻，进入节流窗口（含容量护栏）
     return region
 
 

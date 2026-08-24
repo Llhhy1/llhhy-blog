@@ -216,6 +216,39 @@ body.admin {
 .inline-form { display: inline-flex; gap: 8px; align-items: center; }
 .inline-form input { padding: 8px 12px; border: 1px solid #dfe3ea; border-radius: var(--theme-radius, 8px); font-size: 14px; }
 .checkbox { width: auto !important; }
+
+/* ---------- 筛选表单（美化） ---------- */
+.filter-form {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  margin-bottom: 16px; padding: 12px 14px;
+  background: #fafbfc; border: 1px solid #eef1f5; border-radius: var(--theme-radius, 12px);
+}
+.filter-form .ff-field {
+  position: relative; display: flex; align-items: center; flex: 1; min-width: 180px;
+}
+.filter-form .ff-icon {
+  position: absolute; left: 11px; font-size: 14px; color: #98a1ad; pointer-events: none;
+}
+.filter-form input[type="text"],
+.filter-form select {
+  height: 38px; padding: 8px 12px; border: 1px solid #dfe3ea; border-radius: var(--theme-radius, 8px);
+  font-size: 14px; font-family: inherit; background: #fff; color: #333; box-sizing: border-box;
+  transition: border-color .15s, box-shadow .15s;
+}
+.filter-form .ff-field input[type="text"] { width: 100%; padding-left: 32px; }
+.filter-form select { cursor: pointer; }
+.filter-form input[type="text"]:focus,
+.filter-form select:focus {
+  outline: none; border-color: var(--accent, #1a73e8); box-shadow: 0 0 0 3px rgba(26,115,232,0.12);
+}
+.filter-form .btn { height: 38px; display: inline-flex; align-items: center; }
+[data-theme="dark"] .filter-form { background: #1c1f24; border-color: #2a2e35; }
+[data-theme="dark"] .filter-form input[type="text"],
+[data-theme="dark"] .filter-form select { background: #23272e; border-color: #353b44; color: #d7d9dc; }
+[data-theme="dark"] .filter-form .ff-icon { color: #6b7280; }
+[data-theme="dark"] .filter-form input[type="text"]::placeholder { color: #7a828c; }
+[data-theme="dark"] .filter-form .btn.ghost { background: #23272e; color: #cfd3d8; border-color: #353b44; }
+[data-theme="dark"] .filter-form .btn.ghost:hover { border-color: #8ab4ff; color: #8ab4ff; }
 .link-danger { background: none; border: none; color: #e5484d; cursor: pointer; font-size: 13px; padding: 0; }
 .link-danger:hover { text-decoration: underline; }
 .link-btn { background: none; border: none; color: var(--accent, #1a73e8); cursor: pointer; font-size: 13px; padding: 0; }

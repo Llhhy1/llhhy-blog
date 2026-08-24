@@ -1352,3 +1352,50 @@ fetch('/api/version/update', {
 - 前端本轮不变，复用 v3.4.5 `vue-frontend-dist.zip`（含 index.html + assets/），无构建回归。
 
 **评估**：纯**功能性 bug 修复（非安全漏洞引入）**，根治 gunicorn 多 worker 下 CSRF token 跨进程轮换导致的前端 403「抽风」。随 v3.4.6 后端覆盖即生效（前端复用既有包，无需重新构建）。部署注意：因本发布同时含 R27 的「自动重启加固」，服务器须先用 Release v3.4.6 的 `deploy_scripts_v346fix.zip` 覆盖 `update.sh`/`deploy.sh` 再跑一键更新，方可同时获得重启加固 + CSRF 修复。
+
+---
+
+## 第三十九轮 · R29（v3.4.7 · IP 属地解析多源兜底 + 防注入 + 自愈 + 后台筛选表单美化）
+
+**范围**：`myblog/stats.py`（IP 属地解析链路全改）、`myblog/config.py`（`APP_VERSION` 升 3.4.7）、`myblog/templates/admin/dashboard.html` 与 `myblog/templates/admin/my_posts.html`（文章筛选表单美化）、`myblog/static/admin.css`（新增 `.filter-form` 样式块，含深色模式适配）。
+
+**背景**：
+1. 用户反馈「评论的人的 IP 定位」没了——前台评论区 `📍 {{ c.region }}` 不显示。经排查：原 `_lookup_region` 仅依赖 `api.vore.top` 与 `ip-api.com` 两个源，二者相继失效（vore.top 超时、ip-api.com HTTP 403），**所有评论/访问的 `region` 恒为空**，前端 `v-if="c.region"` 不渲染 → 看起来「定位组件没了」。这是**数据源死亡**导致，与之前 CSRF 403 是两码事。
+2. 用户另行要求美化后台「我的文章 / 仪表盘」的文章筛选表单（卡片化 + 搜索图标 + 统一控件 + 深色适配）。
+
+**根因与修复**：
+
+| 项 | 问题 | 修复 |
+|---|---|---|
+| 数据源 | 两个外部 IP 库全挂 → region 恒空 | 改为**国内源优先 + 国际源依次兜底**：pconline（太平洋，CN 中文）→ ipwho.is → api.ip.sb → ipinfo.io；任一成功即返回，全部失败才回 None |
+| 永久空缓存 | 旧 `_ensure_region` 把「解析失败(空)」也写进 `IpRegion` 缓存 → 一旦失败即**永久缓存空值、永不重试**，属地消失且无法自愈 | 改为**仅缓存成功的非空结果**；失败不写入（仅记 `_RECENT_FAIL` 节流），外部源恢复后下次访问即自动回填（含历史空属地评论/访问） |
+| XFF 注入面 | `client_ip()` 取 `X-Forwarded-For` 第一个值，伪造 XFF 可控制进查询的「IP」字符串 | 新增 `_is_safe_public_ip()`：先用 `ipaddress.ip_address` 校验格式，再要求 `is_global`（排除私网/环回/链路本地/保留/多播/CGNAT 100.64/10），**非法或内网 IP 直接不查外部**，杜绝参数污染与内网 IP 无意义外发 |
+| 英文属地脏数据（审计发现） | 旧 `short_region` 只剥中文字尾，对国外 IP 返回 `United States California` → 去空格成 `UnitedStatesCalifornia`；且 ipinfo.io 返回 ISO2 码 `country:"CN"`，代码却判断 `== "China"` 永远不成立 → 国内 IP 经 ipinfo 兜底会渲染成 `CN广东` | `short_region` 新增 `_REGION_EN2CN` 英文/ISO2 → 中文整词归一（含 `CN/US/JP/...` 与 `China/United States/...`），海外属地统一成「美国加利福尼亚」等干净中文 |
+| 内存泄漏（审计发现 🟡） | `_RECENT_FAIL` 普通 dict 仅在解析成功时才可能被清，源长期挂时 key 永不删 → 高流量/被扫描时**无界增长** | 新增 `_record_recent_fail()` + `_FAIL_MAX=5000` 容量护栏：写入时先按 `_FAIL_TTL` 清过期，仍超量则淘汰最旧（dict 插入序），GIL 下无需加锁 |
+| 表单美化 | 筛选表单用内联 style，裸控件、无搜索图标、深浅色不统一 | 抽成 `admin.css` 的 `.filter-form`（圆角卡片容器 + `.ff-field`/`.ff-icon`🔍 + 统一 38px 控件 + accent 焦点环 + 主/ghost 按钮层级 + `[data-theme="dark"]` 适配）；两模板去掉内联 style |
+
+**严格审计（协同 CodeReview 专家，0 Blocker）**：
+
+| 编号 | 维度 | 结论 |
+|---|---|---|
+| R29-1 | XSS | `region` 在所有模板均经 `{{ c.region }}` / `{{ r.region }}` 渲染、**无 `\|safe`** → Jinja 自动转义；`short_region` 已大量清洗字母/符号，源字段来自受控 JSON → 无存储型 XSS | ✅ 通过 |
+| R29-2 | SQL 注入 | 无拼接 SQL；`IpRegion.query.filter_by(ip=ip)` 参数为绑定；后台线程批量 `update({"region": region})` 用 ORM，参数化 | ✅ 通过 |
+| R29-3 | 越权 | 仅改 IP 解析与前端展示，无权限判断改动 | ✅ 通过 |
+| R29-4 | CSRF | 两个模板的 POST 表单（删除/置顶等）均保留 `{{ csrf_input() }}`；本次未触碰 CSRF 逻辑，R28 修复无回归 | ✅ 通过 |
+| R29-5 | SSRF / 泄漏 | `ip` 经 `_is_safe_public_ip` 严格约束（仅合法公网 IP），URL 为固定 https 域名 + `quote(ip)`，host/协议不可被 XFF 控制；`_http_get_json` 超时 4s；已排除内网/CGNAT 段，消除「内网 IP 查询泄密」顾虑 | ✅ 通过（纵深加固） |
+| R29-6 | 资源 / 泄漏 | `_RECENT_FAIL` 加容量护栏，杜绝无界增长；后台线程 `_resolve_region_async` 在 `app.app_context()` 内 `commit/rollback`，SQLite 连接随线程退出回收（注：未显式 `db.session.remove()`，属 💭 优化项，下版可补）。同一 IP 并发重复写 `IpRegion` 幂等无害 | ✅ 通过（含加固） |
+| R29-7 | 逻辑 / 正确性 | 冒烟测试 14 例 ALL PASS：国内 pconline、海外兜底、无效 IP 拦截、本地/IPv6 本地、私网/保留/CGNAT 拦截、ISO2 归一（`CN Guangdong`→`中国广东`）、`US/California`→`美国加利福尼亚` | ✅ 通过 |
+
+**审计中修复的 4 个真实缺陷（均由严格测试/审查发现）**：
+1. 🔴→✅ 国外 IP 属地英文拼接脏数据（`UnitedStatesCalifornia`）；
+2. 🟡 ipinfo 的 `CN` ISO2 码误走国际分支 → `CN广东`；
+3. 🟡 `_RECENT_FAIL` 无界增长（内存泄漏，加护栏）；
+4. 💭 `100.64.0.0/10`(CGNAT) 未被 `is_private` 覆盖 → 改用 `is_global` 反向判断。
+
+**验证记录**：
+- `py_compile` 全模块（`myblog/*.py`）通过。
+- 离线桩冒烟（`_smoke_stats.py`，桩掉网络层用样本 JSON）14/14 PASS，覆盖四个解析器 + `short_region` + `_is_safe_public_ip` + `_ensure_region` 行为。
+- 实际外网探测（本机）：vore.top 超时、ip-api.com 403（确认原源已死）；pconline / ipwho.is / api.ip.sb / ipinfo.io 均可达（200）。
+- 模板：`region` 渲染无 `|safe`（autoescape 生效）；筛选控件无内联 style 残留。
+
+**评估**：功能性修复 + 健壮性加固 + 后台 UI 美化，**0 Blocker**。根治「评论者 IP 定位消失」并消除内网 IP 外发/内存泄漏隐患。部署注意：因本发布**后端代码有实质改动**，服务器须先用 Release v3.4.7 的 `deploy_scripts_v347fix.zip` 覆盖 `update.sh`/`deploy.sh` 再跑一键更新（沿用 v3.4.6 起的自动重启加固），覆盖后无需手动重启；前端复用既有 `vue-frontend-dist.zip`（无前台改动）。

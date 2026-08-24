@@ -66,24 +66,27 @@
     <div class="panel section-box">
       <h3>📚 全部文章（筛选 / 分页）</h3>
       <!-- 筛选表单（v2.8.0）：关键词 + 状态 + 分类 -->
-      <form method="get" class="filter-form" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px;align-items:center;">
-        <input type="text" name="q" value="{{ filter_q or '' }}" placeholder="搜索标题/正文" style="width:auto;flex:1;min-width:160px;">
-        <select name="status" style="width:auto;">
+      <form method="get" class="filter-form">
+        <span class="ff-field">
+          <span class="ff-icon">🔍</span>
+          <input type="text" name="q" value="{{ filter_q or '' }}" placeholder="搜索标题/正文">
+        </span>
+        <select name="status">
           <option value="">全部状态</option>
           <option value="published" {% if filter_status=='published' %}selected{% endif %}>已发布</option>
           <option value="draft" {% if filter_status=='draft' %}selected{% endif %}>草稿</option>
           <option value="scheduled" {% if filter_status=='scheduled' %}selected{% endif %}>定时</option>
           <option value="pinned" {% if filter_status=='pinned' %}selected{% endif %}>置顶</option>
         </select>
-        <select name="category_id" style="width:auto;">
+        <select name="category_id">
           <option value="">全部分类</option>
           {% for c in cats %}
             <option value="{{ c.id }}" {% if filter_cat and filter_cat|string == c.id|string %}selected{% endif %}>{{ c.name }}</option>
           {% endfor %}
         </select>
-        <button type="submit" class="btn ghost" style="padding:8px 14px;">筛选</button>
+        <button type="submit" class="btn">筛选</button>
         {% if filter_q or filter_status or filter_cat %}
-          <a class="btn ghost" href="{{ url_for('admin.dashboard') }}" style="padding:8px 14px;">清除</a>
+          <a class="btn ghost" href="{{ url_for('admin.dashboard') }}">清除</a>
         {% endif %}
       </form>
       <div class="table-scroll">

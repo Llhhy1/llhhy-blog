@@ -1,0 +1,40 @@
+#!/usr/bin/env bash
+# llhhy-blog L3 推送门禁（pre-push 钩子）
+# 提示性检查：不硬拦截（避免单飞开发者被卡死），但输出关键提醒。
+set -u
+
+ROOT="$(git rev-parse --show-toplevel 2>/dev/null)"
+[ -z "$ROOT" ] && exit 0
+
+NOTES=""
+
+# 1. 未提交的 smoke/构建脚本（发版前应纳入提交或加黑名单）
+UNTRACKED="$(git ls-files --others --exclude-standard "$ROOT" | grep -E 'smoke_|_smoke|_build' || true)"
+if [ -n "$UNTRACKED" ]; then
+  UNTRACKED_ONE="$(printf '%s' "$UNTRACKED" | head -1)"
+  NOTES="${NOTES}
+  • 存在未跟踪的冒烟/构建脚本：${UNTRACKED_ONE} 等
+    （发版前建议纳入提交，或加入 tools/review/check-staged.py 黑名单）"
+fi
+
+# 2. APP_VERSION 与最近 tag 一致性提示
+if [ -f "$ROOT/myblog/config.py" ]; then
+  CUR="$(grep -E '^[[:space:]]*APP_VERSION' "$ROOT/myblog/config.py" | head -1 \
+    | sed -E 's/.*[^0-9]([0-9]+\.[0-9]+\.[0-9]+).*/\1/')"
+  LAST_TAG="$(git describe --tags --abbrev=0 2>/dev/null || echo '')"
+  if [ -n "$CUR" ] && [ -n "$LAST_TAG" ]; then
+    TAG_NUM="$(printf '%s' "$LAST_TAG" | sed -E 's/^v//')"
+    if [ "$CUR" = "$TAG_NUM" ]; then
+      NOTES="${NOTES}
+  • APP_VERSION=${CUR} 与最近 tag v${TAG_NUM} 一致 ✓"
+    else
+      NOTES="${NOTES}
+  • APP_VERSION=${CUR} 与最近 tag ${LAST_TAG} 不一致——发版前需对齐（先改 APP_VERSION 再打 tag，再打包）"
+    fi
+  fi
+fi
+
+if [ -n "$NOTES" ]; then
+  printf 'ℹ️  pre-push 提示（不拦截，请按需处理）：%s\n' "$NOTES"
+fi
+exit 0

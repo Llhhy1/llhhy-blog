@@ -518,3 +518,10 @@ v3.1.7 修复 CSRF 隐藏域乱码后，用户反馈「退出登录按钮失效�
 - **💭 优化（暂不改）**：`/api/tags` 标签计数含不可见文章（信息泄露极低，随标签重构处理）；`_resolve_region_async` 后台线程未显式 `db.session.remove()`（SQLite 线程退出已回收，下版补 close 更规范）。
 - **验证**：`py_compile` 全模块通过（`-W error::SyntaxWarning` 无警告）；隔离临时库冒烟 `smoke_audit_r30.py` 14 项 ALL PASS；R30 全量审计 3 Blocker + 5 建议全部修复（详见 `SECURITY_AUDIT.md` 第四十轮）。APP_VERSION 升为 v3.4.8；前端无改动。
 - **🅰️ 升级顺序（本轮调整）**：R30 **未改动部署脚本**——服务器**直接跑一键更新**（沿用已在服的 v3.4.7 脚本）；**若更新报错再覆盖 Release v3.4.8 的 `deploy_scripts_v348fix.zip` 后重跑**（正常不需要）。
+
+## 33. v3.4.9：评论 IP 属地 GBK 解码乱码修复（R31 审计通过）
+
+- **R31-① 解码健壮性修复**：`stats._http_get_json` 原 `decode("utf-8","ignore")` 永不抛错，导致太平洋 IP 库（GBK 编码）中文被吞成乱码、GBK 兜底分支形同虚设。改为**逐编码严格解码**（utf-8 → gbk，任一 JSON 非法则试下一编码，双失败才抛错交多源兜底），根治「省份变乱码、城市丢失」。
+- **R31-② 历史脏缓存自愈**：新增 `_looks_corrupted()` 启发式检测乱码特征；`_ensure_region` / `cached_region` 缓存命中先判脏，脏则忽略缓存走在线重查并覆盖旧值，新访问即自动自愈（无需手动清库）。
+- **验证**：`py_compile` 通过；`smoke_gbk.py` 15/15 ALL GREEN（GBK 全链路 + 脏缓存自愈 + 异步重查）。R31 聚焦审计 0 Blocker。APP_VERSION 升为 v3.4.9；前端无改动。
+- ⚠️ 升级顺序：R31 **未改动部署脚本**（沿用 v3.4.8 已在服脚本），服务器**直接跑一键更新**即可；历史脏属地将在新访问触发重查后自动覆盖。

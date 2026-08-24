@@ -86,6 +86,26 @@ def short_region(raw):
     return raw
 
 
+def _looks_corrupted(text):
+    """启发式判断属地文本是否乱码（GBK 字节被当 UTF-8 吞掉的历史脏数据）。
+
+    正常属地（short_region 归一后）只含常用区汉字（U+4E00–U+9FFF）、数字、
+    空格与常见标点；GBK 误解码产物（如 `㽭ʡ` U+3F6D + U+02A1）落在 CJK
+    扩展区/IPA 等稀有区，会被识别为脏。命中则忽略缓存、在线重查并覆盖旧值，
+    实现历史乱码自愈（v3.4.9 修复）。
+    """
+    if not text:
+        return False
+    for ch in text:
+        o = ord(ch)
+        if 0x4E00 <= o <= 0x9FFF:          # 常用汉字：正常
+            continue
+        if ch in " 0123456789·・（）、，。,.·-":  # 数字/空格/常见标点：正常
+            continue
+        return True                         # 出现稀有区/IPA/拉丁残留：判定脏
+    return False
+
+
 def _is_safe_public_ip(ip):
     """仅允许合法、且为公网可查的 IP 进入外部查询。
 
@@ -103,14 +123,32 @@ def _is_safe_public_ip(ip):
 
 
 def _http_get_json(url, timeout=4):
-    """GET 并解析 JSON；兼容 GBK（太平洋 IP 库返回 GBK 编码）。"""
+    """GET 并解析 JSON；兼容 UTF-8 与 GBK（太平洋 IP 库返回 GBK 编码）。
+
+    v3.4.9 修复：旧实现优先 `decode("utf-8","ignore")`——ignore 模式**永不抛错**，
+    中文被吞成乱码（`浙江省`→`㽭ʡ`）后 `json.loads` 照常成功，GBK 兜底分支
+    永远走不到，属地图/评论属地全是乱码。改为：先用**严格** UTF-8 解码探测
+    （遇非法字节抛 UnicodeDecodeError），失败再走 GBK；两种解析都失败才抛错，
+    由调用方整体降级（不缓存乱码）。
+    """
     req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0 (blog stats)"})
     with urllib.request.urlopen(req, timeout=timeout) as resp:
         raw = resp.read()
-    try:
-        return json.loads(raw.decode("utf-8", "ignore"))
-    except Exception:
-        return json.loads(raw.decode("gbk", "ignore"))
+    # 严格 UTF-8 解码，失败（GBK 字节）再回退 GBK；禁止 ignore 吞字节
+    last_err = None
+    for encoding in ("utf-8", "gbk"):
+        try:
+            text = raw.decode(encoding, errors="strict")
+        except UnicodeDecodeError:
+            continue                  # 该编码无法解码，尝试下一个
+        try:
+            return json.loads(text)
+        except Exception as e:
+            last_err = e              # 解码成功但 JSON 非法：记下继续试下一个编码
+            continue
+    if last_err is not None:
+        raise last_err from None
+    raise UnicodeDecodeError("utf-8", raw, 0, len(raw), "GBK/UTF-8 均无法解码")
 
 
 def _is_valid_ip(ip):
@@ -214,7 +252,10 @@ def _ensure_region(ip):
         return ""
     row = IpRegion.query.filter_by(ip=ip).first()
     if row and row.region:
-        return row.region          # 信任已缓存的成功结果
+        if not _looks_corrupted(row.region):
+            return row.region      # 缓存结果干净：直接信任
+        # 缓存疑似乱码（GBK 误解码遗留）：忽略，走在线重查覆盖（自愈）
+        row.region = ""
     now = time.time()
     if ip in _RECENT_FAIL and now - _RECENT_FAIL[ip] < _FAIL_TTL:
         return ""                  # 节流：近期刚失败过，避免接口全挂时狂打
@@ -263,7 +304,7 @@ def cached_region(ip):
     if not ip or ip in _LOCAL_IPS:
         return ""
     row = IpRegion.query.filter_by(ip=ip).first()
-    if row and row.region:
+    if row and row.region and not _looks_corrupted(row.region):
         return row.region
     _resolve_region_async(ip)
     return ""

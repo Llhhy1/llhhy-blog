@@ -238,6 +238,11 @@ llhhy-blog/
 - **验证**：`py_compile` 全模块通过（`-W error::SyntaxWarning` 无无效转义警告）；隔离临时库冒烟 `smoke_audit_r30.py` 14 项 ALL PASS（鉴权收窄/埋点限流/登录限流/XFF 收口/模板 tojson 渲染）；R30 全量审计 3 Blocker + 5 建议全部修复（详见 `myblog/SECURITY_AUDIT.md` 第四十轮）。APP_VERSION 升为 v3.4.8。
 - **🅰️ 升级顺序（本轮调整 · 无需换脚本包）**：R30 **未改动部署脚本**（`update.sh`/`deploy.sh`），服务器**可直接跑一键更新**（沿用 v3.4.7 已在服脚本）；**若更新过程报错再覆盖 Release v3.4.8 的 `deploy_scripts_v348fix.zip`**（正常情况不需要）。
 
+### v3.4.9 评论 IP 属地 GBK 解码乱码修复（R31 审计通过）
+- **根因**：`stats._http_get_json` 用 `decode("utf-8","ignore")`（永不抛错），太平洋 IP 库（GBK）中文被静默吞成乱码，GBK 兜底分支形同虚设 → 前台评论 IP 定位显示 `㽭ʡ` 类乱码。
+- **修复**：逐编码严格解码（utf-8→gbk 兜底）+ 新增 `_looks_corrupted()` 历史脏缓存自愈（脏则在线重查覆盖）。
+- **验证**：`py_compile` 通过；`smoke_gbk.py` 15/15 ALL GREEN。R31 聚焦审计 0 Blocker。APP_VERSION 升为 v3.4.9；前端无改动，直接跑一键更新即可。
+
 ## 快速开始（本地开发）
 
 后端（默认端口 5000）：

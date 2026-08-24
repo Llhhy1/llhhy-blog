@@ -1,20 +1,44 @@
-# 强制脚本与文本文件以 LF 行尾检出，防止 Windows CRLF 导致 shell 脚本在 Linux 服务器报错
+# llhhy-blog 换行符规范（防止 CRLF 混入部署脚本与后端）
+# 历史事故：v3.4.0fix 曾因 update.sh 混入 CRLF 导致服务器 bash 报
+# "$'\r': command not found" 与 "set: -: invalid option"。
+# 规则：文本文件统一 LF；*.sh / *.py / 配置 强制 LF（含 Windows 检出）。
+
+* text=auto
+
+# 部署脚本：必须 LF（Linux 服务器直接 bash 执行）
 *.sh text eol=lf
+*.bat text eol=crlf
+
+# 无扩展名的钩子/工具脚本（git 自动检测文本但受 core.autocrlf 影响，必须强制 LF）
+# - tools/review/pre-commit / pre-push 由 bash 执行，CRLF 会直接报错
+# - 安装器 install-hooks.sh 把文件复制到 .git/hooks/ 时 gitattributes 不生效，
+#   因此脚本内部做了 LF 兜底转换（sed -i 's/\r$//'）
+tools/review/pre-commit text eol=lf
+tools/review/pre-push text eol=lf
+tools/review/install-hooks.sh text eol=lf
+tools/review/check-staged.py text eol=lf
+
+# Python / JS / CSS / HTML / Markdown：统一 LF
 *.py text eol=lf
-*.conf text eol=lf
-*.service text eol=lf
+*.js text eol=lf
+*.mjs text eol=lf
+*.vue text eol=lf
+*.css text eol=lf
+*.html text eol=lf
+*.md text eol=lf
+*.json text eol=lf
 *.yml text eol=lf
 *.yaml text eol=lf
-*.json text eol=lf
-*.md text eol=lf
-*.html text eol=lf
-*.css text eol=lf
-*.js text eol=lf
+*.txt text eol=lf
 
-# 二进制文件不转换
+# 二进制/资源：不转换
+*.zip binary
 *.png binary
 *.jpg binary
 *.jpeg binary
 *.gif binary
-*.zip binary
-*.tar.gz binary
+*.ico binary
+*.woff binary
+*.woff2 binary
+*.db binary
+*.pyc binary

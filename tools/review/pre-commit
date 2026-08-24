@@ -1,0 +1,40 @@
+#!/usr/bin/env bash
+# llhhy-blog L3 提交门禁（pre-commit 钩子）
+# 由 tools/review/install-hooks.sh 安装。硬错误拦截提交，软警告放行。
+set -u
+
+ROOT="$(git rev-parse --show-toplevel 2>/dev/null)"
+[ -z "$ROOT" ] && exit 0
+
+# 找 Python（本地 venv 优先/系统 python 兜底）
+if [ -x "$ROOT/venv/Scripts/python.exe" ]; then
+  PY="$ROOT/venv/Scripts/python.exe"
+elif [ -x "$ROOT/venv/bin/python" ]; then
+  PY="$ROOT/venv/bin/python"
+else
+  PY="$(command -v python3 || command -v python || echo '')"
+fi
+if [ -z "$PY" ] && [ -x "$ROOT/venv/Scripts/python.exe" ]; then
+  PY="$ROOT/venv/Scripts/python.exe"
+fi
+
+# 无暂存内容则跳过
+if [ -z "$(git diff --cached --name-only 2>/dev/null)" ]; then
+  exit 0
+fi
+
+if [ -x "$PY" ]; then
+  "$PY" "$ROOT/tools/review/check-staged.py"
+  CODE=$?
+else
+  echo "[WARN] 未找到 Python，跳过 L3 语法/黑名单检查。"
+  # 黑名单最低限度兜底（纯 grep）
+  BAD="$(git diff --cached --name-only | grep -E '(^|/)(data/|__pycache__/|venv/|node_modules/)|\.zip$|\.db$|\.pyc$' || true)"
+  if [ -n "$BAD" ]; then
+    echo "[ERROR] 黑名单文件误入暂存区："
+    echo "$BAD"
+    exit 1
+  fi
+  exit 0
+fi
+exit $CODE

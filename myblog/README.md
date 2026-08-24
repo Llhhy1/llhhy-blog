@@ -188,6 +188,12 @@
 - **验证**：模拟残留目录存在时唯一目录解压后端/前端均成功；`bash -n` 通过；CRLF=0。R24 七维审计全 ✅（详见 `SECURITY_AUDIT.md` 第三十四轮）。APP_VERSION 升为 v3.4.4。
 - **⚠️ 升级顺序（重要）**：服务器 `update.sh` / `deploy.sh` **须覆盖 Release v3.4.4 的 `deploy_scripts_v344fix.zip`**（v3.4.3 及更早脚本在 /tmp 有残留时仍会炸）。已卡住的服务器可先手动 `rm -rf /tmp/llhhy_update /tmp/llhhy_deploy`，或直接换新脚本后重跑（新脚本不依赖清理）。
 
+### v3.4.5 多项后端 bug 修复（R25+R26 审计通过）
+
+- **修复**：① 一键更新覆盖段静默失败修复 + 覆盖后版本号硬校验（R25）；② 评论提交 500——`notify_mentioned` 误贴进 `csrf_input` 死代码导致 `ImportError`，已恢复独立函数（@通知失效 + 评论必 500 自 v3.1.7 潜伏一并修复）；③ 统计埋点 403——`/api/stats/read|visit|search` 加入 CSRF 豁免，恢复访问统计。
+- **验证**：`py_compile` 全过；AST + 桩模块实测 `from utils import notify_mentioned` 成功；R25/R26 七维审计全 ✅（详见 `SECURITY_AUDIT.md` 第三十五/三十六轮）。APP_VERSION 升为 v3.4.5。
+- **⚠️ 升级顺序（重要）**：服务器 `update.sh` / `deploy.sh` **必须覆盖 Release v3.4.5 的 `deploy_scripts_v345fix.zip`**（含覆盖段修复 + 版本校验），并先覆盖脚本再跑一键更新，否则后端不会被真正覆盖。
+
 ## 目录结构
 ```
 myblog/             # 后端（Flask + SQLite）

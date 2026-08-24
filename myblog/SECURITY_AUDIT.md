@@ -1215,3 +1215,71 @@ fetch('/api/version/update', {
 - 后端本轮仅 config.py 版本号变更，`py_compile` 通过。APP_VERSION 升为 v3.4.4。
 
 **评估**：本 bug 为「固定解压目录 + 删除失败被吞 + 无 mkdir 兜底」组合导致的可用性故障（非安全漏洞），使 /tmp 残留目录即可让一键更新静默失败。修复后解压目录每次唯一，更新流程不再依赖删除旧目录成功，从根本上消除该类故障；启动清理仅尽力而为、范围锁定。部署注意：**服务器 `update.sh` / `deploy.sh` 需覆盖 Release v3.4.4 的 `deploy_scripts_v344fix.zip`**（v3.4.3 及更早脚本无唯一目录修复，/tmp 有残留时仍会炸）；若 /tmp 已有残留目录可手动 `rm -rf /tmp/llhhy_update /tmp/llhhy_deploy` 清理，或直接换新脚本后重跑（新脚本不依赖清理）。
+
+---
+
+## 第三十五轮审计（R25，v3.4.5）：一键更新覆盖段静默失败修复 + 覆盖后版本校验
+
+**背景**：用户跑 v3.4.4 一键更新，日志全程 ✅ 显示「④ 覆盖后端代码... 完成」「✅ 全部完成！代码已更新到 v3.4.4」，但服务器后台左下角版本号仍是 **v3.4.0**，且用户确认 `/www/wwwroot/myblog/config.py` 物理文件仍是 3.4.0——即**覆盖段根本没把新代码写进目标目录，却假报成功**。
+
+**根因（重要经验·静默失败）**：
+- 覆盖段结构为 `if command -v rsync; then run_as rsync ... 2>/dev/null || rsync ...; else find ... -exec run_as cp ... \; 2>/dev/null || find ... -exec cp ...; fi` + 无条件 `log "完成"`。
+- `set -e` **不会**因 rsync/cp 失败而终止：失败被 `2>/dev/null` 与 `||` 链吞掉；而 `if` 的退出码只看 `command -v rsync` 是否成功（rsync 存在即 0），与后面实际覆盖动作无关。
+- 因此只要覆盖动作失败（权限/路径/残留/工具异常），日志永远显示「完成」，一键更新「假成功」。结合用户从 v3.4.2 起每次一键更新后台都停在 3.4.0，证实**覆盖段从那时起持续静默失败**（更早 v3.4.1 本就未升版本号，属正常）。
+
+**修复**：
+- 覆盖动作结果用 `copied` 标志显式记录；rsync 成功置 1，失败回退 `for` 循环 `cp -rf`（不再用 `find -exec run_as`（run_as 是函数，find -exec 调不到）的可疑写法），任一失败即 `fail_exit`/exit，不再静默。
+- **新增覆盖后版本校验**（核心防线）：覆盖完成后 `grep` 出 `$APP_DIR/config.py` 的 `APP_VERSION`，与本次 `TAG`（去 `v` 前缀）严格比较，不等则 `fail_exit "❌ 覆盖后版本号校验失败：期望 X 实际 Y（覆盖未生效，请检查写入权限或磁盘空间）"`——从设计上杜绝「假成功」。
+- 唯一临时目录（`backend_extract_$TS`/`frontend_extract_$TS`，v3.4.4 引入）保留，避免 /tmp 残留炸 mkdir。
+
+**维度审计**：
+
+| 编号 | 维度 | 结论 |
+|---|---|---|
+| R25-1 | XSS / 注入 | bash 运维代码；`$TAG_VER`/`$new_ver` 由脚本内部正则提取（非用户输入），`cp -rf "$item" "$APP_DIR/"` 全双引号；版本比较仅字符串相等判断 | ✅ 通过 |
+| R25-2 | SQL 注入 | 不涉及 | ✅ 通过 |
+| R25-3 | 越权 | 无 Web 路由改动；`fail_exit` 终止整脚本并清理临时目录，不残留半覆盖状态；`run_as` 属主切换逻辑未变 | ✅ 通过 |
+| R25-4 | CSRF / 会话 | 无接口改动 | ✅ 通过 |
+| R25-5 | 密钥 / 凭据 | 无新增密钥；`UPDATE_HMAC_KEY` 处理不变 | ✅ 通过 |
+| R25-6 | 资源 / 泄漏 | 覆盖失败显式报错（不再静默）；`rm -rf "$BX"` 先清后建避免半解压；`bash -n` 通过、CRLF=0 | ✅ 通过 |
+| R25-7 | 回归 / 校验正确性 | 本地模拟三路径：`TAG=v3.4.4`（config 3.4.4）→ 通过；`v3.4.5`/`v3.4.0` → 明确 fail（校验确实生效，不会误放也不会漏判）；后端本轮仅 config.py 版本号变更，`py_compile` 通过 | ✅ 通过 |
+
+**验证记录**：
+- `bash -n update.sh && bash -n deploy.sh` 通过；字节统计 CRLF=0、孤立 CR=0。
+- 版本校验逻辑三路径模拟：通过/失败路径均符合预期（见 R25-7）。
+- 后端 `py_compile` 通过；APP_VERSION 升为 v3.4.5。
+
+**评估**：本 bug 为「覆盖失败被静默吞掉」导致的**持续性可用性故障**（非安全漏洞），使 2026-08 至今多轮一键更新从未真正覆盖后端代码（后台版本号长期停在 v3.4.0）。修复后覆盖动作失败可见、并用版本号硬校验兜底，从设计上消除「假成功」。部署注意：**服务器 `update.sh` / `deploy.sh` 必须覆盖 Release v3.4.5 的 `deploy_scripts_v345fix.zip`**（含覆盖段修复 + 版本校验），覆盖后重跑一键更新即可；若覆盖后仍 `❌ 覆盖后版本号校验失败`，按提示检查 `/www/wwwroot/myblog` 写入权限或磁盘空间（并确认 gunicorn 加载目录确为该路径）。
+
+---
+
+## 第三十六轮审计（R26，v3.4.5）：评论提交 500 + 统计埋点 403 修复
+
+**背景**：用户反馈线上两处运行时错误：① 提交评论返回 **500**；② 前台控制台 `POST https://www.llhhy.cn/api/stats/read 403 (Forbidden)`。服务器物理文件确认为 v3.4.0（一键更新长期未真正覆盖后端，见 R25），但根因在代码层，属于会随 v3.4.5 后端覆盖而修复的确定性 bug。
+
+**根因 1（评论 500）**：`myblog/utils.py` 的 `csrf_input()` 在 v3.1.7（csrf 隐藏域 Markup 修复）某次编辑中，把 `notify_mentioned()` 的**整个函数体误粘贴到了 `csrf_input` 的 `return` 语句之后**——导致：① 顶层 `def notify_mentioned` 函数名消失；② 那段逻辑成了 `csrf_input` 内「永远执行不到的死代码」。于是 `api.py:591` 的 `from utils import ... notify_mentioned` 在请求时抛 `ImportError` → **评论提交 500**。该 bug 自 v3.1.7 起潜伏（评论 @通知功能实际从未生效，且评论必 500）。
+
+**根因 2（stats/read 403）**：`app.py` 全局 `_csrf_protect()` 对所有 POST 强制 CSRF Token 校验（v3.1.6 起）。`/api/stats/read`、`/api/stats/visit`、`/api/stats/search` 是**匿名埋点信标**（SPA 每次路由变化/阅读即 fire-and-forget 上报），不携带特权状态。匿名访客首屏上报时若 token 尚未就绪（或前端信标走独立调用路径），即被 403 拦截——既刷控制台错误，又丢失访问统计。
+
+**修复**：
+- **恢复 `notify_mentioned`**：从 v2.3.0（aa2afb9）原始实现精确还原为顶层函数 `def notify_mentioned(content, link, from_author, post_id=None)`（签名与调用点 `api.py:602` 的 4 实参完全一致），并从 `csrf_input` 体内清除那段死代码。`notify_mentioned` 内部 `try/except Exception: pass` 包裹，通知失败不影响评论主流程（评论已在 `db.session.commit()` 后调用）。
+- **CSRF 豁免埋点接口**：`app.py` 豁免清单加入 `"/api/stats/read"`、`"/api/stats/visit"`、`"/api/stats/search"`。这些仅累加计数、无特权状态、跨站 POST 至多污染统计（非安全漏洞），豁免符合「匿名分析信标免 CSRF」通行做法，且 `summary`/`trend` 本就是 GET 不受影响。
+
+**维度审计**：
+
+| 编号 | 维度 | 结论 |
+|---|---|---|
+| R26-1 | XSS | `notify_mentioned` 用 `User.query.filter_by(username=name)` **参数化查询**（正则提取的 @名作绑定参数，无拼接）；通知 `content` 存纯文本、前端插值渲染（`{{ }}` 默认转义）。与历史 R-A4 审计结论一致 | ✅ 通过 |
+| R26-2 | SQL 注入 | 仅参数化查询；无字符串拼接 | ✅ 通过 |
+| R26-3 | 越权 | `notify_mentioned` 仅给存在的注册用户（`filter_by(username=name).first()`）发通知，自己@自己不重复发；通知按 `user_id` 归属，列表接口均 `filter_by(user_id=当前会话)`（既有逻辑未改） | ✅ 通过 |
+| R26-4 | CSRF | `notify_mentioned` 不引入新接口；埋点三接口豁免后，写接口（评论/动态/后台）仍强制 CSRF，`webhook`/`captcha` 豁免不变；全局防护未弱化 | ✅ 通过 |
+| R26-5 | 密钥 / 凭据 | 无新增密钥逻辑 | ✅ 通过 |
+| R26-6 | 资源 / 泄漏 | `notify_mentioned` 单次请求最多一次 `db.session.commit()`（仅提交新增 Notification），`except` 吞噬异常不影响主流程；`py_compile` 全部通过；AST 校验 `csrf_input` 已无死代码、`notify_mentioned` 为顶层函数且签名匹配调用点 | ✅ 通过 |
+| R26-7 | 回归风险 | 桩模块实测 `from utils import notify_mentioned` 运行时成功（签名 `content, link, from_author, post_id`）；app.py 豁免三埋点路径已确认。沙箱缺 `bleach` 依赖无法跑全量 DB 冒烟，但根因（ImportError）已结构性消除 | ✅ 通过 |
+
+**验证记录**：
+- `py_compile` 全模块通过；AST 静态校验：`notify_mentioned` 为顶层函数、参数 `['content','link','from_author','post_id']`、`csrf_input` 体内不再含 notify 死代码；桩模块运行时 `from utils import notify_mentioned` 成功且签名匹配调用点 `notify_mentioned(content, link, author, post_id=p.id)`。
+- app.py 豁免清单已含 `/api/stats/read|visit|search`。
+- 后端本轮仅 `utils.py` / `app.py` 两文件变更，`py_compile` 通过；APP_VERSION 仍为 v3.4.5（与 R25 同一发布）。
+
+**评估**：两处均为**功能性 bug（非安全漏洞）**。评论 500 是自 v3.1.7 起长期潜伏的 `ImportError`（@通知功能从未生效）；stats 403 是匿名埋点被 CSRF 误拦截。二者随 v3.4.5 后端覆盖即修复。部署注意：因本发布同时含 R25 的「覆盖段修复 + 版本校验」，**服务器必须先用 Release v3.4.5 的 `deploy_scripts_v345fix.zip` 覆盖 `update.sh`/`deploy.sh` 再跑一键更新**，否则后端仍不会被真正覆盖（评论 500 / stats 403 依旧）。

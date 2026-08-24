@@ -311,6 +311,9 @@ def csrf_input():
     """
     tok, _ = generate_csrf_token()
     return Markup(f'<input type="hidden" name="csrf_token" value="{tok}">')
+
+
+def notify_mentioned(content, link, from_author, post_id=None):
     """解析评论/动态内容里的 @username，给被提及的注册用户生成站内通知。
     - content: 评论原文；link: 点击通知跳转地址；from_author: 提及者昵称（文案用）
     - 仅给存在的注册用户发通知，不重复，自己@自己不发

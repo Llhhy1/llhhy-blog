@@ -202,6 +202,12 @@ llhhy-blog/
 - **验证**：模拟残留目录存在时解压仍成功；`bash -n` 通过；CRLF=0。R24 七维审计全 ✅（详见 `myblog/SECURITY_AUDIT.md` 第三十四轮）。APP_VERSION 升为 v3.4.4。
 - **⚠️ 升级顺序（重要）**：服务器 `update.sh` / `deploy.sh` **须覆盖 Release v3.4.4 的 `deploy_scripts_v344fix.zip`**（v3.4.3 及更早脚本在 /tmp 有残留时仍会炸）。已卡住的服务器可先手动 `rm -rf /tmp/llhhy_update /tmp/llhhy_deploy`，或直接换新脚本后重跑（新脚本不依赖清理）。
 
+### v3.4.5 多项后端 bug 修复（R25+R26 审计通过）
+
+- **修复内容**：① 一键更新覆盖段「假成功」修复 + 覆盖后版本号硬校验（R25，杜绝后端长期未被真正覆盖）；② **评论提交 500**——`utils.py` 的 `notify_mentioned` 函数体曾被误贴进 `csrf_input` 的 `return` 之后成为死代码，请求时 `ImportError`；已恢复为独立函数（v3.1.7 起潜伏的 @通知失效 + 评论必 500 一并修复）；③ **统计埋点 403**——`/api/stats/read|visit|search` 匿名信标加入 CSRF 豁免，恢复访问统计记录并消除控制台报错。
+- **验证**：`py_compile` 全模块通过；AST 校验 `notify_mentioned` 为顶层函数且签名匹配调用点；桩模块实测 `from utils import notify_mentioned` 成功；app.py 豁免三埋点路径已确认。R25/R26 七维审计全 ✅（详见 `myblog/SECURITY_AUDIT.md` 第三十五/三十六轮）。APP_VERSION 升为 v3.4.5。
+- **⚠️ 升级顺序（重要）**：服务器 `update.sh` / `deploy.sh` **必须覆盖 Release v3.4.5 的 `deploy_scripts_v345fix.zip`**（含覆盖段修复 + 版本校验 + 后端 bug 修复）。**务必先手动覆盖脚本再跑一键更新**——否则旧脚本仍会「假成功」不覆盖后端，评论 500 / stats 403 依旧。
+
 ## 快速开始（本地开发）
 
 后端（默认端口 5000）：

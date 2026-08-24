@@ -477,3 +477,9 @@ v3.1.7 修复 CSRF 隐藏域乱码后，用户反馈「退出登录按钮失效�
 - `bash -n` 语法通过；字节统计 CRLF=0、孤立 CR=0；grep 无裸 backend_extract 引用。
 - 后端仅 config.py 版本号变更，py_compile 通过。APP_VERSION 升为 v3.4.4。
 - ⚠️ 升级顺序：服务器 `update.sh` / `deploy.sh` **须覆盖 Release v3.4.4 的 `deploy_scripts_v344fix.zip`**；已卡住可先 `rm -rf /tmp/llhhy_update /tmp/llhhy_deploy` 或直接换新脚本重跑。
+
+## 29. v3.4.5：一键更新覆盖校验 + 评论500/统计403 修复（R25+R26 审计通过）
+
+- 一键更新覆盖段静默失败修复 + 覆盖后版本号硬校验（R25）；评论提交 500 根因（`notify_mentioned` 误贴进 `csrf_input` 死代码→ImportError）修复并恢复 @通知；统计埋点接口 `/api/stats/read|visit|search` 加入 CSRF 豁免修复 403。
+- `py_compile` 全过；AST + 桩模块实测 `from utils import notify_mentioned` 成功；R25/R26 七维审计全 ✅。APP_VERSION 升为 v3.4.5。
+- ⚠️ 升级顺序：服务器 `update.sh` / `deploy.sh` **必须覆盖 Release v3.4.5 的 `deploy_scripts_v345fix.zip`**，先覆盖脚本再跑一键更新。

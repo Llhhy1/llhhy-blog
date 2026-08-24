@@ -377,7 +377,12 @@ def create_app():
         if request.method not in ("POST", "PUT", "DELETE", "PATCH"):
             return None
         # 豁免清单（这些接口不依赖会话或自带独立鉴权）：
-        exempt = ("/api/webhook/deploy", "/api/captcha", "/api/captcha/verify")
+        # - webhook/deploy、captcha：自带独立鉴权/验证码，不走会话
+        # - /api/stats/read|visit|search：匿名埋点信标（SPA 每次路由变化/阅读即上报），
+        #   不携带任何特权状态、仅累加计数，跨站 POST 至多污染统计，无安全风险，故豁免 CSRF，
+        #   否则匿名访客首屏上报会被 403 拦截（既报控制台错误又丢失访问统计）。
+        exempt = ("/api/webhook/deploy", "/api/captcha", "/api/captcha/verify",
+                  "/api/stats/read", "/api/stats/visit", "/api/stats/search")
         path = request.path
         if any(path.startswith(e) for e in exempt):
             return None

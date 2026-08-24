@@ -497,17 +497,33 @@ fi
 log "④ 覆盖后端代码..."
 set_status "deploying" "正在覆盖后端代码"
 BX="$WORK/backend_extract_$TS"   # 唯一临时目录（v3.4.4，避免残留同名目录删不掉导致 mkdir 失败）
-mkdir -p "$BX"
+rm -rf "$BX"; mkdir -p "$BX"
 unzip -q backend.zip -d "$BX" || fail_exit "后端包解压失败（文件可能损坏）"
+[ -f "$BX/myblog/config.py" ] || fail_exit "解压产物异常：未找到 myblog/config.py"
+copied=0
 if command -v rsync >/dev/null 2>&1; then
-  run_as rsync -a --exclude='data' --exclude='__pycache__' "$BX/myblog/" "$APP_DIR/" 2>/dev/null \
-    || rsync -a --exclude='data' --exclude='__pycache__' "$BX/myblog/" "$APP_DIR/"
-else
-  find "$BX/myblog" -mindepth 1 -maxdepth 1 ! -name 'data' ! -name '__pycache__' -exec \
-    run_as cp -r {} "$APP_DIR/" \; 2>/dev/null \
-    || find "$BX/myblog" -mindepth 1 -maxdepth 1 ! -name 'data' ! -name '__pycache__' -exec cp -r {} "$APP_DIR/" \;
+  if rsync -a --exclude='data' --exclude='__pycache__' "$BX/myblog/" "$APP_DIR/" 2>/dev/null; then
+    copied=1
+  else
+    log "   ⚠️ rsync 覆盖失败，回退 cp"
+  fi
 fi
-log "   完成（data/ 数据库保留）。"
+if [ "$copied" != "1" ]; then
+  for item in "$BX/myblog"/*; do
+    [ -e "$item" ] || continue
+    b=$(basename "$item")
+    [ "$b" = "data" ] && continue
+    [ "$b" = "__pycache__" ] && continue
+    run_as cp -rf "$item" "$APP_DIR/" || cp -rf "$item" "$APP_DIR/" || fail_exit "覆盖失败：$item"
+  done
+fi
+# 覆盖后校验：必须真的把新版本写进 $APP_DIR/config.py（杜绝“假成功”）
+TAG_VER=${TAG#v}   # tag 形如 v3.4.4，config 里是 3.4.4，去掉前缀再比
+new_ver=$(grep -oE 'APP_VERSION[[:space:]]*=[[:space:]]*"[0-9.]+"' "$APP_DIR/config.py" 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+if [ "$new_ver" != "$TAG_VER" ]; then
+  fail_exit "❌ 覆盖后版本号校验失败：期望 $TAG_VER（tag $TAG），实际 ${new_ver:-未知}（覆盖未生效，请检查 $APP_DIR 写入权限或磁盘空间）"
+fi
+log "   完成（data/ 数据库保留，版本已更新为 $new_ver）。"
 
 # 4b. 自动安装 Python 依赖（新增包如 cryptography）
 log "④b 检查 Python 依赖..."
@@ -518,10 +534,10 @@ if [ -d "$FRONT_DIR" ]; then
   log "⑤ 覆盖前端文件..."
   set_status "deploying" "正在覆盖前端文件"
   FX="$WORK/frontend_extract_$TS"   # 唯一临时目录（v3.4.4）
-  mkdir -p "$FX"
+  rm -rf "$FX"; mkdir -p "$FX"
   unzip -q frontend.zip -d "$FX" || fail_exit "前端包解压失败"
-  run_as cp -r "$FX/." "$FRONT_DIR/" 2>/dev/null \
-    || cp -r "$FX/." "$FRONT_DIR/"
+  run_as cp -rf "$FX/." "$FRONT_DIR/" 2>/dev/null \
+    || cp -rf "$FX/." "$FRONT_DIR/" || fail_exit "前端覆盖失败（请检查 $FRONT_DIR 写入权限）"
   log "   完成。"
 else
   log "   ⚠️ 前端目录 $FRONT_DIR 不存在，跳过（请检查路径）。"

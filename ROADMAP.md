@@ -434,3 +434,24 @@ v3.1.7 修复 CSRF 隐藏域乱码后，用户反馈「退出登录按钮失效�
 - 双路径闭环：正常 `vue-frontend-dist.zip` → PASS；篡改副本（改包体保留注释）→ REJECT；整文件哈希 ≠ 内容区哈希（双源互证前提成立）。
 - `bash -n` 语法通过、CRLF=0。后端零改动。
 - ⚠️ 升级顺序：服务器若仍用 v3.4.1（含）之前脚本，先覆盖 Release v3.4.2 的 `deploy_scripts_v342fix.zip` 再跑一键更新。
+- ⚠️ 已知缺陷（v3.4.3 已修复）：`deploy_scripts_v342fix.zip` 校验段用 `sys.exit(0/1)` 传结果，bash 命令替换捕获 stdout 而非退出码 → 正常包必误报。该包已废弃，改用 `deploy_scripts_v343fix.zip`。
+
+## 27. v3.4.3：一键更新脚本输出机制修复（R23 审计通过，脚本修复）
+
+### 27.1 背景
+用户反馈 v3.4.2 修复版脚本在**正常发布包**上误报「❌ myblog-backend.zip 的 zip 注释内嵌 SHA256 与包内容不一致：包或注释可能被单独篡改。已终止更新。」——即 v3.4.2 自己引入了新的可用性故障。
+
+### 27.2 根因（输出机制陷阱，重要经验）
+- v3.4.2 已把校验比较改对为两向（内容区哈希 == 注释内嵌哈希），但校验结果仍用 `sys.exit(0/1)` 传出。
+- bash **命令替换 `$(...)` 捕获的是 stdout 而非退出码**；`sys.exit()` 不产生任何 stdout → `comment_ok` 恒为空串 → `"" != "0"` → 永远走失败分支 → 正常包也误报。
+- 已用 `gh api` 认证通道下载 v3.4.2 真实资产回验：内容区哈希 `88b99800…` == 注释内嵌哈希（PASS）、整文件哈希 `e9283c16…` == sha256.txt（一致）——**包本身无问题，纯脚本输出机制 bug**。
+
+### 27.3 修复
+- `update.sh` / `deploy.sh` 校验段 Python 改为 `print('OK'/'BAD'/'NO'/'ERR')` + `sys.exit(0)`（用 stdout 传结果）。
+- bash 用 `case "$comment_ok"` 按内容判断：`OK` → 通过；`BAD` → fail_exit 终止；`NO`/`ERR`/无输出 → 降级为仅靠 sha256.txt 比对（不再误杀正常包）。
+
+### 27.4 验证
+- R23 审计：XSS / SQL / 越权 / CSRF / 密钥 / 资源 / 回归 7 维度全 ✅（详见 SECURITY_AUDIT.md 第三十三轮）。
+- 双路径闭环（直接执行脚本内真实代码段，不复刻逻辑）：正常发布包 → `OK`；篡改副本（改包体保留注释）→ `BAD`。
+- `bash -n` 语法通过、CRLF=0。后端业务代码零改动。
+- ⚠️ 升级顺序：服务器 `update.sh` / `deploy.sh` 若来自 v3.4.2 及更早 Release，先覆盖 Release v3.4.3 的 `deploy_scripts_v343fix.zip` 再跑一键更新——**绝不用已废弃的 `deploy_scripts_v342fix.zip`**。

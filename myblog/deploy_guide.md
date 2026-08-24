@@ -446,6 +446,15 @@ supervisorctl status
 - **修复**：改为「本地剥离 zip 注释后重算内容区哈希 == 注释内嵌 SHA256」两源互证（正确的双源互证）；同时命令替换加 `|| true` 兜底，python3 异常时降级为跳过该层、不再炸脚本。
 - **⚠️ 必须更新脚本**：若你的服务器用的是 v3.4.1（含）之前的 `update.sh` / `deploy.sh`，**请先下载 Release v3.4.2 的 `deploy_scripts_v342fix.zip`，覆盖 `/www/wwwroot/myblog/update.sh`（及 deploy.sh 若有）**，再跑一键更新；否则新 Release 包同样会被旧脚本误判「注释不一致」而终止。
 - **验证**：覆盖后再跑 `bash /www/wwwroot/myblog/update.sh`，应看到 `✅ xxx 的 zip 注释内嵌哈希一致（双源互证通过）`，并继续完成备份/覆盖/重启。
+- **⚠️ 已知缺陷（v3.4.3 已修复，见下节）**：`deploy_scripts_v342fix.zip` 里的脚本虽然修好了三向链式比较，但校验段仍用 `sys.exit(0/1)` 传结果——bash 命令替换 `$(...)` 捕获的是 **stdout 不是退出码**，`sys.exit()` 不产生任何输出 → 结果恒为空 → 脚本会**把一切正常包误报为「zip 注释内嵌 SHA256 与包内容不一致」并终止更新**。**该包已废弃，请勿再使用。**
+
+### v3.4.3 升级注意（一键更新脚本输出机制修复 · 必须换新脚本包）
+
+- **改了啥**：`update.sh` / `deploy.sh` 的 zip 注释内嵌哈希校验段（「双源互证」②）此前用 `sys.exit(0/1)` 传递校验结果——但 bash **命令替换只捕获 stdout**，`sys.exit()` 无输出 → 即便比较逻辑已正确，正常包也会得到空结果 → 误报「注释不一致」并终止更新（v3.4.2 的 `deploy_scripts_v342fix.zip` 正是此缺陷，**已废弃**）。
+- **修复**：Python 校验段改为 `print('OK'/'BAD'/'NO'/'ERR')` + `sys.exit(0)`，bash 侧用 `case "$comment_ok" in OK|BAD|NO|ERR|*)` 按**输出内容**判断：OK → 双源互证通过；BAD → 篡改终止；NO/ERR/无输出 → 降级为仅靠 sha256.txt 比对（不再误杀正常包）。
+- **⚠️ 必须换新脚本包**：**`deploy_scripts_v342fix.zip` 已废弃（对正常包必误报，请不要再用）**。请下载 Release v3.4.3 的 **`deploy_scripts_v343fix.zip`**，覆盖 `/www/wwwroot/myblog/update.sh`（及 deploy.sh 若有）后，再跑一键更新。
+- **验证**：覆盖后跑 `bash /www/wwwroot/myblog/update.sh` 应看到 `✅ xxx 的 zip 注释内嵌哈希一致（双源互证通过）`，并继续完成备份/覆盖/重启；后台左下角版本号显示 `v3.4.3`。
+- **顺带修正**：后台「立即更新」此前可能因脚本校验误报而失败，本次一并恢复可用；改动仅脚本，后端业务代码无变化。
 
 ## 邮件设置（新文章通知订阅者 · 后台配置）
 

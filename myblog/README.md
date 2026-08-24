@@ -170,6 +170,15 @@
 - **修复**：改为「本地剥离 zip 注释重算内容区哈希 == 注释内嵌 SHA256」两源互证（数学正确的双源互证）；命令替换加 `|| true` 兜底，python3 缺失/异常时降级跳过该层，不再炸脚本。
 - **验证**：本地双路径闭环——正常发布包 `通过`、篡改包体 `拒绝`；`bash -n` 语法通过；CRLF=0。R22 七维审计全 ✅（详见 `SECURITY_AUDIT.md` 第三十二轮）。
 - **⚠️ 升级顺序**：服务器若仍用 v3.4.1（含）之前的 `update.sh` / `deploy.sh`，**必须先覆盖 Release v3.4.2 的 `deploy_scripts_v342fix.zip`** 再跑一键更新，否则新 Release 包会被旧脚本误判「注释不一致」而终止。
+- **⚠️ 已知缺陷（v3.4.3 已修复）**：`deploy_scripts_v342fix.zip` 校验段仍用 `sys.exit(0/1)` 传结果，bash 命令替换捕获 stdout 而非退出码 → 正常包必误报。**该包已废弃，改用 v3.4.3 的 `deploy_scripts_v343fix.zip`。**
+
+### v3.4.3 修复：一键更新脚本输出机制（R23 审计通过，脚本修复）
+
+- **故障现象**：v3.4.2 修复版脚本在**正常发布包**上误报「❌ … zip 注释内嵌 SHA256 与包内容不一致：包或注释可能被单独篡改。已终止更新。」
+- **根因**：v3.4.2 已把比较改对为两向，但校验段仍用 `sys.exit(0/1)` 传结果。bash 命令替换 `comment_ok=$(python3 -c ...)` 捕获的是 **stdout** 而非退出码，`sys.exit()` 不产生任何 stdout → `comment_ok` 恒为空 → `"" != "0"` → 永远走失败分支 → 正常包也误报。（`gh api` 下载 v3.4.2 真实资产回验：内容区哈希 == 注释内嵌哈希，包本身无问题。）
+- **修复**：校验段 Python 改为 `print('OK'/'BAD'/'NO'/'ERR')` + `sys.exit(0)`；bash `case "$comment_ok"` 按内容判断：OK→通过、BAD→终止、NO/ERR/无输出→降级仅靠 sha256.txt 比对。
+- **验证**：双路径闭环——正常包 → `OK`、篡改包 → `BAD`；`bash -n` 通过；CRLF=0。R23 七维审计全 ✅（详见 `SECURITY_AUDIT.md` 第三十三轮）。APP_VERSION 升为 v3.4.3。
+- **⚠️ 升级顺序（重要）**：服务器 `update.sh` / `deploy.sh` 若来自 v3.4.2 及更早 Release，**必须先覆盖 Release v3.4.3 的 `deploy_scripts_v343fix.zip`** 再跑一键更新——**不要用已废弃的 `deploy_scripts_v342fix.zip`**，它对正常包必误报。
 
 ## 目录结构
 ```

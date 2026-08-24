@@ -184,6 +184,15 @@ llhhy-blog/
 - **验证**：本地双路径闭环——正常发布包 `PASS`、中间人篡改包体`REJECT`；`bash -n` 语法通过；CRLF=0。
 - **⚠️ 升级顺序**：若服务器仍用 v3.4.1（含）之前的 `update.sh`，必须先覆盖 **Release v3.4.2 的 `deploy_scripts_v342fix.zip`** 再跑一键更新，否则新包会被旧脚本误判终止。
 - **验证**：`py_compile` 全量通过（后端本轮零改动）；R22 七维审计全 ✅（详见 `myblog/SECURITY_AUDIT.md` 第三十二轮）。
+- **⚠️ 已知缺陷（v3.4.3 已修复）**：`deploy_scripts_v342fix.zip` 的校验段仍用 `sys.exit(0/1)` 传结果，而 bash 命令替换 `$(...)` 捕获的是 stdout 而非退出码 → 正常包也误报「zip 注释内嵌 SHA256 与包内容不一致」。**该包已废弃，请使用 v3.4.3 的 `deploy_scripts_v343fix.zip`。**
+
+### v3.4.3 一键更新脚本输出机制修复（R23 审计通过，脚本修复）
+
+- **故障现象**：v3.4.2 修复版脚本在**正常发布包**上误报「❌ myblog-backend.zip 的 zip 注释内嵌 SHA256 与包内容不一致：包或注释可能被单独篡改。已终止更新。」
+- **根因**：v3.4.2 虽把比较改对为两向，但仍用 `sys.exit(0/1)` 传校验结果——`sys.exit()` **不产生任何 stdout**，而 bash 命令替换 `comment_ok=$(python3 -c ...)` 捕获的是 stdout → `comment_ok` 恒为空串 → `"" != "0"` → 永远走失败分支 → 正常包也误报。（已用 `gh api` 下载 v3.4.2 真实资产验证：内容区哈希 == 注释内嵌哈希，包本身无问题。）
+- **修复**：校验段 Python 改为 `print('OK'/'BAD'/'NO'/'ERR')` + `sys.exit(0)`；bash 用 `case "$comment_ok"` 按内容判断——OK→通过、BAD→终止、NO/ERR/无输出→降级为仅靠 sha256.txt 比对。
+- **验证**：双路径闭环——正常包 → `OK`、篡改包 → `BAD`；`bash -n` 通过；CRLF=0。R23 七维审计全 ✅（详见 `myblog/SECURITY_AUDIT.md` 第三十三轮）。APP_VERSION 升为 v3.4.3。
+- **⚠️ 升级顺序（重要）**：服务器上的 `update.sh` / `deploy.sh` 若来自 v3.4.2 及更早 Release，**必须先覆盖 Release v3.4.3 的 `deploy_scripts_v343fix.zip`**（内含 print 修复）再跑一键更新——**绝对不要用已废弃的 `deploy_scripts_v342fix.zip`**，它对正常包必误报。
 
 ## 快速开始（本地开发）
 

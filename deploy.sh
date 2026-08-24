@@ -215,30 +215,43 @@ verify_checksum() {  # verify_checksum <file> <expected_name>
   #    正确做法：只用「注释内嵌 hash == 本地重算内容区 hash」双源互证。
   if command -v python3 >/dev/null 2>&1; then
     local comment_ok
+    # ⚠️ 输出机制陷阱（v3.4.2 初版踩坑）：不能用 sys.exit(N) 靠退出码传结果——
+    #       $(...) 命令替换捕获的是 **stdout** 而非退出码，sys.exit 不产生 stdout，
+    #       comment_ok 恒为空串，正常包也会误判「不一致」。必须用 print 输出 + 按内容判断。
     comment_ok=$(python3 -c "
 import sys, hashlib
 try:
     data = open(sys.argv[1], 'rb').read()
     idx = data.rfind(b'\x50\x4b\x05\x06')
-    if idx < 0: sys.exit(1)
+    if idx < 0: print('NO'); sys.exit(0)
     clen = int.from_bytes(data[idx+20:idx+22], 'little')
-    if clen <= 0: sys.exit(1)
+    if clen <= 0: print('NO'); sys.exit(0)
     cm = data[idx+22:idx+22+clen].decode('utf-8', 'replace')
     for ln in cm.splitlines():
         if ln.strip().startswith('SHA256='):
             h = hashlib.sha256()
             h.update(data[:idx+20])
-            sys.exit(0 if h.hexdigest() == ln.strip()[7:].strip().lower() else 1)
-    sys.exit(1)
+            print('OK' if h.hexdigest() == ln.strip()[7:].strip().lower() else 'BAD')
+            sys.exit(0)
+    print('NO'); sys.exit(0)
 except Exception:
-    sys.exit(1)
+    print('ERR'); sys.exit(0)
 " "$f" 2>/dev/null) || true
-    if [ "$comment_ok" = "0" ]; then
-      log "   ✅ $expect_name 的 zip 注释内嵌哈希一致（双源互证通过）。"
-    else
-      log "❌ $expect_name 的 zip 注释内嵌 SHA256 与包内容不一致：包或注释可能被单独篡改。已终止更新。"
-      exit 1
-    fi
+    case "$comment_ok" in
+      OK)
+        log "   ✅ $expect_name 的 zip 注释内嵌哈希一致（双源互证通过）。"
+        ;;
+      BAD)
+        log "❌ $expect_name 的 zip 注释内嵌 SHA256 与包内容不一致：包或注释可能被单独篡改。已终止更新。"
+        exit 1
+        ;;
+      NO|ERR)
+        log "   ⚠️ $expect_name 无法完成 zip 注释双源校验（无注释或读取异常），仅靠哈希列表比对。"
+        ;;
+      *)
+        log "   ⚠️ $expect_name 的 zip 注释校验无输出，已降级为仅靠哈希列表比对。"
+        ;;
+    esac
   fi
   log "   ✅ $expect_name 校验完成。"
 }

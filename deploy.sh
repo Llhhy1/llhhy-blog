@@ -207,6 +207,12 @@ verify_checksum() {  # verify_checksum <file> <expected_name>
     log "❌ $expect_name 哈希校验失败（期望 $want，实际 $got），已终止更新以防恶意包覆盖"
     exit 1
   fi
+  # ② zip 注释内嵌哈希校验（双源互证）：注释里写的是「内容区」哈希（剥离注释），
+  #    这里必须同样剥离注释重算再比对（对含注释的整文件算必然对不上——自指循环）。
+  #    注意：注释内嵌 hash == «内容区»哈希；而 sha256.txt 记录的是含注释的整文件哈希，
+  #    两者故意不同。旧版误写成 内容区==注释==整文件 三向链式（恒 False），
+  #    python3 退出码非 0 触发 set -e 静默炸脚本（日志无 ❌ 行仅"异常退出(码1)"）。
+  #    正确做法：只用「注释内嵌 hash == 本地重算内容区 hash」双源互证。
   if command -v python3 >/dev/null 2>&1; then
     local comment_ok
     comment_ok=$(python3 -c "
@@ -222,11 +228,11 @@ try:
         if ln.strip().startswith('SHA256='):
             h = hashlib.sha256()
             h.update(data[:idx+20])
-            sys.exit(0 if h.hexdigest() == ln.strip()[7:].strip().lower() == sys.argv[2].lower() else 1)
+            sys.exit(0 if h.hexdigest() == ln.strip()[7:].strip().lower() else 1)
     sys.exit(1)
 except Exception:
     sys.exit(1)
-" "$f" "$want" 2>/dev/null)
+" "$f" 2>/dev/null) || true
     if [ "$comment_ok" = "0" ]; then
       log "   ✅ $expect_name 的 zip 注释内嵌哈希一致（双源互证通过）。"
     else

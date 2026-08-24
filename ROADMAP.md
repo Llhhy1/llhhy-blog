@@ -414,3 +414,23 @@ v3.1.7 修复 CSRF 隐藏域乱码后，用户反馈「退出登录按钮失效�
 - 前端构建 `_vite_build15` 成功（vite build 2.67s，产物 15 chunk），`vite preview` HTTP 200。
 - 深色修复核查：applyTheme 内联覆盖（暗色 + 浅色回写分支）+ global.css 暗色抽屉 7 条写死浅色规则齐全。
 - 后端零改动，`py_compile` 无需重跑。APP_VERSION 升为 v3.4.1。
+
+## 26. v3.4.2：一键更新脚本双源互证校验修复（R22 审计通过，脚本修复）
+
+### 26.1 背景
+用户反馈：后台「立即更新」/ 宝塔终端 `bash /www/wwwroot/myblog/update.sh`，走到「下载 sha256.txt」后**静默退出(码1)**，日志无 ❌ 行、仅「脚本异常退出(码1)，详见 data/update_log.txt」。排查为 `update.sh` / `deploy.sh` 的 `verify_checksum` ②段（v3.1.6 zip 注释双源互证）逻辑写错。
+
+### 26.2 根因
+- 双源互证设计：发布 zip 在 **ZIP 注释内嵌「内容区」SHA256**（剥离尾注释，package.py `_strip_zip_comment`：EOCD 注释长度字段清零）；`sha256.txt` 记录**整文件**（含注释）哈希。两源**故意不同**、互相独立：整文件替换 → sha256sum 失败；单改包体/单改注释 → 注释内嵌哈希与剥离后内容区哈希不一致。这就是双源互证。
+- 脚本 bug：②段 Python 写成 `sys.exit(0 if h.hexdigest() == 注释内嵌hash == sys.argv[2].lower() else 1)`——**三向链式比较**（内容区哈希 == 注释内嵌哈希 == 整文件哈希）。后两项恒不等 → 整链恒 False → python3 校验**永远失败**返回 1。
+- 放大：`$(python3 -c ...)` 命令替换无 `|| true` 兜底，配合 `set -e` → python3 返回 1 就**静默终止整脚本**，FAIL_MSG 未设 → 只剩通用「异常退出(码1)」。
+
+### 26.3 修复
+- `update.sh` / `deploy.sh` ②段改为「本地剥离 zip 尾注释重算内容区哈希 == 注释内嵌 SHA256 单独比对」（不再链 sha256.txt，sha256.txt 由 ① `sha256sum` 负责）——数学正确的双源互证②。
+- 两处 `$(python3 -c ...)` 加 `|| true` 兜底：python3 缺失/异常时降级跳过（log 提示），不再炸脚本。
+
+### 26.4 验证
+- R22 审计：XSS / SQL / 越权 / CSRF / 密钥 / 资源 / 回归 7 维度全 ✅（详见 SECURITY_AUDIT.md 第三十二轮）。
+- 双路径闭环：正常 `vue-frontend-dist.zip` → PASS；篡改副本（改包体保留注释）→ REJECT；整文件哈希 ≠ 内容区哈希（双源互证前提成立）。
+- `bash -n` 语法通过、CRLF=0。后端零改动。
+- ⚠️ 升级顺序：服务器若仍用 v3.4.1（含）之前脚本，先覆盖 Release v3.4.2 的 `deploy_scripts_v342fix.zip` 再跑一键更新。

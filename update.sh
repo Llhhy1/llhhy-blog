@@ -397,6 +397,12 @@ verify_checksum() {  # verify_checksum <file> <expected_name>
   #    这里必须同样剥离注释重算再比对（对含注释的整文件算必然对不上——自指循环）。
   if command -v python3 >/dev/null 2>&1; then
     local comment_ok
+    # 注意：注释内嵌 hash == sha256_of_content 的「内容区」哈希（剥离尾注释后整包字节），
+    #       而 sha256.txt 记录的是含注释的「整文件」哈希——两者故意不同。
+    #       旧版误写成 内容区==注释 再 ==整文件 的三向链式比较（恒 False），
+    #       python3 退出码非 0 触发 set -e 静默炸脚本（日志无 ❌ 行，仅"异常退出(码1)"）。
+    #       正确做法：只用「注释内嵌 hash == 本地重算内容区 hash」双源互证，
+    #       不依赖 sha256.txt（注释被单独篡改、或包内容被单独篡改都会暴露）。
     comment_ok=$(python3 -c "
 import sys, hashlib
 try:
@@ -410,11 +416,11 @@ try:
         if ln.strip().startswith('SHA256='):
             h = hashlib.sha256()
             h.update(data[:idx+20])
-            sys.exit(0 if h.hexdigest() == ln.strip()[7:].strip().lower() == sys.argv[2].lower() else 1)
+            sys.exit(0 if h.hexdigest() == ln.strip()[7:].strip().lower() else 1)
     sys.exit(1)
 except Exception:
     sys.exit(1)
-" "$f" "$want" 2>/dev/null)
+" "$f" 2>/dev/null) || true
     if [ "$comment_ok" = "0" ]; then
       log "   ✅ $expect_name 的 zip 注释内嵌哈希一致（双源互证通过）。"
     else

@@ -1493,11 +1493,14 @@ def users():
 @super_required
 def add_user():
     """新增用户：超级管理员可建管理员/普通用户。"""
-    username = (request.form.get("username") or "").strip()
+    # 全量审计加固：用户名长度上限（模型层 username 字段 String(40)，入库前截断并提示）
+    username = (request.form.get("username") or "").strip()[:40]
     password = request.form.get("password", "")
     role = request.form.get("role", ROLE_USER)
     if not username or not password:
         flash("用户名和密码不能为空")
+    elif len(username) > 40:
+        flash("用户名最长 40 字符")
     elif User.query.filter_by(username=username).first():
         flash("用户名已存在")
     elif role not in (ROLE_ADMIN, ROLE_USER):

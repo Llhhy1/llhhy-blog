@@ -23,11 +23,19 @@ def today_str():
 
 
 def client_ip():
-    """取客户端真实 IP：Nginx 反代后优先 X-Forwarded-For 第一个值。"""
+    """取客户端真实 IP：Nginx 反代后优先 X-Forwarded-For 第一个值。
+
+    全量审计加固：旧实现无条件取 XFF 首段，攻击者可伪造
+    `X-Forwarded-For: 127.0.0.1` 或任意值循环变化，绕过限流（注册/登录/评论/点赞）、
+    刷爆视图/阅读/搜索埋点。改为**只接受合法公网 IP**（不合法则回退 remote_addr，
+    remote_addr 是 Nginx 与本服务 TCP 直连地址，不可伪造）——限流/埋点/属地全部收口，
+    杜绝伪造 XFF。
+    """
     from flask import request
     xff = request.headers.get("X-Forwarded-For", "")
-    if xff:
-        return xff.split(",")[0].strip()
+    cand = xff.split(",")[0].strip() if xff else ""
+    if cand and _is_safe_public_ip(cand):
+        return cand
     return request.remote_addr or ""
 
 

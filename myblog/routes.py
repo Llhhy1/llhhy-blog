@@ -61,6 +61,10 @@ def login():
     if session.get("user_id"):
         return redirect(url_for("main.index"))
     if request.method == "POST":
+        # 全量审计加固：登录限流（同 IP 60 秒最多 10 次尝试，防暴力破解）
+        if not rate_limit(client_key("login"), limit=10, window=60):
+            flash("尝试过于频繁，请稍后再试")
+            return render_template("login.html"), 429
         username = (request.form.get("username") or "").strip()
         password = request.form.get("password", "")
         u = User.query.filter_by(username=username).first()

@@ -226,6 +226,18 @@ llhhy-blog/
 - **验证**：`py_compile` 全模块通过；离线桩冒烟 14/14 PASS（四解析器 + 中文归一 + 公网/私网/保留/CGNAT 拦截）；R29 七维审计 0 Blocker（详见 `myblog/SECURITY_AUDIT.md` 第三十九轮）。APP_VERSION 升为 v3.4.7；前端复用既有 `vue-frontend-dist.zip`（无前台改动）。
 - **⚠️ 升级顺序（重要）**：服务器 `update.sh` / `deploy.sh` **必须覆盖 Release v3.4.7 的 `deploy_scripts_v347fix.zip`**（沿用 v3.4.6 自动重启加固）再跑一键更新，方可覆盖后端新代码 + 免除手动重启。
 
+### v3.4.8 全量安全审计加固（R30 审计通过 · 3 Blocker + 5 建议全部修复）
+
+- **🔴 后台 4 处模板 JS 上下文存储型 XSS（已修复）**：`users.html`（用户名）、`subscribers.html`（邮箱）、`backup.html`（备份文件名）、`audit_logs.html`（保留天数）的 `onsubmit="return confirm('...')"` 把用户可控值直接拼进 **JS 单引号字符串**——Jinja 在 HTML 属性上下文 autoescape **不转义单引号 `'`**，任何注册用户可用 `'` 或 `</script>` 构造存储型 XSS，后台一浏览即触发。修复：4 处全改 `|tojson` 过滤器（JSON 字符串字面量天然 JS 上下文安全）；`utils.py` 新增 `js_escape()` 作非模板场景等价备选。
+- **🔴 `/api/version/update` 权限收窄（已修复）**：原普通管理员（`is_admin_role`）即可触发服务器 `update.sh` 脚本执行（运维级脚本执行暴露给非超管）→ 收窄为 `is_super`，非超管 403。
+- **🔴 `/api/version/status` 补鉴权（已修复）**：原完全无鉴权，任何人可读更新进度并可配合防重入锁制造 409 DoS → 加 `is_super` 鉴权，未登录/非超管一律 403。
+- **🟡 TOCTOU 防重入（已修复）**：`version_update` 原是「读 status 文件判断 idle → Popen」非原子，两并发请求可同时读到 idle 各起一个 `update.sh` → 新增模块级 `_UPDATE_LOCK`（threading.Lock）+ 抽出 `_do_version_update()` 在锁内完成「检查+启动」原子段（status 文件保留作跨 worker 双保险），并发触发立即 409。
+- **🟡 XFF 伪造收口（已修复）**：`stats.client_ip()` 与 `utils.client_key()` 原无条件取 `X-Forwarded-For` 首段（可伪造任意 IP 绕过注册/登录/评论/点赞限流并刷爆埋点）→ 仅当 XFF 首段为**合法公网 IP**（`ipaddress` + `is_global`，排除私网/环回/保留/CGNAT）才采纳，否则回退 `request.remote_addr`（Nginx 直连 TCP 地址不可伪造）。
+- **🟡 限流补齐（已修复）**：三个 stats 埋点（`/api/stats/visit|read|search`）加 `rate_limit`（visit 60次/分钟、read 60次/分钟、search 120次/小时），**超限静默丢弃**不打扰正常访客；前台 `/login` POST 加 `rate_limit 10次/60s` 防暴力破解。
+- **🟡 `add_user` 用户名限长（已修复）**：入库前 `username[:40]` 截断 + 超长提示（与模型 `String(40)` 一致）。
+- **验证**：`py_compile` 全模块通过（`-W error::SyntaxWarning` 无无效转义警告）；隔离临时库冒烟 `smoke_audit_r30.py` 14 项 ALL PASS（鉴权收窄/埋点限流/登录限流/XFF 收口/模板 tojson 渲染）；R30 全量审计 3 Blocker + 5 建议全部修复（详见 `myblog/SECURITY_AUDIT.md` 第四十轮）。APP_VERSION 升为 v3.4.8。
+- **🅰️ 升级顺序（本轮调整 · 无需换脚本包）**：R30 **未改动部署脚本**（`update.sh`/`deploy.sh`），服务器**可直接跑一键更新**（沿用 v3.4.7 已在服脚本）；**若更新过程报错再覆盖 Release v3.4.8 的 `deploy_scripts_v348fix.zip`**（正常情况不需要）。
+
 ## 快速开始（本地开发）
 
 后端（默认端口 5000）：

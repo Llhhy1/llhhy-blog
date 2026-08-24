@@ -10,6 +10,25 @@ from markdown import markdown
 from markupsafe import Markup
 
 
+def js_escape(raw):
+    """把字符串放进 JS 单引号字符串上下文时使用的转义（防 JS 注入）。
+
+    用于模板里 `onsubmit="return confirm('...{{ js_escape(v) }}...')"` 这类
+    **JS 字符串属性**插值。Jinja 在 HTML 属性上下文的 autoescape 不转义单引号，
+    用户可控值（username/email/备份文件名等）含 `'` 或 `</script>` 会逃出字符串
+    执行任意 JS（存储型 XSS，后台浏览即触发）。本函数转义反斜杠、单引号、
+    换行与 `</script>` 闭合，保证安全。
+    """
+    if raw is None:
+        return ""
+    s = str(raw)
+    s = s.replace("\\", "\\\\").replace("'", "\\'")
+    s = s.replace("\r", "\\r").replace("\n", "\\n")
+    # 防 </script> 提前闭合内联脚本块（HTML 解析在 JS 转义之前发生）
+    s = s.replace("</", "<\\/")
+    return s
+
+
 # ---------- HTML 清理（防 XSS）----------
 # 文章/关于页的 Markdown 渲染结果会直接 innerHTML/v-html 进页面，
 # 必须经过白名单清理，剥离 <script>、on* 事件属性、javascript: 等危险内容。
@@ -107,10 +126,22 @@ def rate_limit(key, limit=20, window=60):
 
 
 def client_key(prefix):
-    """基于客户端真实 IP 生成限流 key（Nginx 反代后取 X-Forwarded-For 首段）。"""
+    """基于客户端真实 IP 生成限流 key（服务端统一收口，防伪造 XFF 绕过限流）。"""
     from flask import request
+    ip = request.remote_addr or "unknown"
     xff = request.headers.get("X-Forwarded-For", "")
-    ip = xff.split(",")[0].strip() if xff else (request.remote_addr or "unknown")
+    cand = xff.split(",")[0].strip() if xff else ""
+    # 与 stats.client_ip 同口径：仅接受合法公网 XFF 首段，否则用 TCP 直连地址
+    try:
+        import ipaddress as _ipa
+        if cand and not _ipa.ip_address(cand).is_private and \
+                not _ipa.ip_address(cand).is_loopback and \
+                not _ipa.ip_address(cand).is_link_local and \
+                not _ipa.ip_address(cand).is_reserved and \
+                _ipa.ip_address(cand).is_global:
+            ip = cand
+    except Exception:
+        pass
     return f"{prefix}:{ip}"
 
 

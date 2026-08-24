@@ -10,7 +10,7 @@
       <button type="submit" class="btn small">筛选</button>
       {% if filter_from or filter_to %}<a class="btn small ghost" href="{{ url_for('admin.audit_logs') }}">清除筛选</a>{% endif %}
     </form>
-    <form method="post" action="{{ url_for('admin.clear_audit_logs') }}" class="inline-form" onsubmit="return confirm('确定清空 {{ keep_days or 90 }} 天前的旧日志？近 {{ keep_days or 90 }} 天记录会保留。');">
+    <form method="post" action="{{ url_for('admin.clear_audit_logs') }}" class="inline-form" onsubmit="return confirm('确定清空 {{ (keep_days or 90)|tojson }} 天前的旧日志？近 {{ (keep_days or 90)|tojson }} 天记录会保留。');">
       {{ csrf_input() }}
       <button type="submit" class="btn small ghost">🧹 清理旧日志</button>
     </form>

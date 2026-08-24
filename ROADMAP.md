@@ -505,3 +505,16 @@ v3.1.7 修复 CSRF 隐藏域乱码后，用户反馈「退出登录按钮失效�
 - **R29-③ 后台筛选表单美化**：`我的文章` / `仪表盘` 文章筛选表单卡片化（圆角容器 + 🔍 搜索图标 + 统一 38px 控件 + accent 焦点环 + 主 / ghost 按钮层级），适配深色模式；样式抽进 `admin.css` 的 `.filter-form`，去掉内联 style。
 - `py_compile` 全过；离线桩冒烟 14/14 PASS；R29 七维审计 0 Blocker。APP_VERSION 升为 v3.4.7；前端复用既有 `vue-frontend-dist.zip`（无前台改动）。
 - ⚠️ 升级顺序：服务器 `update.sh` / `deploy.sh` **必须覆盖 Release v3.4.7 的 `deploy_scripts_v347fix.zip`**（沿用 v3.4.6 自动重启加固），先覆盖脚本再跑一键更新。
+
+## 32. v3.4.8：全量安全审计加固（R30 审计通过 · 3 Blocker + 5 建议全部修复 · 未改部署脚本）
+
+- **性质**：对 v3.4.7（含）之前全部既有代码做**全量横向审计**（协同 CodeReview 专家，R30 八维复核），3 Blocker + 5 建议全部修复入库。
+- **R30-① 🔴 后台 4 处模板 JS 上下文存储型 XSS（已修复）**：`users.html`（用户名）、`subscribers.html`（邮箱）、`backup.html`（备份文件名）、`audit_logs.html`（保留天数）的 `onsubmit="return confirm('...')"` 把用户可控值直接拼进 JS 单引号字符串——Jinja autoescape 不转义 `'` → 任何注册用户可用 `'` / `</script>` 构造存储型 XSS，后台浏览即触发。修复：4 处全改 `|tojson`（JSON 字符串字面量天然 JS 安全）+ `utils.py` 新增 `js_escape()` 备选。
+- **R30-② 🔴 越权/命令执行（已修复）**：`/api/version/update` 原普通管理员即可触发服务器 update.sh 执行 → 收窄 `is_super`（非超管 403）；`/api/version/status` 原无鉴权 → 加 `is_super` 鉴权。
+- **R30-③ 🟡 TOCTOU 防重入（已修复）**：`version_update` 原「读 status → Popen」非原子 → 新增模块级 `_UPDATE_LOCK` + `_do_version_update()` 锁内原子段（status 文件保留作跨 worker 双保险），并发触发立即 409。
+- **R30-④ 🟡 XFF 伪造收口（已修复）**：`stats.client_ip()` / `utils.client_key()` 原无条件取 XFF 首段 → 仅采信合法公网 IP（`is_global`，排除私网/环回/保留/CGNAT），否则回退 `remote_addr`——杜绝伪造 IP 绕过限流/刷爆埋点。
+- **R30-⑤ 🟡 限流补齐（已修复）**：stats 三埋点（visit 60/min、read 60/min、search 120/h，超限静默丢弃）+ 前台 `/login` POST（10 次/60s）。
+- **R30-⑥ 🟡 用户名限长（已修复）**：`add_user` 入库前 `username[:40]` 截断（与模型 `String(40)` 一致）。
+- **💭 优化（暂不改）**：`/api/tags` 标签计数含不可见文章（信息泄露极低，随标签重构处理）；`_resolve_region_async` 后台线程未显式 `db.session.remove()`（SQLite 线程退出已回收，下版补 close 更规范）。
+- **验证**：`py_compile` 全模块通过（`-W error::SyntaxWarning` 无警告）；隔离临时库冒烟 `smoke_audit_r30.py` 14 项 ALL PASS；R30 全量审计 3 Blocker + 5 建议全部修复（详见 `SECURITY_AUDIT.md` 第四十轮）。APP_VERSION 升为 v3.4.8；前端无改动。
+- **🅰️ 升级顺序（本轮调整）**：R30 **未改动部署脚本**——服务器**直接跑一键更新**（沿用已在服的 v3.4.7 脚本）；**若更新报错再覆盖 Release v3.4.8 的 `deploy_scripts_v348fix.zip` 后重跑**（正常不需要）。

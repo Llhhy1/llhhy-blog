@@ -46,7 +46,7 @@
             <button type="submit" class="btn ghost">下载</button>
           </form>
           <form method="post" action="{{ url_for('admin.backup') }}" style="display:inline;"
-                onsubmit="return confirm('确认从【{{ b.file }}】恢复？将用备份覆盖当前数据库与上传文件，不可撤销（恢复前会自动打快照）。恢复后请到宝塔停止再启动站点。');">
+                onsubmit="return confirm('确认从【{{ b.file|tojson }}】恢复？将用备份覆盖当前数据库与上传文件，不可撤销（恢复前会自动打快照）。恢复后请到宝塔停止再启动站点。');">
             {{ csrf_input() }}
             <input type="hidden" name="action" value="restore">
             <input type="hidden" name="file" value="{{ b.file }}">

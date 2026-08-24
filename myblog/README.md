@@ -209,6 +209,18 @@
 - **验证**：`py_compile` 全过；离线桩冒烟 14/14 PASS；R29 七维审计 0 Blocker（详见 `SECURITY_AUDIT.md` 第三十九轮）。APP_VERSION 升为 v3.4.7；前端复用既有 `vue-frontend-dist.zip`。
 - **⚠️ 升级顺序（重要）**：服务器 `update.sh` / `deploy.sh` **必须覆盖 Release v3.4.7 的 `deploy_scripts_v347fix.zip`**（沿用 v3.4.6 自动重启加固）再跑一键更新。
 
+### v3.4.8 全量安全审计加固（R30 审计通过 · 3 Blocker + 5 建议全部修复）
+
+- **🔴 后台 4 处模板 JS 上下文存储型 XSS（已修复）**：`users.html`（`{{ u.username }}`）、`subscribers.html`（`{{ s.email }}`）、`backup.html`（`{{ b.file }}`）、`audit_logs.html`（`{{ keep_days }}`）的 `onsubmit="return confirm('...')"` 把用户可控值直接拼进 **JS 单引号字符串**——Jinja 在 HTML 属性上下文 autoescape **不转义单引号 `'`**，任何注册用户可用 `'` 或 `</script>` 构造存储型 XSS，后台一浏览即触发。修复：4 处全部改用 `|tojson` 过滤器（输出 JSON 字符串字面量，天然 JS 上下文安全）；`utils.py` 新增 `js_escape()` 作非模板场景等价备选。
+- **🔴 `/api/version/update` 权限收窄（已修复）**：原普通管理员即可触发服务器更新脚本执行 → 收窄为 `is_super`，非超管返回 403。
+- **🔴 `/api/version/status` 补鉴权（已修复）**：原完全无鉴权 → 加 `is_super`，未登录/非超管一律 403。
+- **🟡 TOCTOU 防重入（已修复）**：新增模块级 `_UPDATE_LOCK` + `_do_version_update()` 锁内原子段，消除「两并发请求各起一个 update.sh」窗口。
+- **🟡 XFF 伪造收口（已修复）**：`client_ip()`/`client_key()` 仅采信**合法公网 IP** 的 XFF 首段，否则回退 `remote_addr`——杜绝伪造 IP 绕过限流、刷爆埋点。
+- **🟡 限流补齐（已修复）**：stats 三埋点加 `rate_limit`（visit 60/min、read 60/min、search 120/h，超限静默丢弃）；前台 `/login` POST 加 `rate_limit 10次/60s`。
+- **🟡 `add_user` 用户名限长（已修复）**：入库前 `username[:40]` 截断（与模型 `String(40)` 一致）。
+- **验证**：`py_compile` 全模块通过（`-W error::SyntaxWarning` 无警告）；隔离临时库冒烟 14 项 ALL PASS；R30 全量审计 3 Blocker + 5 建议全部修复（详见 `SECURITY_AUDIT.md` 第四十轮）。APP_VERSION 升为 v3.4.8。
+- **🅰️ 升级顺序（本轮调整 · 无需换脚本包）**：R30 **未改动部署脚本**，服务器**可直接跑一键更新**（沿用已在服的 v3.4.7 脚本）；**若更新过程报错再覆盖 Release v3.4.8 的 `deploy_scripts_v348fix.zip`**（正常情况不需要）。
+
 ## 目录结构
 ```
 myblog/             # 后端（Flask + SQLite）

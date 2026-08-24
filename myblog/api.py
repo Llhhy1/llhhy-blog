@@ -6,9 +6,15 @@
 import json
 import os
 import datetime
+import threading
 
 from flask import Blueprint, request, jsonify, current_app, session, Response
 from markupsafe import escape
+
+# 在线更新防重入：进程内锁（消除「两请求同时读到 idle 各自 Popen」的 TOCTOU）。
+# 锁不跨 worker，但 update.sh 还会写 data/update_status.json 文件锁，双保险；
+# 同一 worker 内并发触发必然只有一个能拿到锁。
+_UPDATE_LOCK = threading.Lock()
 
 from models import db, Post, Category, Tag, Comment, FriendLink, Setting, User, ROLE_USER, \
     Moment, MomentComment, SocialAccount, Series, Announcement, Guestbook, Subscriber, Notification, \
@@ -607,7 +613,10 @@ def comment(slug):
 # ---------- 访问统计（埋点 + 汇总）----------
 @api_bp.route("/stats/visit", methods=["POST"])
 def stats_visit():
-    """前端每次路由变化时上报一次访问（fire-and-forget）。"""
+    """前端每次路由变化时上报一次访问（fire-and-forget）。
+    全量审计加固：加限流防脚本刷库；超限静默丢弃，不影响正常访客。"""
+    if not rate_limit(client_key("api_stats_visit"), limit=60, window=60):
+        return jsonify({"ok": True, "skipped": True})
     data = request.get_json(silent=True) or {}
     path = (data.get("path") or "")[:255]
     if path.startswith("/admin"):
@@ -624,7 +633,9 @@ def stats_visit():
 
 @api_bp.route("/stats/search", methods=["POST"])
 def stats_search():
-    """记录搜索词。"""
+    """记录搜索词。全量审计加固：120 次/小时 限流防刷库。"""
+    if not rate_limit(client_key("api_stats_search"), limit=120, window=3600):
+        return jsonify({"ok": True, "skipped": True})
     data = request.get_json(silent=True) or {}
     stats.record_search(data.get("keyword") or "")
     return jsonify({"ok": True})
@@ -632,7 +643,9 @@ def stats_search():
 
 @api_bp.route("/stats/read", methods=["POST"])
 def stats_read():
-    """记录一次文章阅读（同一访客重复读会累加）。"""
+    """记录一次文章阅读（同一访客重复读会累加）。全量审计加固：60 次/分钟 限流防刷库。"""
+    if not rate_limit(client_key("api_stats_read"), limit=60, window=60):
+        return jsonify({"ok": True, "skipped": True})
     data = request.get_json(silent=True) or {}
     slug = (data.get("slug") or "").strip()
     p = Post.query.filter_by(slug=slug).first() if slug else None
@@ -1134,20 +1147,11 @@ def version_check():
     })
 
 
-@api_bp.route("/version/update", methods=["POST"])
-def version_update():
-    """触发在线更新：异步执行 update.sh（下载→备份→覆盖→自动重启）。
-    仅超管/管理员可触发（后台界面才有入口）；正在更新时拒绝重复触发（防重入锁）。
+def _do_version_update():
+    """在 _UPDATE_LOCK 保护下执行更新触发：校验脚本存在 → 状态文件防重入 → Popen。
+
+    与 version_update 分离以缩小锁内临界区（只包「检查+启动」原子段）。
     """
-    uid = session.get("user_id")
-    if not uid:
-        return jsonify({"error": "请先登录"}), 401
-    u = db.session.get(User, uid) if uid else None
-    if not u or not u.is_admin_role:
-        return jsonify({"error": "没有权限执行更新"}), 403
-    if not rate_limit(client_key("api_version_update"), limit=3, window=3600):
-        return jsonify({"error": "更新触发过于频繁，请稍后再试"}), 429
-    # 防重入：状态文件存在且 status=started/downloading/backing_up/deploying/restarting 时拒绝
     import config as _cfg_mod
     script = _cfg_mod.Config.DEPLOY_SCRIPT or os.path.join(_cfg_mod.BASE_DIR, "update.sh")
     script = os.path.normpath(script)
@@ -1175,9 +1179,40 @@ def version_update():
     return jsonify({"ok": True, "message": "已开始后台更新，完成后会提示刷新"})
 
 
+@api_bp.route("/version/update", methods=["POST"])
+def version_update():
+    """触发在线更新：异步执行 update.sh（下载→备份→覆盖→自动重启）。
+    仅超管可触发（全量审计修复：原为 is_admin_role，普通管理员也能触发服务器
+    脚本执行——运维级 RCE 被暴露给非超管，收窄为 is_super）；正在更新时拒绝
+    重复触发（防重入锁，含进程内锁消除 TOCTOU）。
+    """
+    uid = session.get("user_id")
+    if not uid:
+        return jsonify({"error": "请先登录"}), 401
+    u = db.session.get(User, uid) if uid else None
+    if not u or not u.is_super:
+        return jsonify({"error": "没有权限执行更新（仅超级管理员）"}), 403
+    if not rate_limit(client_key("api_version_update"), limit=3, window=3600):
+        return jsonify({"error": "更新触发过于频繁，请稍后再试"}), 429
+    # 防重入：进程内锁（消除 TOCTOU）+ 状态文件双保险
+    if not _UPDATE_LOCK.acquire(blocking=False):
+        return jsonify({"error": "更新正在进行中，请稍候"}), 409
+    try:
+        return _do_version_update()
+    finally:
+        _UPDATE_LOCK.release()
+
+
+# ---------- 在线更新状态查询 ----------
+
+
 @api_bp.route("/version/status")
 def version_status():
-    """读取在线更新状态（后台轮询用）。"""
+    """读取在线更新状态（后台轮询用）。仅超管可读（全量审计修复：原无鉴权，任何人可读 \n    更新进度，且可配合 update 的防重入锁制造 409 DoS；收窄为 is_super）。"""
+    uid = session.get("user_id")
+    u = db.session.get(User, uid) if uid else None
+    if not u or not u.is_super:
+        return jsonify({"error": "没有权限"}), 403
     import config as _cfg_mod
     status_file = os.path.join(_cfg_mod.DATA_DIR, "update_status.json")
     default = {"status": "idle", "version": "", "ts": "", "message": ""}

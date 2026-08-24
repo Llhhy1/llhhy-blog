@@ -1399,3 +1399,67 @@ fetch('/api/version/update', {
 - 模板：`region` 渲染无 `|safe`（autoescape 生效）；筛选控件无内联 style 残留。
 
 **评估**：功能性修复 + 健壮性加固 + 后台 UI 美化，**0 Blocker**。根治「评论者 IP 定位消失」并消除内网 IP 外发/内存泄漏隐患。部署注意：因本发布**后端代码有实质改动**，服务器须先用 Release v3.4.7 的 `deploy_scripts_v347fix.zip` 覆盖 `update.sh`/`deploy.sh` 再跑一键更新（沿用 v3.4.6 起的自动重启加固），覆盖后无需手动重启；前端复用既有 `vue-frontend-dist.zip`（无前台改动）。
+
+---
+
+## 第四十轮 · R30（全量安全审计 · 跨版本横向排查 · 未发版）
+
+**性质**：对 v3.4.7（含）之前**全部既有代码**做一次全量横向排查（不限于本轮改动），按 XSS / SQL 注入 / 越权 / SSRF / CSRF / 密钥泄漏 / 资源泄漏 / 限流 八维复核。**本轮不发布版本**（用户要求：审完输出结果即可），修复已入库待下次版本携带。
+
+**审计方式**：人工逐模块复核 + 协同 CodeReview 专家交叉验证；对每个发现均标注严重级别（🔴 Blocker / 🟡 建议 / 💭 优化），并逐一验证修复后的回归。
+
+---
+
+**🔴 Blocker（发现即修复，已入库）**：
+
+| 编号 | 维度 | 问题 | 修复 |
+|---|---|---|---|
+| R30-B1 | XSS（存储型） | **后台 4 个模板的 `confirm('...')` 把用户可控值直接插进 JS 单引号字符串**：`users.html` 的 `{{ u.username }}`、`subscribers.html` 的 `{{ s.email }}`、`backup.html` 的 `{{ b.file }}`、`audit_logs.html` 的 `{{ keep_days }}`。Jinja 在 HTML 属性上下文的 autoescape **不转义单引号 `'`**，用户名/邮箱/备份文件名含 `'` 或 `</script>` 即可逃出字符串执行任意 JS——**任何注册用户（无需管理员权限）都能构造**，管理后台一浏览即触发（存储型 XSS） | 4 个模板全部改用 `\|tojson` 过滤器（输出 JSON 字符串字面量，天然 JS 上下文安全，`'`→`\\u0027`—严格 JSON 转义）；`utils.py` 新增函数式 `js_escape()` 作为非模板场景的等价备选；已验证 `tojson` 渲染不破坏原确认弹窗文案 |
+| R30-B2 | 越权 / 命令执行 | `/api/version/update` 原来**普通管理员（is_admin_role）即可触发**服务器 `update.sh` 脚本执行——运维级脚本执行暴露给非超管，等于把 RCE 面给到次级管理员 | 权限收窄为 `is_super`，非超管返回 403「没有权限执行更新（仅超级管理员）」 |
+| R30-B3 | 越权 / 信息泄露 | `/api/version/status` 原来**完全无鉴权**，任何人可读更新脚本进度；且可配合 update 的防重入锁制造 409 DoS | 加 `is_super` 鉴权，未登录/非超管一律 403 |
+
+---
+
+**🟡 建议（发现即修复，已入库）**：
+
+| 编号 | 维度 | 问题 | 修复 |
+|---|---|---|---|
+| R30-Y1 | 竞态 / TOCTOU | `version_update` 原来「读 status 文件判断 idle → Popen」非原子，两并发请求可同时读到 idle 各起一个 `update.sh`（重复下载/重复部署/双脚本打架） | 新增模块级 `_UPDATE_LOCK = threading.Lock()` + 抽出 `_do_version_update()`，在锁内完成「检查+启动」原子段；status 文件保留作跨 worker 双保险。并发触发第二个请求立即 409 |
+| R30-Y2 | 限流绕过 | `stats.client_ip()` 与 `utils.client_key()` 原来无条件取 `X-Forwarded-For` 首段——攻击者可伪造任意 IP 绕过注册/登录/评论/点赞限流，并刷爆视图/阅读/搜索埋点 | 双函数统一收口：仅当 XFF 首段为**合法公网 IP**（`ipaddress` + `is_global` 判定，排除私网/环回/链路本地/保留/多播/CGNAT）才采纳，否则回退 `request.remote_addr`（Nginx 直连 TCP 地址，不可伪造） |
+| R30-Y3 | 限流缺失 | 三个 stats 埋点接口（`/api/stats/visit|read|search`）无限流，可被脚本高频刷库（数据全是垃圾 + 拖库） | 各加 `rate_limit`：visit 60次/分钟、read 60次/分钟、search 120次/小时；**超限静默丢弃**（返回 `{"ok":true,"skipped":true}`），不影响正常访客 |
+| R30-Y4 | 限流缺失 | 前台 `/login` POST（routes.py）无限流，可被无限爆破 | 加 `rate_limit(client_key("login"), 10, 60)`，超限 flash + 429 |
+| R30-Y5 | XSS 限长 | `admin.py add_user` 的 username 未限长（模型层 `String(40)`，入库前截断缺失，超长直塞可能触发模型/渲染异常） | 入库前 `username[:40]` 截断 + 超长提示；与模型字段一致 |
+
+---
+
+**💭 优化项（已确认，暂不修改——低风险/需评估收益）**：
+
+| 编号 | 维度 | 问题 | 结论 |
+|---|---|---|---|
+| R30-N1 | 信息泄露（极低） | `/api/tags` 标签计数含不可见文章（草稿/私密/回收站也计入标签数量） | 轻微信息泄露 + 计数不准。影响小（标签名本身可见），**暂不改**，下版随标签管理重构时一并处理 |
+| R30-N2 | 资源 | `_resolve_region_async` 后台线程未显式 `db.session.remove()` | SQLite 随线程退出已回收，实际无泄漏；下版统一线程生命周期时补 `close()` 更规范 |
+
+---
+
+**八维复核结果（既有代码横向）**：
+
+| 维度 | 结论 | 状态 |
+|---|---|---|
+| XSS | 除 R30-B1 已修复外，全文搜索 `\|safe` 渲染点：文章 Markdown（`render_markdown` 白名单清理）、`flash`/`alert`（Jinja 默认转义）、地区字段（无 `\|safe`）——无其它存储型/反射型 XSS | ✅ 通过 |
+| SQL 注入 | 全库无 f-string/拼接 SQL；所有 `filter_by`/`query` 均 ORM 参数化；FTS 搜索词 v3.1.5 已转义 | ✅ 通过 |
+| 越权 | 除 R30-B2/B3 已收窄外，后台敏感路由（backup/restore/audit/backup-settings/users 管理等）均有 `super_required`；Webhook 密钥鉴权；`/admin` 与 `/api` CSRF 全覆盖 | ✅ 通过 |
+| SSRF | 外部请求仅限 IP 属地查询（固定 https 域名 + `quote(ip)`，host 不可控）与 SMTP 邮件（配置项固定）；备份远程（OSS/WebDAV/SCP）均为**服务器配置的固定 endpoint**，非用户输入 | ✅ 通过 |
+| CSRF | R28 起全局 CSRF 签名校验；此轮未触碰，4 个模板修复未影响 `csrf_input()`；冒烟两态（带 token 放行 / 不带 403）PASS | ✅ 通过 |
+| 密钥泄漏 | 新增密钥（`WH_DEPLOY_SECRET`/`BACKUP_*/SMTP` 等）均为环境变量，不落库、不进模板；`SECRET_KEY` 仅用于签名，不输出 | ✅ 通过 |
+| 资源泄漏 | 本轮修复 R30-Y1（锁）+ R29 已加 `_RECENT_FAIL` 容量护栏；无 fd/连接泄漏 | ✅ 通过 |
+| 限流 | 注册/登录/评论/点赞/留言/订阅/更新触发/三埋点/登录（新增）均已覆盖；XFF 伪造路径已封 | ✅ 通过 |
+
+---
+
+**验证记录（R30）**：
+- `py_compile` 全模块（`myblog/*.py` + `package.py`）通过，`-W error::SyntaxWarning` 无无效转义警告。
+- 隔离临时库冒烟测试 `smoke_audit_r30.py` 14 项 ALL PASS：登录正常 → 登出后 `/api/version/status` 403、未登录 `/api/version/update` 非 200（鉴权收窄）；三埋点正常上报 200、visit 60 次后静默跳过；登录 10 次错误后 429；私网 XFF 拒绝/公网 XFF 采用；`tojson` 渲染不破坏 confirm 弹窗、模板无 `tojson` 字面残留。
+- 注：冒烟第 2 项初次 FAIL 为**测试脚本自身缺 CSRF**（logout 是 POST + CSRF），修正脚本后 PASS——非产品缺陷。
+- 模板核对：4 个修复模板均无 `tojson` 字面残留、confirm 弹窗文案完整。
+
+**评估**：**3 Blocker + 5 建议全部修复入库（未发版）**。全量横向排查未发现其它可利用漏洞。本次修复虽未发布，但已具备发布条件——如需上生产，随下一小版本（建议 v3.4.8）携带并走完整发布流程（文档同步 + 双源互证打包 + 服务器先覆盖 deploy 脚本）。

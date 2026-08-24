@@ -56,7 +56,7 @@
                 <button type="submit" class="link-btn">重置密码</button>
               </form>
               <form method="post" action="{{ url_for('admin.delete_user', uid=u.id) }}" class="inline-form"
-                    onsubmit="return confirm('确定删除用户 {{ u.username }}？其历史评论会保留。');">
+                    onsubmit="return confirm('确定删除用户 {{ u.username|tojson }}？其历史评论会保留。');">
                     {{ csrf_input() }}
                 <button type="submit" class="link-danger">删除</button>
               </form>

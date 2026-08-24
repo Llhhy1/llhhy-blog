@@ -1283,3 +1283,72 @@ fetch('/api/version/update', {
 - 后端本轮仅 `utils.py` / `app.py` 两文件变更，`py_compile` 通过；APP_VERSION 仍为 v3.4.5（与 R25 同一发布）。
 
 **评估**：两处均为**功能性 bug（非安全漏洞）**。评论 500 是自 v3.1.7 起长期潜伏的 `ImportError`（@通知功能从未生效）；stats 403 是匿名埋点被 CSRF 误拦截。二者随 v3.4.5 后端覆盖即修复。部署注意：因本发布同时含 R25 的「覆盖段修复 + 版本校验」，**服务器必须先用 Release v3.4.5 的 `deploy_scripts_v345fix.zip` 覆盖 `update.sh`/`deploy.sh` 再跑一键更新**，否则后端仍不会被真正覆盖（评论 500 / stats 403 依旧）。
+
+---
+
+## 第三十七轮 · R27（v3.4.6 · 一键更新自动重启加固）
+
+**范围**：仅部署脚本 `update.sh` / `deploy.sh` 的重启段（`stop_backend` / `start_backend` / `auto_restart` 及 `RESTART_CMD` 注释），Python 后端代码未改动。
+
+**背景**：用户反馈 v3.4.5 一键更新跑完后，「后台版本号仍是 3.4.0 之前的旧值」「评论 500 / stats 403」确已修复，但**后端进程不会真正重载**——必须再去宝塔面板「Python项目 → 停止 → 启动」手动重启一次新代码才生效。自动重启段（`RESTART_CMD` 默认空，走内置 TERM+拉起）形同虚设。
+
+**根因（高概率）**：旧 `stop_backend` 仅向 master PID 发 TERM 并等 `kill -0` 退出，但 **gunicorn 的 worker 进程未被进程组一起杀掉**，残留 worker 仍占用监听端口；紧接着 `start_backend` 以 `( ... & )` 直接拉起新 gunicorn，因「Address already in use」立即退出 → 脚本判定「未检测到进程」→ 落回「请手动在宝塔重启」。即：自动重启段从未真正接管生命周期。
+
+**修复**：
+1. `stop_backend`：先 TERM master，再 `pkill -TERM -f "gunicorn.*$APP_DIR"` 杀掉**整个项目的所有 gunicorn（含 worker）**；最多等 25 秒，仍未退出则 `pkill -KILL` 强杀。新增**端口释放检查**（解析 `gunicorn_conf.py` 的 `bind`，若属 TCP `host:port` 则用 `/dev/tcp` 探测，最多等 10 秒；解析失败则跳过、不阻断）。
+2. `start_backend`：改用 `setsid`（无则降级）+ `nohup` 语义（`< /dev/null`）+ `exec` 思路**彻底脱离脚本会话**，并以 `PATH="$venv_bin:$PATH"` 补全虚拟环境路径；启动后多轮询（最多 20 秒）；进程起来后**再扫 `gunicorn.log` 是否有 `Address already in use / Traceback / PermissionError / OSError` 等致命错误**，有则判定失败并打印日志末尾 15~20 行作为诊断。
+3. 修正 `RESTART_CMD` 注释：宝塔 `bt` 命令行是**交互式菜单封装，不支持 `bt stop 项目名`**，旧范例 `bt stop myblog && bt start myblog` 是错误的；改为提示「留空走脚本内置自动重启 / 或填你手动重启用的确切命令（如 systemctl）」。
+
+**七维审计**：
+
+| 编号 | 维度 | 结论 |
+|---|---|---|
+| R27-1 | XSS | 仅 shell 脚本变更，无 HTML/JS 输出 | ✅ 通过 |
+| R27-2 | SQL 注入 | 无 DB 操作 | ✅ 通过 |
+| R27-3 | 越权 | 重启仅作用于本 `$APP_DIR` 的 gunicorn（`pgrep -f "gunicorn.*$APP_DIR"` 精确匹配本项目路径），不影响其他项目进程 | ✅ 通过 |
+| R27-4 | CSRF | 不涉及 Web 接口 | ✅ 通过 |
+| R27-5 | 密钥 / 凭据 | 不读取/打印任何密钥；`gunicorn.log` 仅回显致命错误行（非全量、不含配置密文）；`RESTART_CMD` 由运维自填，脚本不内嵌凭据 | ✅ 通过 |
+| R27-6 | 资源 / 泄漏 | `pkill -KILL` 仅在 TERM 超时（25s）后兜底；端口探测用 `timeout 1` 不卡死；失败仅降级提示手动重启，不阻断更新主流程；`bash -n` 双脚本通过 | ✅ 通过 |
+| R27-7 | 回归风险 | 仅强化停止/启动的可靠性与可观测性，未改变「先停后起、严禁 HUP」原则；`setsid` 缺失时自动降级为空前缀（仍走 `( & )` 脱离）；`run_as` 用户切换路径（runuser/su）保持不变 | ✅ 通过 |
+
+**验证记录**：
+- `bash -n update.sh` / `bash -n deploy.sh` 均通过。
+- 关键改动已落位：双脚本均含 `pkill -TERM -f "gunicorn.*$APP_DIR"`、`setsid` 脱离、`gunicorn.log` 末尾诊断、`端口已释放` 日志。
+- 后端 Python 代码零改动，`py_compile` 不受影响（仅 `config.py` 版本号升 3.4.6）。
+
+**评估**：纯**运维健壮性修复（非安全漏洞、非功能 bug 引入）**。目标：让一键更新在覆盖新代码后**真正完成后端重载**，免除手动重启。新增的诊断输出（端口仍被监听 / gunicorn.log 致命错误）便于若仍失败时在服务器侧直接定位。部署注意：服务器须用 Release v3.4.6 的 `deploy_scripts_v346fix.zip` 覆盖 `update.sh`/`deploy.sh` 再跑一键更新，方可获得加固后的自动重启。
+
+---
+
+## 第三十八轮 · R28（v3.4.6 · CSRF token 跨 worker 轮换导致 403「抽风」）
+
+**范围**：`myblog/utils.py` 的 `generate_csrf_token()`（及依赖的 `_sign_csrf`）；前端 `vue-frontend/src/lib/api.js` 本轮**未改动**（仅后端修复即可根治，前端复用 v3.4.5 的 `vue-frontend-dist.zip`）。`config.py` 版本号升 3.4.6。
+
+**背景**：线上反馈三类 `403 (Forbidden)` 间歇性出现：① `POST /admin/comments/batch-approve`；② `POST /admin/comments/batch-delete`；③ `POST /api/post/<slug>/comment`（登录账号发评论，「总是抽风」）。
+
+**根因**：gunicorn 以 `-w 3` 启动 3 个 worker，旧 `generate_csrf_token()` 用**进程级全局 `_CSRF_CACHE = {}`** 判断 token 是否「新鲜」（`if tok not in _CSRF_CACHE: ... 重新生成`）。每个 worker 各自持有独立的一份缓存；当一次请求落到 A worker 生成 token T 并写入 session，**该 token 仅存在于 A worker 的缓存**；下一次请求若落到 B worker，B 的缓存里没有 T → 判定「不新鲜」→ 重新生成 T' 并**覆盖 session 里的 token**。前端缓存的是旧 T，对 T 的 `X-CSRF-Token` 校验时 session 里已是 T' → `_csrf_protect()` 判定不一致 → `403`。即：哪个 worker 接手决定 token 是否失效，表现为「时好时坏、抽风」。前端 `ensureCsrfToken()` 仅在 `csrfToken` 为空时拉一次 `/api/csrf` 并永久缓存，403 时无自愈逻辑、响应体也未回传新 token，故 token 一旦失效即永久 403 直到刷新页面。
+
+**修复**：移除进程级 `_CSRF_CACHE`，改为**签名校验复用**：
+1. 新增 `_sign_csrf(raw)` = HMAC(SECRET_KEY, `"csrf:"`+raw) SHA256，作为 token 的「签发签名」。
+2. `generate_csrf_token()`：若 session 已有 token 且 `hmac.compare_digest(_sign_csrf(parts[0]), parts[1])` 成立（签名有效）→ 直接复用，不再重新生成；仅当 token 缺失或签名失效（被篡改 / SECRET_KEY 已轮换）才重新生成并写入 `raw + "." + _sign_csrf(raw)`。
+3. 该签名由本服务 SECRET_KEY 派生，**天然防伪造、防跨服务/跨实例复用**；token 在整段会话内保持稳定，不再随 worker 切换而轮换。
+
+**七维审计**：
+
+| 编号 | 维度 | 结论 |
+|---|---|---|
+| R28-1 | XSS | 仅修改 token 生成/校验逻辑，无 HTML/JS 输出变更；token 仍经 Flask session 安全存储 | ✅ 通过 |
+| R28-2 | SQL 注入 | 无 DB 操作 | ✅ 通过 |
+| R28-3 | 越权 | CSRF 防护未变强/变弱：`check_csrf_token` 仍要求「签名有效 + 与会话 token 一致」双重校验；自愈后 token 与会话绑定关系更稳固，越权防护不变 | ✅ 通过 |
+| R28-4 | CSRF | 核心修复项。签名校验复用后，每个 worker 复用同一 session token，前端缓存的 token 全程有效，POST 不再因 worker 轮换而 403；豁免清单（webhook/captcha/stats 埋点）未变 | ✅ 通过 |
+| R28-5 | 密钥 / 凭据 | 签名沿用既有 `current_app.config["SECRET_KEY"]`，未新增密钥；token 结构 `raw.sig` 不含 secret | ✅ 通过 |
+| R28-6 | 资源 / 泄漏 | 移除全局缓存后**每个请求少一次 dict 查找**；无文件句柄/连接泄漏；`secrets.token_hex` 仅在新生成时调用 | ✅ 通过 |
+| R28-7 | 回归风险 | `_sign_csrf` / `check_csrf_token` 与 v3.1.6 既有的 `_csrf_protect` 全链路自洽；`py_compile` 全模块通过；双 worker 共享 session 模拟：worker1 生成 T1(new=True)、worker2 复用 T1(new=False)；`check_csrf_token` 对合法/篡改/无格式/空 token 判断均正确（ALL PASS） | ✅ 通过 |
+
+**验证记录**：
+- `py_compile` 全模块通过（无 `_CSRF_CACHE = {}` 残留定义，仅 docstring 提及）。
+- 双 worker 模拟：两个独立进程（各自导入模块、共享同一 session cookie）分别调用 `generate_csrf_token()`，worker1 返回 new=True，worker2 返回 new=False（直接复用），证明跨进程/跨 worker 复用成立。
+- `check_csrf_token` 用例：合法 token→True；篡改 raw→False；篡改 sig→False；无 `.` 格式→False；空 token→False。
+- 前端本轮不变，复用 v3.4.5 `vue-frontend-dist.zip`（含 index.html + assets/），无构建回归。
+
+**评估**：纯**功能性 bug 修复（非安全漏洞引入）**，根治 gunicorn 多 worker 下 CSRF token 跨进程轮换导致的前端 403「抽风」。随 v3.4.6 后端覆盖即生效（前端复用既有包，无需重新构建）。部署注意：因本发布同时含 R27 的「自动重启加固」，服务器须先用 Release v3.4.6 的 `deploy_scripts_v346fix.zip` 覆盖 `update.sh`/`deploy.sh` 再跑一键更新，方可同时获得重启加固 + CSRF 修复。

@@ -194,6 +194,13 @@
 - **验证**：`py_compile` 全过；AST + 桩模块实测 `from utils import notify_mentioned` 成功；R25/R26 七维审计全 ✅（详见 `SECURITY_AUDIT.md` 第三十五/三十六轮）。APP_VERSION 升为 v3.4.5。
 - **⚠️ 升级顺序（重要）**：服务器 `update.sh` / `deploy.sh` **必须覆盖 Release v3.4.5 的 `deploy_scripts_v345fix.zip`**（含覆盖段修复 + 版本校验），并先覆盖脚本再跑一键更新，否则后端不会被真正覆盖。
 
+### v3.4.6 CSRF 多 worker 下 403「抽风」修复 + 一键更新自动重启加固（R27+R28 审计通过）
+
+- **后端修复（R28 · CSRF token 跨 worker 轮换导致 403「抽风」）**：登录用户发评论、后台批量审核/删除评论均间歇性 `403 (Forbidden)`（登录账号评论「总是抽风」）。根因：gunicorn 以 `-w 3`（3 worker）启动，旧 `generate_csrf_token()` 用**进程级 `_CSRF_CACHE`** 判断 token 是否「新鲜」——每个 worker 各持一份缓存，落到不同 worker 会认为「缓存里没有当前 token」从而重新生成并**覆盖 session 里的 token**，前端缓存的 token 随之失效 → 后续 POST 全 403（看哪个 worker 接手，时好时坏）。前端 `ensureCsrfToken()` 仅在 token 为空时拉一次并永久缓存，403 时无自愈。修复：移除 `_CSRF_CACHE`，改为**签名校验复用**——只要 session 中已有「签名有效」（HMAC(SECRET_KEY, `"csrf:"`+raw)）的 token 即直接复用，token 在整段会话内稳定，不再随 worker 切换而轮换；仅当 token 缺失或签名失效时才重新生成。
+- **运维脚本加固（R27 · 一键更新自动重启）**：v3.4.5 覆盖已正确，但后端进程不会真正重载，仍需去宝塔「Python项目 → 停止 → 启动」手动重启。根因：旧 `stop_backend` 只 TERM master、没杀干净 worker，残留进程占端口 → 新 gunicorn 因「Address already in use」起不来，自动重启段形同虚设。本轮加固：`stop_backend` 改 `pkill -TERM -f "gunicorn.*$APP_DIR"` 杀光所有 worker + 端口释放检查；`start_backend` 改 `setsid`+`< /dev/null` 彻底脱离脚本会话 + 启动后扫 `gunicorn.log` 致命错误并打印末尾；并修正重启注释（宝塔 `bt` 是交互式菜单，不支持 `bt stop 项目名`）。
+- **验证**：`py_compile` 全过；双 worker 共享 session 模拟复用 token 成功、`check_csrf_token` 对合法 / 篡改 / 无格式 / 空 token 判断均正确；`bash -n` 双脚本通过；R27+R28 七维审计全 ✅（详见 `SECURITY_AUDIT.md` 第三十七 / 三十八轮）。APP_VERSION 升为 v3.4.6。
+- **⚠️ 升级顺序（重要）**：服务器 `update.sh` / `deploy.sh` **必须覆盖 Release v3.4.6 的 `deploy_scripts_v346fix.zip`**（v3.4.5 及更早脚本的自动重启段仍是旧逻辑，覆盖后仍需手动重启）。**务必先手动覆盖脚本再跑一键更新**，即可免除手动重启 + 生效 CSRF 修复。
+
 ## 目录结构
 ```
 myblog/             # 后端（Flask + SQLite）

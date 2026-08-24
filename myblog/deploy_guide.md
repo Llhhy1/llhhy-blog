@@ -472,6 +472,16 @@ supervisorctl status
 - **验证**：覆盖后跑 `bash /www/wwwroot/myblog/update.sh`，应完整走完 ①下载校验 ✅ → ②备份 → ③覆盖（含版本号校验通过）→ ④b 依赖 → ⑤前端 → ⑥重启；后台左下角版本号显示 `v3.4.5`；提交评论不再 500、控制台无 `stats/read` 403。
 - **顺带说明**：后端业务代码本轮修复 `utils.py`（恢复 `notify_mentioned`）+ `app.py`（埋点 CSRF 豁免），与运维脚本一并随 Release 发布。
 
+### v3.4.6 升级注意（CSRF 多 worker 下 403「抽风」修复 + 一键更新自动重启加固 · 必须换新脚本包）
+
+- **后端修复（R28 · CSRF token 跨 worker 轮换导致 403「抽风」）**：登录用户发评论、后台批量审核 / 删除评论均间歇性 `403 (Forbidden)`（登录账号评论「总是抽风」）。根因：gunicorn `-w 3` 下旧 `generate_csrf_token()` 用**进程级 `_CSRF_CACHE`** 判断 token 是否「新鲜」，各 worker 缓存独立 → 落到不同 worker 会重新生成并**覆盖 session token** → 前端缓存 token 失效 → 后续 POST 全 403（看哪个 worker 接手，时好时坏）。前端 `ensureCsrfToken()` 仅在 token 为空时拉一次并永久缓存，403 时无自愈。修复：移除 `_CSRF_CACHE`，改为**签名校验复用**（HMAC(SECRET_KEY, `"csrf:"`+raw)，天然防伪造 / 防跨服务复用），token 在会话内稳定，不再随 worker 切换而轮换；仅 token 缺失或签名失效才重建。验证：双 worker 共享 session 模拟复用成功、`check_csrf_token` 对合法 / 篡改 / 无格式 / 空判断均正确（ALL PASS）。
+- **运维脚本加固（R27 · 一键更新自动重启）**：v3.4.5 一键更新跑通后，后端代码已被正确覆盖，但**进程不会真正重载**——还得去宝塔「Python项目 → 停止 → 启动」手动重启一次。根因是旧 `stop_backend` 只 TERM 了 master、没杀干净 worker，残留进程占着端口 → 新 gunicorn 因「Address already in use」起不来，自动重启段形同虚设。本轮加固（R27+R28 审计通过，运维脚本变更 + `utils.py` CSRF 修复）：
+  - `stop_backend`：TERM master 后 `pkill -TERM -f "gunicorn.*$APP_DIR"` 杀光整个项目所有 gunicorn（含 worker），超时再 KILL；并新增**端口释放检查**（探测 `gunicorn_conf.py` 的 `bind` 端口是否真的空了）。
+  - `start_backend`：改用 `setsid` + `< /dev/null` **彻底脱离脚本会话**（避免新进程被脚本退出带走）；补全 venv 的 `PATH`；启动后扫 `gunicorn.log` 是否有端口占用 / 权限 / 导入失败等致命错误，有则打印日志末尾辅助定位。
+  - 修正 `RESTART_CMD` 注释：宝塔 `bt` 命令行是交互式菜单、**不支持 `bt stop 项目名`**，旧范例 `bt stop myblog && bt start myblog` 是错误的（已删除）。
+- **⚠️ 必须换新脚本包**：**服务器 `update.sh` / `deploy.sh` 必须覆盖 Release v3.4.6 的 `deploy_scripts_v346fix.zip`**（v3.4.5 及更早脚本的自动重启段仍是旧逻辑，覆盖后仍需手动重启）。**务必先手动覆盖脚本再跑一键更新。**
+- **验证**：覆盖后跑 `bash /www/wwwroot/myblog/update.sh`，走到 ⑥ 重启时应看到「后端进程已确认停止，端口已释放」→「后端进程已确认启动（gunicorn 运行中，日志无致命错误）」；**不再需要去宝塔手动重启**；登录账号发评论、后台批量审核 / 删除评论**不再 403**；后台左下角版本号显示 `v3.4.6`。若仍失败，脚本会把 `gunicorn.log` 末尾直接打印出来，把那段贴给我即可定位。
+
 ## 邮件设置（新文章通知订阅者 · 后台配置）
 
 > 从 v2.4.0 起，邮件群发配置**不需要再填环境变量**，直接在后台操作（更便捷）。

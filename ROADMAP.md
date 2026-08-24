@@ -483,3 +483,14 @@ v3.1.7 修复 CSRF 隐藏域乱码后，用户反馈「退出登录按钮失效�
 - 一键更新覆盖段静默失败修复 + 覆盖后版本号硬校验（R25）；评论提交 500 根因（`notify_mentioned` 误贴进 `csrf_input` 死代码→ImportError）修复并恢复 @通知；统计埋点接口 `/api/stats/read|visit|search` 加入 CSRF 豁免修复 403。
 - `py_compile` 全过；AST + 桩模块实测 `from utils import notify_mentioned` 成功；R25/R26 七维审计全 ✅。APP_VERSION 升为 v3.4.5。
 - ⚠️ 升级顺序：服务器 `update.sh` / `deploy.sh` **必须覆盖 Release v3.4.5 的 `deploy_scripts_v345fix.zip`**，先覆盖脚本再跑一键更新。
+
+## 30. v3.4.6：CSRF 多 worker 下 403「抽风」修复 + 一键更新自动重启加固（R27+R28 审计通过）
+
+- **R28 · 后端 CSRF token 跨 worker 轮换导致 403「抽风」**：登录用户发评论、后台批量审核 / 删除评论均间歇性 `403 (Forbidden)`（登录账号评论「总是抽风」）。根因：gunicorn `-w 3` 下旧 `generate_csrf_token()` 用进程级 `_CSRF_CACHE` 判断 token 新鲜度，各 worker 缓存独立 → 落到不同 worker 会重新生成并**覆盖 session token** → 前端缓存 token 失效 → 后续 POST 全 403。修复：移除 `_CSRF_CACHE`，改为**签名校验复用**（HMAC(SECRET_KEY, `"csrf:"`+raw)，天然防伪造 / 防跨服务复用），token 在会话内稳定，不再随 worker 切换而轮换；仅 token 缺失或签名失效才重建。验证：双 worker 共享 session 模拟复用成功，`check_csrf_token` 对合法 / 篡改 / 无格式 / 空判断均正确。
+- **R27 · 一键更新自动重启加固**：用户反馈 v3.4.5 覆盖已正确，但**进程不会真正重载**，仍需去宝塔「Python项目 → 停止 → 启动」手动重启。根因：旧 `stop_backend` 只 TERM master、没杀干净 worker，残留进程占端口 → 新 gunicorn 因「Address already in use」起不来，自动重启段形同虚设。
+- 加固（运维脚本变更 + 后端 `utils.py` CSRF 修复，R27+R28 七维审计全 ✅）：
+  - `stop_backend`：TERM master 后 `pkill -TERM -f "gunicorn.*$APP_DIR"` 杀光整个项目所有 gunicorn（含 worker），超时 KILL 兜底；新增**端口释放检查**（探测 `gunicorn_conf.py` 的 bind 端口是否真的空了）。
+  - `start_backend`：`setsid` + `< /dev/null` 彻底脱离脚本会话（防新进程被脚本退出带走）；补全 venv `PATH`；启动后扫 `gunicorn.log` 致命错误并打印末尾辅助定位。
+  - 修正 `RESTART_CMD` 注释：宝塔 `bt` 命令行是交互式菜单、不支持 `bt stop 项目名`，旧范例 `bt stop myblog && bt start myblog` 错误已删。
+- `py_compile` 全过 + `bash -n` 双脚本通过；APP_VERSION 升为 v3.4.6。
+- ⚠️ 升级顺序：服务器 `update.sh` / `deploy.sh` **必须覆盖 Release v3.4.6 的 `deploy_scripts_v346fix.zip`**，先覆盖脚本再跑一键更新，方可免除手动重启 + 生效 CSRF 修复。

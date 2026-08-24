@@ -268,7 +268,7 @@ have_gunicorn_proc() {
   return 1
 }
 
-# ===== 停止后端（真停止：确认进程已退出才返回）=====
+# ===== 停止后端（真停止：杀主进程+所有 worker，确认进程与端口都释放）=====
 stop_backend() {
   local pid="" pidfile="$APP_DIR/gunicorn.pid"
   if [ -f "$pidfile" ] && [ -s "$pidfile" ]; then
@@ -281,48 +281,79 @@ stop_backend() {
   if [ -z "$pid" ]; then
     pid=$(pgrep -f "gunicorn.*$APP_DIR" 2>/dev/null | head -1 || true)
   fi
+  # 1. 先 TERM 主进程，再 TERM 整个项目的所有 gunicorn（含 worker），避免 worker 残留占端口
   if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
-    log "   停止后端：pid=$pid 发送 TERM..."
-    run_as kill -TERM "$pid" 2>/dev/null || log "   ⚠️ TERM 失败（可能已退出），继续等待确认..."
-    local waited=0
-    while kill -0 "$pid" 2>/dev/null && [ $waited -lt 20 ]; do sleep 1; waited=$((waited+1)); done
-    if kill -0 "$pid" 2>/dev/null; then
-      log "   ⚠️ TERM 后仍未退出，发送 KILL...（pid=$pid）"
-      run_as kill -KILL "$pid" 2>/dev/null || true
-      sleep 1
-    fi
+    log "   停止后端：master pid=$pid 发送 TERM..."
+    run_as kill -TERM "$pid" 2>/dev/null || true
+  fi
+  pkill -TERM -f "gunicorn.*$APP_DIR" 2>/dev/null || true
+  # 2. 等待本项目 gunicorn 全部退出（最多 25 秒）
+  local waited=0
+  while pgrep -f "gunicorn.*$APP_DIR" >/dev/null 2>&1 && [ $waited -lt 25 ]; do sleep 1; waited=$((waited+1)); done
+  if pgrep -f "gunicorn.*$APP_DIR" >/dev/null 2>&1; then
+    log "   ⚠️ 25 秒内仍未退出，发送 KILL 强杀..."
+    pkill -KILL -f "gunicorn.*$APP_DIR" 2>/dev/null || true
+    sleep 2
+  fi
+  # 3. 端口释放检查（仅当 conf 的 bind 是 TCP host:port 时可解析；解析失败则跳过，不阻断）
+  local bind_spec=""
+  bind_spec=$(grep -oE "bind[[:space:]]*=[[:space:]]*['\"][^'\"]+['\"]" "$GUNICORN_CONF" 2>/dev/null \
+              | grep -oE "([0-9]{1,3}\.){3}[0-9]{1,3}:[0-9]+|127\.0\.0\.1:[0-9]+|0\.0\.0\.0:[0-9]+" | head -1 || true)
+  if [ -n "$bind_spec" ]; then
+    local ph="${bind_spec%%:*}" pp="${bind_spec##*:}" pw=0
+    while [ $pw -lt 10 ]; do
+      if timeout 1 bash -c "echo > /dev/tcp/$ph/$pp" 2>/dev/null; then sleep 1; pw=$((pw+1)); else break; fi
+    done
+    [ $pw -ge 10 ] && log "   ⚠️ 端口 $bind_spec 停止后仍被监听（可能被其他进程占用），新 gunicorn 可能起不来。"
   fi
   if have_gunicorn_proc; then
     log "   ⚠️ 仍有 gunicorn 进程残留（可能属于其他项目），视为已停止。"
   else
-    log "   ✅ 后端进程已确认停止。"
+    log "   ✅ 后端进程已确认停止，端口已释放。"
   fi
 }
 
-# ===== 启动后端（真启动：探测到进程起来才返回 0）=====
+# ===== 启动后端（setsid+nohup+exec 彻底脱离脚本会话；启动后查日志致命错误）=====
 start_backend() {
   if [ -z "$GUNICORN_BIN" ] || [ -z "$GUNICORN_CONF" ] || [ ! -f "$GUNICORN_CONF" ]; then
     log "   ⚠️ 缺少可用的 gunicorn 启动信息（bin=${GUNICORN_BIN:-空} conf=${GUNICORN_CONF:-空}）。"
     return 1
   fi
+  # 若 bin 是「解释器 -m gunicorn」形态，拆开执行；否则按独立 gunicorn 执行
   local bin_args=()
   if [[ "$GUNICORN_BIN" == *" -m gunicorn" ]]; then
-    local py="${GUNICORN_BIN% -m gunicorn}"
-    bin_args=("$py" "-m" "gunicorn")
+    bin_args=("${GUNICORN_BIN% -m gunicorn}" "-m" "gunicorn")
   else
     bin_args=("$GUNICORN_BIN")
   fi
-  log "   启动后端：${bin_args[*]} -c $GUNICORN_CONF app:app"
-  ( cd "$APP_DIR" && run_as env "HOME=${APP_DIR%/*}" "${bin_args[@]}" -c "$GUNICORN_CONF" app:app >"$APP_DIR/gunicorn.log" 2>&1 & ) || true
+  # venv bin 目录（补全 PATH，确保子进程能找到依赖）
+  local venv_bin=""
+  case "$GUNICORN_BIN" in
+    *" -m gunicorn") venv_bin="$(dirname "${GUNICORN_BIN% -m gunicorn}")" ;;
+    *) venv_bin="${GUNICORN_BIN%/*}" ;;
+  esac
+  local sd_prefix=""
+  command -v setsid >/dev/null 2>&1 && sd_prefix="setsid"
+  log "   启动后端：${bin_args[*]} -c $GUNICORN_CONF app:app（setsid 脱离会话）"
+  ( cd "$APP_DIR" && run_as $sd_prefix env "HOME=${APP_DIR%/*}" "PATH=$venv_bin:$PATH" \
+        "${bin_args[@]}" -c "$GUNICORN_CONF" app:app >"$APP_DIR/gunicorn.log" 2>&1 < /dev/null & ) || true
+  # 轮询最多 20 秒等待真正起来
   sleep 2
   local waited=0
-  while ! pgrep -f "gunicorn.*$APP_DIR" >/dev/null 2>&1 && [ $waited -lt 13 ]; do sleep 1; waited=$((waited+1)); done
-  if pgrep -f "gunicorn.*$APP_DIR" >/dev/null 2>&1; then
-    log "   ✅ 后端进程已确认启动（gunicorn 运行中）。"
-    return 0
+  while ! pgrep -f "gunicorn.*$APP_DIR" >/dev/null 2>&1 && [ $waited -lt 18 ]; do sleep 1; waited=$((waited+1)); done
+  if ! pgrep -f "gunicorn.*$APP_DIR" >/dev/null 2>&1; then
+    log "   ⚠️ 启动后未检测到 gunicorn 进程，gunicorn.log 末尾："
+    tail -n 15 "$APP_DIR/gunicorn.log" 2>/dev/null | while read -r l; do log "     $l"; done
+    return 1
   fi
-  log "   ⚠️ 启动后未检测到 gunicorn 进程，请检查 $APP_DIR/gunicorn.log。"
-  return 1
+  # 进程起来了，但日志里可能有致命错误（端口被占 / 权限 / 导入失败）→ 仍视为失败
+  if grep -qiE 'Address already in use|Traceback \(most recent call last\)|PermissionError|OSError' "$APP_DIR/gunicorn.log" 2>/dev/null; then
+    log "   ⚠️ gunicorn 进程已起，但 gunicorn.log 含致命错误："
+    tail -n 20 "$APP_DIR/gunicorn.log" 2>/dev/null | while read -r l; do log "     $l"; done
+    return 1
+  fi
+  log "   ✅ 后端进程已确认启动（gunicorn 运行中，日志无致命错误）。"
+  return 0
 }
 
 # ===== 自动重启：先停止（确认退出）→ 再启动（确认存活）；严禁 HUP =====

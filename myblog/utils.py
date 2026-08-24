@@ -257,21 +257,32 @@ def validate_password(raw, min_len=8, strong=None, mixed_case=None):
 #   写进 session 并在模板里注入 <input type="hidden" name="csrf_token">；
 #   POST 请求校验表单字段或请求体 csrf_token 必须与会话 token 一致（恒定时间比较）。
 # 前端（Vue SPA）通过 /api/auth/me 响应头拿到 token，后续 POST 自动带 X-CSRF-Token。
-_CSRF_CACHE = {}
 
 
 def generate_csrf_token():
-    """生成本会话的 CSRF Token（惰性，无则创建）。返回 (token, 是否新建)。"""
+    """生成本会话的 CSRF Token（惰性，无则创建）。返回 (token, 是否新建)。
+
+    v3.4.6 修复（多 worker 下 token 反复轮换 → 前端 403「抽风」）：
+    旧实现用进程级 _CSRF_CACHE 判断 token 是否「新鲜」，但 gunicorn 多 worker 时
+    每个 worker 各自持有一份缓存，落到不同 worker 的请求会认为「缓存里没有当前
+    token」从而重新生成并覆盖 session 里的 token，导致前端缓存的 token 失效 → 403。
+    改为：只要 session 中已有**签名有效**的 token 就直接复用（签名由本服务
+    SECRET_KEY 经 HMAC 生成，天然防伪造/防跨服务复用），token 在整段会话内保持稳定，
+    不再随 worker 切换而轮换。仅当 token 缺失或签名失效（被篡改/SECRET_KEY 已轮换）
+    时才重新生成。
+    """
     from flask import session
-    import flask
     tok = session.get("csrf_token")
-    if tok and tok in _CSRF_CACHE:
-        return tok, False
+    if tok:
+        # 复用既有 token，但先校验签名仍有效（防 session 被篡改或跨服务伪造）
+        parts = str(tok).split(".")
+        if len(parts) == 2 and hmac.compare_digest(_sign_csrf(parts[0]), parts[1]):
+            return tok, False
+        # 既有 token 签名无效 → 重新生成（不沿用被污染的值）
     raw = secrets.token_hex(24)
-    # 会话绑定：token 本身存 session；另存一份带签名的校验体防 session 伪造
+    # 会话绑定：token 本身存 session；签名部分用于校验 token 确由本服务签发
     tok = raw + "." + _sign_csrf(raw)
     session["csrf_token"] = tok
-    _CSRF_CACHE[tok] = True
     return tok, True
 
 

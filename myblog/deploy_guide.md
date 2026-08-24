@@ -456,6 +456,15 @@ supervisorctl status
 - **验证**：覆盖后跑 `bash /www/wwwroot/myblog/update.sh` 应看到 `✅ xxx 的 zip 注释内嵌哈希一致（双源互证通过）`，并继续完成备份/覆盖/重启；后台左下角版本号显示 `v3.4.3`。
 - **顺带修正**：后台「立即更新」此前可能因脚本校验误报而失败，本次一并恢复可用；改动仅脚本，后端业务代码无变化。
 
+### v3.4.4 升级注意（解压目录唯一化 · 残留目录免疫 · 必须换新脚本包）
+
+- **故障现象**：v3.4.3 更新走到「④ 覆盖后端代码」报 `mkdir: cannot create directory 'backend_extract': File exists` 后退出——`/tmp/llhhy_update/` 下残留了历史失败更新的 `backend_extract` 目录。
+- **根因**：脚本解压使用**固定目录名** `backend_extract` / `frontend_extract`；删除残留失败被 `|| true` 吞掉（不报错），随后 `mkdir` 无兜底 + 脚本 `set -e` → 静默终止。**任何一次更新中途失败都会在 /tmp 留下半解压目录，下次更新即炸**（v3.4.1 静默退出 / v3.4.2 误报失败都可能在服务器上留过该残留）。
+- **修复**：解压目录改为**唯一时间戳名** `backend_extract_$TS` / `frontend_extract_$TS`——新目录名每次唯一，残留目录存在也**不影响本次更新**；脚本启动时尽力清理旧残留（`rm -rf ... || true`，范围锁定在 $WORK 内）。
+- **⚠️ 必须换新脚本包**：**服务器 `update.sh` / `deploy.sh` 须覆盖 Release v3.4.4 的 `deploy_scripts_v344fix.zip`**（v3.4.3 及更早脚本在 /tmp 有残留时仍会炸）。已卡住的服务器：可先手动 `rm -rf /tmp/llhhy_update /tmp/llhhy_deploy`，或**直接换新脚本后重跑**（新脚本不依赖清理残留）。
+- **验证**：覆盖后跑 `bash /www/wwwroot/myblog/update.sh`，应完整走完 ①下载校验 ✅ → ②备份 → ③覆盖 → ④b 依赖 → ⑤前端 → ⑥重启；后台左下角版本号显示 `v3.4.4`。
+- **顺带说明**：后端业务代码无变化（仅 config.py 版本号 + 运维脚本 + 文档）。
+
 ## 邮件设置（新文章通知订阅者 · 后台配置）
 
 > 从 v2.4.0 起，邮件群发配置**不需要再填环境变量**，直接在后台操作（更便捷）。

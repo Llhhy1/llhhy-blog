@@ -1180,3 +1180,38 @@ fetch('/api/version/update', {
 
 **评估**：本 bug 为「命令替换捕获 stdout 而非退出码」这一 bash 机制误用导致的可用性故障，非安全漏洞，但使 v3.4.2 的所有正常包都被误判终止、一键更新彻底不可用。修复后改用 stdout 显式传结果（print 枚举串）+ bash `case` 判断 + 降级兜底，三态（通过/终止/降级）语义清晰。部署注意：**服务器 `update.sh` / `deploy.sh` 若来自 v3.4.2 及更早 Release，必须先覆盖 Release v3.4.3 的 `deploy_scripts_v343fix.zip` 再跑一键更新——`deploy_scripts_v342fix.zip` 已废弃（含 sys.exit bug，对正常包必误报）**。
 
+
+---
+
+## 第三十四轮审计（R24，v3.4.4）：一键更新解压目录唯一化（残留目录免疫）
+
+**背景**：用户跑 v3.4.3 一键更新，双源互证 ✅ 通过、备份完成，但在「④ 覆盖后端代码」阶段报 `mkdir: cannot create directory 'backend_extract': File exists` 后退出——`/tmp/llhhy_update/` 下残留了历史失败的 `backend_extract` 目录，脚本删除失败被 `|| true` 吞掉、`mkdir` 无兜底 + `set -e` → 静默终止。
+
+**根因（重要经验）**：
+- `update.sh` / `deploy.sh` 解压使用**固定目录名** `backend_extract` / `frontend_extract`（位于 `$WORK` 即 /tmp 下）。
+- 删除残留：`[ -d backend_extract ]` 仅认目录；`rm -rf` 失败被 `|| true` 吞掉（不报错不阻断）；随后 `mkdir backend_extract` 无 `|| fail_exit` 兜底 → 配合 `set -e` 静默终止整脚本，仅留一行 mkdir 报错。
+- 触发条件：任何一次更新中途失败（解压/网络/权限）都会在 /tmp 留下半解压目录，下次更新即炸。
+
+**修复**：
+- **解压目录唯一化**：改为 `$WORK/backend_extract_$TS` / `$WORK/frontend_extract_$TS`（TS 为本次时间戳），彻底免疫「残留目录删不掉」——新目录名每次唯一，不再复用固定名。
+- **启动尽力清理**：脚本开头 `rm -rf "$WORK"/backend_extract* "$WORK"/frontend_extract* ... || true`（仅清自己目录下的旧残留，失败不影响主流程）。
+- 残留的旧目录即便存在也不影响本次更新（唯一目录名），由 /tmp 系统清理机制自然回收。
+
+**维度审计**：
+
+| 编号 | 维度 | 结论 |
+|---|---|---|
+| R24-1 | XSS / 注入 | 脚本为 bash 运维代码；改动仅目录变量引用（`$BX`/`$FX` 由 `$TS` 生成，脚本内部可控，非用户输入）；`unzip -d "$BX"` 等全部双引号包裹；启动清理为固定 glob（`"$WORK"/backend_extract*`）且范围锁定在 $WORK 内 | ✅ 通过 |
+| R24-2 | SQL 注入 | 不涉及 SQL | ✅ 通过 |
+| R24-3 | 越权 | 无 Web 路由改动；脚本以 root/项目属主身份执行属部署侧既定行为；删除 glob 限定在 `$WORK`（/tmp 下）内，无越界风险 | ✅ 通过 |
+| R24-4 | CSRF / 会话 | 无接口改动 | ✅ 通过 |
+| R24-5 | 密钥 / 凭据 | 无新增密钥逻辑；UPDATE_HMAC_KEY 处理不变（仅环境变量引用，不落盘、不回显） | ✅ 通过 |
+| R24-6 | 资源 / 泄漏 | 解压目录唯一化避免残留冲突；清理命令 `|| true` 兜底不炸主流程；不再有「残留目录触发 set -e 静默终止」的路径；`bash -n` 通过、CRLF=0 | ✅ 通过 |
+| R24-7 | 回归风险 | 模拟验证：残留 `backend_extract` 存在时，唯一目录解压后端/前端均成功、不受影响；正常路径 rsync/cp 覆盖逻辑未变；deploy.sh 同步修复 | ✅ 通过 |
+
+**验证记录**：
+- `bash -n update.sh && bash -n deploy.sh` 通过；字节统计 CRLF=0、孤立 CR=0；`grep` 确认无裸 `backend_extract` 引用（仅清理行含 glob）。
+- 模拟残留场景：预建 `backend_extract` / `frontend_extract` 目录（不删除），用真实发布包按新逻辑解压到 `backend_extract_$TS` / `frontend_extract_$TS` → 均成功，config.py / index.html 存在。
+- 后端本轮仅 config.py 版本号变更，`py_compile` 通过。APP_VERSION 升为 v3.4.4。
+
+**评估**：本 bug 为「固定解压目录 + 删除失败被吞 + 无 mkdir 兜底」组合导致的可用性故障（非安全漏洞），使 /tmp 残留目录即可让一键更新静默失败。修复后解压目录每次唯一，更新流程不再依赖删除旧目录成功，从根本上消除该类故障；启动清理仅尽力而为、范围锁定。部署注意：**服务器 `update.sh` / `deploy.sh` 需覆盖 Release v3.4.4 的 `deploy_scripts_v344fix.zip`**（v3.4.3 及更早脚本无唯一目录修复，/tmp 有残留时仍会炸）；若 /tmp 已有残留目录可手动 `rm -rf /tmp/llhhy_update /tmp/llhhy_deploy` 清理，或直接换新脚本后重跑（新脚本不依赖清理）。

@@ -194,6 +194,14 @@ llhhy-blog/
 - **验证**：双路径闭环——正常包 → `OK`、篡改包 → `BAD`；`bash -n` 通过；CRLF=0。R23 七维审计全 ✅（详见 `myblog/SECURITY_AUDIT.md` 第三十三轮）。APP_VERSION 升为 v3.4.3。
 - **⚠️ 升级顺序（重要）**：服务器上的 `update.sh` / `deploy.sh` 若来自 v3.4.2 及更早 Release，**必须先覆盖 Release v3.4.3 的 `deploy_scripts_v343fix.zip`**（内含 print 修复）再跑一键更新——**绝对不要用已废弃的 `deploy_scripts_v342fix.zip`**，它对正常包必误报。
 
+### v3.4.4 一键更新解压目录唯一化（R24 审计通过，脚本修复）
+
+- **故障现象**：v3.4.3 更新走到「④ 覆盖后端代码」报 `mkdir: cannot create directory 'backend_extract': File exists` 后退出——`/tmp/llhhy_update/` 残留了历史失败更新的 `backend_extract` 目录。
+- **根因**：脚本解压用**固定目录名** `backend_extract` / `frontend_extract`；删除残留失败被 `|| true` 吞掉，`mkdir` 无兜底 + `set -e` → 静默终止。任何一次更新中途失败都会留下半解压目录，下次更新即炸。
+- **修复**：解压目录改为**唯一时间戳名** `backend_extract_$TS` / `frontend_extract_$TS`，彻底免疫残留目录；脚本启动时尽力清理旧残留（`|| true` 不阻断）。
+- **验证**：模拟残留目录存在时解压仍成功；`bash -n` 通过；CRLF=0。R24 七维审计全 ✅（详见 `myblog/SECURITY_AUDIT.md` 第三十四轮）。APP_VERSION 升为 v3.4.4。
+- **⚠️ 升级顺序（重要）**：服务器 `update.sh` / `deploy.sh` **须覆盖 Release v3.4.4 的 `deploy_scripts_v344fix.zip`**（v3.4.3 及更早脚本在 /tmp 有残留时仍会炸）。已卡住的服务器可先手动 `rm -rf /tmp/llhhy_update /tmp/llhhy_deploy`，或直接换新脚本后重跑（新脚本不依赖清理）。
+
 ## 快速开始（本地开发）
 
 后端（默认端口 5000）：

@@ -455,3 +455,25 @@ v3.1.7 修复 CSRF 隐藏域乱码后，用户反馈「退出登录按钮失效�
 - 双路径闭环（直接执行脚本内真实代码段，不复刻逻辑）：正常发布包 → `OK`；篡改副本（改包体保留注释）→ `BAD`。
 - `bash -n` 语法通过、CRLF=0。后端业务代码零改动。
 - ⚠️ 升级顺序：服务器 `update.sh` / `deploy.sh` 若来自 v3.4.2 及更早 Release，先覆盖 Release v3.4.3 的 `deploy_scripts_v343fix.zip` 再跑一键更新——**绝不用已废弃的 `deploy_scripts_v342fix.zip`**。
+
+## 28. v3.4.4：一键更新解压目录唯一化（R24 审计通过，脚本修复）
+
+### 28.1 背景
+用户跑 v3.4.3 一键更新，双源互证 ✅ 通过、备份完成，但在「④ 覆盖后端代码」报 `mkdir: cannot create directory 'backend_extract': File exists` 后退出——`/tmp/llhhy_update/` 残留了历史失败更新的 `backend_extract` 目录。
+
+### 28.2 根因
+- 脚本解压用**固定目录名** `backend_extract` / `frontend_extract`（位于 `$WORK` = /tmp/llhhy_update）。
+- `[ -d backend_extract ]` 仅认目录；`rm -rf` 失败被 `|| true` 吞掉（无报错无阻断）；`mkdir backend_extract` 无 `|| fail_exit` 兜底 → 配合 `set -e` 静默终止整脚本。
+- 触发条件：任何一次更新中途失败都会在 /tmp 留下半解压目录，下次更新即炸（v3.4.1 静默退出、v3.4.2 误报失败都可能在服务器上留下该残留）。
+
+### 28.3 修复
+- **解压目录唯一化**：`$WORK/backend_extract_$TS` / `$WORK/frontend_extract_$TS`（TS=本次时间戳），不再复用固定名 → 残留目录存在也不影响本次更新。
+- **启动尽力清理**：脚本开头 `rm -rf "$WORK"/backend_extract* "$WORK"/frontend_extract* ... || true`（范围锁定在 $WORK 内，失败不阻断）。
+- 旧残留由 /tmp 系统清理机制自然回收。
+
+### 28.4 验证
+- R24 审计：XSS / SQL / 越权 / CSRF / 密钥 / 资源 / 回归 7 维度全 ✅（详见 SECURITY_AUDIT.md 第三十四轮）。
+- 模拟残留场景：预建 backend_extract/frontend_extract 目录（不删除），按新逻辑解压到唯一目录 → 后端 config.py、前端 index.html 均存在。
+- `bash -n` 语法通过；字节统计 CRLF=0、孤立 CR=0；grep 无裸 backend_extract 引用。
+- 后端仅 config.py 版本号变更，py_compile 通过。APP_VERSION 升为 v3.4.4。
+- ⚠️ 升级顺序：服务器 `update.sh` / `deploy.sh` **须覆盖 Release v3.4.4 的 `deploy_scripts_v344fix.zip`**；已卡住可先 `rm -rf /tmp/llhhy_update /tmp/llhhy_deploy` 或直接换新脚本重跑。

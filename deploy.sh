@@ -36,6 +36,9 @@ WORK="/tmp/llhhy_deploy"
 TS=$(date +%Y%m%d_%H%M%S)
 mkdir -p "$WORK"
 cd "$WORK"
+# 清理历史残留解压目录（尽力而为；v3.4.4 起解压目录带 $TS 唯一后缀，不再复用固定名）
+rm -rf "$WORK"/backend_extract "$WORK"/frontend_extract \
+       "$WORK"/backend_extract_* "$WORK"/frontend_extract_* 2>/dev/null || true
 
 log(){ echo "[$(date '+%F %T')] $*"; }
 
@@ -420,15 +423,16 @@ fi
 
 # 4. 解压覆盖后端（zip 内自带一层 myblog/，跳过 data/）
 log "④ 覆盖后端代码..."
-rm -rf backend_extract && mkdir backend_extract
-unzip -q backend.zip -d backend_extract || { log "❌ 后端包解压失败。"; exit 1; }
+BX="$WORK/backend_extract_$TS"   # 唯一临时目录（v3.4.4，避免残留同名目录删不掉导致 mkdir 失败）
+mkdir -p "$BX"
+unzip -q backend.zip -d "$BX" || { log "❌ 后端包解压失败。"; exit 1; }
 if command -v rsync >/dev/null 2>&1; then
-  run_as rsync -a --exclude='data' --exclude='__pycache__' "$WORK/backend_extract/myblog/" "$APP_DIR/" 2>/dev/null \
-    || rsync -a --exclude='data' --exclude='__pycache__' "$WORK/backend_extract/myblog/" "$APP_DIR/"
+  run_as rsync -a --exclude='data' --exclude='__pycache__' "$BX/myblog/" "$APP_DIR/" 2>/dev/null \
+    || rsync -a --exclude='data' --exclude='__pycache__' "$BX/myblog/" "$APP_DIR/"
 else
-  find "$WORK/backend_extract/myblog" -mindepth 1 -maxdepth 1 ! -name 'data' ! -name '__pycache__' -exec \
+  find "$BX/myblog" -mindepth 1 -maxdepth 1 ! -name 'data' ! -name '__pycache__' -exec \
     run_as cp -r {} "$APP_DIR/" \; 2>/dev/null \
-    || find "$WORK/backend_extract/myblog" -mindepth 1 -maxdepth 1 ! -name 'data' ! -name '__pycache__' -exec cp -r {} "$APP_DIR/" \;
+    || find "$BX/myblog" -mindepth 1 -maxdepth 1 ! -name 'data' ! -name '__pycache__' -exec cp -r {} "$APP_DIR/" \;
 fi
 log "后端代码已覆盖（跳过 data/，数据库保留）"
 
@@ -439,10 +443,11 @@ install_deps
 # 5. 解压覆盖前端（zip 根直接是 index.html + assets/）
 if [ -d "$FRONT_DIR" ]; then
   log "⑤ 覆盖前端文件..."
-  rm -rf frontend_extract && mkdir frontend_extract
-  unzip -q frontend.zip -d frontend_extract || { log "❌ 前端包解压失败。"; exit 1; }
-  run_as cp -r "$WORK/frontend_extract/." "$FRONT_DIR/" 2>/dev/null \
-    || cp -r "$WORK/frontend_extract/." "$FRONT_DIR/"
+  FX="$WORK/frontend_extract_$TS"   # 唯一临时目录（v3.4.4）
+  mkdir -p "$FX"
+  unzip -q frontend.zip -d "$FX" || { log "❌ 前端包解压失败。"; exit 1; }
+  run_as cp -r "$FX/." "$FRONT_DIR/" 2>/dev/null \
+    || cp -r "$FX/." "$FRONT_DIR/"
   log "前端静态文件已覆盖"
 else
   log "⚠️ 前端目录 $FRONT_DIR 不存在，跳过前端覆盖（请检查路径）"

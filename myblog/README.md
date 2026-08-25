@@ -255,6 +255,16 @@
 - **验证**：`compileall myblog` 无语法错误；`render_slug_template` 单测 + 临时库 DB 功能测试（6 模式 + 唯一化 `-2/-3`）通过；`settings.html` 渲染通过。R34 七维审计 **0 Blocker，0 高危**（详见 `SECURITY_AUDIT.md` 第四十四轮）。APP_VERSION 升为 v3.5.2。
 - ⚠️ 升级顺序：R34 纯后端改动（无 DB 迁移、无前端构建），服务器**直接跑一键更新**即可；后端覆盖后须宝塔「停止 → 启动」gunicorn 方真正重载。
 
+### v3.6.0 API 解耦重构：api.py 拆分 api/ 包 + 新增 API.md（R35 审计通过）
+
+- **① API 按功能拆包**：`myblog/api.py`（单文件 1312 行 / 53 路由）解耦为 `myblog/api/` 包——`auth` / `site` / `posts` / `stats` / `social` / `series` / `guestbook` / `subscribe` / `notifications` / `system` 十个功能模块 + `common.py`（共享辅助：当前用户/登录/CSRF/序列化）+ `__init__.py`（`api_bp` 聚合导出）。
+- **② 零破坏**：`url_prefix="/api"` 不变，全 54 条路由（含 `/api/weather` main 蓝图）与基线快照 **diff 完全一致**；`app.py` 的 `from api import api_bp` 不改照样兼容；CSRF 豁免清单 / 限流 / 鉴权行为全部不变。验证：路由快照对比 + `create_app()` 全应用加载 + GET/POST 行为抽查通过。
+- **③ 新增 API.md**：`myblog/API.md` 完整接口文档（通用约定 / 鉴权 / CSRF / 分页 / 限流 / 全端点说明 / 如何新增 API / 错误码速查），方便定制第三方客户端。
+- **④ 后续加 API 更简单**：新功能直接往对应模块加路由，或在 `__init__.py` 追加一行新模块导入即可，不再动大文件；共享逻辑一律走 `common.py`，模块间禁止互相 import（防循环依赖）。
+- **⑤ 拆包补测修复 6 处跨模块引用缺失**：5 个功能模块对顶层 `stats` 模块的引用（`client_ip` / `cached_region` / `record_*` / `compute_*`）拆包后未导入 → 请求时 `NameError` 500（统计端点 / 评论 / 留言 / 朋友圈 / 友链 / 系列排序）。补 `import stats`（`posts.py` 另补 `User`，`stats.py`/`series.py` 补 `Post`），新增 `smoke_api_pkg.py` 10 项断言全通过。
+- **验证**：`compileall` 全模块无语法错误；路由快照 54 条 diff 零差异；`smoke_api_pkg.py` 10/10（含 visit 落库读回、评论/留言/友链写路径）。R35 七维审计 **0 Blocker，0 高危**（详见 `SECURITY_AUDIT.md` 第四十五轮）。APP_VERSION 升为 v3.6.0。
+- ⚠️ 升级顺序：R35 纯后端改动（无 DB 迁移、无前端构建），服务器**直接跑一键更新**即可；后端覆盖后须宝塔「停止 → 启动」gunicorn 方真正重载。
+
 ## 目录结构
 ```
 myblog/             # 后端（Flask + SQLite）
@@ -268,7 +278,20 @@ myblog/             # 后端（Flask + SQLite）
 ├── utils.py        # 小工具（生成网址 slug、clean_html 白名单清洗、限流、安全跳转、弱密码校验、CSRF Token）
 ├── routes.py       # 前台页面 + 注册/登录 + 评论提交 + 天气接口
 ├── admin.py        # 后台管理（登录/写文章/分类/标签/评论/设置/统计/用户/系列/公告/留言墙/订阅者）
-├── api.py          # 前后端分离用的 JSON 接口（/api/*，含 /api/stats/* 埋点与汇总）
+├── api/            # 前后端分离用的 JSON 接口（/api/*，v3.6.0 起按功能拆分为包）
+│   ├── __init__.py # api_bp 聚合导出（from api import api_bp 兼容，url_prefix=/api 不变）
+│   ├── common.py   # 共享辅助（当前用户/登录/CSRF/序列化器等）
+│   ├── auth.py     # 认证与验证码
+│   ├── site.py     # 站点信息/友链/公告
+│   ├── posts.py    # 文章/分类/标签/归档/评论/搜索/RSS
+│   ├── stats.py    # 访问统计埋点与汇总
+│   ├── social.py   # 微动态/圈子/社交账号
+│   ├── series.py   # 文章专题
+│   ├── guestbook.py # 留言墙
+│   ├── subscribe.py # 邮件订阅/退订
+│   ├── notifications.py # 站内通知
+│   └── system.py   # 版本更新/部署 webhook
+├── API.md          # API 接口文档（全部 /api/* 端点，含鉴权与 CSRF 约定）
 ├── security.py     # 安全响应头 / 图形验证码 / SMTP 密码优先级（v3.1.6 新增）
 ├── backup.py       # 数据备份与异地容灾（v3.3.0，可插拔：本地/OSS/SCP/WebDAV）
 ├── backup_settings.py # 备份配置后台化 + 密钥加密（v3.4.0，Fernet/Setting 表）

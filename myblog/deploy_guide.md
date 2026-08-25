@@ -538,6 +538,16 @@ supervisorctl status
 - **验证**：`compileall myblog` 通过；DB 功能测试 6 模式 + 查重通过。R34 七维审计 **0 Blocker，0 高危**（详见 `SECURITY_AUDIT.md` 第四十四轮 R34）。
 - **⚠️ 升级顺序**：R34 **改了后端**，服务器**直接跑一键更新**即可（后端 + 前端 `vue-frontend-dist.zip` 一并覆盖）；覆盖后端后须在宝塔「停止 → 启动」gunicorn 方真正重载（restart 不重载）。
 
+### v3.6.0 升级注意（API 解耦重构 api.py → api/ 包 + 新增 API.md · R35 审计通过）
+
+- **改的什么**：`myblog/api.py`（单文件 53 路由）按功能解耦为 `myblog/api/` 包（`auth/site/posts/stats/social/series/guestbook/subscribe/notifications/system` 十个模块 + `common.py` 共享辅助 + `__init__.py` 聚合导出）。
+- **零破坏性**：`url_prefix="/api"` 不变、所有 `/api/*` 路由与端点名**逐一核对与基线 54 条完全一致**（含 `/api/weather` main 蓝图）；`app.py` 的 `from api import api_bp` 无需改动照样兼容；CSRF 豁免清单、限流、鉴权行为全部不变。
+- **新增 API.md**：`myblog/API.md` 完整接口文档（通用约定 / 鉴权 / CSRF / 分页 / 限流 / 全部端点 / 如何新增 API / 错误码速查），定制客户端或第三方应用直接照文档对接。
+- **自定义开发**：以后想加 API，进 `myblog/api/xxx.py` 加路由（共享逻辑用 `common.py`），在 `__init__.py` 导入清单追加一行即可，不需要再改大文件。
+- **⑤ 拆包补测修复 6 处跨模块引用缺失（NameError）**：拆包后 5 个功能模块对顶层 `stats` 模块的引用（`stats.client_ip` / `stats.cached_region` / `stats.record_*` / `stats.compute_*`）未导入——路由注册时不报错，请求时才 `NameError` 500（统计端点 / 评论归属地 / 留言 / 朋友圈 / 友链 / 系列排序）。补 `import stats`（`posts.py` 另补 `User`，`stats.py` 与 `series.py` 补 `Post`）。
+- **验证**：`compileall myblog` 无语法错误；路由快照 54 条 diff 零差异；新增 `smoke_api_pkg.py` 10 项断言全通过（含 visit 落库读回、评论 201、留言 201 落库、朋友圈 401=函数体正常、友链 201、系列 200）。R35 七维审计 **0 Blocker，0 高危（修复后）**（详见 `SECURITY_AUDIT.md` 第四十五轮 R35 + 补记）。
+- **⚠️ 升级顺序**：R35 **改了后端**，服务器**直接跑一键更新**即可；覆盖后端后须在宝塔「停止 → 启动」gunicorn 方真正重载（restart 不重载）。升级后后台侧边栏左下角版本号应显示 `v3.6.0`。
+
 ## 邮件设置（新文章通知订阅者 · 后台配置）
 
 > 从 v2.4.0 起，邮件群发配置**不需要再填环境变量**，直接在后台操作（更便捷）。

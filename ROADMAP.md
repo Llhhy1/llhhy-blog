@@ -552,3 +552,13 @@ v3.1.7 修复 CSRF 隐藏域乱码后，用户反馈「退出登录按钮失效�
 - **③ 后台实时预览**：`/api/slug-preview`（GET，`@admin_required`，CSRF 豁免 GET）按 title/mode/tpl 返回预览 slug，设置页用 `textContent` 输出（XSS 安全）。
 - **验证**：`compileall myblog` 无语法错误；DB 功能测试 6 种模式后缀正确、重复标题查重 `重复标题→重复标题-2→重复标题-3` 验证通过；`settings.html` 渲染含全部新元素。R34 七维审计 **0 Blocker，0 高危**（详见 `SECURITY_AUDIT.md` 第四十四轮 R34）。APP_VERSION 升为 v3.5.2。
 - ⚠️ 升级顺序：R34 **改了后端 `utils.py`/`admin.py`/模板 + `APP_VERSION`**，服务器**直接跑一键更新**即可（后端 + 前端 `vue-frontend-dist.zip` 一并覆盖）；覆盖后端后须在宝塔「停止 → 启动」gunicorn 方真正重载（restart 不重载）。
+
+## 37. v3.6.0：API 解耦重构（api.py → api/ 包）+ 新增 API.md（R35 审计通过）
+
+- **① API 按功能拆包**：`myblog/api.py`（单文件 1312 行 / 53 路由）解耦为 `myblog/api/` 包——`auth`/`site`/`posts`/`stats`/`social`/`series`/`guestbook`/`subscribe`/`notifications`/`system` 十个功能模块 + `common.py`（共享辅助：当前用户 / 登录 / CSRF / 序列化 + `_UPDATE_LOCK` / `_VER_CHECK_CACHE`）+ `__init__.py`（`api_bp` 聚合导出，`from api import api_bp` 兼容）。
+- **② 零破坏**：`url_prefix="/api"` 不变；全 54 条路由（53 条 api 蓝图 + 1 条 `/api/weather` main 蓝图）与基线快照 `diff` **零差异**；CSRF 豁免清单 / 限流 / 鉴权级别全部不变；`app.py` 对 api 的引用零改动。函数体按行区间**逐行保真**搬移，杜绝手工改写偏差。
+- **③ 新增 API.md**：`myblog/API.md` 完整接口文档——通用约定（基地址/返回格式/鉴权/CSRF/分页/限流）+ 全部端点说明（请求/响应/鉴权）+ 如何新增 API + 错误码速查，方便定制第三方客户端。
+- **④ 后续开发更简单**：新 API 直接往对应功能模块加路由（共享逻辑走 `common.py`），新模块只需在 `__init__.py` 追加一行导入；模块间禁止互相 import（防循环依赖）。
+- **⑤ 拆包补测修复 6 处跨模块引用缺失（NameError）**：拆包后 5 个功能模块对顶层 `stats` 模块的引用（`stats.client_ip` / `stats.cached_region` / `stats.record_*` / `stats.compute_*`）未导入——路由注册不报错，请求时才 `NameError` 500（统计端点 / 评论归属地 / 留言 / 朋友圈 / 友链 / 系列排序）。补 `import stats`（`posts.py` 另补 `User`、`stats.py` 与 `series.py` 补 `Post`），新增 `smoke_api_pkg.py` 10 项断言全通过（含 visit 落库读回、评论 201、留言 201 落库、朋友圈 401=函数体正常、友链 201、系列 200）。
+- **验证**：`compileall myblog` 无语法错误；路由快照 54 条 diff 零差异（删旧 api.py 后重新验证，确认加载的是包）；全应用加载 + GET 10 端点 + POST 6 端点（CSRF 链路）行为抽查全通过；`smoke_api_pkg.py` 10/10（补测 NameError 修复闭环）。R35 七维审计 **0 Blocker，0 高危**（详见 `SECURITY_AUDIT.md` 第四十五轮 R35）。APP_VERSION 升为 v3.6.0。
+- ⚠️ 升级顺序：R35 **纯后端改动**（无 DB 迁移、无前端构建，前端沿用 `_vite_build15`），服务器**直接跑一键更新**即可；覆盖后端后须在宝塔「停止 → 启动」gunicorn 方真正重载（restart 不重载）。升级后后台左下角显示 `v3.6.0`。

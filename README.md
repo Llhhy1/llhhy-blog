@@ -10,7 +10,12 @@ llhhy-blog/
 │   ├── app.py                 # 应用工厂（启动入口 + 自动迁移 + FTS 初始化）
 │   ├── routes.py              # 前台页面 / 登录注册 / 评论 / 天气 / RSS
 │   ├── admin.py               # 后台管理（文章/分类/标签/评论/统计/用户/设置/系列/公告/留言墙/订阅者）
-│   ├── api.py                 # 前后端分离 JSON 接口（/api/*）
+│   ├── api/                   # 前后端分离 JSON 接口（/api/*，v3.6.0 起按功能拆分）
+│   │   ├── __init__.py        # api_bp 聚合导出
+│   │   ├── common.py          # 共享辅助（鉴权/CSRF/序列化）
+│   │   ├── auth.py / site.py / posts.py / stats.py / social.py
+│   │   ├── series.py / guestbook.py / subscribe.py / notifications.py / system.py
+│   │   └── API.md 见 myblog/API.md（全部 /api/* 端点文档）
 │   ├── models.py              # 数据模型（文章/评论/用户/统计/系列/公告/留言/订阅者等）
 │   ├── fts.py                 # SQLite FTS5 全文搜索（不支持时自动降级 LIKE）
 │   ├── notify.py              # 新文章推送（Telegram / 企业微信）
@@ -270,6 +275,15 @@ llhhy-blog/
 - **④ 语义「单篇覆盖 + 全局模板」**：文章编辑页「链接后缀」框仍是**单篇硬覆盖**（填了优先）；留空则套用后台全局模板生成。老文章编辑时若标题未变则保持原 slug 不变（绝不悄悄改旧 URL）。默认 `title` 模式与升级前行为完全一致，**零破坏**。
 - **验证**：`py_compile` + `render_slug_template` 单测 + 临时库 DB 功能测试（6 模式 + 唯一化 `-2/-3`）全通过；`settings.html` 渲染验证通过。R34 七维审计 **0 Blocker，0 高危**（详见 `myblog/SECURITY_AUDIT.md` 第四十四轮）。APP_VERSION 升为 v3.5.2。
 - ⚠️ 升级顺序：R34 **纯后端改动**（无 DB 迁移、无前端构建），服务器**直接跑一键更新**即可（后端 + 前端 `vue-frontend-dist.zip` 一并覆盖）；覆盖后端后须在宝塔「停止 → 启动」gunicorn 方真正重载（restart 不重载）。
+
+### v3.6.0 API 解耦重构（api.py → api/ 包）+ 新增 API.md（R35 审计通过）
+
+- **① API 按功能拆包**：`myblog/api.py`（单文件 1312 行 / 53 路由）解耦为 `myblog/api/` 包——`auth`/`site`/`posts`/`stats`/`social`/`series`/`guestbook`/`subscribe`/`notifications`/`system` 十个功能模块 + `common.py`（共享辅助）+ `__init__.py`（`api_bp` 聚合导出，`from api import api_bp` 兼容）。
+- **② 零破坏**：全 54 条路由与基线快照 `diff` 零差异；CSRF 豁免清单 / 限流 / 鉴权级别全部不变；函数体逐行保真搬移。
+- **③ 新增 API.md**：`myblog/API.md` 完整接口文档（通用约定 + 全部端点 + 如何新增 API + 错误码速查）。
+- **④ 拆包补测修复 6 处跨模块引用缺失（NameError）**：5 个功能模块对顶层 `stats` 的引用未导入（`stats.client_ip` / `stats.cached_region` / `stats.record_*` / `stats.compute_*`）→ 请求时 500；补 `import stats`（`posts.py` 补 `User`，`stats.py`/`series.py` 补 `Post`），新增 `smoke_api_pkg.py` 10 项断言全通过（含 visit 落库读回、评论/留言/友链写路径）。
+- **验证**：`compileall myblog` 无语法错误；路由快照 54 条 diff 零差异；`smoke_api_pkg.py` 10/10。R35 七维审计 **0 Blocker，0 高危**（详见 `myblog/SECURITY_AUDIT.md` 第四十五轮）。APP_VERSION 升为 v3.6.0。
+- ⚠️ 升级顺序：R35 **纯后端改动**（无 DB 迁移、无前端构建，前端沿用 `_vite_build15`），服务器**直接跑一键更新**即可；覆盖后端后须在宝塔「停止 → 启动」gunicorn 方真正重载（restart 不重载）。升级后后台左下角显示 `v3.6.0`。
 
 ## 快速开始（本地开发）
 

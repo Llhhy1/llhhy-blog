@@ -71,3 +71,6 @@ _vite_build15/
 
 # 临时 CRLF 修复包（不入库）
 deploy_scripts_crlf_fix.zip
+
+# API 路由快照产物（tools/api_routes_snapshot.py 的输出，可随时重跑，不入库）
+tools/_api_routes_*.txt

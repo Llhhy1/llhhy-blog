@@ -1591,3 +1591,52 @@ fetch('/api/version/update', {
 - 临时库 DB 功能测试：`apply_slug_template` 在 6 种 mode 下生成的 slug 均符合预期（`我的第一篇技术笔记` / `…-20260826` / `post-1` / `20260826-…` / `技术记录-…` / `技术记录-20260826-…`）；唯一化追加 `-2`/`-3` 验证通过（`重复标题`→`重复标题-2`→`重复标题-3`）。
 - `settings.html` 在 `test_request_context` 下渲染成功（含「链接后缀规则」区块、`slug_mode` 下拉、`slug_template` 输入框、`/api/slug-preview` 引用）。
 - `package.py --front-dir vue-frontend/_vite_build15` 产出 `myblog-backend.zip` + `vue-frontend-dist.zip` + `sha256.txt`；zip 内 `config.py` 的 `APP_VERSION` 校验为 `3.5.2`。
+
+---
+
+## 第四十五轮（R35 · v3.6.0 · API 解耦重构：api.py 拆分 api/ 包 + 新增 API.md）
+
+**背景**：v3.5.2 之前全部 JSON 接口集中在单文件 `myblog/api.py`（1312 行、53 条路由），后续功能开发会使文件持续膨胀，难以维护。本轮把 API 按功能解耦为 `myblog/api/` 包：`common.py`（共享辅助：`_current_user_or_none` / `_login_user` / `_csrf_token` / `_settings_map` / `_post_summary` / `_is_visible` / 各序列化器 + `_UPDATE_LOCK` / `_VER_CHECK_CACHE` / 顶层导入）+ 十个功能模块（`auth` / `site` / `posts` / `stats` / `social` / `series` / `guestbook` / `subscribe` / `notifications` / `system`）+ `__init__.py`（`api_bp` 聚合导出，`app.py` 的 `from api import api_bp` 不变兼容）。新增 `myblog/API.md` 完整接口文档，方便定制第三方客户端。
+
+**零破坏约束**：`url_prefix="/api"` 不变；所有 `/api/*` 路由与端点名严格与基线快照一致（54 条 = 53 条 api 蓝图 + 1 条 `/api/weather` main 蓝图）；CSRF 豁免清单 / 各端点限流 / 鉴权级别全部沿用旧实现；`app.py` / `admin.py` / `routes.py` 对 api 的引用零改动。
+
+**改动文件**：删除 `myblog/api.py`；新增 `myblog/api/__init__.py`、`myblog/api/common.py`、`myblog/api/{auth,site,posts,stats,social,series,guestbook,subscribe,notifications,system}.py`；新增 `myblog/API.md`；`myblog/config.py`（`APP_VERSION` → `3.6.0`）；`myblog/README.md`、`myblog/deploy_guide.md`（结构树与升级说明同步）；`tools/api_routes_snapshot.py`（路由快照对比脚本）。
+
+### R35 七维审计
+
+| # | 维度 | 审查点 | 结论 | 状态 |
+|---|---|---|---|---|
+| R35-1 | 注入 | 全部函数体按行区间**逐行保真**从旧 api.py 提取（工具脚本按 1-based 行号切割），无任何手工改写；SQL 全部还是参数化查询（`filter_by`/`execute` 绑定参数），无新增字符串拼接；`_render_html`/`clean_html`/`markupsafe.escape` 清洗链路不变 | ✅ 无注入 |
+| R35-2 | 越权 | 鉴权装饰逻辑原样搬移：`/version/update`、`/version/status`、`/post/<id>/publish-now` 仍仅超管；`/notifications*`、`/auth/me` 仍需登录；`/captcha/verify` 一次性票据、`/guestbook` 验证码前置等业务分支逐行保留；无新增可越权接口 | ✅ 无越权 |
+| R35-3 | CSRF | `api_bp` 注册的 url_prefix 与豁免清单不变；`_csrf_protect` 在 app 层对 POST/PUT/DELETE/PATCH 统一生效，豁免白名单（`/api/webhook/deploy`、`/api/captcha`、`/api/stats/read`、`/api/stats/visit`、`/api/stats/search`）逐条保留 | ✅ 无 CSRF 影响 |
+| R35-4 | XSS | 序列化函数（`_post_summary`/`_comment`/`_moment`/`_gb` 等）原样保留——内容字段要么服务端已 `clean_html`/`escape`，要么由前端 `textContent` 输出；`_render_html` 的 markdown→HTML 链路含 bleach 白名单清洗，行为未变 | ✅ 无新增 XSS |
+| R35-5 | 资源/异常 | `common.py` 保留 `_UPDATE_LOCK`（在线更新防重入）与 `_VER_CHECK_CACHE`（版本检查缓存）——锁与缓存跨模块共享同一实例，不因拆分产生重复锁；`_login_delay` 异常静默、`_csrf_token` 异常兜底返回空串等容错逻辑原样保留；common.py 不 import 任何 api 子模块（零循环依赖）；模块互相独立，无隐式依赖 | ✅ 无资源/异常泄漏 |
+| R35-6 | 限流 | `rate_limit`/`client_key` 调用点全部随函数体原样搬移：登录 5 次/分钟、动态发布 5 次/分钟、搜索记录 120 次/小时、阅读记录 60 次/分钟、点赞/留言限流均保留 | ✅ 不变 |
+| R35-7 | 回归风险 | ① 路由快照对比：重构后快照与基线 **diff 零差异**（54 条规则 rule+methods+endpoint 逐一相同，含 `/api/weather` main 蓝图）；② `from api import api_bp` 在删除旧 api.py **后**重新加载验证导入的是包（`api/__init__.py`），非残留单模块——旧文件删除前 Python 同名模块优先级会遮蔽包，此点已实测排除；③ 全应用 `create_app()` 成功，`main`/`admin`/`api` 三蓝图注册正常；④ GET 抽查 10 个端点（site/posts/categories/tags/series/social-accounts/guestbook/notifications/version/status/csrf）状态码与以前一致；⑤ POST 抽查 6 个端点（subscribe/login/like/guestbook/moment 含 CSRF 链路）：`/api/subscribe` 走「已订阅」分支 200、登录失败 401 统一文案、未登录点赞 404（文章不存在）、留言板未过验证码 400——业务分支行为与重构前一致；⑥ 无 DB schema 变更，`blog.db` 无需迁移 | ✅ 无功能性回归 |
+
+### R35 补记：拆包遗漏的 stats 模块引用缺陷（NameError）
+
+拆包后补测发现 5 个功能模块存在**跨模块引用未导入**的运行时缺陷：路由注册阶段不报错（函数体未执行），仅在对应端点被请求时抛 `NameError`。根源是原 `api.py` 单文件内直接使用顶层 `stats` 模块对象（`stats.client_ip()` / `stats.cached_region()` / `stats.record_*()` / `stats.compute_*()`），拆分后各模块的 `from .common import (...)` 未带上 `stats` 名字。
+
+| 模块 | 缺陷引用 | 使用点 | 严重度 |
+|---|---|---|---|
+| `api/stats.py` | `stats.record_visit / record_search / record_read / compute_summary / compute_trend / client_ip` | `/api/stats/visit`、`/api/stats/search`、`/api/stats/read`、`/api/stats/summary`、`/api/stats/trend` | 🟠 高（5 个统计端点全部 500） |
+| `api/posts.py` | `stats.client_ip()` / `stats.cached_region()` + `User` 未导入 | 文章详情浏览量去重、评论提交归属地、点赞登录态 | 🟠 高（前台核心读写路径） |
+| `api/guestbook.py` | `stats.client_ip()` / `stats.cached_region()` | 留言提交归属地 | 🟠 高 |
+| `api/social.py` | `stats.client_ip()` / `stats.cached_region()` | 朋友圈动态归属地 | 🟠 高 |
+| `api/site.py` | `stats.client_ip()` | 友链申请归属地 | 🟠 中 |
+| `api/series.py` | `Post.created_at` 排序（`Post` 未导入） | `/api/series` 列表排序 | 🟠 中 |
+
+**修复**：各模块补 `import stats`（与 `common.py` 顶层导入一致，解析到 `myblog/stats.py`）；`posts.py` 补 `User`（`from .common import ... User`）；`stats.py` 补 `Post`；`series.py` 补 `Post`。
+
+**验证**：新增 `smoke_api_pkg.py` 专项 smoke（10 项断言，全通过）：`/api/stats/read`→200 且 `summary.total_visits>=1`（记录真实落库）、评论提交 201、留言提交 201 且读回落库、友链申请 201、朋友圈发文 401（登录拦截=函数体执行路径正常）、`/api/series` 200；路由快照 diff 仍零差异（54 条不变）。
+
+**R35 结论**：**0 Blocker，0 高危（修复后）**。纯结构性重构（逐行搬移 + 包化），无新增攻击面、无行为差异、向后兼容（url_prefix / 端点 / 鉴权 / CSRF / 限流全部不变）；补测发现并修复的 6 处跨模块引用缺失属拆包过程性缺陷，已在发布前闭环。
+
+**验证记录（R35）**：
+- `compileall myblog` 无语法错误。
+- `tools/api_routes_snapshot.py` 重构后快照与 `tools/_api_routes_before.txt` 基线 `diff` 零差异（54 条）。
+- 删除旧 `myblog/api.py` 后：`import api` 确认加载 `api/__init__.py`（包生效），10 个功能模块逐一导入成功；`api_bp` 路由数 53 条。
+- 全应用加载：`create_app()` 成功，蓝图 `['main', 'admin', 'api']`；GET 10 端点 + POST 6 端点（含 CSRF 链路）行为抽查全通过。
+- **拆包补测**：`smoke_api_pkg.py` 10 项断言全通过，覆盖 5 个缺陷模块的全部 `stats` 引用点（含写路径落库读回验证）。
+- `package.py --front-dir vue-frontend/_vite_build15` 产出 `myblog-backend.zip` + `vue-frontend-dist.zip` + `sha256.txt`；zip 内 `config.py` 的 `APP_VERSION` 校验为 `3.6.0`。

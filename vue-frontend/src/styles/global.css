@@ -25,10 +25,11 @@ body {
 
 /* 顶部导航 */
 .site-header { background: var(--nav-bg); border-bottom: 1px solid var(--nav-border); position: sticky; top: 0; z-index: 10; }
-.header-inner { display: flex; align-items: center; justify-content: space-between; height: 58px; flex-wrap: nowrap; min-width: 0; }
-.logo { font-size: 20px; font-weight: 700; color: var(--nav-fg); text-decoration: none; }
-.site-header nav { display: flex; align-items: center; }
-.site-header nav a { margin-left: 22px; color: var(--nav-fg); text-decoration: none; font-size: 15px; }
+.header-inner { display: flex; align-items: center; justify-content: space-between; height: 58px; flex-wrap: nowrap; min-width: 0; gap: 12px; }
+.logo { font-size: 20px; font-weight: 700; color: var(--nav-fg); text-decoration: none; white-space: nowrap; flex-shrink: 0; }
+.site-header nav { display: flex; align-items: center; flex-wrap: nowrap; min-width: 0; }
+.site-header nav a { margin-left: 18px; color: var(--nav-fg); text-decoration: none; font-size: 15px; white-space: nowrap; }
+.site-header nav a:first-child { margin-left: 0; }
 .site-header nav a:hover { color: var(--accent); }
 .nav-user { margin-left: 22px; color: #666; font-size: 14px; white-space: nowrap; }
 .nav-user a { color: var(--accent); text-decoration: none; }
@@ -301,11 +302,11 @@ button:hover, .btn:hover { background: color-mix(in srgb, var(--accent), #000 15
 }
 
 /* v2.6.0 mobile 抽屉式导航；v3.2.1 把断点从 760px 提到 1004px；
-   v3.5.0 再把断点从 1004px 提到 1100px：
-   英文界面下顶部内联 nav 链接文字更长，在 1004~1100px 这一窄桌面区间，
-   内联 nav 会被挤下、与 LOGO 形成难看的纵向/错位排列。统一改用汉堡抽屉，
-   桌面内联 nav 仅在大屏(>1100px)才显示，彻底规避窄屏竖排问题（Issue⑤ 修复）。 */
-@media (max-width: 1100px) {
+   v3.5.0 先提到 1100px；v3.5.1 再提到 1280px：
+   英文界面下顶部内联 nav 链接文字更长，在 1100~1280px 这一常见桌面区间，
+   内联 nav 仍会被挤下、与 LOGO 形成难看的纵向/错位排列。统一改用汉堡抽屉，
+   桌面内联 nav 仅在大屏(>1280px)才显示，彻底规避英文桌面竖排问题（Issue⑤ 修复）。 */
+@media (max-width: 1280px) {
   .header-inner { padding: 0 12px; height: 52px; }
   .logo { flex-shrink: 0; }
   /* 桌面 nav 在 mobile 隐藏 */
@@ -583,7 +584,7 @@ button:hover, .btn:hover { background: color-mix(in srgb, var(--accent), #000 15
 /* 平板及以下 */
 @media (max-width: 768px) {
   .container { padding: 0 16px; }
-  /* 注：头部在 <=1004px 已由上方抽屉式导航统一处理（桌面 nav 隐藏、汉堡显示、单行 header），
+  /* 注：头部在 <=1280px 已由上方抽屉式导航统一处理（桌面 nav 隐藏、汉堡显示、单行 header），
      此处不再对 .header-inner / .site-header nav 做换行，避免与抽屉断点冲突导致竖排。 */
   .layout { gap: 18px; padding-top: 20px; }
   .post-card { padding: 16px 18px; }
@@ -754,17 +755,16 @@ button:hover, .btn:hover { background: color-mix(in srgb, var(--accent), #000 15
 [data-theme="dark"] .link-apply-box { background: #1d2025; border-color: #2a2e35; }
 [data-theme="dark"] .link-apply-form input { background: #23272e; border-color: #333; color: #e3e6e9; }
 
-/* 修复：菜单抽屉深色模式
-   注意 store.applyThemeVars 会内联写 --nav-fg，优先级高于本规则，因此必须
-   同时让文字颜色也直接写死为浅色（不依赖 --nav-fg），才能在暗色下保证可读。 */
-[data-theme="dark"] .drawer { background: #1d2025; border-color: #2a2e35; }
-[data-theme="dark"] .drawer-head { border-bottom-color: #2a2e35; }
+/* 修复：菜单抽屉深色模式。
+   注意 v3.5.0 已将抽屉改为半透明毛玻璃（rgba + backdrop-filter），
+   此处只保留文字颜色的兜底写死，避免 store.applyThemeVars 的内联
+   --nav-fg 在暗色下把文字覆盖成深灰导致不可读；背景不再覆盖。 */
 [data-theme="dark"] .drawer-logo { color: #f1f3f5; }
 [data-theme="dark"] .drawer-close { color: #e6e8eb; }
 [data-theme="dark"] .drawer-nav a { color: #d7d9dc; }
 [data-theme="dark"] .drawer-nav a:hover { background: rgba(124, 176, 255, .12); color: #fff; }
 [data-theme="dark"] .drawer-user { color: #9aa0a6; }
-[data-theme="dark"] .drawer-foot { color: #9aa0a6; border-top-color: #2a2e35; }
+[data-theme="dark"] .drawer-foot { color: #9aa0a6; }
 [data-theme="dark"] .drawer-foot .drawer-link { background: rgba(124,176,255,.1); color: #e6e8eb; }
 [data-theme="dark"] .drawer-foot .drawer-link:hover { background: rgba(124,176,255,.2); color: #fff; }
 

@@ -239,6 +239,13 @@
 - **验证**：`py_compile` 全模块通过；前端构建 `_vite_build15` 成功、含毛玻璃 CSS。R32 七维审计 **0 Blocker，0 高危**（详见 `SECURITY_AUDIT.md` 第四十二轮）。APP_VERSION 升为 v3.5.0。
 - ⚠️ 升级顺序：R32 未改动部署脚本，服务器**直接跑一键更新**即可（后端 + 前端 `vue-frontend-dist.zip` 一并覆盖）；后端覆盖后须宝塔「停止 → 启动」gunicorn 方真正重载。
 
+### v3.5.1 英文桌面端菜单换行修复 + 深色抽屉毛玻璃回归修复（R33 审计通过）
+
+- **① 英文桌面端顶部菜单换行修复**：v3.5.0 漏给顶部 inline 导航 `.site-header nav` 加 `nowrap`、且抽屉断点只到 `1100px` → 常见桌面宽（约 1280px）切英文时顶部菜单换行成两行、LOGO 顶乱。本轮给 `.site-header nav` 加 `flex-wrap:nowrap;min-width:0`、`.site-header nav a` 加 `white-space:nowrap`（首子项左间距归零），抽屉断点 `1100px`→`1280px`，顶部 inline 导航全宽度保持单行。
+- **② 深色模式抽屉毛玻璃回归修复**：删除遗留的 `[data-theme="dark"] .drawer{background:#1d2025;border-color:#2a2e35}` 不透明覆盖（压死 v3.5.0 毛玻璃）；深色抽屉改由毛玻璃基样式（alpha 背景 + `backdrop-filter` + 浅描边）渲染，仅保留文字色兜底。
+- **验证**：`compileall myblog` 无语法错误；前端构建 `_vite_build15` 成功、含 `1280px` 断点 + `nowrap` + `backdrop-filter`。R33 七维审计 **0 Blocker，0 高危**（详见 `SECURITY_AUDIT.md` 第四十三轮）。APP_VERSION 升为 v3.5.1。
+- ⚠️ 升级顺序：R33 纯前端改动（外加 `APP_VERSION` 升版本号），服务器**直接跑一键更新**即可；后端覆盖后须宝塔「停止 → 启动」gunicorn 方真正重载。
+
 ## 目录结构
 ```
 myblog/             # 后端（Flask + SQLite）

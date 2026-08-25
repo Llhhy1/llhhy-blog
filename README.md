@@ -255,6 +255,13 @@ llhhy-blog/
 - **验证**：`py_compile` 全模块通过；前端构建 `_vite_build15` 成功、`vite preview` HTTP 200（含 `backdrop-filter` + `border-radius:20px`）。R32 七维审计 **0 Blocker，0 高危**（详见 `myblog/SECURITY_AUDIT.md` 第四十二轮）。APP_VERSION 升为 v3.5.0。
 - ⚠️ 升级顺序：R32 **未改动部署脚本**（沿用 v3.4.9 已在服脚本），服务器**直接跑一键更新**即可（后端 + 前端 `vue-frontend-dist.zip` 一并覆盖）；覆盖后端后须在宝塔「停止 → 启动」gunicorn 方真正重载（restart 不重载）。
 
+### v3.5.1 英文桌面端菜单换行修复 + 深色抽屉毛玻璃回归修复（R33 审计通过）
+
+- **① 英文桌面端顶部菜单换行修复**：v3.5.0 只给 `.logo`/`.header-inner` 加了 `nowrap`，**漏给顶部 inline 导航 `.site-header nav` 约束**，且抽屉断点只到 `1100px`；导致常见桌面宽度（约 1280px）下切英文时顶部菜单栏因英文文案更宽而换行成两行、LOGO 文字顶乱。本轮给 `.site-header nav` 加 `flex-wrap:nowrap; min-width:0`、`.site-header nav a` 加 `white-space:nowrap` 并把左间距归零首子项，抽屉断点 `1100px` → `1280px`，顶部 inline 导航所有宽度下保持单行。
+- **② 深色模式抽屉毛玻璃回归修复**：删除一条遗留的 `[data-theme="dark"] .drawer { background:#1d2025; border-color:#2a2e35 }` 不透明覆盖规则——它压死了 v3.5.0 的毛玻璃（深色抽屉退回不透明深底、丢失 `backdrop-filter`）。现在深色抽屉改由毛玻璃基样式（带 alpha 背景 + `backdrop-filter` + 浅描边）渲染，仅保留文字色兜底保证可读性。
+- **验证**：`py_compile` 全模块通过（`compileall` 无语法错误）；前端构建 `_vite_build15` 成功、产物 CSS 含 `max-width:1280px` 断点 + `.logo`/`nav a` 的 `white-space:nowrap` + 抽屉 `backdrop-filter`。R33 七维审计 **0 Blocker，0 高危**（详见 `myblog/SECURITY_AUDIT.md` 第四十三轮）。APP_VERSION 升为 v3.5.1。
+- ⚠️ 升级顺序：R33 **纯前端改动**（外加 `APP_VERSION` 升版本号），服务器**直接跑一键更新**即可（后端 + 前端 `vue-frontend-dist.zip` 一并覆盖）；覆盖后端后须在宝塔「停止 → 启动」gunicorn 方真正重载（restart 不重载）。
+
 ## 快速开始（本地开发）
 
 后端（默认端口 5000）：

@@ -1528,3 +1528,34 @@ fetch('/api/version/update', {
 - `py_compile myblog/admin.py myblog/api.py` 通过。
 - 前端 `npm run build` 通过（67 modules），产物 CSS 含 `backdrop-filter:blur(20px) saturate(180%)` + `border-radius:20px`。
 - 构建目录 `_vite_build15` 由 `package.py` 打包进 `vue-frontend-dist.zip`。
+
+---
+
+## 第四十三轮（R33 · v3.5.1 · 英文桌面端菜单换行修复 + 深色抽屉毛玻璃回归修复）
+
+**背景**：v3.5.0 在 Issue⑤ 把抽屉断点提到 `1100px`、给 `.logo`/`.header-inner` 加了 `nowrap`/`flex-shrink:0`，但**没给顶部 inline 导航（`.site-header nav`）做同样约束**；加上断点只到 `1100px`，导致**常见桌面宽度（约 1280px）下、语言切英文**时顶部菜单栏仍因英文文案更宽而换行成两行、LOGO 文字也跟着顶乱。同时，v3.5.0 新增的毛玻璃抽屉被一条**遗留的 `[data-theme="dark"] .drawer { background:#1d2025; border-color:#2a2e35 }` 不透明覆盖规则**压死——深色模式下抽屉退回不透明深底、丢失 `backdrop-filter` 毛玻璃与浅描边。本轮一并修复。
+
+**改动文件**：`vue-frontend/src/styles/global.css`（`.header-inner` 加 `gap`、`.logo` 加 `white-space:nowrap;flex-shrink:0`、`.site-header nav` 加 `flex-wrap:nowrap;min-width:0`、`.site-header nav a` 加 `white-space:nowrap` + `:first-child` 归零左间距、抽屉断点 `1100px`→`1280px`、删除遗留 `[data-theme="dark"] .drawer{background:#1d2025}` 不透明覆盖，仅保留深色文字色兜底）。
+
+### R33 七维审计
+
+| # | 维度 | 审查点 | 结论 | 状态 |
+|---|---|---|---|---|
+| R33-1 | 注入 | 纯 CSS 改动，无 JS/HTML/SQL 注入点 | ✅ 无注入 |
+| R33-2 | 越权 | 未触碰任何路由、鉴权、后端逻辑 | ✅ 无越权 |
+| R33-3 | CSRF | 未改动任何表单/写接口 | ✅ 无 CSRF 影响 |
+| R33-4 | XSS | 删除规则与新增规则均为纯样式（`white-space`/`flex`/`backdrop-filter`），无任何 `content:` 注入或 `url()` 外链，无 JS 注入面 | ✅ 无新增 XSS |
+| R33-5 | 资源/异常 | 删除旧覆盖规则后，深色抽屉改由毛玻璃基样式 `[data-theme=dark] .drawer{background:#1d20259e;border-color:#ffffff1f}`（带 alpha + `backdrop-filter`）渲染，无异常路径；断点提升仅影响布局断行，无 JS 逻辑 | ✅ 无资源/异常泄漏 |
+| R33-6 | 限流 | 未触碰任何接口（纯前端布局） | ✅ 不变 |
+| R33-7 | 回归风险 | ① 删除旧不透明覆盖后，深色抽屉文字色兜底（`.drawer-logo/.drawer-close/.drawer-nav a/.drawer-user/.drawer-foot/.drawer-link`）保留，毛玻璃清晰可读；② 断点 `1100px`→`1280px` 仅让「inline 顶栏」在更窄窗口更早切汉堡，不影响桌面端（≥1280px 始终 inline 单行）；③ 移动端（<768px）汉堡不受断点变化影响 | ✅ 无功能性回归 |
+
+### 派生修复（顺手）
+- 顶部 inline 导航在所有宽度下保持单行不换行（中/英/长文案均不再顶乱 LOGO）。
+
+**R33 结论**：**0 Blocker，0 高危**。纯前端布局/样式修复，无新增攻击面、无功能性回归。
+
+**验证记录（R33）**：
+- `py_compile` 全模块通过（`compileall myblog` 无语法错误）。
+- 前端 `npm run build` 通过（67 modules），产物 CSS 含 `max-width:1280px` 断点、`.logo`/`nav a` 的 `white-space:nowrap`、抽屉 `backdrop-filter`。
+- `package.py --front-dir vue-frontend/_vite_build15` 产出 `myblog-backend.zip`(282137B) + `vue-frontend-dist.zip`(101624B) + `sha256.txt`。
+- 构建目录 `_vite_build15` 由 `package.py` 打包进 `vue-frontend-dist.zip`。

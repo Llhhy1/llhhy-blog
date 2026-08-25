@@ -24,8 +24,8 @@ async function load() {
   const slug = route.params.slug;
   try {
     const data = await apiGet(`/api/tag/${encodeURIComponent(slug)}`);
-    items.value = data.posts || [];
-    name.value = data.tag ? data.tag.name : slug;
+    items.value = data.items || [];
+    name.value = data.name ? data.name : slug;
   } catch (e) { items.value = []; name.value = slug; }
 }
 onMounted(load);

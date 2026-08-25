@@ -25,7 +25,7 @@ body {
 
 /* 顶部导航 */
 .site-header { background: var(--nav-bg); border-bottom: 1px solid var(--nav-border); position: sticky; top: 0; z-index: 10; }
-.header-inner { display: flex; align-items: center; justify-content: space-between; height: 58px; }
+.header-inner { display: flex; align-items: center; justify-content: space-between; height: 58px; flex-wrap: nowrap; min-width: 0; }
 .logo { font-size: 20px; font-weight: 700; color: var(--nav-fg); text-decoration: none; }
 .site-header nav { display: flex; align-items: center; }
 .site-header nav a { margin-left: 22px; color: var(--nav-fg); text-decoration: none; font-size: 15px; }
@@ -300,11 +300,14 @@ button:hover, .btn:hover { background: color-mix(in srgb, var(--accent), #000 15
   .sidebar { width: 100%; }
 }
 
-/* v2.6.0 mobile 抽屉式导航；v3.2.1 起把断点从 760px 提到 1004px：
-   平板(768~1004)桌面 nav 链接过多放不下会换行/竖排，统一改用汉堡抽屉，
-   桌面内联 nav 仅在大屏(>1004px，容器达 1040px 上限能从容排开)才显示。 */
-@media (max-width: 1004px) {
+/* v2.6.0 mobile 抽屉式导航；v3.2.1 把断点从 760px 提到 1004px；
+   v3.5.0 再把断点从 1004px 提到 1100px：
+   英文界面下顶部内联 nav 链接文字更长，在 1004~1100px 这一窄桌面区间，
+   内联 nav 会被挤下、与 LOGO 形成难看的纵向/错位排列。统一改用汉堡抽屉，
+   桌面内联 nav 仅在大屏(>1100px)才显示，彻底规避窄屏竖排问题（Issue⑤ 修复）。 */
+@media (max-width: 1100px) {
   .header-inner { padding: 0 12px; height: 52px; }
+  .logo { flex-shrink: 0; }
   /* 桌面 nav 在 mobile 隐藏 */
   .site-header > .container > nav { display: none; }
   /* 汉堡按钮：与后台 .admin-hamburger 视觉同步（实心强调色胶囊 + 阴影） */
@@ -315,13 +318,18 @@ button:hover, .btn:hover { background: color-mix(in srgb, var(--accent), #000 15
     transition: transform .2s ease, filter .2s ease; }
   .hamburger:hover { filter: brightness(1.08); transform: scale(1.05); }
   .logo { font-size: 17px; flex: 1; }
-  /* 抽屉：左侧滑出 */
-  .drawer { display: block; position: fixed; left: 0; top: 0; bottom: 0; width: 280px; max-width: 78%;
-    background: var(--nav-bg); border-right: 1px solid var(--nav-border);
-    z-index: 1001; transform: translateX(-100%);
-    transition: transform .28s cubic-bezier(.4,0,.2,1);
+  /* 抽屉：左侧滑出的悬浮圆角毛玻璃卡片（v3.5.0 美化：frosted glass + 圆角） */
+  .drawer { display: block; position: fixed; left: 12px; top: 12px; bottom: 12px; width: 280px; max-width: 78%;
+    /* 半透明底色 + 背景模糊，形成毛玻璃质感 */
+    background: rgba(255,255,255,.72);
+    -webkit-backdrop-filter: blur(20px) saturate(180%);
+    backdrop-filter: blur(20px) saturate(180%);
+    border: 1px solid rgba(255,255,255,.55);
+    border-radius: 20px;
+    z-index: 1001; transform: translateX(-118%);
+    transition: transform .3s cubic-bezier(.4,0,.2,1);
     display: flex; flex-direction: column;
-    box-shadow: 0 0 30px rgba(0,0,0,.18); overflow-y: auto; }
+    box-shadow: 0 16px 48px rgba(0,0,0,.2); overflow-y: auto; }
   .drawer.open { transform: translateX(0); }
   .drawer-mask { display: block; position: fixed; inset: 0; background: rgba(0,0,0,.45);
     z-index: 1000; opacity: 0; pointer-events: none; transition: opacity .28s ease; }
@@ -376,10 +384,13 @@ button:hover, .btn:hover { background: color-mix(in srgb, var(--accent), #000 15
   box-shadow: none;
   border: 1px solid rgba(255,255,255,.15);
 }
-/* 抽屉暗色：用导航变量统一底色/文字/边框，hover 与按钮背景加深 */
-[data-theme="dark"] .drawer { background: var(--nav-bg); border-right-color: var(--nav-border); }
+/* 抽屉暗色：半透明深色毛玻璃，与亮色保持同一套 frosted 质感 */
+[data-theme="dark"] .drawer {
+  background: rgba(29,32,37,.62);
+  border-color: rgba(255,255,255,.12);
+}
 [data-theme="dark"] .drawer-head,
-[data-theme="dark"] .drawer-foot { border-color: var(--nav-border); }
+[data-theme="dark"] .drawer-foot { border-color: rgba(255,255,255,.1); }
 [data-theme="dark"] .drawer-nav a:hover { background: rgba(124,176,255,.14); color: #7cb0ff; }
 [data-theme="dark"] .drawer-link { background: rgba(124,176,255,.12); color: var(--nav-fg); }
 [data-theme="dark"] .widget,

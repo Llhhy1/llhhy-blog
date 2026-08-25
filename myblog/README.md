@@ -221,6 +221,24 @@
 - **验证**：`py_compile` 全模块通过（`-W error::SyntaxWarning` 无警告）；隔离临时库冒烟 14 项 ALL PASS；R30 全量审计 3 Blocker + 5 建议全部修复（详见 `SECURITY_AUDIT.md` 第四十轮）。APP_VERSION 升为 v3.4.8。
 - **🅰️ 升级顺序（本轮调整 · 无需换脚本包）**：R30 **未改动部署脚本**，服务器**可直接跑一键更新**（沿用已在服的 v3.4.7 脚本）；**若更新过程报错再覆盖 Release v3.4.8 的 `deploy_scripts_v348fix.zip`**（正常情况不需要）。
 
+### v3.4.9 修复：评论 IP 属地 GBK 解码乱码（R31 审计通过）
+
+- **解码健壮性修复**：`stats._http_get_json` 原 `decode("utf-8","ignore")` 永不抛错，太平洋 IP 库（GBK）中文被吞成乱码、GBK 兜底分支形同虚设。改为**逐编码严格解码**（utf-8 → gbk，双失败才抛错交多源兜底），根治省份变乱码、城市丢失。
+- **历史脏缓存自愈**：新增 `_looks_corrupted()` 启发式检测乱码；缓存命中先判脏，脏则忽略缓存走在线重查并覆盖旧值，新访问即自动自愈（无需手动清库）。
+- **验证**：`py_compile` 通过；`smoke_gbk.py` 15/15 ALL GREEN（GBK 全链路 + 脏缓存自愈 + 异步重查）。R31 聚焦审计 0 Blocker。APP_VERSION 升为 v3.4.9；前端无改动。
+
+### v3.5.0 自定义链接后缀 + 5 项功能/修复 + 抽屉毛玻璃美化（R32 审计通过）
+
+- **① 自定义链接后缀（slug）**：编辑/新建文章新增「链接后缀」字段，可手动填中文/英文/数字/下划线/连字符生成短链接（如 `/post/我的笔记`）；留空按标题自动生成。后端 `clean_slug()` 复用 `make_slug()` 清洗并查重，清洗为空回退标题生成，仅影响自己文章 URL，沿用既有鉴权。
+- **② 前台模糊搜索修复**：旧守卫 `if ids is not None` 把 FTS5 空结果 `[]` 误判为「有结果」→ 永不走 LIKE 兜底。改为 `if ids:`（`[]`/`None` 均走 LIKE 兜底），无异常路径。
+- **③ 分类/标签页前台无文章修复**：后端下发 `{items, name}`，前端 `CategoryView`/`TagView` 原读 `data.posts`（恒 undefined）。改为读 `data.items`，`name` 缺失回退 slug。
+- **④ 后台评论单独删除 405 修复**：行内按钮原嵌在批量表单的嵌套 `<form>` 里被浏览器丢弃 → 单删 405。改为行内按钮用 `formaction` 共享外层 `batch-form` 的 CSRF token（单 POST 表单），未新增裸 POST 表单。
+- **⑤ 英文窄屏菜单/LOGO 纵向错位修复**：抽屉断点 `1004px` → `1100px`，`.header-inner` 加 `flex-wrap:nowrap; min-width:0`，`.logo` 加 `flex-shrink:0`；`.drawer` 内 `.logo` 加 `flex-shrink:0`。
+- **⑥ 前台抽屉毛玻璃圆角美化**：汉堡抽屉改为浮动毛玻璃卡片（`backdrop-filter:blur(20px) saturate(180%)` + 20px 圆角 + 阴影），深色模式同步适配。
+- **运维脚本**：新增 `tools/reset_stats.py`（标准库、运维手动）——清空四统计表，执行前 `post` 表预检防误伤他库、自动时间戳备份、默认 `YES` 二次确认。
+- **验证**：`py_compile` 全模块通过；前端构建 `_vite_build15` 成功、含毛玻璃 CSS。R32 七维审计 **0 Blocker，0 高危**（详见 `SECURITY_AUDIT.md` 第四十二轮）。APP_VERSION 升为 v3.5.0。
+- ⚠️ 升级顺序：R32 未改动部署脚本，服务器**直接跑一键更新**即可（后端 + 前端 `vue-frontend-dist.zip` 一并覆盖）；后端覆盖后须宝塔「停止 → 启动」gunicorn 方真正重载。
+
 ## 目录结构
 ```
 myblog/             # 后端（Flask + SQLite）

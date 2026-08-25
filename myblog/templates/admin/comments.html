@@ -45,29 +45,15 @@
           </td>
           <td><code>{{ c.ip or '—' }}</code></td>
           <td>{{ c.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
-          <td>
+          <td class="row-actions">
             {% if not c.approved %}
-            <form method="post" action="{{ url_for('admin.approve_comment', cid=c.id) }}" class="inline-form">
-              <button type="submit" class="link-mark">通过</button>
-            
-                  {{ csrf_input() }}
-              <button type="submit" class="link-mark">通过</button>
-            </form>
-            <form method="post" action="{{ url_for('admin.reject_comment', cid=c.id) }}" class="inline-form" onsubmit="return confirm('确定驳回并删除该评论？');">
-                  {{ csrf_input() }}
-              <button type="submit" class="link-danger">驳回</button>
-            </form>
+            <button type="submit" formaction="{{ url_for('admin.approve_comment', cid=c.id) }}" class="link-mark">通过</button>
+            <button type="submit" formaction="{{ url_for('admin.reject_comment', cid=c.id) }}" class="link-danger" onclick="return confirm('确定驳回并删除该评论？');">驳回</button>
             {% endif %}
             {% if not c.is_read and c.approved %}
-            <form method="post" action="{{ url_for('admin.mark_comment_read', cid=c.id) }}" class="inline-form">
-                  {{ csrf_input() }}
-              <button type="submit" class="link-mark">标为已读</button>
-            </form>
+            <button type="submit" formaction="{{ url_for('admin.mark_comment_read', cid=c.id) }}" class="link-mark">标为已读</button>
             {% endif %}
-            <form method="post" action="{{ url_for('admin.delete_comment', cid=c.id) }}" class="inline-form" onsubmit="return confirm('确定删除？');">
-                  {{ csrf_input() }}
-              <button type="submit" class="link-danger">删除</button>
-            </form>
+            <button type="submit" formaction="{{ url_for('admin.delete_comment', cid=c.id) }}" class="link-danger" onclick="return confirm('确定删除？');">删除</button>
           </td>
         </tr>
       {% else %}

@@ -243,6 +243,18 @@ llhhy-blog/
 - **修复**：逐编码严格解码（utf-8→gbk 兜底）+ 新增 `_looks_corrupted()` 历史脏缓存自愈（脏则在线重查覆盖）。
 - **验证**：`py_compile` 通过；`smoke_gbk.py` 15/15 ALL GREEN。R31 聚焦审计 0 Blocker。APP_VERSION 升为 v3.4.9；前端无改动，直接跑一键更新即可。
 
+### v3.5.0 自定义链接后缀 + 5 项功能/修复 + 抽屉毛玻璃美化（R32 审计通过）
+
+- **① 自定义链接后缀（slug）**：编辑/新建文章新增「链接后缀」字段，可手动填中文/英文/数字/下划线/连字符生成短链接（如 `/post/我的笔记`）；留空则按标题自动生成。后端 `clean_slug()` 复用 `make_slug()` 清洗并查重（冲突自动 `-2/-3`），清洗为空回退标题生成，绝不写出空 slug 触发路由冲突；仅影响自己文章的 URL，沿用既有 `new_post`/`edit_post` 鉴权。
+- **② 前台模糊搜索修复**：根因 FTS5 无匹配返回空列表 `[]` 时，旧守卫 `if ids is not None` 把「空结果」误判为「有结果」，永不走 LIKE 兜底 → 前台搜索恒报「无结果」。改为 `if ids:`（`[]`/`None` 均走 LIKE 兜底），FTS5 不可用（`None`）也已覆盖；无异常路径。
+- **③ 分类/标签页前台无文章修复**：根因后端 `posts_by_category`/`posts_by_tag` 下发 `{items, name}`，前端 `CategoryView`/`TagView` 却读 `data.posts`（恒 undefined）→ 永远渲染空。改为读 `data.items`，`name` 缺失时回退 slug。
+- **④ 后台评论单独删除 405 修复**：根因行内「删除/通过」按钮嵌在批量表单的嵌套 `<form>` 里，浏览器丢弃内层表单与 CSRF → 单删 405。改为行内按钮用 `formaction` 共享外层 `batch-form` 的 CSRF token（单 POST 表单），未新增任何裸 POST 表单；顺手删掉重复「通过」按钮。
+- **⑤ 英文窄屏菜单/LOGO 纵向错位修复**：抽屉断点 `1004px` → `1100px`，`.header-inner` 加 `flex-wrap:nowrap; min-width:0`，`.logo` 加 `flex-shrink:0`，较长英文导航不再换行顶乱布局。
+- **⑥ 前台抽屉毛玻璃圆角美化**：汉堡抽屉改为浮动毛玻璃卡片（背景 `rgba(255,255,255,.72)` + `backdrop-filter:blur(20px) saturate(180%)` + 20px 圆角 + 阴影），深色模式同步适配（`rgba(29,32,37,.62)` + 浅色描边）。
+- **运维脚本**：新增 `tools/reset_stats.py`（标准库，运维手动用）——清空 `visit_log/read_log/search_log/ip_region` 四表，执行前 `post` 表预检防误伤他库、自动时间戳备份、默认 `YES` 二次确认（`--yes` 跳过），不入库不取密钥。
+- **验证**：`py_compile` 全模块通过；前端构建 `_vite_build15` 成功、`vite preview` HTTP 200（含 `backdrop-filter` + `border-radius:20px`）。R32 七维审计 **0 Blocker，0 高危**（详见 `myblog/SECURITY_AUDIT.md` 第四十二轮）。APP_VERSION 升为 v3.5.0。
+- ⚠️ 升级顺序：R32 **未改动部署脚本**（沿用 v3.4.9 已在服脚本），服务器**直接跑一键更新**即可（后端 + 前端 `vue-frontend-dist.zip` 一并覆盖）；覆盖后端后须在宝塔「停止 → 启动」gunicorn 方真正重载（restart 不重载）。
+
 ## 快速开始（本地开发）
 
 后端（默认端口 5000）：

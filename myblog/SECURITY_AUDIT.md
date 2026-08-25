@@ -1498,3 +1498,33 @@ fetch('/api/version/update', {
 - `smoke_gbk.py` 15/15 ALL GREEN（GBK 全链路 `广东广州`/`浙江杭州`、脏缓存自愈、异步重查）。
 
 **评估**：**聚焦修复，0 Blocker**。纯后端解码健壮性 + 脏数据自愈，无新增攻击面。随 v3.4.9 携带并走完整发布流程（文档同步 + 双源互证打包），服务器直接跑一键更新即可；历史脏属地将在新访问触发重查后自动覆盖（无需手动清库）。
+
+---
+
+## 第四十二轮（R32 · v3.5.0 · 5 项功能/修复 + 抽屉毛玻璃美化）
+
+**背景**：本轮含 5 项修复/功能（自定义 slug、前台模糊搜索、分类/标签页渲染、评论单删 405、英文窄屏布局）+ 前台汉堡抽屉毛玻璃圆角美化，外加一个维护脚本 `tools/reset_stats.py`（清统计重计）。
+
+**改动文件**：`myblog/admin.py`（新增 `clean_slug`、改写 `new_post`/`edit_post`）、`myblog/api.py`（`search_api` 回退逻辑）、`myblog/templates/admin/edit_post.html`（slug 字段）、`myblog/templates/admin/comments.html`（解嵌套表单）、`vue-frontend/src/views/CategoryView.vue`、`TagView.vue`（读 `items`）、`vue-frontend/src/styles/global.css`（断点 + 抽屉 frosted）、`tools/reset_stats.py`（新增）。
+
+### R32 七维审计
+
+| # | 维度 | 审查点 | 结论 | 状态 |
+|---|---|---|---|---|
+| R32-1 | 注入 | `clean_slug()` 用既有 `make_slug()` 清洗（仅保留中英文/数字/下划线/连字符，其余转 `-`），不做任何 SQL 拼接；`Post.query.filter_by(slug=...)` 参数化 | ✅ 无注入 |
+| R32-2 | 越权 | slug 仅影响自己文章的 URL，写入沿用既有 `new_post`/`edit_post` 鉴权（`@login_required` + `_can_edit_post`）；分类/标签/评论单删端点 `delete_comment`/`approve_comment` 等仍带 `@admin_required` | ✅ 无越权 |
+| R32-3 | CSRF | 评论行内操作改为 `formaction` 共享外层 `batch-form` 的 CSRF token，未引入新裸 POST 表单；未改动任何路由 `methods`（单删端点本就 `methods=["POST"]`） | ✅ 无 405 根因残留 |
+| R32-4 | XSS | ① slug 出现在 URL 路径（由 Flask 路由变量安全处理），不进 HTML；② 分类/标签/搜索结果沿用 `data.items` 经 `{{ }}` 插值（Jinja autoescape）；③ 抽屉美化纯 CSS（`backdrop-filter`），无 JS 注入点；④ 前端 `CategoryView`/`TagView` 仍读受控字段（`title`/`slug`/`cover`） | ✅ 无新增 XSS |
+| R32-5 | 资源/异常 | `search_api` 改为 `if ids:`：FTS5 返回 `[]` 或不可用（`None`）均走 LIKE，无异常路径；`clean_slug` 清洗为空则回退 `None`（调用方按标题生成），不会写出空 slug 触发路由冲突 | ✅ 无资源/异常泄漏 |
+| R32-6 | 限流 | 未触碰任何写接口限流逻辑（搜索/分类/标签均为只读 GET） | ✅ 不变 |
+| R32-7 | 维护脚本 `reset_stats.py` | 删除用常量表名 `DELETE FROM %s`（表名硬编码常量、非用户输入，无注入）；`--db` 由运维显式指定；执行前 `post` 表预检防误伤他库；自动时间戳备份；默认 `YES` 二次确认（`--yes` 跳过）。纯标准库、不入库不取密钥 | ✅ 安全（仅限运维手动执行，不入 web 路由） |
+
+### 派生修复（顺手）
+- `comments.html` 旧版含一个重复的「通过」按钮（嵌套残留），本轮一并清除，避免重复提交。
+
+**R32 结论**：**0 Blocker，0 高危**。全为功能增强 + Bug 修复，无新增攻击面；`reset_stats.py` 为运维侧手动脚本，已在预检/备份/确认三道关卡下收敛风险。
+
+**验证记录（R32）**：
+- `py_compile myblog/admin.py myblog/api.py` 通过。
+- 前端 `npm run build` 通过（67 modules），产物 CSS 含 `backdrop-filter:blur(20px) saturate(180%)` + `border-radius:20px`。
+- 构建目录 `_vite_build15` 由 `package.py` 打包进 `vue-frontend-dist.zip`。

@@ -1029,7 +1029,12 @@ def search_api():
         ids = fts_mod.search(q)
     except Exception:
         ids = None
-    if ids is not None:
+    # 注意：FTS5 可用但查询无命中时会返回空列表 []（不是 None）。
+    # 旧逻辑用 `if ids is not None` 判断，导致「有结果」与「无结果」都被当成 FTS 命中，
+    # 中文等 FTS 无法分词/无匹配的查询就再也回退不到 LIKE 模糊匹配。
+    # 改为 `if ids`：仅在 FTS 真正返回了命中（非空列表）时才用 FTS 结果；
+    # 空列表（无命中）或 None（FTS 不可用）都回退到 LIKE 子串匹配（Issue② 修复）。
+    if ids:
         posts = [db.session.get(Post, i) for i in ids]
         posts = [p for p in posts if _is_visible(p)]
         engine = "fts5"

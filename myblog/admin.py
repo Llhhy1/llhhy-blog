@@ -225,6 +225,31 @@ def unique_slug(base, post_id=None):
     return slug
 
 
+def clean_slug(raw, post_id=None):
+    """处理用户自定义链接后缀（slug）。
+
+    - 留空 → 返回 None，调用方按标题自动生成（保持旧行为）。
+    - 非空 → 清洗为合法 slug（复用 make_slug 规则：保留中英文/数字/下划线，
+      其它字符转连字符）；若与别的文章冲突（排除自身），追加 -2/-3 保证唯一。
+    - 极端情况清洗后为空 → 回退 None（由调用方自动生成），避免空 slug 导致路由冲突。
+    """
+    if not raw:
+        return None
+    slug = make_slug(raw)
+    if not slug:
+        return None
+    i = 2
+    while True:
+        q = Post.query.filter_by(slug=slug)
+        if post_id:
+            q = q.filter(Post.id != post_id)
+        if not q.first():
+            break
+        slug = f"{make_slug(raw)}-{i}"
+        i += 1
+    return slug
+
+
 @admin_bp.context_processor
 def inject_notification_counts():
     """向所有后台模板注入未读评论/未读留言数量，用于导航角标和仪表盘提醒。"""
@@ -493,10 +518,13 @@ def new_post():
         is_private = (request.form.get("is_private") == "on") and bool(user and user.is_super)
         reward_enabled = (request.form.get("reward_enabled") == "on") and bool(user and user.is_super)
         reward_qr = (request.form.get("reward_qr") or "").strip() if reward_enabled else ""
+        # v3.5.0 功能：自定义链接后缀（slug）。留空则按标题自动生成。
+        custom_slug = clean_slug(request.form.get("slug"))
+        final_slug = custom_slug if custom_slug else unique_slug(title)
         # v3.0.0 功能12：字数统计 + 阅读时长
         wc, rm = count_words(content)
         post = Post(
-            title=title, slug=unique_slug(title), summary=summary, content=content,
+            title=title, slug=final_slug, summary=summary, content=content,
             cover=cover, category_id=category_id, published=published,
             scheduled_at=scheduled_at, is_pinned=is_pinned,
             seo_description=seo_description, seo_keywords=seo_keywords,
@@ -582,7 +610,12 @@ def edit_post(post_id):
             flash("标题不能为空")
             return render_template("admin/edit_post.html", post=post)
         post.title = title
-        if make_slug(title) != post.slug:
+        # v3.5.0 功能：自定义链接后缀。用户填写了 slug 就用它（清洗+唯一化）；
+        # 仅当用户留空时，才回退「标题 slug 变化则按标题重新生成」的旧逻辑。
+        raw_slug = (request.form.get("slug") or "").strip()
+        if raw_slug:
+            post.slug = clean_slug(raw_slug, post.id)
+        elif make_slug(title) != post.slug:
             post.slug = unique_slug(title, post.id)
         post.summary = (request.form.get("summary") or "").strip()
         post.content = request.form.get("content", "")
@@ -654,7 +687,7 @@ def edit_post(post_id):
     if post.scheduled_at:
         scheduled_local = post.scheduled_at.strftime("%Y-%m-%dT%H:%M")
     return render_template("admin/edit_post.html", post=post, cats=cats, series=series,
-                           tag_names=tag_names, scheduled_local=scheduled_local,
+                           tag_names=tag_names, post_slug=post.slug, scheduled_local=scheduled_local,
                            now_local=datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M"),
                            current_user=user)
 

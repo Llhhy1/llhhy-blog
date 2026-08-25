@@ -7,6 +7,9 @@
     <label>标题 *</label>
     <input type="text" name="title" value="{{ post.title if post else '' }}" required>
 
+    <label>链接后缀（可选，留空则按标题自动生成；用于分享短链接，如 <code>/post/我的笔记</code>）</label>
+    <input type="text" name="slug" value="{{ post_slug if post_slug else '' }}" placeholder="留空=按标题生成，仅限中英文/数字/下划线/连字符">
+
     <label>摘要（可选）</label>
     <input type="text" name="summary" value="{{ post.summary if post else '' }}">
 

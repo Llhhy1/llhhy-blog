@@ -88,6 +88,56 @@
     <label>打赏默认收款二维码 URL（功能14：超管在单篇文章开启打赏但未单独指定二维码时，使用此默认图；留空则要求每篇单独上传）</label>
     <input type="text" name="reward_qr_default" value="{{ settings.reward_qr_default }}" placeholder="https://.../reward.png">
 
+    <label style="margin-top:24px;font-size:15px;color:var(--accent);">🔗 v3.5.2 链接后缀规则（全局模板）</label>
+    <p style="color:var(--muted,#888);font-size:13px;margin:4px 0 10px;">
+      设置新建/未指定单篇后缀时文章链接的默认生成规则。单篇文章编辑页仍可手填「链接后缀」<b>覆盖</b>本条规则（留空才套用模板）。
+    </p>
+
+    <label>模板选择</label>
+    <select name="slug_mode" id="slugMode">
+      <option value="title" {{ 'selected' if (settings.slug_mode or 'title') == 'title' }}>仅标题（默认，旧行为）</option>
+      <option value="slug-date" {{ 'selected' if settings.slug_mode == 'slug-date' }}>标题-日期（{slug}-{date}）</option>
+      <option value="id" {{ 'selected' if settings.slug_mode == 'id' }}>纯 ID（post-{id}）</option>
+      <option value="date-slug" {{ 'selected' if settings.slug_mode == 'date-slug' }}>日期-标题（{date}-{slug}）</option>
+      <option value="category-slug" {{ 'selected' if settings.slug_mode == 'category-slug' }}>分类-标题（{category}-{slug}）</option>
+      <option value="custom" {{ 'selected' if settings.slug_mode == 'custom' }}>自定义模板</option>
+    </select>
+
+    <label>自定义模板（选「自定义」时生效；支持占位符 {slug} {id} {date} {category}，可混排固定文字）</label>
+    <input type="text" name="slug_template" id="slugTemplate" value="{{ settings.slug_template or '' }}" placeholder="例如：{category}-{date}-{slug}">
+
+    <div style="margin:8px 0 4px;font-size:13px;color:var(--muted,#888);">
+      预览（基于标题「我的第一篇技术笔记」、ID 123、分类「技术」）：<br>
+      <code id="slugPreview" style="display:inline-block;margin-top:4px;padding:4px 8px;background:var(--code-bg,#f3f3f3);border-radius:6px;"></code>
+    </div>
+    <script>
+      (function () {
+        var mode = document.getElementById('slugMode');
+        var tpl = document.getElementById('slugTemplate');
+        var prev = document.getElementById('slugPreview');
+        var PRESETS = {
+          'title': '{slug}', 'slug-date': '{slug}-{date}', 'id': 'post-{id}',
+          'date-slug': '{date}-{slug}', 'category-slug': '{category}-{slug}'
+        };
+        function update() {
+          var m = mode.value;
+          var template = (m === 'custom') ? (tpl.value || '') : (PRESETS[m] || '{slug}');
+          var xhr = new XMLHttpRequest();
+          xhr.open('GET', '/api/slug-preview?title=' + encodeURIComponent('我的第一篇技术笔记') + '&mode=' + encodeURIComponent(m) + '&tpl=' + encodeURIComponent(tpl.value), true);
+          xhr.onreadystatechange = function () {
+            if (xhr.readyState === 4 && xhr.status === 200) {
+              try { var d = JSON.parse(xhr.responseText); prev.textContent = d.slug || '(空)'; }
+              catch (e) { prev.textContent = '(解析失败)'; }
+            }
+          };
+          xhr.send();
+        }
+        mode.addEventListener('change', update);
+        tpl.addEventListener('input', update);
+        update();
+      })();
+    </script>
+
     <button type="submit" class="btn">保存设置</button>
   </form>
 {% endblock %}

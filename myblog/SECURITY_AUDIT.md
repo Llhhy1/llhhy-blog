@@ -1559,3 +1559,35 @@ fetch('/api/version/update', {
 - 前端 `npm run build` 通过（67 modules），产物 CSS 含 `max-width:1280px` 断点、`.logo`/`nav a` 的 `white-space:nowrap`、抽屉 `backdrop-filter`。
 - `package.py --front-dir vue-frontend/_vite_build15` 产出 `myblog-backend.zip`(282137B) + `vue-frontend-dist.zip`(101624B) + `sha256.txt`。
 - 构建目录 `_vite_build15` 由 `package.py` 打包进 `vue-frontend-dist.zip`。
+
+---
+
+## 第四十四轮（R34 · v3.5.2 · 链接后缀全局模板 + 预制可选/自定义）
+
+**背景**：v3.5.0 起文章有单篇「链接后缀」手填框。本轮把链接后缀提升为**独立全局设置**：后台「站点设置」新增「链接后缀规则」区块，预制 5 个模板（仅标题 / 标题-日期 / 纯 ID / 日期-标题 / 分类-标题）+ 自定义模板串（支持 `{slug} {id} {date} {category}` 占位符），并带实时预览（新增 `/api/slug-preview` GET 端点）。语义为「**单篇覆盖 + 全局模板**」：编辑页填了单篇 slug 即硬覆盖；留空则套用全局模板生成。`slug_mode`/`slug_template` 存 `Setting` 表，默认 `title` 与旧行为一致（零破坏）。
+
+**改动文件**：`myblog/utils.py`（新增 `render_slug_template`/`apply_slug_template`/`_unique_slug_local` + `SLUG_PRESETS`/`SLUG_TEMPLATE_TOKENS`）、`myblog/admin.py`（导入 `apply_slug_template`；`new_post`/`edit_post` 的 slug 分支改走模板；`/settings` 接收 `slug_mode`/`slug_template`；新增 `/api/slug-preview`）、`myblog/templates/admin/settings.html`（链接后缀规则区块 + 实时预览 JS）、`myblog/templates/admin/edit_post.html`（链接后缀提示文案）。
+
+### R34 七维审计
+
+| # | 维度 | 审查点 | 结论 | 状态 |
+|---|---|---|---|---|
+| R34-1 | 注入 | 模板串仅经 `render_slug_template` 处理：各占位符单独 `make_slug` 清洗，未知 `{xxx}` 正则剥离，整体再 `make_slug` → 最终仅含合法 slug 字符（中英文/数字/下划线/连字符），绝不拼接进 SQL；`apply_slug_template` 唯一化用 `Post.query.filter_by(slug=...)` 参数化 | ✅ 无注入 |
+| R34-2 | 越权 | `/api/slug-preview` 仅 `@admin_required`（后台登录可读，不写库）；`/settings` 改 `slug_mode`/`slug_template` 沿用 `@super_required`；无新增文章写接口 | ✅ 无越权 |
+| R34-3 | CSRF | `/api/slug-preview` 为只读 GET，app 的 CSRF/同源校验仅对 POST/PUT/DELETE/PATCH 生效（见 app.py `enforce_same_origin` 白名单），GET 不触发，符合既有约定；`/settings` 仍是带 CSRF token 的 POST 表单 | ✅ 无 CSRF 影响 |
+| R34-4 | XSS | ① 预览端点返回 JSON `{slug}`，前端用 `xhr.responseText`→`JSON.parse`→`textContent` 输出，天然转义不进 HTML；② 模板串与生成的 slug 都经 `make_slug` 清洗，不可能含 `<script>`/HTML；③ 设置页 `slug_template` 输入框值由 Jinja `{{ }}` 插值（autoescape），不进 HTML 属性危险区 | ✅ 无新增 XSS |
+| R34-5 | 资源/异常 | ① `render_slug_template` 对空 category/date 用空串，避免生成 `None` 脏串；清洗为空则回退 `None` 由 `apply_slug_template` 回退 `unique_slug(title)`，绝不写出空 slug 触发路由冲突；② `_unique_slug_local` 与既有 `unique_slug` 同逻辑（冲突追加 -2/-3），排除自身 `Post.id != post_id`；③ `apply_slug_template` 在 `utils.py` 内**延迟导入** `Post`，规避与 `admin.py` 的循环依赖；④ `new_post` 先占位 slug、flush 拿到 `id`/`category` 后再套模板生成最终 slug，避免 `{id}`/`{category}` 取不到 | ✅ 无资源/异常泄漏 |
+| R34-6 | 限流 | 未触碰任何写接口限流；预览为只读 GET，无状态变更 | ✅ 不变 |
+| R34-7 | 回归风险 | ① 默认 `slug_mode=title` 等价于旧 `unique_slug(title)`，未设该设置的老安装行为不变；② 编辑页单篇填框=硬覆盖（旧行为保留），留空且标题未变=保持原 slug（不破坏旧 URL），仅标题 slug 变化或原为空才套模板；③ category-slug 在新建时若未选分类则 category 取空（不报错），编辑补分类后下次重算；④ 无 DB schema 变更（纯 Setting 键值 + 代码），`blog.db` 无需迁移 | ✅ 无功能性回归 |
+
+### 派生修复（顺手）
+- 编辑页文案从「按标题生成」改为「单篇覆盖 + 留空套用全局模板」，与后端语义对齐，避免作者误解。
+
+**R34 结论**：**0 Blocker，0 高危**。纯后端模板化增强，无新增攻击面、无 DB 迁移、向后兼容（默认配置行为不变）。
+
+**验证记录（R34）**：
+- `py_compile` 全模块通过（`compileall myblog` 无语法错误）。
+- `render_slug_template` 单元测试：6 个用例（含未知占位符清除、固定中文前缀、date 含 `-` 转连字符、category 取短名）全部正确。
+- 临时库 DB 功能测试：`apply_slug_template` 在 6 种 mode 下生成的 slug 均符合预期（`我的第一篇技术笔记` / `…-20260826` / `post-1` / `20260826-…` / `技术记录-…` / `技术记录-20260826-…`）；唯一化追加 `-2`/`-3` 验证通过（`重复标题`→`重复标题-2`→`重复标题-3`）。
+- `settings.html` 在 `test_request_context` 下渲染成功（含「链接后缀规则」区块、`slug_mode` 下拉、`slug_template` 输入框、`/api/slug-preview` 引用）。
+- `package.py --front-dir vue-frontend/_vite_build15` 产出 `myblog-backend.zip` + `vue-frontend-dist.zip` + `sha256.txt`；zip 内 `config.py` 的 `APP_VERSION` 校验为 `3.5.2`。

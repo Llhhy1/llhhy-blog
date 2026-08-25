@@ -544,3 +544,11 @@ v3.1.7 修复 CSRF 隐藏域乱码后，用户反馈「退出登录按钮失效�
 - **② 深色模式抽屉毛玻璃回归修复**：删除遗留的 `[data-theme="dark"] .drawer { background:#1d2025; border-color:#2a2e35 }` 不透明覆盖规则——它压死了 v3.5.0 的毛玻璃（深色抽屉退回不透明深底、丢失 `backdrop-filter`）。现在深色抽屉改由毛玻璃基样式（带 alpha 背景 + `backdrop-filter` + 浅描边）渲染，仅保留文字色兜底保证可读性。
 - **验证**：`compileall myblog` 无语法错误；前端构建 `_vite_build15` 成功、产物 CSS 含 `max-width:1280px` 断点 + `.logo`/`nav a` 的 `white-space:nowrap` + 抽屉 `backdrop-filter`。R33 七维审计 **0 Blocker，0 高危**（详见 `SECURITY_AUDIT.md` 第四十三轮）。APP_VERSION 升为 v3.5.1。
 - ⚠️ 升级顺序：R33 **纯前端改动**（外加 `APP_VERSION` 升版本号），服务器**直接跑一键更新**即可（后端 + 前端 `vue-frontend-dist.zip` 一并覆盖）；覆盖后端后须在宝塔「停止 → 启动」gunicorn 方真正重载（restart 不重载）。
+
+## 36. v3.5.2：链接后缀全局模板 + 预制可选/自定义（R34 审计通过）
+
+- **① 链接后缀改为「全局模板 + 单篇覆盖」双轨**：原 v3.5.0「单篇手动填后缀」保留为单篇硬覆盖；新增后台「🔗 链接后缀规则」全局设置——`slug_mode` 选 title(沿用标题)/slug-date/id/date-slug/category-slug/自定义，自定义时填 `slug_template`（支持 `{slug}{id}{date}{category}` 占位符）；新建/编辑文章标题变动时自动套用全局模板生成后缀，单篇手动填了则硬覆盖（零破坏性：默认值 = 旧行为）。
+- **② 占位符渲染 + 查重**：`render_slug_template()` 把占位符替换为清洗后的片段（日期 `YYYYMMDD`、分类取 slug、id 取文章 ID），未知占位符清空；`_unique_slug_local()` 复用 `make_slug()` 清洗并查重（冲突 `-2/-3`），绝不写出空 slug。
+- **③ 后台实时预览**：`/api/slug-preview`（GET，`@admin_required`，CSRF 豁免 GET）按 title/mode/tpl 返回预览 slug，设置页用 `textContent` 输出（XSS 安全）。
+- **验证**：`compileall myblog` 无语法错误；DB 功能测试 6 种模式后缀正确、重复标题查重 `重复标题→重复标题-2→重复标题-3` 验证通过；`settings.html` 渲染含全部新元素。R34 七维审计 **0 Blocker，0 高危**（详见 `SECURITY_AUDIT.md` 第四十四轮 R34）。APP_VERSION 升为 v3.5.2。
+- ⚠️ 升级顺序：R34 **改了后端 `utils.py`/`admin.py`/模板 + `APP_VERSION`**，服务器**直接跑一键更新**即可（后端 + 前端 `vue-frontend-dist.zip` 一并覆盖）；覆盖后端后须在宝塔「停止 → 启动」gunicorn 方真正重载（restart 不重载）。

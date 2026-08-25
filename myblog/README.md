@@ -246,6 +246,15 @@
 - **验证**：`compileall myblog` 无语法错误；前端构建 `_vite_build15` 成功、含 `1280px` 断点 + `nowrap` + `backdrop-filter`。R33 七维审计 **0 Blocker，0 高危**（详见 `SECURITY_AUDIT.md` 第四十三轮）。APP_VERSION 升为 v3.5.1。
 - ⚠️ 升级顺序：R33 纯前端改动（外加 `APP_VERSION` 升版本号），服务器**直接跑一键更新**即可；后端覆盖后须宝塔「停止 → 启动」gunicorn 方真正重载。
 
+### v3.5.2 链接后缀全局模板 + 预制可选/自定义（R34 审计通过）
+
+- **① 链接后缀独立全局设置**：后台「站点设置」新增「🔗 链接后缀规则」区块，统一配置文章 URL 后缀生成规则（存 `Setting` 表 `slug_mode`/`slug_template`）。
+- **② 预制 5 模板 + 自定义**：`仅标题`（默认，旧行为一致）/`标题-日期`/`纯 ID`/`日期-标题`/`分类-标题`，另「自定义模板」支持 `{slug}` `{id}` `{date}` `{category}` 占位符混排固定文字。
+- **③ 实时预览**：设置页即时预览（只读 GET `/api/slug-preview`）。
+- **④ 单篇覆盖 + 全局模板**：编辑页「链接后缀」填了即单篇硬覆盖；留空套用全局模板；老文章标题未变则保持原 slug 不变。默认 `title` 与升级前一致，**零破坏**。
+- **验证**：`compileall myblog` 无语法错误；`render_slug_template` 单测 + 临时库 DB 功能测试（6 模式 + 唯一化 `-2/-3`）通过；`settings.html` 渲染通过。R34 七维审计 **0 Blocker，0 高危**（详见 `SECURITY_AUDIT.md` 第四十四轮）。APP_VERSION 升为 v3.5.2。
+- ⚠️ 升级顺序：R34 纯后端改动（无 DB 迁移、无前端构建），服务器**直接跑一键更新**即可；后端覆盖后须宝塔「停止 → 启动」gunicorn 方真正重载。
+
 ## 目录结构
 ```
 myblog/             # 后端（Flask + SQLite）

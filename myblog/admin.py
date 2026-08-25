@@ -12,7 +12,7 @@ from models import (db, Post, Category, Tag, Comment, FriendLink, Setting,
                     User, ROLE_SUPER, ROLE_ADMIN, ROLE_USER, SocialAccount,
                     Series, Announcement, Guestbook, Subscriber,
                     AuditLog, RecycleBin, LinkApplication, PostHistory)
-from utils import make_slug, count_words, validate_password
+from utils import make_slug, count_words, validate_password, apply_slug_template
 from config import APP_VERSION
 import stats as stats_mod
 import fts
@@ -518,13 +518,14 @@ def new_post():
         is_private = (request.form.get("is_private") == "on") and bool(user and user.is_super)
         reward_enabled = (request.form.get("reward_enabled") == "on") and bool(user and user.is_super)
         reward_qr = (request.form.get("reward_qr") or "").strip() if reward_enabled else ""
-        # v3.5.0 功能：自定义链接后缀（slug）。留空则按标题自动生成。
+        # v3.5.2：链接后缀「单篇覆盖 + 全局模板」。
+        # 用户填了单篇 slug → clean_slug 硬覆盖（最高优先级，构造时即定）；
+        # 留空 → 先占 slug（保证 nullable），flush 拿到 id/category 后再套全局模板生成。
         custom_slug = clean_slug(request.form.get("slug"))
-        final_slug = custom_slug if custom_slug else unique_slug(title)
         # v3.0.0 功能12：字数统计 + 阅读时长
         wc, rm = count_words(content)
         post = Post(
-            title=title, slug=final_slug, summary=summary, content=content,
+            title=title, slug=(custom_slug or title), summary=summary, content=content,
             cover=cover, category_id=category_id, published=published,
             scheduled_at=scheduled_at, is_pinned=is_pinned,
             seo_description=seo_description, seo_keywords=seo_keywords,
@@ -535,6 +536,9 @@ def new_post():
         )
         db.session.add(post)
         db.session.flush()  # 先把文章放进会话，避免标签关联警告
+        # flush 后 post.id / post.category 可用：未手填单篇 slug 时按全局模板生成最终 slug
+        if not custom_slug:
+            post.slug = apply_slug_template(post, title)
         _sync_tags(post, request.form.get("tags", ""))
         # v3.0.0 功能5：保存首个版本历史（新建即 v1）
         _save_post_history(post, user.username if user else "")
@@ -610,13 +614,15 @@ def edit_post(post_id):
             flash("标题不能为空")
             return render_template("admin/edit_post.html", post=post)
         post.title = title
-        # v3.5.0 功能：自定义链接后缀。用户填写了 slug 就用它（清洗+唯一化）；
-        # 仅当用户留空时，才回退「标题 slug 变化则按标题重新生成」的旧逻辑。
+        # v3.5.2：链接后缀「单篇覆盖 + 全局模板」。
+        # 用户填了单篇 slug → clean_slug 硬覆盖（最高优先级）；
+        # 留空且标题 slug 未变 → 保持原 slug 不动（不破坏旧 URL）；
+        # 留空且标题 slug 变了（或原 slug 为空）→ 套用全局模板重新生成。
         raw_slug = (request.form.get("slug") or "").strip()
         if raw_slug:
             post.slug = clean_slug(raw_slug, post.id)
         elif make_slug(title) != post.slug:
-            post.slug = unique_slug(title, post.id)
+            post.slug = apply_slug_template(post, title)
         post.summary = (request.form.get("summary") or "").strip()
         post.content = request.form.get("content", "")
         post.cover = (request.form.get("cover") or "").strip()
@@ -1229,7 +1235,9 @@ def settings():
                   "accent_color",
                   "theme_mode", "theme_radius", "theme_font", "nav_style", "custom_css",
                   # v3.0.0 功能2：垃圾评论关键词（逗号分隔）；功能11：前台默认语言
-                  "comment_spam_keywords", "site_lang", "reward_qr_default"]
+                  "comment_spam_keywords", "site_lang", "reward_qr_default",
+                  # v3.5.2 链接后缀全局模板
+                  "slug_mode", "slug_template"]
         for f in fields:
             val = request.form.get(f, "")
             row = Setting.query.filter_by(key=f).first()
@@ -1249,6 +1257,36 @@ def settings():
         return redirect(url_for("admin.settings"))
     settings = {s.key: s.value for s in Setting.query.all()}
     return render_template("admin/settings.html", settings=settings)
+
+
+@admin_bp.route("/api/slug-preview", methods=["GET"])
+@admin_required
+def slug_preview():
+    """v3.5.2：链接后缀模板实时预览（只读 GET，不受 CSRF 限制）。
+
+    参数：title（文章标题）、mode（slug_mode）、tpl（自定义模板串）。
+    返回 JSON {slug}，slug 经 render_slug_template 清洗（仅合法 slug 字符），
+    前端用 textContent 输出，天然转义，无 XSS。
+    """
+    from utils import render_slug_template, make_slug, SLUG_PRESETS
+
+    title = (request.args.get("title") or "").strip()
+    mode = (request.args.get("mode") or "title").strip()
+    tpl = (request.args.get("tpl") or "").strip()
+    if mode == "custom":
+        template = tpl or ""
+    else:
+        template = SLUG_PRESETS.get(mode, SLUG_PRESETS["title"])
+    # 预览用占位数据：ID=123、日期=今天、分类=技术
+    date_str = datetime.datetime.utcnow().strftime("%Y%m%d")
+    slug = render_slug_template(
+        template,
+        slug=make_slug(title) if title else "示例文章",
+        post_id=123,
+        date=date_str,
+        category="技术",
+    )
+    return jsonify({"slug": slug or "post"})
 
 
 @admin_bp.route("/captcha-settings", methods=["GET", "POST"])

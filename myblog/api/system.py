@@ -147,27 +147,37 @@ def version_status():
 def webhook_deploy():
     """密钥鉴权 + 触发服务器部署脚本。
     配置环境变量 WH_DEPLOY_SECRET（鉴权）与 DEPLOY_SCRIPT（部署脚本路径）。
-    GitHub Webhook 在 Header 带 X-Deploy-Token 或在 URL 带 ?token=。
-    校验通过后，若配置了 DEPLOY_SCRIPT 则异步执行该脚本（如 git pull / 解压 zip / 重启）。"""
+    GitHub Webhook 仅在请求头带 X-Deploy-Token（禁止 URL ?token=，避免部署密钥写入
+    Nginx/反代/GitHub webhook 投递/访问日志导致凭据泄露）。校验通过后，若配置了
+    DEPLOY_SCRIPT 则异步执行该脚本（如 git pull / 解压 zip / 重启）。"""
     secret = current_app.config.get("WH_DEPLOY_SECRET")
     if not secret:
         return jsonify({"error": "服务器未配置部署密钥 WH_DEPLOY_SECRET"}), 403
-    token = request.headers.get("X-Deploy-Token") or request.args.get("token") or ""
+    # M3 修复①：仅接受 X-Deploy-Token 请求头，禁止 URL ?token=，避免部署密钥写入
+    # Nginx/反代/GitHub webhook 投递/访问日志导致凭据泄露。
+    token = request.headers.get("X-Deploy-Token") or ""
     import hmac
     if not hmac.compare_digest(token, secret):
         return jsonify({"error": "密钥错误"}), 403
-    # v3.1.6 可选增强：timestamp 防重放（WH_REPLAY_WINDOW，默认 300 秒；设 0 关闭）
+    # v3.1.6 可选增强：timestamp 防重放（WH_REPLAY_WINDOW，默认 300 秒）。
     # 要求请求头携带 X-Deploy-Time（Unix 秒），与服务器时间偏差超过窗口即拒绝，
     # 防止攻击者截获合法 webhook 请求后在窗口外重放触发部署。
-    window = current_app.config.get("WH_REPLAY_WINDOW", 300)
-    if window > 0:
-        try:
-            import time as _t
-            ts = int(request.headers.get("X-Deploy-Time") or "")
-            if abs(_t.time() - ts) > window:
-                return jsonify({"error": "部署请求时间戳过期或缺失，已拒绝（防重放）"}), 403
-        except (TypeError, ValueError):
-            return jsonify({"error": "缺少有效的 X-Deploy-Time 时间戳，已拒绝（防重放）"}), 403
+    # M3 修复③：强制防重放下限（≥30s），禁止 WH_REPLAY_WINDOW=0 完全关闭重放保护。
+    raw_window = current_app.config.get("WH_REPLAY_WINDOW", 300)
+    try:
+        window = int(raw_window)
+    except (TypeError, ValueError):
+        window = 300
+    if window < 30:
+        window = 30
+    # 始终启用时间戳重放校验（window 恒 ≥30s，无法被关闭）
+    try:
+        import time as _t
+        ts = int(request.headers.get("X-Deploy-Time") or "")
+        if abs(_t.time() - ts) > window:
+            return jsonify({"error": "部署请求时间戳过期或缺失，已拒绝（防重放）"}), 403
+    except (TypeError, ValueError):
+        return jsonify({"error": "缺少有效的 X-Deploy-Time 时间戳，已拒绝（防重放）"}), 403
     script = current_app.config.get("DEPLOY_SCRIPT", "")
     triggered = False
     if script:

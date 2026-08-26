@@ -6,6 +6,13 @@
     <p class="auth-tip">注册后可登录评论，昵称会显示在评论里。</p>
     <form method="post" action="{{ url_for('main.register') }}">
           {{ csrf_input() }}
+      {% if captcha_on %}
+      <label>验证码</label>
+      <img src="{{ url_for('api.captcha_image', from='register') }}" alt="验证码"
+           title="点击刷新" style="cursor:pointer;vertical-align:middle"
+           onclick="this.src='{{ url_for('api.captcha_image', from='register') }}&t='+Date.now()">
+      <input type="text" name="captcha" placeholder="请输入上方验证码" autocomplete="off" required>
+      {% endif %}
       <label>用户名</label>
       <input type="text" name="username" minlength="2" maxlength="20" required>
       <label>邮箱（可选）</label>

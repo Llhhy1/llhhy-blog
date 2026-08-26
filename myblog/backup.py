@@ -163,10 +163,17 @@ def create_backup():
 
 
 def _run(cmd, timeout=300):
-    """执行外部命令；失败抛异常由调用方捕获。"""
+    """执行外部命令；失败抛异常由调用方捕获。
+
+    安全约束（L6 修复）：严禁 shell=True，避免命令注入。cmd 必须为 list，
+    若为 str 一律拒绝（TypeError），杜绝调用方误用字符串触发 shell 解析的陷阱。
+    所有同步调用方（scp/curl/oss）均传 list，无兼容性影响。
+    """
     if isinstance(cmd, str):
-        return subprocess.run(cmd, shell=True, capture_output=True, timeout=timeout,
-                              check=True)
+        raise TypeError(
+            "_run 仅接受 list 形式的命令（禁止 shell=True，防命令注入），"
+            "收到 str: %r" % cmd
+        )
     return subprocess.run(cmd, capture_output=True, timeout=timeout, check=True)
 
 

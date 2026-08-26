@@ -107,15 +107,26 @@ for _ in range(12):
         many += 1
 check(f"登录错误多次后出现 429（{many} 次）", many > 0)
 
-print("== 7. XFF 收口 ==")
-with app.test_request_context("/", environ_base={"REMOTE_ADDR": "1.2.3.4"},
-                              headers={"X-Forwarded-For": "10.0.0.1"}):
-    ip = stats.client_ip()
-    check("私网 XFF 被拒绝 → 用 remote_addr", ip == "1.2.3.4")
+print("== 7. XFF 收口（伪造 XFF 不应被采纳）==")
+# 公网直连（remote_addr 为攻击者公网 IP，非可信代理）→ 忽略 XFF，用 TCP 直连地址
 with app.test_request_context("/", environ_base={"REMOTE_ADDR": "1.2.3.4"},
                               headers={"X-Forwarded-For": "8.8.8.8"}):
     ip = stats.client_ip()
-    check("公网 XFF 被采用", ip == "8.8.8.8")
+    check("直连伪造公网 XFF 被忽略 → 用 remote_addr", ip == "1.2.3.4")
+with app.test_request_context("/", environ_base={"REMOTE_ADDR": "1.2.3.4"},
+                              headers={"X-Forwarded-For": "10.0.0.1"}):
+    ip = stats.client_ip()
+    check("直连伪造私网 XFF 被忽略 → 用 remote_addr", ip == "1.2.3.4")
+# 经可信代理（loopback，Nginx 反代）转发 → 取 XFF 最右端真实客户端 IP
+with app.test_request_context("/", environ_base={"REMOTE_ADDR": "127.0.0.1"},
+                              headers={"X-Forwarded-For": "203.0.113.7"}):
+    ip = stats.client_ip()
+    check("可信代理转发 → 采用 XFF 真实客户端 IP", ip == "203.0.113.7")
+# 即便客户端在 XFF 左侧伪造前缀，可信代理场景下也只取最右端（代理追加）的 IP
+with app.test_request_context("/", environ_base={"REMOTE_ADDR": "127.0.0.1"},
+                              headers={"X-Forwarded-For": "8.8.8.8, 203.0.113.7"}):
+    ip = stats.client_ip()
+    check("可信代理下 XFF 左侧伪造前缀被丢弃", ip == "203.0.113.7")
 
 print("== 8. 模板 |tojson 渲染 ==")
 r = client.get("/admin/users")

@@ -47,6 +47,11 @@ def register():
         if not current_app.config.get("BLOG_OPEN_REGISTER"):
             flash("本站已关闭公开注册")
             return redirect(url_for("main.register"))
+        # 验证码：与 /api/auth/register 一致，杜绝绕过 SPA 直打本路由跳过验证码（独立复审 M1）
+        cap_err = _captcha_fail("register")
+        if cap_err:
+            flash(cap_err)
+            return redirect(url_for("main.register"))
         username = (request.form.get("username") or "").strip()
         email = (request.form.get("email") or "").strip()
         password = request.form.get("password", "")
@@ -69,7 +74,8 @@ def register():
             session["user_id"] = u.id
             flash("注册成功，欢迎你！")
             return redirect(url_for("main.index"))
-    return render_template("register.html")
+    return render_template("register.html",
+                           captcha_on=_captcha_required("register"))
 
 
 @main_bp.route("/login", methods=["GET", "POST"])
@@ -115,6 +121,33 @@ def _weak_password_text(raw):
         return "" if ok else err
     except Exception:
         return "" if len(raw or "") >= 8 else "密码至少 8 位"
+
+
+def _captcha_required(scope=None):
+    """当前场景是否需要图形验证码（与 API 路由口径一致）。"""
+    try:
+        from security import captcha_required as _cr
+        return bool(_cr(scope))
+    except Exception:
+        return False
+
+
+def _captcha_fail(scope):
+    """校验 SSR 表单提交的验证码。
+
+    与 /api/auth/register、/api/post/<slug>/comment 保持一致的判定：
+    未启用验证码 → 返回 None（放行）；已通过一次性票据或答案校验 → None（放行）；
+    否则返回错误文案，由调用方 flash 并跳回。注意 fail-closed，异常即视为未通过。
+    """
+    from security import captcha_required, consume_captcha_pass, verify_captcha
+    if not captcha_required(scope):
+        return None
+    if consume_captcha_pass():
+        return None
+    code = (request.form.get("captcha") or "").strip()
+    if code and verify_captcha(code):
+        return None
+    return "请先完成验证码校验"
 
 
 def _render(post):
@@ -173,7 +206,8 @@ def post(slug):
         "image": p.cover or "",
         "type": "article",
     }
-    return render_template("post.html", post=p, comments=comments, json_ld=json_ld, og=og)
+    return render_template("post.html", post=p, comments=comments, json_ld=json_ld, og=og,
+                           comment_captcha_on=_captcha_required("comment"))
 
 
 @main_bp.route("/post/<slug>/comment", methods=["POST"])
@@ -182,6 +216,11 @@ def add_comment(slug):
     # 限流：同一 IP 60 秒内最多 10 条评论
     if not rate_limit(client_key("comment"), limit=10, window=60):
         flash("评论过于频繁，请稍后再试")
+        return redirect(url_for("main.post", slug=slug) + "#comments")
+    # 验证码：与 /api/post/<slug>/comment 一致，杜绝绕过 SPA 直打本路由跳过验证码（独立复审 M1）
+    cap_err = _captcha_fail("comment")
+    if cap_err:
+        flash(cap_err)
         return redirect(url_for("main.post", slug=slug) + "#comments")
     # 已登录用户自动用其用户名，否则用表单里的昵称
     author = ""
@@ -313,9 +352,31 @@ def api_weather():
     - 都不传：用后台设置的默认坐标与城市名
     返回：{name, city, temp, code, description, lat, lon}
     """
-    lat = request.args.get("lat")
-    lon = request.args.get("lon")
+    # 限流：公开 GET 接口，防止被滥用为放大/探测（独立复审 M4 纵深防御）
+    if not rate_limit(client_key("weather"), limit=60, window=60):
+        return jsonify(error="请求过于频繁，请稍后再试"), 429
+
+    # ---- 坐标校验：必须是合法浮点且落在合理经纬度范围，否则拒绝 ----
+    # 防止未校验的用户输入直接拼进出站 URL 造成 SSRF / CRLF 注入（独立复审 M4）
+    def _safe_coord(v, lo, hi):
+        try:
+            f = float(v)
+        except (TypeError, ValueError):
+            return None
+        if lo <= f <= hi:
+            return f
+        return None
+
+    lat_raw = request.args.get("lat")
+    lon_raw = request.args.get("lon")
     city = (request.args.get("city") or "").strip()
+    if city and len(city) > 80:
+        return jsonify(error="城市名过长"), 400
+    # 仅当两者都提供且合法时才进入坐标模式；否则置空走默认/城市模式
+    lat = _safe_coord(lat_raw, -90.0, 90.0) if lat_raw is not None else None
+    lon = _safe_coord(lon_raw, -180.0, 180.0) if lon_raw is not None else None
+    if (lat is None) != (lon is None):
+        lat = lon = None
 
     def _http_json(url, timeout=6):
         req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
@@ -353,7 +414,8 @@ def api_weather():
         try:
             g = _http_json(
                 f"https://api.bigdatacloud.net/data/reverse-geocode-client"
-                f"?latitude={lat}&longitude={lon}&localityLanguage=zh",
+                f"?latitude={urllib.parse.quote(str(lat))}"
+                f"&longitude={urllib.parse.quote(str(lon))}&localityLanguage=zh",
                 timeout=5,
             )
             nm = g.get("city") or g.get("locality") or g.get("principalSubdivision")
@@ -386,7 +448,8 @@ def api_weather():
     # ---- 兜底：Open-Meteo（WMO code）----
     try:
         d = _http_json(
-            f"https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}"
+            f"https://api.open-meteo.com/v1/forecast?latitude={urllib.parse.quote(str(lat))}"
+            f"&longitude={urllib.parse.quote(str(lon))}"
             f"&current=temperature_2m,weather_code",
             timeout=5,
         )

@@ -25,20 +25,16 @@ def today_str():
 
 
 def client_ip():
-    """取客户端真实 IP：Nginx 反代后优先 X-Forwarded-For 第一个值。
+    """取客户端真实 IP：Nginx 反代后优先 X-Forwarded-For，但仅当请求确由可信代理转发。
 
-    全量审计加固：旧实现无条件取 XFF 首段，攻击者可伪造
-    `X-Forwarded-For: 127.0.0.1` 或任意值循环变化，绕过限流（注册/登录/评论/点赞）、
-    刷爆视图/阅读/搜索埋点。改为**只接受合法公网 IP**（不合法则回退 remote_addr，
-    remote_addr 是 Nginx 与本服务 TCP 直连地址，不可伪造）——限流/埋点/属地全部收口，
-    杜绝伪造 XFF。
+    安全加固：旧实现（含 v3.4.7「只接受合法公网 XFF 首段」）仍可被攻击者伪造任意
+    公网 XFF 首段并轮换，绕过注册/登录/评论/点赞限流与访问埋点。改为：XFF 仅在
+    TCP 直连对端 remote_addr 为可信代理（内部地址，经 Nginx 转发）时才采纳，且取
+    XFF 最右端真实客户端 IP；公网直连请求一律忽略 XFF，以不可伪造的 remote_addr
+    为准。统一收口逻辑见 utils.get_client_ip。
     """
-    from flask import request
-    xff = request.headers.get("X-Forwarded-For", "")
-    cand = xff.split(",")[0].strip() if xff else ""
-    if cand and _is_safe_public_ip(cand):
-        return cand
-    return request.remote_addr or ""
+    from utils import get_client_ip
+    return get_client_ip()
 
 
 # 常见英文国家 / 地区名 → 中文（属地字段最终展示用，统一中文更清爽）

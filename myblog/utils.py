@@ -4,6 +4,7 @@ import time
 import hmac
 import hashlib
 import secrets
+import ipaddress
 
 import bleach
 from markdown import markdown
@@ -125,23 +126,82 @@ def rate_limit(key, limit=20, window=60):
     return True
 
 
+def _parse_trusted_proxies(cfg):
+    """解析 TRUSTED_PROXIES 配置（逗号分隔的 IP 或 CIDR），返回 (ip集合, 网段列表)。"""
+    ips = set()
+    nets = []
+    for raw in (cfg or "").split(","):
+        s = raw.strip()
+        if not s:
+            continue
+        try:
+            if "/" in s:
+                nets.append(ipaddress.ip_network(s, strict=False))
+            else:
+                ips.add(str(ipaddress.ip_address(s)))
+        except Exception:
+            continue
+    return ips, nets
+
+
+def _is_trusted_proxy(ip, trusted):
+    """判断 TCP 直连对端 ip 是否为可信代理。
+
+    - 若显式配置了 TRUSTED_PROXIES，命中 IP/CIDR 即视为可信；
+    - 否则采用安全默认：仅「内部地址」（私网/回环/链路本地/保留等不可公网直达）
+      视为可信代理；公网直连地址不可信——攻击者可在公网任意伪造 XFF。
+    """
+    try:
+        a = ipaddress.ip_address(ip)
+    except Exception:
+        return False
+    ips, nets = trusted
+    if ip in ips:
+        return True
+    for n in nets:
+        if a in n:
+            return True
+    return not a.is_global
+
+
+def get_client_ip():
+    """取客户端真实 IP（服务端统一收口，杜绝伪造 XFF 绕过限流/埋点/属地）。
+
+    安全模型：
+    1. X-Forwarded-For 仅在「TCP 直连对端 remote_addr 是可信代理」时才可被采纳；
+       公网直连的请求一律忽略 XFF，直接使用不可伪造的 remote_addr——
+       攻击者即便伪造任意公网 XFF 也会被丢弃，无法轮换 IP 绕过限流。
+    2. 采纳 XFF 时取**最右端**一段（最近一跳代理追加的真实客户端 IP），
+       丢弃客户端在 XFF 左侧自行伪造的任意前缀，避免首段被篡改。
+    """
+    from flask import request, current_app
+    remote = request.remote_addr or ""
+    if not remote:
+        return ""
+    cfg = ""
+    try:
+        cfg = current_app.config.get("TRUSTED_PROXIES", "")
+    except Exception:
+        cfg = ""
+    trusted = _parse_trusted_proxies(cfg)
+    if not _is_trusted_proxy(remote, trusted):
+        # 直连对端不是可信代理：XFF 完全由客户端控制，忽略，用不可伪造的 remote_addr
+        return remote
+    # 经可信代理转发：取 XFF 最右端、且为合法 IP 的一段作为真实客户端 IP
+    xff = request.headers.get("X-Forwarded-For", "")
+    if xff:
+        for cand in reversed([p.strip() for p in xff.split(",") if p.strip()]):
+            try:
+                ipaddress.ip_address(cand)
+            except Exception:
+                continue
+            return cand
+    return remote
+
+
 def client_key(prefix):
     """基于客户端真实 IP 生成限流 key（服务端统一收口，防伪造 XFF 绕过限流）。"""
-    from flask import request
-    ip = request.remote_addr or "unknown"
-    xff = request.headers.get("X-Forwarded-For", "")
-    cand = xff.split(",")[0].strip() if xff else ""
-    # 与 stats.client_ip 同口径：仅接受合法公网 XFF 首段，否则用 TCP 直连地址
-    try:
-        import ipaddress as _ipa
-        if cand and not _ipa.ip_address(cand).is_private and \
-                not _ipa.ip_address(cand).is_loopback and \
-                not _ipa.ip_address(cand).is_link_local and \
-                not _ipa.ip_address(cand).is_reserved and \
-                _ipa.ip_address(cand).is_global:
-            ip = cand
-    except Exception:
-        pass
+    ip = get_client_ip() or "unknown"
     return f"{prefix}:{ip}"
 
 

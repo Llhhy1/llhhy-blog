@@ -49,6 +49,12 @@
 
     <form class="comment-form" method="post" action="{{ url_for('main.add_comment', slug=post.slug) }}">
           {{ csrf_input() }}
+      {% if comment_captcha_on %}
+      <img src="{{ url_for('api.captcha_image', from='comment') }}" alt="验证码"
+           title="点击刷新" style="cursor:pointer;vertical-align:middle"
+           onclick="this.src='{{ url_for('api.captcha_image', from='comment') }}&t='+Date.now()">
+      <input type="text" name="captcha" placeholder="验证码" autocomplete="off" required>
+      {% endif %}
       <input type="text" name="author" placeholder="昵称（可留空）" maxlength="80">
       <textarea name="content" rows="3" placeholder="说点什么…" required></textarea>
       <button type="submit">提交评论</button>

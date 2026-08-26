@@ -140,6 +140,17 @@ class Config:
     # rate_limit 改用 Redis 计数（多 worker 全局一致）；未配置自动回退内存计数（单进程）。
     REDIS_URL = os.environ.get("REDIS_URL", "")
 
+    # ===== 可信代理（X-Forwarded-For 收口，安全相关）=====
+    # 仅在请求确实由「可信代理」转发（TCP 直连地址 remote_addr 命中此处，或默认的内部地址）
+    # 时，才采纳 X-Forwarded-For 以获取真实客户端 IP；否则一律以不可伪造的 remote_addr
+    # 为准，杜绝伪造 XFF 轮换 IP 绕过限流（注册/登录/评论/点赞/埋点）。
+    # 留空采用安全默认：仅内部地址（私网/回环/链路本地/保留等不可公网直达）视为可信代理，
+    # 因此本机 Nginx 反代（remote_addr=127.0.0.1）天然可信，公网直连则忽略 XFF。
+    # 若部署在「remote_addr 本身为公网 IP」的前置代理/CDN（如 Cloudflare、云 LB）之后，
+    # 必须把对应代理 IP / CIDR 填到这里（逗号分隔，例如 "203.0.113.0/24,198.51.100.7"），
+    # 否则会误把代理的公网 IP 当作客户端、且拿不到真实访客 IP。
+    TRUSTED_PROXIES = os.environ.get("TRUSTED_PROXIES", "")
+
     # ===== v3.3.0 数据备份与异地容灾（D3 · 运维）=====
     # backup.py 通过环境变量独立开关各远程后端；未配置则自动跳过，远程失败不阻断本地。
     # 本地：BACKUP_DIR（默认项目上级 backups/）、BACKUP_RETENTION_DAYS（默认 14 天滚动保留）

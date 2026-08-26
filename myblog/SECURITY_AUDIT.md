@@ -1667,3 +1667,29 @@ fetch('/api/version/update', {
 - `py_compile myblog/admin.py myblog/models.py myblog/app.py` 全部通过；`smoke_v320.py` 回归通过。
 - 前端模板静态断言：`fields` 数组含 `"slug"`（snapshot/restore 共用数组双向覆盖）。
 - `package.py` 产出两个 zip + sha256.txt；zip 内 `config.py` 的 `APP_VERSION` 校验为 `3.6.1`。
+
+## 第四十七轮（R37 · v3.7.0 · 链接后缀 slug 强制全局设置 · 取消单篇手动覆盖）
+
+**背景**：用户确认「文章编辑/新建页的链接后缀（slug）输入框不合理」，要求取消单篇手动覆盖，slug 一律由后台「🔗 链接后缀规则」全局设置（`slug_mode`/`slug_template`）强制生成。本轮改造：`new_post` 不再读取 `request.form.get("slug")`，slug 占位后由 `apply_slug_template` 强制生成；`edit_post` 删除「单篇覆盖」分支，仅保留「标题变化才按全局模板重建」策略（标题不变保持原 slug，不破坏旧 URL）；删除已无调用方的 `clean_slug()` 死代码；前端 `edit_post.html` 移除 slug 输入框 DOM 并加全局生成提示，`fields` 数组移除 `slug`。
+
+**改动文件**：`myblog/admin.py`（new_post/edit_post 改写 + 删除 `clean_slug`）、`myblog/templates/admin/edit_post.html`（删除 slug 输入框 + `fields` 移除 `slug` + 加全局提示）、`myblog/config.py`（`APP_VERSION` → `3.7.0`）、新增 `smoke_v370.py`；文档同步（README / myblog/README / ROADMAP / deploy_guide / SECURITY_AUDIT）。
+
+### R37 七维审计
+
+| # | 维度 | 审查点 | 结论 | 状态 |
+|---|---|---|---|---|
+| R37-1 | 注入 | 本轮无任何新增 SQL 语句；`apply_slug_template`/`get_setting`/`_unique_slug_local` 链路与原 `clean_slug` 路径一致（均参数化 `filter_by`、无字符串拼接）；输入面反而收窄（不再读取用户提交的 slug 表单字段） | ✅ 无注入 |
+| R37-2 | 越权 | `new_post`/`edit_post` 仍由 `@login_required` + `_can_edit_post` 双重保护，本轮未触碰鉴权；无新增路由 | ✅ 无越权 |
+| R37-3 | CSRF | 后端 POST 仍被全局 `_csrf_protect` 覆盖；前端改动仅删除一个输入框与 localStorage 草稿字段，不触发新请求，无 CSRF 面 | ✅ 无 CSRF 影响 |
+| R37-4 | XSS | 移除用户输入的 slug 字段后，用户输入出口进一步减少；`apply_slug_template` 生成的 slug 经 `make_slug` 清洗（仅中英文/数字/下划线/连字符）后入库，模板 `{{ post.slug }}` 走 autoescape；前端新增提示为硬编码文案、无用户可控插值 | ✅ 无新增 XSS |
+| R37-5 | 资源/异常 | 删除 `clean_slug()` 无副作用；`new_post`/`edit_post` 的 slug 生成路径更简单（无独立清洗分支）；无新增文件句柄/连接 | ✅ 无资源/异常泄漏 |
+| R37-6 | 限流 | 无新增写接口，限流配置未触碰 | ✅ 不变 |
+| R37-7 | 回归风险 | ① `smoke_v370.py` 10 项断言全通过：new_post slug 强制=`post-{id}`（id 模式）/标题短名（title 模式）/以分类前缀开头（category-slug 模式），且 slug 不含原始标题；edit_post 标题不变→slug 保持、标题变→按全局重建；② id 模式下改标题 slug 仍恒为 `post-{id}`（证明完全忽略用户输入、强制全局）；③ 前端 `name="slug"` 输入框已不存在、`fields` 数组无 `slug`；④ `py_compile` admin.py 通过；⑤ 已发布文章标题不变时 slug 不变（旧 URL 不失效），零破坏 | ✅ 无功能性回归 |
+
+**R37 结论**：**0 Blocker，0 高危**。本轮为行为收敛（取消单篇 slug 覆盖、强制全局设置），攻击面不增反减（移除一处用户输入入口），无新增逻辑风险、无 DB schema 变更（博客 `blog.db` 无需迁移）。
+
+**验证记录（R37）**：
+- `python -m py_compile myblog/admin.py` 通过；`clean_slug` 全仓库 `.py` 已无引用（`grep` 确认）。
+- `smoke_v370.py`（临时 SQLite 隔离库）10 项断言全通过，覆盖 new_post 强制全局、edit_post 标题变/不变、title/id/category-slug 三模式、前端无 slug 输入框。
+- 前端静态断言：`edit_post.html` 无 `name="slug"`、草稿 `fields` 数组无 `slug`。
+- `package.py` 产出 `myblog-backend.zip` + `vue-frontend-dist.zip` + `sha256.txt`；zip 内 `config.py` 的 `APP_VERSION` 校验为 `3.7.0`。

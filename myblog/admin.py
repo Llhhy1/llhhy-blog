@@ -225,31 +225,6 @@ def unique_slug(base, post_id=None):
     return slug
 
 
-def clean_slug(raw, post_id=None):
-    """处理用户自定义链接后缀（slug）。
-
-    - 留空 → 返回 None，调用方按标题自动生成（保持旧行为）。
-    - 非空 → 清洗为合法 slug（复用 make_slug 规则：保留中英文/数字/下划线，
-      其它字符转连字符）；若与别的文章冲突（排除自身），追加 -2/-3 保证唯一。
-    - 极端情况清洗后为空 → 回退 None（由调用方自动生成），避免空 slug 导致路由冲突。
-    """
-    if not raw:
-        return None
-    slug = make_slug(raw)
-    if not slug:
-        return None
-    i = 2
-    while True:
-        q = Post.query.filter_by(slug=slug)
-        if post_id:
-            q = q.filter(Post.id != post_id)
-        if not q.first():
-            break
-        slug = f"{make_slug(raw)}-{i}"
-        i += 1
-    return slug
-
-
 @admin_bp.context_processor
 def inject_notification_counts():
     """向所有后台模板注入未读评论/未读留言数量，用于导航角标和仪表盘提醒。"""
@@ -518,14 +493,12 @@ def new_post():
         is_private = (request.form.get("is_private") == "on") and bool(user and user.is_super)
         reward_enabled = (request.form.get("reward_enabled") == "on") and bool(user and user.is_super)
         reward_qr = (request.form.get("reward_qr") or "").strip() if reward_enabled else ""
-        # v3.5.2：链接后缀「单篇覆盖 + 全局模板」。
-        # 用户填了单篇 slug → clean_slug 硬覆盖（最高优先级，构造时即定）；
-        # 留空 → 先占 slug（保证 nullable），flush 拿到 id/category 后再套全局模板生成。
-        custom_slug = clean_slug(request.form.get("slug"))
+        # v3.7.0：链接后缀（slug）强制由后台全局设置（slug_mode/slug_template）决定，不再允许单篇覆盖。
+        # 构造时先用标题占位（保证 nullable），flush 拿到 id/category 后统一按全局模板生成最终 slug。
         # v3.0.0 功能12：字数统计 + 阅读时长
         wc, rm = count_words(content)
         post = Post(
-            title=title, slug=(custom_slug or title), summary=summary, content=content,
+            title=title, slug=title, summary=summary, content=content,
             cover=cover, category_id=category_id, published=published,
             scheduled_at=scheduled_at, is_pinned=is_pinned,
             seo_description=seo_description, seo_keywords=seo_keywords,
@@ -536,9 +509,8 @@ def new_post():
         )
         db.session.add(post)
         db.session.flush()  # 先把文章放进会话，避免标签关联警告
-        # flush 后 post.id / post.category 可用：未手填单篇 slug 时按全局模板生成最终 slug
-        if not custom_slug:
-            post.slug = apply_slug_template(post, title)
+        # flush 后 post.id / post.category 可用：按全局模板生成最终 slug（用户无法手工干预）
+        post.slug = apply_slug_template(post, title)
         _sync_tags(post, request.form.get("tags", ""))
         # v3.0.0 功能5：保存首个版本历史（新建即 v1）
         _save_post_history(post, user.username if user else "")
@@ -614,14 +586,10 @@ def edit_post(post_id):
             flash("标题不能为空")
             return render_template("admin/edit_post.html", post=post)
         post.title = title
-        # v3.5.2：链接后缀「单篇覆盖 + 全局模板」。
-        # 用户填了单篇 slug → clean_slug 硬覆盖（最高优先级）；
-        # 留空且标题 slug 未变 → 保持原 slug 不动（不破坏旧 URL）；
-        # 留空且标题 slug 变了（或原 slug 为空）→ 套用全局模板重新生成。
-        raw_slug = (request.form.get("slug") or "").strip()
-        if raw_slug:
-            post.slug = clean_slug(raw_slug, post.id)
-        elif make_slug(title) != post.slug:
+        # v3.7.0：链接后缀（slug）强制由后台全局设置（slug_mode/slug_template）决定，用户无法手工覆盖。
+        # 标题 slug 未变 → 保持原 slug 不动（不破坏已有 URL / SEO）；
+        # 标题 slug 变了（或原 slug 为空）→ 套用全局模板重新生成。
+        if make_slug(title) != post.slug:
             post.slug = apply_slug_template(post, title)
         post.summary = (request.form.get("summary") or "").strip()
         content = request.form.get("content", "")  # 新内容（局部变量，供后面比较/保存）
@@ -694,7 +662,7 @@ def edit_post(post_id):
     if post.scheduled_at:
         scheduled_local = post.scheduled_at.strftime("%Y-%m-%dT%H:%M")
     return render_template("admin/edit_post.html", post=post, cats=cats, series=series,
-                           tag_names=tag_names, post_slug=post.slug, scheduled_local=scheduled_local,
+                           tag_names=tag_names, scheduled_local=scheduled_local,
                            now_local=datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M"),
                            current_user=user)
 

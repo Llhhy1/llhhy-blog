@@ -7,9 +7,7 @@
     <label>标题 *</label>
     <input type="text" name="title" value="{{ post.title if post else '' }}" required>
 
-    <label>链接后缀（可选 · 单篇覆盖）</label>
-    <input type="text" name="slug" value="{{ post_slug if post_slug else '' }}" placeholder="留空=套用后台「链接后缀规则」全局模板；填了则本篇硬覆盖">
-    <p style="color:var(--muted,#888);font-size:12px;margin:2px 0 0;">留空时按后台设置的全局模板生成（如 <code>/post/我的笔记</code>）；填了则用你写的，仅限中英文/数字/下划线/连字符。</p>
+    <p class="hint">🔗 链接后缀（slug）由后台「链接后缀规则」全局设置自动生成，此处不可手动修改，保证全站 URL 规范统一。</p>
 
     <label>摘要（可选）</label>
     <input type="text" name="summary" value="{{ post.summary if post else '' }}">
@@ -142,7 +140,7 @@
       if (!form) return;
       var postId = {{ post.id if post else 0 }};
       var key = "draft:llhhy:" + (postId || "new");
-      var fields = ["title", "slug", "summary", "content", "cover", "tags", "seo_description", "seo_keywords"];
+      var fields = ["title", "summary", "content", "cover", "tags", "seo_description", "seo_keywords"];
       var restored = false;
 
       function snapshot() {

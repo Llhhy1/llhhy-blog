@@ -581,6 +581,13 @@ supervisorctl status
 - **验证**：`smoke_v380.py` 18 项断言全通过（BotBlock 自动建表、默认关闭放行、Googlebot 豁免、真人/坏 Bot 限流与封禁、解封、已封禁拦截、sitemap/robots/feed/JSON-LD、关闭后放行）；`py_compile` 通过。R39 七维审计 **1 高危（CSRF 缺失）已修，0 遗留**（详见 `SECURITY_AUDIT.md` 第四十九轮 R39）。
 - **⚠️ 升级顺序**：R39 **改了后端 + 模板（无 DB 迁移、无前端构建，前端沿用 `_vite_build16`）**。步骤：① 覆盖后端 zip → ② 覆盖前端 zip（本轮前端无变动，可沿用既有 `vue-frontend-dist.zip`）→ ③ 宝塔「停止 → 启动」gunicorn 方真正重载（restart 不重载）。**无需跑迁移脚本**。升级后后台左下角版本号应显示 `v3.8.0`；反爬限流默认关闭，确认无误后再于后台开启。
 
+### v3.8.1 升级注意（修复后台统计页 500 · R40）
+
+- **🔥 必看**：若你从 **v3.7.1 之前**的库直接升级到 v3.8.0，后台「📊 访问统计」会 500（`no such column: visit_log.is_bot`）——因为 `visit_log` 缺 v3.7.1 的 bot 三列，而 `db.create_all()` 不会给已存在表加列。**v3.8.1 已修复**：`app.py` 启动序列新增 `_migrate_visit_log_table()`，每次启动幂等补列，旧库升级自动自愈，**无需再手动跑任何迁移脚本**。
+- **改的什么**：纯后端 1 处启动迁移逻辑（`app.py` 新增 `_migrate_visit_log_table()`，沿用既有 `_migrate_*_table()` 范式：PRAGMA 检查列是否存在、缺才 `ALTER TABLE visit_log ADD COLUMN`）。无新表、无模板改动、无前端构建。
+- **验证**：`_debug_admin500.py` 复现夹具确认「修复前 500 / 修复后 `compute_summary`+`guard_stats`+三个后台模板全部正常」；`smoke_v380.py` 18/18 无回归。APP_VERSION 升为 v3.8.1。
+- **⚠️ 升级顺序**：① 覆盖后端 zip → ② 宝塔「停止 → 启动」gunicorn（restart 不重载）。重启即自动补列，后台统计页不再 500；左下角版本号显示 `v3.8.1`。
+
 ## 邮件设置（新文章通知订阅者 · 后台配置）
 
 > 从 v2.4.0 起，邮件群发配置**不需要再填环境变量**，直接在后台操作（更便捷）。

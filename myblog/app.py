@@ -180,6 +180,30 @@ def _migrate_audit_log_table():
             print("已迁移 audit_log 表：新增 success 列")
 
 
+def _migrate_visit_log_table():
+    """v3.7.1：visit_log 表补 bot 识别三列（is_bot/bot_name/bot_category）。
+
+    db.create_all 只建「不存在的表」、不会给已存在表加列；旧库升级若没跑过
+    migrate_visit_log_bot.py，visit_log 就会缺这三列，导致后台统计页 500。
+    这里在启动时自愈，无需手动迁移。
+    """
+    from sqlalchemy import inspect
+    ins = inspect(db.engine)
+    if "visit_log" in ins.get_table_names():
+        cols = [c["name"] for c in ins.get_columns("visit_log")]
+        specs = {"is_bot": "BOOLEAN DEFAULT 0",
+                 "bot_name": "VARCHAR(60) DEFAULT ''",
+                 "bot_category": "VARCHAR(20) DEFAULT ''"}
+        need = [c for c in specs if c not in cols]
+        if need:
+            db.session.remove()
+            db.engine.dispose()
+            with db.engine.begin() as conn:
+                for c in need:
+                    conn.execute(db.text(f"ALTER TABLE visit_log ADD COLUMN {c} {specs[c]}"))
+            print(f"已迁移 visit_log 表：新增 {', '.join(need)} 列")
+
+
 def _migrate_new_tables_v3():
     """v3.0.0 新增表：若数据库中尚不存在这些表，则建表（幂等，可重复调用）。
 
@@ -464,6 +488,7 @@ def create_app():
         _migrate_guestbook_table()
         _migrate_subscriber_table()
         _migrate_audit_log_table()
+        _migrate_visit_log_table()
         _migrate_new_tables_v3()
         try:
             import fts

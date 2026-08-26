@@ -318,6 +318,13 @@ llhhy-blog/
 - **④ 验证**：新增 `smoke_v380.py`（18 项断言全通过）覆盖 BotBlock 自动建表、默认关闭放行、搜索引擎豁免、真人/坏 Bot 限流与封禁、解封、已封禁拦截、sitemap/robots/feed/JSON-LD、关闭后放行；`py_compile` 通过。R39 七维审计 **1 高危已修，0 遗留**（详见 `myblog/SECURITY_AUDIT.md` 第四十九轮）。APP_VERSION 升为 v3.8.0。
 - ⚠️ 升级顺序：R39 **纯后端 + 模板改动（无 DB 迁移、无前端构建）**。`BotBlock` 新表由 `app.py` 的 `db.create_all()` 在重启时自动创建，无需手工迁移脚本。服务器**直接跑一键更新**即可；覆盖后端后须在宝塔「停止 → 启动」gunicorn 方真正重载（restart 不重载）。后台开关位于「⚙️ 站点设置 → 反爬限流」，**默认关闭**，按需开启。升级后后台左下角显示 `v3.8.0`。
 
+### v3.8.1 补丁：修复后台统计页 500（R40）
+
+- **① 根因**：`/admin/stats` 依赖 `visit_log` 表的 bot 三列（`is_bot` / `bot_name` / `bot_category`，v3.7.1 引入）。`db.create_all()` 只建「不存在的表」、不给已存在的表加列；若部署库未跑过 v3.7.1 迁移脚本，`visit_log` 缺这三列，`compute_summary()` 执行 `VisitLog.query.count()`（SQLAlchemy 会包一层全字段子查询）即报 `no such column: visit_log.is_bot` → 后台统计页 500。
+- **② 修复**：`app.py` 启动序列新增 `_migrate_visit_log_table()`，每次启动幂等补列（先 PRAGMA 检查、缺才 `ALTER TABLE ... ADD COLUMN`），**彻底取消对 v3.7.1 手动迁移脚本的依赖**——旧库升级自动自愈，无需任何手工步骤。
+- **③ 验证**：`_debug_admin500.py` 复现夹具确认「修复前 500 / 修复后 `compute_summary` + `guard_stats` + 三个后台模板（含 bot_guard.html 与 settings 新区块）全部正常」；`smoke_v380.py` 18/18 无回归。APP_VERSION 升为 v3.8.1。
+- ⚠️ 升级：纯后端一行迁移逻辑（无新表、无前端构建）。覆盖后端 → 宝塔「停止 → 启动」gunicorn。重启即自动补列，后台不再 500。
+
 ## 快速开始（本地开发）
 
 后端（默认端口 5000）：

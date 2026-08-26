@@ -298,6 +298,13 @@
 - **④ 验证**：`smoke_v380.py` 18 项断言全通过；`py_compile` 通过。R39 七维审计 **1 高危已修，0 遗留**（详见 `SECURITY_AUDIT.md` 第四十九轮）。APP_VERSION 升为 v3.8.0。
 - ⚠️ 升级顺序：R39 **纯后端 + 模板改动（无 DB 迁移、无前端构建）**。`BotBlock` 新表由 `db.create_all()` 自动创建，无需迁移脚本。服务器直接跑一键更新；覆盖后端后宝塔「停止 → 启动」gunicorn 真正重载。后台开关「⚙️ 站点设置 → 反爬限流」**默认关闭**。升级后显示 `v3.8.0`。
 
+### v3.8.1 补丁：修复后台统计页 500（R40）
+
+- **① 根因**：`/admin/stats` 依赖 `visit_log` 的 bot 三列（v3.7.1 引入）。`db.create_all()` 不给已存在的表加列，若部署库未跑过 v3.7.1 迁移脚本则缺列，`compute_summary()` 执行 `VisitLog.query.count()` 报 `no such column: visit_log.is_bot` → 后台统计页 500。
+- **② 修复**：`app.py` 启动序列新增 `_migrate_visit_log_table()`，每次启动幂等补列，**取消对 v3.7.1 手动迁移脚本的依赖**，旧库升级自动自愈。
+- **③ 验证**：`_debug_admin500.py` 复现夹具确认修复前 500、修复后正常；`smoke_v380.py` 18/18 无回归。APP_VERSION 升为 v3.8.1。
+- ⚠️ 升级：纯后端一行迁移逻辑（无新表、无前端构建）。覆盖后端 → 宝塔「停止 → 启动」gunicorn 即自动补列。
+
 ## 目录结构
 ```
 myblog/             # 后端（Flask + SQLite）

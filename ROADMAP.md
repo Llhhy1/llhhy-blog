@@ -591,3 +591,9 @@ v3.1.7 修复 CSRF 隐藏域乱码后，用户反馈「退出登录按钮失效�
 - **② SEO 服务增强**：文章页 JSON-LD `BlogPosting` 结构化数据 + OG/Twitter Card；`sitemap.xml` 增强（lastmod/changefreq/priority/封面图）；`robots.txt` 支持后台配置屏蔽指定坏 Bot；RSS/feed 增强（dc:creator 作者 + category 分类）。
 - **③ 安全加固**：R39 发现并修复 1 处高危——后台解封表单原缺 CSRF Token（全局 `_csrf_protect` 对所有非豁免 POST 生效）致「解封」必 403，已补全 `{{ csrf_input() }}`；XSS/注入/越权/SSRF/限流/资源泄漏维度均通过。
 - **④ 验证**：smoke_v380.py 18 项断言全通过；py_compile 通过。R39 审计 **1 高危已修，0 遗留**。APP_VERSION 升为 v3.8.0。
+
+## 43. v3.8.1：修复后台统计页 500（R40）
+
+- **① 根因**：`/admin/stats` 依赖 `visit_log` 的 bot 三列（v3.7.1 引入）；`db.create_all()` 不给已存在表加列，未跑过 v3.7.1 迁移脚本的库缺列 → `compute_summary()` 的 `VisitLog.query.count()` 报 `no such column: visit_log.is_bot` → 后台 500。
+- **② 修复**：`app.py` 启动序列新增 `_migrate_visit_log_table()`，每次启动幂等补列，取消对 v3.7.1 手动迁移脚本的依赖，旧库升级自动自愈。
+- **③ 验证**：`_debug_admin500.py` 复现夹具确认修复前 500 / 修复后正常；smoke_v380.py 18/18 无回归。APP_VERSION 升为 v3.8.1。

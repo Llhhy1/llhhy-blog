@@ -1744,3 +1744,28 @@ fetch('/api/version/update', {
 - `python -m py_compile myblog/bot_guard.py myblog/admin.py myblog/routes.py myblog/models.py myblog/api/posts.py smoke_v380.py` 通过。
 - `smoke_v380.py`（临时隔离 SQLite 库）18 项断言全通过：BotBlock 自动建表、默认关闭放行、Googlebot 豁免、真人高频限流(rate_human)、坏 Bot(AhrefsBot)更严+封禁、unblock_ip、已封禁拦截、sitemap lastmod/changefreq/priority、robots 屏蔽坏 Bot、feed dc:creator、文章页 JSON-LD、关闭后放行。
 - 前端静态断言：`post.html` 含 `application/ld+json` + OG meta；`bot_guard.html` 解封表单含 `{{ csrf_input() }}`。
+
+---
+
+## 第五十轮（R40 · v3.8.1 · 修复后台统计页 500）
+
+**背景**：用户反馈「更新完后台 500」。复现定位为 `/admin/stats` 执行 `compute_summary()` 时 `VisitLog.query.count()` 报 `no such column: visit_log.is_bot`。根因是 `visit_log` 表缺少 v3.7.1 引入的 bot 三列（`is_bot` / `bot_name` / `bot_category`）；`db.create_all()` 只建「不存在的表」、不给已存在的表加列，故未跑过 v3.7.1 迁移脚本的库（如从 v3.7.1 之前直接升级、或迁移脚本被跳过）会缺列而 500。
+
+**改动文件**：`myblog/app.py`（新增 `_migrate_visit_log_table()`，并在 `create_app()` 启动序列 `db.create_all()` 之后调用，沿用既有 `_migrate_*_table()` 范式：PRAGMA 检查列是否存在、缺才 `ALTER TABLE visit_log ADD COLUMN`，幂等可重复运行）；文档同步（README / myblog/README / deploy_guide / ROADMAP / SECURITY_AUDIT）。无新表、无模板改动、无前端构建。
+
+### R40 审计（聚焦部署健壮性）
+
+| # | 维度 | 审查点 | 结论 | 状态 |
+|---|---|---|---|---|
+| R40-1 | 部署健壮性 | 启动自愈：`_migrate_visit_log_table()` 在每次 `create_app()` 时幂等补列，取消对 v3.7.1 手动迁移脚本 `migrate_visit_log_bot.py` 的硬依赖；旧库升级自动自愈，无需手工步骤 | ✅ 修复 |
+| R40-2 | 幂等性 | 先 `inspect(db.engine).get_columns("visit_log")` 取已有列，仅对缺失列 `ALTER`，重复运行无副作用（已验证：第二次运行 skip） | ✅ 幂等 |
+| R40-3 | 异常兜底 | 迁移在 `with app.app_context()` 内执行；`ALTER` 期间 `db.session.remove()/db.engine.dispose()` 与既有迁移同款，避免连接态冲突；`compute_summary()` 本身未加包裹（根因已消除，无需降级） | ✅ 无回归 |
+| R40-4 | 注入 | 列名与 DDL 均为代码内硬编码常量（`is_bot`/`bot_name`/`bot_category` + 固定类型串），无请求输入拼接 | ✅ 无注入 |
+
+**R40 结论**：**0 遗留**。后台 500 根因（缺 `visit_log` bot 列）已通过启动自愈彻底修复，并消除对历史手动迁移脚本的依赖。
+
+**验证记录（R40）**：
+- `_debug_admin500.py` 复现夹具（临时隔离 SQLite 库 + 真实 app 上下文）：修复前 `compute_summary()` 抛 `no such column: visit_log.is_bot`；修复后 `compute_summary()` / `guard_stats()` 正常，且 `admin/stats.html` / `admin/bot_guard.html` / `admin/settings.html` 三个后台模板均成功渲染（含 v3.8.0 新增的 `bot_guard.html` 与 settings 反爬限流区块）。
+- 本地 `myblog/data/blog.db` 实测：`visit_log` 表经一次启动后补齐 `is_bot`/`bot_name`/`bot_category` 三列。
+- `smoke_v380.py` 18 项断言全通过，无回归。
+- `python -m py_compile myblog/app.py` 通过。

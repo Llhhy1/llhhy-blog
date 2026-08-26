@@ -336,6 +336,13 @@ llhhy-blog/
 - **验证**：`smoke_audit_r30.py`（含 XFF 收口 4 项新断言）、`smoke_api_pkg.py`(10)、`smoke_backup_settings.py`(7) 全部通过；`smoke_v380.py` 18/18 无回归（测试夹具补充注册 `api_bp` 以解析验证码图片路由）。APP_VERSION 升为 v3.8.2。
 - ⚠️ 部署前置：若站点跑在「remote_addr 为公网 IP」的前置代理/CDN（Cloudflare、云 LB）之后，必须配置 `TRUSTED_PROXIES`（见 `config.py` 注释），否则真实访客 IP 会显示为代理 IP；Nginx 仍建议 `proxy_set_header X-Forwarded-For $remote_addr;`（替换非追加）。
 
+### v3.8.3：SMTP 发送异常可观测性修复（R42）
+
+- **背景**：后台「📧 邮件设置」点「发送测试邮件」报错「错误详情见后端日志」，但日志里查不到 SMTP 详情——原 `_send_smtp()` 静默吞掉异常（`except Exception: return False`）。
+- **修复**：异常分支现把完整栈打到 `sys.stderr`，由 gunicorn 写入 `gunicorn.log`（搜 `[SMTP ERROR]` 即可定位）。纯可观测性增强，无新路由/表/模板/前端改动；R42 七维审计 0 遗留。
+- **排错**：重部署后填对 SMTP（授权码≠登录密码、465 勾 SSL / 587 取消勾选、出站端口放行），点测试邮件；`tail -n 60 /www/wwwroot/<站点>/gunicorn.log | grep "SMTP ERROR"` 看真实报错（535 认证失败 / 超时 / SSL 握手 / 连接拒绝）。详见 `myblog/deploy_guide.md`「邮件设置」排错块。
+- ⚠️ 升级：纯后端一行改动（无 DB 迁移、无前端构建）。覆盖后端 → 宝塔「停止 → 启动」gunicorn 方真正重载（restart 不重载）。升级后后台左下角显示 `v3.8.3`。
+
 ## 快速开始（本地开发）
 
 后端（默认端口 5000）：

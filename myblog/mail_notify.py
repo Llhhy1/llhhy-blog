@@ -91,6 +91,10 @@ def _send_smtp(cfg, to_addrs, subject, html_body, plain_body=""):
                 s.sendmail(sender, to_addrs, msg.as_string())
         return True
     except Exception:
+        # v3.8.3 修复：此前静默吞掉异常，导致「错误详情见后端日志」查不到内容。
+        # 现在把完整异常栈打到 stderr（gunicorn 会捕获进 gunicorn.log），便于定位。
+        import sys, traceback
+        sys.stderr.write("[SMTP ERROR] 邮件发送失败，详情：\n" + traceback.format_exc() + "\n")
         return False
 
 

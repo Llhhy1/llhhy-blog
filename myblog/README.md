@@ -315,6 +315,12 @@
 - **L6**：`backup.py::_run` 移除 `shell=True`，强制 list 参数。
 - **验证**：`smoke_audit_r30.py`、`smoke_api_pkg.py`(10)、`smoke_backup_settings.py`(7) 全过；`smoke_v380.py` 18/18 无回归。APP_VERSION 升为 v3.8.2。
 
+### v3.8.3：SMTP 发送异常可观测性修复（R42）
+
+- **修复**：后台「📧 邮件设置」点「发送测试邮件」原静默吞掉 SMTP 异常（`except Exception: return False`），日志查不到详情；现异常栈打印到 `sys.stderr` → `gunicorn.log`（搜 `[SMTP ERROR]`）。纯后端一行改动，无新安全面（R42 七维审计 0 遗留）。
+- **排错**：重部署后 `tail -n 60 /www/wwwroot/<站点>/gunicorn.log | grep "SMTP ERROR"` 看真实报错。授权码≠登录密码、465 勾 SSL / 587 取消、出站端口放行。详见 `deploy_guide.md`「邮件设置」排错块。
+- APP_VERSION 升为 v3.8.3。
+
 ## 目录结构
 ```
 myblog/             # 后端（Flask + SQLite）

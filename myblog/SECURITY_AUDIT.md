@@ -1794,4 +1794,28 @@ fetch('/api/version/update', {
 - `smoke_api_pkg.py`：10/10 通过。
 - `smoke_backup_settings.py`：7/7 通过。
 - `smoke_v380.py`：18/18 通过（测试夹具补充注册 `api_bp`，修复因模板新增 `url_for('api.captcha_image')` 导致的 BuildError 假阳性）。
+
+---
+
+## 第五十二轮（R42 · v3.8.3 · SMTP 发送异常可观测性修复）
+
+**背景**：用户反馈后台「📧 邮件设置」点「发送测试邮件」报错「发送失败：请检查SMTP配置（主机/端口/授权码/SSL开关），错误详情见后端日志」，但后端日志里查不到任何 SMTP 详情。根因为 `myblog/mail_notify.py::_send_smtp()` 原 `except Exception: return False` **静默吞掉异常**，未打印任何信息，使「见后端日志」成为空头支票。
+
+**改动文件**：`myblog/mail_notify.py`（`_send_smtp` 的 except 块新增 `import sys, traceback; sys.stderr.write("[SMTP ERROR] 邮件发送失败，详情：\n" + traceback.format_exc() + "\n")`）。gunicorn 捕获 stderr → 写入 `gunicorn.log`；重部署后点一次测试邮件即可在日志看到真实报错。无新路由、无新表、无模板/前端改动。
+
+### R42 审计（聚焦改动安全面）
+
+| # | 维度 | 审查点 | 结论 | 状态 |
+|---|---|---|---|---|
+| R42-1 | XSS | `traceback.format_exc()` 仅写入 `sys.stderr`（落 `gunicorn.log`），不进入任何 HTML 响应/模板，无反射/存储 XSS 面 | ✅ 无 XSS |
+| R42-2 | 密钥泄露 | 异常栈含异常类型、message 与源码行（如 `s.login(user, pwd)`）；`format_exc` 不打印局部变量**值**，仅显示变量名 `pwd`，故**不泄露密码明文**；连接/认证异常 message 至多含 SMTP 主机与账号 `user`（用于定位，属预期），不含授权码 | ✅ 无密钥泄露 |
+| R42-3 | 注入/越权/SSRF/CSRF | 改动不引入 SQL、新路由、`urlopen`/`requests` 或 POST 表单；全局 CSRF 与既有防护不受影响 | ✅ 无新增攻击面 |
+| R42-4 | 资源泄漏 | 仅向已打开的 `sys.stderr` 写字符串，无文件句柄/subprocess/连接创建，无泄漏 | ✅ 无泄漏 |
+| R42-5 | 限流/异常 | 改动位于发送失败分支（已 return False），不影响正常发送路径；`sys.stderr.write` 异常由 gunicorn 兜底，不会二次抛错 | ✅ 无回归 |
+
+**R42 结论**：**0 遗留**。本次为纯可观测性增强（让静默吞掉的 SMTP 异常可见），不引入任何安全回归；`[SMTP ERROR]` 前缀便于 `grep` 定位。
+
+**验证记录（R42）**：
+- `python -m py_compile myblog/mail_notify.py` 通过。
+- 人工核对 `_send_smtp` 上下文：`sendmail` 成功返回 True，异常分支现打印栈后返回 False，语义不变。
 - `python -m py_compile` 全部改动文件通过。

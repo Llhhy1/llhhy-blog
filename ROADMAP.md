@@ -607,3 +607,10 @@ v3.1.7 修复 CSRF 隐藏域乱码后，用户反馈「退出登录按钮失效�
 - **④ M4 weather 坐标校验**：`lat`/`lon` 强校验浮点+范围，出站参数 `quote` 转义，新增限流。
 - **⑤ L6 backup 加固**：`backup.py::_run` 移除 `shell=True`，强制 list 参数。
 - **⑥ 验证**：`smoke_audit_r30.py`（XFF 收口 4 项新断言）、`smoke_api_pkg.py`(10)、`smoke_backup_settings.py`(7) 全过；`smoke_v380.py` 18/18 无回归（夹具补注册 `api_bp`）。APP_VERSION 升为 v3.8.2。
+
+## 45. v3.8.3：SMTP 发送异常可观测性修复（R42）
+
+- **① 问题**：后台「📧 邮件设置」点「发送测试邮件」报错「错误详情见后端日志」，但日志里查不到 SMTP 详情——原 `_send_smtp()` 静默吞掉异常（`except Exception: return False`）。
+- **② 修复**：异常分支现把完整栈打到 `sys.stderr`，由 gunicorn 写入 `gunicorn.log`（搜 `[SMTP ERROR]` 即可定位）。无新路由/表/模板/前端改动。
+- **③ 排错指引**：重部署后填对 SMTP（授权码≠登录密码、465 勾 SSL / 587 取消勾选、出站端口放行），点测试邮件；`tail -n 60 /www/wwwroot/<站点>/gunicorn.log | grep "SMTP ERROR"` 看真实报错（535 认证失败 / 超时 / SSL 握手 / 连接拒绝）。
+- **④ 验证**：py_compile 通过；R42 七维审计 0 遗留。APP_VERSION 升为 v3.8.3。

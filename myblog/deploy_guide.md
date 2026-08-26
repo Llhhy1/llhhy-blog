@@ -616,6 +616,12 @@ supervisorctl status
 4. 之后每次发布新文章，会自动给「✉️ 订阅者」里所有 active 邮箱发通知（含一键退订链接）。
    - 未配置 SMTP 时群发自动跳过，不影响发文章。
 
+> **排错（v3.8.3 起异常栈可见）**：若点「发送测试邮件」仍提示「错误详情见后端日志」，重部署后真实异常会打印到站点日志。定位站点目录：`ls /www/wwwroot/*/data/blog.db`（父目录即 `APP_DIR`）；查看：`tail -n 60 /www/wwwroot/<站点>/gunicorn.log | grep "SMTP ERROR"`。常见真实报错与对策：
+> - `535 Authentication failed` → 授权码错（QQ/163 必须用邮箱后台生成的**授权码**，不是登录密码）。
+> - `timeout` / `Connection refused` → 主机名拼错、端口错，或服务器出站 465/587 被防火墙/安全组拦截（国内机器常见）。
+> - `SSL: wrong version number` → 端口与 SSL 开关不匹配：465 **必须勾选** SSL，587 **必须取消**勾选。
+> - 另注意 `SMTP_PASSWORD_ENV_FIRST`（默认 `true`）：宝塔环境变量里的 `SMTP_PASSWORD` 优先于后台填的密码，若两者不一致以环境变量为准——核对宝塔「Python 项目 → 设置 → 环境变量」是否覆盖。
+
 ## 自动部署（GitHub push → 服务器自动更新）
 
 > 想让「GitHub 推送代码 = 服务器自动更新」，只需三步。**可选功能，不配不影响使用。**

@@ -8,11 +8,28 @@ from flask import (Blueprint, render_template, request, redirect, url_for,
 from markupsafe import escape
 
 from models import db, Post, Category, Tag, Comment, Setting, User, ROLE_USER, visible_posts_query
-from utils import make_slug, render_markdown, safe_redirect, rate_limit, client_key, validate_password
+from utils import (make_slug, render_markdown, safe_redirect, rate_limit, client_key,
+                   validate_password, get_setting)
 # v3.1.0：登录审计（log_login_attempt 定义于 admin 模块，admin 不依赖 routes，无循环）
 from admin import log_login_attempt
 
 main_bp = Blueprint("main", __name__)
+
+
+# ---------- 反爬限流保护（v3.8.0）----------
+@main_bp.before_request
+def _bot_guard_before():
+    """前台请求进入前做反爬限流检查；放行返回 None，拦截返回 429 响应。"""
+    try:
+        from bot_guard import check_bot_guard
+        res = check_bot_guard()
+    except Exception:
+        return None
+    if res:
+        from flask import make_response
+        resp = make_response("429 Too Many Requests", 429)
+        resp.headers["Retry-After"] = "60"
+        return resp
 
 
 # ---------- 用户注册 / 登录 / 登出 ----------
@@ -130,7 +147,33 @@ def post(slug):
         db.session.commit()
     _render(p)
     comments = p.comments.filter_by(approved=True).order_by(Comment.created_at.asc()).all()
-    return render_template("post.html", post=p, comments=comments)
+    # SEO：JSON-LD 结构化数据 + Open Graph（v3.8.0）
+    base = (current_app.config.get("SITE_URL") or request.url_root.rstrip("/")).rstrip("/")
+    author_name = (p.author.username if p.author
+                   else get_setting("site_name", current_app.config.get("SITE_TITLE", "我的博客")))
+    json_ld = {
+        "@context": "https://schema.org",
+        "@type": "BlogPosting",
+        "headline": p.title,
+        "datePublished": p.created_at.isoformat(),
+        "dateModified": (p.updated_at or p.created_at).isoformat(),
+        "author": {"@type": "Person", "name": author_name},
+        "publisher": {"@type": "Organization",
+                      "name": current_app.config.get("SITE_TITLE", "我的博客")},
+        "description": (p.seo_description or p.summary or "")[:200],
+        "url": f"{base}/post/{p.slug}",
+        "mainEntityOfPage": {"@type": "WebPage", "@id": f"{base}/post/{p.slug}"},
+    }
+    if p.cover:
+        json_ld["image"] = [p.cover]
+    og = {
+        "title": p.title,
+        "description": (p.seo_description or p.summary or "")[:200],
+        "url": f"{base}/post/{p.slug}",
+        "image": p.cover or "",
+        "type": "article",
+    }
+    return render_template("post.html", post=p, comments=comments, json_ld=json_ld, og=og)
 
 
 @main_bp.route("/post/<slug>/comment", methods=["POST"])
@@ -378,19 +421,23 @@ def feed():
         link = f"{base}/post/{p.slug}"
         pub = p.created_at.strftime("%a, %d %b %Y %H:%M:%S +0000")
         summary = (p.summary or (p.content or "")[:200]).strip()
+        author = (p.author.username if p.author else site_title)
+        cat = p.category.name if p.category else ""
         items.append(
             "    <item>\n"
             f"      <title>{escape(p.title)}</title>\n"
             f"      <link>{escape(link)}</link>\n"
             f"      <guid>{escape(link)}</guid>\n"
             f"      <pubDate>{pub}</pubDate>\n"
+            f"      <dc:creator>{escape(author)}</dc:creator>\n"
+            f"      <category>{escape(cat)}</category>\n"
             f"      <description>{escape(summary)}</description>\n"
             "    </item>"
         )
     last = posts[0].created_at.strftime("%a, %d %b %Y %H:%M:%S +0000") if posts else ""
     xml = (
         '<?xml version="1.0" encoding="UTF-8"?>\n'
-        '<rss version="2.0">\n'
+        '<rss version="2.0" xmlns:dc="http://purl.org/dc/elements/1.1/">\n'
         "  <channel>\n"
         f"    <title>{escape(site_title)}</title>\n"
         f"    <link>{escape(base + '/')}</link>\n"
@@ -405,24 +452,43 @@ def feed():
 
 @main_bp.route("/sitemap.xml")
 def sitemap():
-    """站点地图：首页、关于、友链 + 全部已发布文章。"""
+    """站点地图（v3.8.0 增强：lastmod / changefreq / priority / 封面图）。"""
     base = _site_base()
-    urls = [base + "/", base + "/about", base + "/links"]
+    urls = [
+        (base + "/", "daily", "1.0"),
+        (base + "/about", "monthly", "0.5"),
+        (base + "/links", "weekly", "0.6"),
+    ]
     for p in visible_posts_query().all():
-        urls.append(f"{base}/post/{p.slug}")
+        urls.append((f"{base}/post/{p.slug}", "weekly", "0.8",
+                     (p.updated_at or p.created_at).strftime("%Y-%m-%d"), p.cover))
     lines = [
         '<?xml version="1.0" encoding="UTF-8"?>',
-        '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">',
+        '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" '
+        'xmlns:image="http://www.google.com/schemas/sitemap-image/1.1">',
     ]
-    for u in urls:
-        lines.append(f"  <url><loc>{escape(u)}</loc></url>")
+    for item in urls:
+        u, freq, prio = item[0], item[1], item[2]
+        extra = ""
+        if len(item) > 3 and item[3]:
+            extra += f"<lastmod>{item[3]}</lastmod>"
+        if len(item) > 4 and item[4]:
+            extra += f'<image:image><image:loc>{escape(item[4])}</image:loc></image:image>'
+        lines.append(f"  <url><loc>{escape(u)}</loc>{extra}"
+                     f"<changefreq>{freq}</changefreq><priority>{prio}</priority></url>")
     lines.append("</urlset>")
     return Response("\n".join(lines), mimetype="application/xml")
 
 
 @main_bp.route("/robots.txt")
 def robots():
-    """告诉搜索引擎：全站可抓取，并指向 sitemap。"""
+    """告诉搜索引擎抓取规则（v3.8.0 增强：可屏蔽指定坏 Bot）。"""
     base = _site_base()
-    text = f"User-agent: *\nAllow: /\nSitemap: {base}/sitemap.xml\n"
-    return Response(text, mimetype="text/plain")
+    lines = ["User-agent: *", "Allow: /"]
+    bad_bots = get_setting("seo_block_bots", "")
+    if bad_bots:
+        for b in [x.strip() for x in bad_bots.split(",") if x.strip()]:
+            lines.append(f"User-agent: {b}")
+            lines.append("Disallow: /")
+    lines.append(f"Sitemap: {base}/sitemap.xml")
+    return Response("\n".join(lines), mimetype="text/plain")

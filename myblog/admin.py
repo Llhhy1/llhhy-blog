@@ -17,6 +17,7 @@ from config import APP_VERSION
 import stats as stats_mod
 import fts
 import notify
+import bot_guard
 import mail_notify
 
 admin_bp = Blueprint("admin", __name__, url_prefix="/admin")
@@ -1206,7 +1207,10 @@ def settings():
                   # v3.0.0 功能2：垃圾评论关键词（逗号分隔）；功能11：前台默认语言
                   "comment_spam_keywords", "site_lang", "reward_qr_default",
                   # v3.5.2 链接后缀全局模板
-                  "slug_mode", "slug_template"]
+                  "slug_mode", "slug_template",
+                  # v3.8.0 反爬限流保护配置
+                  "bot_guard_threshold", "bot_guard_window", "bot_guard_tool_limit",
+                  "bot_guard_block_hits", "bot_guard_block_minutes", "seo_block_bots"]
         for f in fields:
             val = request.form.get(f, "")
             row = Setting.query.filter_by(key=f).first()
@@ -1221,6 +1225,14 @@ def settings():
             cap.value = cap_val
         else:
             db.session.add(Setting(key="comment_require_approval", value=cap_val))
+        # v3.8.0：反爬限流两个开关（checkbox：勾选=true，不勾选=空）
+        for cb in ("bot_guard_enabled", "bot_guard_search_whitelist"):
+            row = Setting.query.filter_by(key=cb).first()
+            val = "true" if request.form.get(cb) else "false"
+            if row:
+                row.value = val
+            else:
+                db.session.add(Setting(key=cb, value=val))
         db.session.commit()
         flash("站点设置已保存")
         return redirect(url_for("admin.settings"))
@@ -1476,6 +1488,7 @@ def stats():
     """访问统计页（服务端渲染，含区域/时段/热读/常搜图表）。"""
     from stats import compute_summary
     summary = compute_summary()
+    guard = bot_guard.guard_stats()
     # 时段分布转成带百分比的行，供模板画横向条形图
     total_hour = sum(b["count"] for b in summary["hourly"]) or 1
     max_hour = max([b["count"] for b in summary["hourly"]] or [1]) or 1
@@ -1490,7 +1503,22 @@ def stats():
     max_search = max([s["count"] for s in summary["hot_searches"]] or [1]) or 1
     for s in summary["hot_searches"]:
         s["pct"] = round(s["count"] * 100 / max_search)
-    return render_template("admin/stats.html", summary=summary)
+    return render_template("admin/stats.html", summary=summary, guard=guard)
+
+
+@admin_bp.route("/bot-guard", methods=["GET", "POST"])
+@super_required
+def bot_guard_view():
+    """反爬限流保护看板 + 封禁管理（v3.8.0）。"""
+    if request.method == "POST":
+        action = request.form.get("action")
+        ip = (request.form.get("ip") or "").strip()
+        if action == "unblock" and ip:
+            ok = bot_guard.unblock_ip(ip)
+            flash("已解封 " + ip if ok else "未找到该 IP 的封禁记录")
+        return redirect(url_for("admin.bot_guard_view"))
+    data = bot_guard.guard_stats()
+    return render_template("admin/bot_guard.html", stats=data, now=datetime.utcnow())
 
 
 @admin_bp.route("/password", methods=["GET", "POST"])

@@ -149,6 +149,20 @@ class IpRegion(db.Model):
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
+class BotBlock(db.Model):
+    """反爬限流封禁记录（v3.8.0）。记录被限流 / 封禁的 IP 与对应 Bot。"""
+    id = db.Column(db.Integer, primary_key=True)
+    ip = db.Column(db.String(64), index=True)
+    bot_name = db.Column(db.String(60), default="")          # 命中 Bot 名称（空=真人高频）
+    bot_category = db.Column(db.String(20), default="")      # search/ai/tool/unknown/空
+    hit_count = db.Column(db.Integer, default=1)             # 触发限流的累计次数
+    reason = db.Column(db.String(40), default="")            # rate_human/rate_tool/rate_ai
+    blocked_until = db.Column(db.DateTime, default=None)     # 封禁截止（None=仅记录未封禁）
+    active = db.Column(db.Boolean, default=True, index=True) # 是否仍在封禁 / 监控中
+    first_seen = db.Column(db.DateTime, default=datetime.utcnow)
+    last_seen = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
 # 用户角色（权限等级从高到低）
 ROLE_SUPER = "super"   # 超级管理员：拥有全部权限，可管理其他用户，不可被删除/降级
 ROLE_ADMIN = "admin"   # 管理员：可进入后台管理内容（文章/分类/标签/评论/设置）

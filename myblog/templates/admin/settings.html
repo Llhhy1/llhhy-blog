@@ -90,7 +90,7 @@
 
     <label style="margin-top:24px;font-size:15px;color:var(--accent);">🔗 v3.5.2 链接后缀规则（全局模板）</label>
     <p style="color:var(--muted,#888);font-size:13px;margin:4px 0 10px;">
-      设置新建/未指定单篇后缀时文章链接的默认生成规则。单篇文章编辑页仍可手填「链接后缀」<b>覆盖</b>本条规则（留空才套用模板）。
+      设置新建/未指定单篇后缀时文章链接的默认生成规则。v3.7.0 起已取消单篇手填，slug 一律由本规则强制生成（留空套用模板）。
     </p>
 
     <label>模板选择</label>
@@ -137,6 +137,25 @@
         update();
       })();
     </script>
+
+    <label style="margin-top:24px;font-size:15px;color:var(--accent);">🛡️ v3.8.0 反爬限流保护</label>
+    <p style="color:var(--muted,#888);font-size:13px;margin:4px 0 10px;">
+      开启后，对高频访问 / 可疑爬虫做限流与封禁。搜索引擎（Google/Baidu/Bing 等）默认豁免，不影响 SEO。建议先在测试环境观察触发情况再全量开启。
+    </p>
+    <label><input type="checkbox" name="bot_guard_enabled" {{ 'checked' if settings.bot_guard_enabled == 'true' }}> 启用反爬限流（默认关闭）</label>
+    <label><input type="checkbox" name="bot_guard_search_whitelist" {{ 'checked' if settings.bot_guard_search_whitelist != 'false' }}> 搜索引擎白名单豁免（推荐保持开启）</label>
+    <label>普通访客 / AI 爬虫单窗口最大请求数（默认 120）</label>
+    <input type="number" name="bot_guard_threshold" value="{{ settings.bot_guard_threshold or '120' }}" min="1">
+    <label>限流窗口（秒，默认 60）</label>
+    <input type="number" name="bot_guard_window" value="{{ settings.bot_guard_window or '60' }}" min="1">
+    <label>工具 / 未知爬虫单窗口最大请求数（更严格，默认 20）</label>
+    <input type="number" name="bot_guard_tool_limit" value="{{ settings.bot_guard_tool_limit or '20' }}" min="1">
+    <label>触发几次后封禁（默认 3）</label>
+    <input type="number" name="bot_guard_block_hits" value="{{ settings.bot_guard_block_hits or '3' }}" min="1">
+    <label>封禁时长（分钟，默认 30）</label>
+    <input type="number" name="bot_guard_block_minutes" value="{{ settings.bot_guard_block_minutes or '30' }}" min="1">
+    <label>SEO：robots.txt 中屏蔽的坏 Bot（逗号分隔，如 AhrefsBot,MJ12Bot；留空=不屏蔽）</label>
+    <input type="text" name="seo_block_bots" value="{{ settings.seo_block_bots or '' }}" placeholder="AhrefsBot,MJ12Bot">
 
     <button type="submit" class="btn">保存设置</button>
   </form>

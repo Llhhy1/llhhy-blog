@@ -310,6 +310,14 @@ llhhy-blog/
 - **④ 验证**：新增 `smoke_v371.py`（19 项断言全通过）覆盖 detect_bot 五类 UA、record_visit 落库、compute_summary 维度；`py_compile` 通过。R38 七维审计 **0 Blocker，0 高危**（详见 `myblog/SECURITY_AUDIT.md` 第四十八轮）。APP_VERSION 升为 v3.7.1。
 - ⚠️ 升级顺序：R38 **有 SQLite DB 迁移**（visit_log 加 3 列）。覆盖后端后**先跑迁移** `python myblog/migrate_visit_log_bot.py`（或 `BLOG_DB=/www/wwwroot/你的站点/data/blog.db python myblog/migrate_visit_log_bot.py`），再宝塔「停止 → 启动」gunicorn 方真正重载。无前端构建改动，前端沿用 `_vite_build16`。升级后后台左下角显示 `v3.7.1`。
 
+### v3.8.0 反爬限流保护 + SEO 服务增强（R39 审计通过）
+
+- **① 反爬限流保护（bot_guard，默认关闭）**：基于 v3.7.1 的 Bot 识别，对高频/可疑请求做限流与封禁。搜索引擎（Google/Baidu/Bing 等）默认白名单豁免，不影响 SEO 抓取；坏 Bot（tool/unknown 类，如 AhrefsBot/SemrushBot）走更严格阈值；达到拦截次数阈值才封禁一段时间。新增 `BotBlock` 表记录触发/封禁，后台「🛡️ 反爬限流保护」看板可查看并解封。
+- **② SEO 服务增强**：文章页新增 JSON-LD `BlogPosting` 结构化数据 + Open Graph / Twitter Card 元标签；`sitemap.xml` 增强（lastmod/changefreq/priority/封面图）；`robots.txt` 支持后台配置屏蔽指定坏 Bot；RSS/feed 增强（dc:creator 作者 + category 分类）。
+- **③ 安全加固**：R39 审计发现并修复 1 处高危——后台解封表单原本缺失 CSRF Token（全局 `_csrf_protect` 对所有非豁免 POST 生效），会导致「解封」按钮必定 403；已补全 `{{ csrf_input() }}`。其余 XSS / 注入 / 越权 / SSRF / 限流 / 资源泄漏维度均通过。
+- **④ 验证**：新增 `smoke_v380.py`（18 项断言全通过）覆盖 BotBlock 自动建表、默认关闭放行、搜索引擎豁免、真人/坏 Bot 限流与封禁、解封、已封禁拦截、sitemap/robots/feed/JSON-LD、关闭后放行；`py_compile` 通过。R39 七维审计 **1 高危已修，0 遗留**（详见 `myblog/SECURITY_AUDIT.md` 第四十九轮）。APP_VERSION 升为 v3.8.0。
+- ⚠️ 升级顺序：R39 **纯后端 + 模板改动（无 DB 迁移、无前端构建）**。`BotBlock` 新表由 `app.py` 的 `db.create_all()` 在重启时自动创建，无需手工迁移脚本。服务器**直接跑一键更新**即可；覆盖后端后须在宝塔「停止 → 启动」gunicorn 方真正重载（restart 不重载）。后台开关位于「⚙️ 站点设置 → 反爬限流」，**默认关闭**，按需开启。升级后后台左下角显示 `v3.8.0`。
+
 ## 快速开始（本地开发）
 
 后端（默认端口 5000）：

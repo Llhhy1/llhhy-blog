@@ -584,3 +584,10 @@ v3.1.7 修复 CSRF 隐藏域乱码后，用户反馈「退出登录按钮失效�
 - **② 数据落库**：VisitLog 新增 is_bot/bot_name/bot_category 三字段（迁移脚本 myblog/migrate_visit_log_bot.py）；record_visit 落库，compute_summary 新增 bot_visits/human_visits/bot_today/bot_breakdown。
 - **③ 后台可视化**：统计看板新增「🤖 爬虫访问」占比卡片 + 「🤖 爬虫/Bot 来源排行」。
 - **④ 验证**：smoke_v371.py 19 项断言全通过；R38 七维审计 0 Blocker。APP_VERSION 升为 v3.7.1。
+
+## 42. v3.8.0：反爬限流保护 + SEO 服务增强（R39 审计通过）
+
+- **① 反爬限流保护（bot_guard，默认关闭）**：基于 v3.7.1 的 Bot 识别对高频/可疑请求限流与封禁。搜索引擎（search 类）默认白名单豁免，不影响 SEO；坏 Bot（tool/unknown）更严阈值；达次数阈值才封禁一段时间。新增 `BotBlock` 表，`db.create_all()` 自动建表（无迁移脚本），后台「🛡️ 反爬限流保护」看板可查看与解封。
+- **② SEO 服务增强**：文章页 JSON-LD `BlogPosting` 结构化数据 + OG/Twitter Card；`sitemap.xml` 增强（lastmod/changefreq/priority/封面图）；`robots.txt` 支持后台配置屏蔽指定坏 Bot；RSS/feed 增强（dc:creator 作者 + category 分类）。
+- **③ 安全加固**：R39 发现并修复 1 处高危——后台解封表单原缺 CSRF Token（全局 `_csrf_protect` 对所有非豁免 POST 生效）致「解封」必 403，已补全 `{{ csrf_input() }}`；XSS/注入/越权/SSRF/限流/资源泄漏维度均通过。
+- **④ 验证**：smoke_v380.py 18 项断言全通过；py_compile 通过。R39 审计 **1 高危已修，0 遗留**。APP_VERSION 升为 v3.8.0。

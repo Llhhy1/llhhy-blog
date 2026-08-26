@@ -124,25 +124,30 @@ def posts_by_tag(slug):
 
 # ---------- RSS 按分类 / 标签订阅（v3.0.0 功能10）----------
 def _rss_xml(posts, title, desc, base):
-    """把文章列表拼成 RSS 2.0 XML（复用 routes.py 的 feed() 逻辑，纯本地、无外部依赖）。"""
+    """把文章列表拼成 RSS 2.0 XML（纯本地、无外部依赖），含作者/分类元数据。"""
     items = []
     for p in posts:
         link = f"{base}/post/{p.slug}"
         pub = p.created_at.strftime("%a, %d %b %Y %H:%M:%S +0000")
         summary = escape((p.summary or (p.content or "")[:200]).strip())
+        author = (p.author.username if p.author
+                  else current_app.config.get("SITE_TITLE", "站长"))
+        cat = p.category.name if p.category else ""
         items.append(
             "    <item>\n"
             f"      <title>{escape(p.title)}</title>\n"
             f"      <link>{escape(link)}</link>\n"
             f"      <guid>{escape(link)}</guid>\n"
             f"      <pubDate>{pub}</pubDate>\n"
+            f"      <dc:creator>{escape(author)}</dc:creator>\n"
+            f"      <category>{escape(cat)}</category>\n"
             f"      <description>{summary}</description>\n"
             "    </item>"
         )
     last = posts[0].created_at.strftime("%a, %d %b %Y %H:%M:%S +0000") if posts else ""
     xml = (
         '<?xml version="1.0" encoding="UTF-8"?>\n'
-        '<rss version="2.0">\n'
+        '<rss version="2.0" xmlns:dc="http://purl.org/dc/elements/1.1/">\n'
         "  <channel>\n"
         f"    <title>{escape(title)}</title>\n"
         f"    <link>{escape(base + '/')}</link>\n"

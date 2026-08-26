@@ -573,6 +573,14 @@ supervisorctl status
 - **验证**：新增 `smoke_v371.py`（19 项断言全通过：detect_bot 五类 UA、record_visit 落库、compute_summary 四维度）；`py_compile` 通过。R38 七维审计 **0 Blocker，0 高危**（详见 `SECURITY_AUDIT.md` 第四十八轮 R38）。
 - **⚠️ 升级顺序**：R38 **改了后端 + 模板 + 有 DB 迁移**（前端沿用 `_vite_build16`，无前端构建）。步骤：① 覆盖后端代码 → ② **先跑迁移脚本**（见上）→ ③ 宝塔「停止 → 启动」gunicorn 方真正重载（restart 不重载）。升级后后台侧边栏左下角版本号应显示 `v3.7.1`。
 
+### v3.8.0 升级注意（反爬限流保护 + SEO 服务增强 · R39 审计通过）
+
+- **改的什么**：① 新增反爬限流保护 `bot_guard`（`myblog/bot_guard.py` + `BotBlock` 表）：基于 v3.7.1 的 Bot 识别，对高频/可疑请求限流与封禁；搜索引擎（search 类）默认白名单豁免，坏 Bot（tool/unknown）更严阈值；后台「🛡️ 反爬限流保护」看板可查看与解封。② SEO 服务增强：文章页 JSON-LD `BlogPosting` + OG/Twitter Card；`sitemap.xml` 增强（lastmod/changefreq/priority/封面图）；`robots.txt` 支持后台配置 `seo_block_bots` 屏蔽指定坏 Bot；RSS 增强（dc:creator/category）。
+- **🔑 新增后台设置项（「⚙️ 站点设置 → 反爬限流」）**：`bot_guard_enabled`（总开关，**默认 false 关闭**）、`bot_guard_search_whitelist`（搜索引擎豁免，默认 true）、`bot_guard_threshold`（普通阈值，默认 120）、`bot_guard_window`（窗口秒，默认 60）、`bot_guard_tool_limit`（坏 Bot 阈值，默认 20）、`bot_guard_block_hits`（封禁次数阈值，默认 3）、`bot_guard_block_minutes`（封禁分钟，默认 30）、`seo_block_bots`（逗号分隔的坏 Bot 名，如 `AhrefsBot,SemrushBot`）。**默认全部关闭/保守，开启后按需调整**，不影响线上现有访客与 SEO。
+- **🚨 本次无 DB 迁移（重点）**：`BotBlock` 新表由 `app.py` 的 `db.create_all()` 在重启时自动创建，**不要**手动跑迁移；旧库无缝升级（若 `create_all` 因故未建表，`guard_stats()` 已做 try/except 兜底不会 500）。
+- **验证**：`smoke_v380.py` 18 项断言全通过（BotBlock 自动建表、默认关闭放行、Googlebot 豁免、真人/坏 Bot 限流与封禁、解封、已封禁拦截、sitemap/robots/feed/JSON-LD、关闭后放行）；`py_compile` 通过。R39 七维审计 **1 高危（CSRF 缺失）已修，0 遗留**（详见 `SECURITY_AUDIT.md` 第四十九轮 R39）。
+- **⚠️ 升级顺序**：R39 **改了后端 + 模板（无 DB 迁移、无前端构建，前端沿用 `_vite_build16`）**。步骤：① 覆盖后端 zip → ② 覆盖前端 zip（本轮前端无变动，可沿用既有 `vue-frontend-dist.zip`）→ ③ 宝塔「停止 → 启动」gunicorn 方真正重载（restart 不重载）。**无需跑迁移脚本**。升级后后台左下角版本号应显示 `v3.8.0`；反爬限流默认关闭，确认无误后再于后台开启。
+
 ## 邮件设置（新文章通知订阅者 · 后台配置）
 
 > 从 v2.4.0 起，邮件群发配置**不需要再填环境变量**，直接在后台操作（更便捷）。

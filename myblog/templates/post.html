@@ -1,5 +1,19 @@
 {% extends "base.html" %}
 {% block title %}{{ post.title }} - {{ site_title }}{% endblock %}
+{% block meta_extra %}
+  {% if og %}
+  <meta property="og:title" content="{{ og.title }}">
+  <meta property="og:description" content="{{ og.description }}">
+  <meta property="og:url" content="{{ og.url }}">
+  <meta property="og:type" content="{{ og.type }}">
+  {% if og.image %}<meta property="og:image" content="{{ og.image }}">{% endif %}
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="{{ og.title }}">
+  <meta name="twitter:description" content="{{ og.description }}">
+  {% if og.image %}<meta name="twitter:image" content="{{ og.image }}">{% endif %}
+  {% endif %}
+  {% if json_ld %}<script type="application/ld+json">{{ json_ld | tojson }}</script>{% endif %}
+{% endblock %}
 {% block content %}
   <article class="post-detail">
     <h1>{{ post.title }}</h1>

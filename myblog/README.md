@@ -290,6 +290,14 @@
 - **④ 验证**：新增 `smoke_v371.py`（19 项断言全通过）；`py_compile` 通过。R38 七维审计 **0 Blocker，0 高危**（详见 `SECURITY_AUDIT.md` 第四十八轮）。APP_VERSION 升为 v3.7.1。
 - ⚠️ 升级顺序：R38 **有 SQLite DB 迁移**（visit_log 加 3 列）。覆盖后端后先跑 `python myblog/migrate_visit_log_bot.py`（或 `BLOG_DB=...`），再宝塔「停止 → 启动」gunicorn；无前端构建改动。升级后后台左下角显示 `v3.7.1`。
 
+### v3.8.0 反爬限流保护 + SEO 服务增强（R39 审计通过）
+
+- **① 反爬限流保护（bot_guard，默认关闭）**：基于 v3.7.1 的 Bot 识别，对高频/可疑请求限流与封禁。搜索引擎默认白名单豁免；坏 Bot（tool/unknown）更严阈值；达次数阈值才封禁。`BotBlock` 表记录触发/封禁，后台「🛡️ 反爬限流保护」可解封。
+- **② SEO 服务增强**：文章页 JSON-LD `BlogPosting` + OG/Twitter Card；`sitemap.xml` 增强（lastmod/changefreq/priority/封面图）；`robots.txt` 可后台配置屏蔽指定坏 Bot；RSS 增强（dc:creator/category）。
+- **③ 安全加固**：R39 发现并修复 1 处高危——后台解封表单原缺 CSRF Token（全局 `_csrf_protect` 对所有非豁免 POST 生效）导致「解封」必 403，已补全 `{{ csrf_input() }}`。其余维度均通过。
+- **④ 验证**：`smoke_v380.py` 18 项断言全通过；`py_compile` 通过。R39 七维审计 **1 高危已修，0 遗留**（详见 `SECURITY_AUDIT.md` 第四十九轮）。APP_VERSION 升为 v3.8.0。
+- ⚠️ 升级顺序：R39 **纯后端 + 模板改动（无 DB 迁移、无前端构建）**。`BotBlock` 新表由 `db.create_all()` 自动创建，无需迁移脚本。服务器直接跑一键更新；覆盖后端后宝塔「停止 → 启动」gunicorn 真正重载。后台开关「⚙️ 站点设置 → 反爬限流」**默认关闭**。升级后显示 `v3.8.0`。
+
 ## 目录结构
 ```
 myblog/             # 后端（Flask + SQLite）
@@ -301,6 +309,7 @@ myblog/             # 后端（Flask + SQLite）
 ├── feed_agg.py     # 友链 RSS 聚合（15 分钟内存缓存 + SSRF 防护 + bleach 清洗）
 ├── stats.py        # 访问统计：IP 属地解析（缓存+在线接口）、埋点记录、汇总
 ├── utils.py        # 小工具（生成网址 slug、clean_html 白名单清洗、限流、安全跳转、弱密码校验、CSRF Token）
+├── bot_guard.py    # 反爬限流保护（默认关闭；搜索引擎白名单豁免、坏 Bot 更严阈值、封禁记录 BotBlock）
 ├── routes.py       # 前台页面 + 注册/登录 + 评论提交 + 天气接口
 ├── admin.py        # 后台管理（登录/写文章/分类/标签/评论/设置/统计/用户/系列/公告/留言墙/订阅者）
 ├── api/            # 前后端分离用的 JSON 接口（/api/*，v3.6.0 起按功能拆分为包）

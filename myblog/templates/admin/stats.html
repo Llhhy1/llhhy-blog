@@ -35,6 +35,10 @@
       <span class="stat-num">{{ summary.bot_visits }}</span>
       <span class="stat-label">爬虫访问（占 {{ (summary.bot_visits * 100 / summary.total_visits)|round(1) if summary.total_visits else 0 }}%）</span>
     </div>
+    <div class="stat-card">
+      <span class="stat-num" style="color:#e53e3e;">{{ guard.blocked_now }}</span>
+      <span class="stat-label">限流封禁中（🛡️）</span>
+    </div>
   </div>
 
   <div class="stats-grid">

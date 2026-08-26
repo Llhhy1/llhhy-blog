@@ -1,0 +1,68 @@
+{% extends "admin/base.html" %}
+{% block title %}反爬限流保护{% endblock %}
+{% block content %}
+  <h1 class="page-title">🛡️ 反爬限流保护</h1>
+  <p class="stats-sub">
+    基于 v3.7.1 的 Bot 识别，对高频 / 可疑爬虫做限流与封禁。默认关闭，开启后请在「站点设置 → 反爬限流」调整阈值。
+    搜索引擎（Google / Baidu / Bing 等）默认白名单豁免，不影响 SEO 抓取。
+  </p>
+
+  <div class="stats-grid">
+    <div class="stat-card">
+      <span class="stat-num">{{ stats.total }}</span>
+      <span class="stat-label">累计触发记录</span>
+    </div>
+    <div class="stat-card">
+      <span class="stat-num" style="color:#e53e3e;">{{ stats.blocked_now }}</span>
+      <span class="stat-label">当前封禁中</span>
+    </div>
+    <div class="stat-card">
+      <span class="stat-num">{{ stats.active_blocks }}</span>
+      <span class="stat-label">活跃记录</span>
+    </div>
+    <div class="stat-card">
+      <span class="stat-num" style="color:{{ '#38a169' if stats.enabled else '#a0aec0' }}">
+        {{ '开启' if stats.enabled else '关闭' }}
+      </span>
+      <span class="stat-label">防护状态</span>
+    </div>
+  </div>
+
+  <div class="stats-card" style="margin-top:24px;">
+    <h3>🚫 触发 / 封禁记录</h3>
+    {% if stats.recent %}
+    <table class="stats-table">
+      <thead>
+        <tr><th>IP</th><th>Bot</th><th>类别</th><th>次数</th><th>状态</th><th>操作</th></tr>
+      </thead>
+      <tbody>
+      {% for r in stats.recent %}
+        <tr>
+          <td>{{ r.ip }}</td>
+          <td>{{ r.bot_name or '—' }}</td>
+          <td><span class="tag tag-{{ r.bot_category or 'unknown' }}">{{ r.bot_category or 'human' }}</span></td>
+          <td>{{ r.hit_count }}</td>
+          <td>
+            {% if r.blocked_until and r.blocked_until > now %}
+              封禁至 {{ r.blocked_until.strftime('%Y-%m-%d %H:%M') }}
+            {% else %}
+              监控中
+            {% endif %}
+          </td>
+          <td>
+            <form method="POST" style="display:inline;">
+              {{ csrf_input() }}
+              <input type="hidden" name="action" value="unblock">
+              <input type="hidden" name="ip" value="{{ r.ip }}">
+              <button type="submit" class="btn-sm">解封</button>
+            </form>
+          </td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+      <p class="stats-empty">暂无触发记录。</p>
+    {% endif %}
+  </div>
+{% endblock %}

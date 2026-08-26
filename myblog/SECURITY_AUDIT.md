@@ -1719,3 +1719,28 @@ fetch('/api/version/update', {
 - `smoke_v371.py`（临时 SQLite 隔离库）19 项断言全通过：detect_bot 五类 UA 识别正确、record_visit 落库 bot 字段、compute_summary 四维度数值正确。
 - DB 迁移脚本 `myblog/migrate_visit_log_bot.py` 幂等（PRAGMA table_info 查列后 ALTER ADD COLUMN，已存在则跳过）。
 - 前端静态断言：`stats.html` 含「爬虫访问」卡片与「爬虫/Bot 来源排行」区块、`bot_name` 经 autoescape 渲染。
+
+## 第四十九轮（R39 · v3.8.0 · 反爬限流保护 + SEO 服务增强）
+
+**背景**：用户希望把「bot/爬虫识别」三个方向全部落地——① 统计区分（v3.7.1 已完成）、② 反爬限流保护、③ SEO 服务增强。本轮完成 ②③ 并合入 v3.8.0，与 ① 共用 `detect_bot()` 识别能力。反爬限流**默认关闭**，由后台「⚙️ 站点设置 → 反爬限流」开关控制，搜索引擎白名单豁免以保证 SEO 抓取不受影响；SEO 增强（JSON-LD/OG/sitemap/robots/RSS）默认即生效。
+
+**改动文件**：`myblog/bot_guard.py`（新增反爬限流核心模块）、`myblog/models.py`（新增 `BotBlock` 表）、`myblog/routes.py`（`_bot_guard_before` before_request + `post()` JSON-LD/OG + `sitemap()`/`robots()`/`feed()` 增强）、`myblog/admin.py`（设置项 + `/admin/bot-guard` 看板）、`myblog/api/posts.py`（RSS dc:creator/category）、`myblog/templates/base.html`（`meta_extra` 块）、`myblog/templates/post.html`（OG + JSON-LD）、`myblog/templates/admin/bot_guard.html`（新增看板）、`myblog/templates/admin/settings.html`（反爬限流设置区块）、`myblog/templates/admin/stats.html`（限流封禁卡片）；文档同步（README / myblog/README / ROADMAP / deploy_guide / SECURITY_AUDIT）。
+
+### R39 七维审计
+
+| # | 维度 | 审查点 | 结论 | 状态 |
+|---|---|---|---|---|
+| R39-1 | 注入 | 全部 ORM 参数化（`BotBlock.query.filter_by`），无字符串拼接；setting 值仅参与限流阈值比较与 robots.txt 输出（管理员可控配置、非请求输入），sitemap/robots/RSS 输出均 `escape()` | ✅ 无注入 |
+| R39-2 | 越权 | 新增 `/admin/bot-guard` 为 `@super_required`（仅超管可解封）；`/admin/stats` 为 `@admin_required`；`guard_stats()` 仅经这两个受保护视图暴露；封禁记录按 IP 检索，无跨用户越权 | ✅ 无越权 |
+| R39-3 | CSRF | 全局 `_csrf_protect` 对所有非豁免 POST 生效；「⚙️ 站点设置」表单已含 `{{ csrf_input() }}`；**发现并修复**：`/admin/bot-guard` 解封表单原本缺失 CSRF Token → 点击「解封」必 403，已补全 `{{ csrf_input() }}` | 🔴 已修复（1 高危）|
+| R39-4 | XSS | ① 文章页 JSON-LD 用 `{{ json_ld \| tojson }}`（Jinja 严格 JSON 转义，防 `</script>` 逃逸）；② OG/Twitter meta 用 `{{ }}` 自动转义；③ sitemap 的 `loc`/`image:loc`、robots 的 `User-agent`、RSS 的 title/author/category 全部 `escape()`；④ `bot_name`/`bot_category` 回显来自 `detect_bot` 预定义枚举，不回显原始 UA | ✅ 无 XSS |
+| R39-5 | SSRF | 封面图 URL（cover）仅作为元数据输出至 OG/sitemap，服务端不发起任何 fetch/请求，无 SSRF 面 | ✅ 无 SSRF |
+| R39-6 | 限流 | `check_bot_guard` 复用既有 `rate_limit(client_key("guard"), ...)`；`client_key` 基于真实公网 IP（防 XFF 伪造，与 `stats.client_ip` 同口径），**按 IP 独立计数**，不会因单 IP 触发而误伤其他访客；坏 Bot（tool/unknown）阈值更严（默认 20 vs 普通 120） | ✅ 不变/增强 |
+| R39-7 | 资源/异常 | `_record_block`/`unblock_ip` 均 commit 并 `except rollback` 兜底；`guard_stats()` 整体 try/except 返回安全默认值（表未建立时不 500）；跳过 `/static/`、`/robots.txt`、`/sitemap.xml`、`/admin/`、`/api/` 避免自锁与误伤 | ✅ 无泄漏 |
+
+**R39 结论**：**1 高危（CSRF 缺失）已修复，0 遗留**。核心风险点为新增解封表单的 CSRF 缺失，已补全；其余维度无新增攻击面。
+
+**验证记录（R39）**：
+- `python -m py_compile myblog/bot_guard.py myblog/admin.py myblog/routes.py myblog/models.py myblog/api/posts.py smoke_v380.py` 通过。
+- `smoke_v380.py`（临时隔离 SQLite 库）18 项断言全通过：BotBlock 自动建表、默认关闭放行、Googlebot 豁免、真人高频限流(rate_human)、坏 Bot(AhrefsBot)更严+封禁、unblock_ip、已封禁拦截、sitemap lastmod/changefreq/priority、robots 屏蔽坏 Bot、feed dc:creator、文章页 JSON-LD、关闭后放行。
+- 前端静态断言：`post.html` 含 `application/ld+json` + OG meta；`bot_guard.html` 解封表单含 `{{ csrf_input() }}`。

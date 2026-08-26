@@ -142,7 +142,7 @@
       if (!form) return;
       var postId = {{ post.id if post else 0 }};
       var key = "draft:llhhy:" + (postId || "new");
-      var fields = ["title", "summary", "content", "cover", "tags", "seo_description", "seo_keywords"];
+      var fields = ["title", "slug", "summary", "content", "cover", "tags", "seo_description", "seo_keywords"];
       var restored = false;
 
       function snapshot() {

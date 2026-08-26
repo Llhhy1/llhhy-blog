@@ -285,6 +285,14 @@ llhhy-blog/
 - **验证**：`compileall myblog` 无语法错误；路由快照 54 条 diff 零差异；`smoke_api_pkg.py` 10/10。R35 七维审计 **0 Blocker，0 高危**（详见 `myblog/SECURITY_AUDIT.md` 第四十五轮）。APP_VERSION 升为 v3.6.0。
 - ⚠️ 升级顺序：R35 **纯后端改动**（无 DB 迁移、无前端构建，前端沿用 `_vite_build15`），服务器**直接跑一键更新**即可；覆盖后端后须在宝塔「停止 → 启动」gunicorn 方真正重载（restart 不重载）。升级后后台左下角显示 `v3.6.0`。
 
+### v3.6.1 修复：编辑文章改链接后缀（slug）保存报 500（R36 审计通过）
+
+- **① 根因**：`admin.py` 的 `edit_post` 第 662 行 `if post.content != content` 引用了**从未赋值的局部变量 `content`**（该缺陷自 v3.0.0 引入版本历史时即存在）→ `NameError` → 500。以前新建文章走 `new_post` 不经过此路径，故长期未触发。
+- **② 修复**：627 行先取新内容到局部变量 `content`、保留 `old_content` 旧值后再覆盖；版本历史判断改为 `post.content != old_content`（新 vs 旧，语义才正确）；删除 664/665 死代码。
+- **③ 附带修复（前端草稿丢 slug）**：后台编辑页草稿自动保存 `fields` 数组补 `"slug"`，改链接后缀后若不点保存（如刷新页面）草稿恢复不再丢 slug。
+- **验证**：完整 HTTP 链路复现（改 slug / 改内容 / 无变化保存均 200，修复前改 slug 即 500）；`py_compile` 通过；`smoke_v320.py` 回归通过。R36 七维审计 **0 Blocker，0 高危**（详见 `myblog/SECURITY_AUDIT.md` 第四十六轮）。APP_VERSION 升为 v3.6.1。
+- ⚠️ 升级顺序：R36 **纯后端 + 模板改动**（无 DB 迁移、无前端构建，前端沿用 `_vite_build15`），服务器**直接跑一键更新**即可；覆盖后端后须在宝塔「停止 → 启动」gunicorn 方真正重载（restart 不重载）。升级后后台左下角显示 `v3.6.1`。
+
 ## 快速开始（本地开发）
 
 后端（默认端口 5000）：

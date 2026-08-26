@@ -624,7 +624,9 @@ def edit_post(post_id):
         elif make_slug(title) != post.slug:
             post.slug = apply_slug_template(post, title)
         post.summary = (request.form.get("summary") or "").strip()
-        post.content = request.form.get("content", "")
+        content = request.form.get("content", "")  # 新内容（局部变量，供后面比较/保存）
+        old_content = post.content  # 保留旧内容，用于版本历史判断（v3.0.0 功能5）
+        post.content = content
         post.cover = (request.form.get("cover") or "").strip()
         cid = request.form.get("category_id") or None
         post.category_id = int(cid) if cid else None
@@ -659,10 +661,9 @@ def edit_post(post_id):
         post.reading_minutes = rm
         _sync_tags(post, request.form.get("tags", ""))
         # v3.0.0 功能5：内容/标题有变化时保存版本历史
-        if post.content != content or post.title != title:
+        # 注意：post.content 已是新值，必须与修复前保留的旧值比较（旧 bug：引用未定义的 content 导致 NameError→500）
+        if post.content != old_content or post.title != title:
             _save_post_history(post, user.username if user else "")
-        post.content = content
-        post.title = title
         db.session.commit()
         try:
             fts.sync_post(post)

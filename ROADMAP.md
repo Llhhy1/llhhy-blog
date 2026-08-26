@@ -562,3 +562,11 @@ v3.1.7 修复 CSRF 隐藏域乱码后，用户反馈「退出登录按钮失效�
 - **⑤ 拆包补测修复 6 处跨模块引用缺失（NameError）**：拆包后 5 个功能模块对顶层 `stats` 模块的引用（`stats.client_ip` / `stats.cached_region` / `stats.record_*` / `stats.compute_*`）未导入——路由注册不报错，请求时才 `NameError` 500（统计端点 / 评论归属地 / 留言 / 朋友圈 / 友链 / 系列排序）。补 `import stats`（`posts.py` 另补 `User`、`stats.py` 与 `series.py` 补 `Post`），新增 `smoke_api_pkg.py` 10 项断言全通过（含 visit 落库读回、评论 201、留言 201 落库、朋友圈 401=函数体正常、友链 201、系列 200）。
 - **验证**：`compileall myblog` 无语法错误；路由快照 54 条 diff 零差异（删旧 api.py 后重新验证，确认加载的是包）；全应用加载 + GET 10 端点 + POST 6 端点（CSRF 链路）行为抽查全通过；`smoke_api_pkg.py` 10/10（补测 NameError 修复闭环）。R35 七维审计 **0 Blocker，0 高危**（详见 `SECURITY_AUDIT.md` 第四十五轮 R35）。APP_VERSION 升为 v3.6.0。
 - ⚠️ 升级顺序：R35 **纯后端改动**（无 DB 迁移、无前端构建，前端沿用 `_vite_build15`），服务器**直接跑一键更新**即可；覆盖后端后须在宝塔「停止 → 启动」gunicorn 方真正重载（restart 不重载）。升级后后台左下角显示 `v3.6.0`。
+
+## 38. v3.6.1：修复编辑文章改链接后缀（slug）保存报 500（R36 审计通过）
+
+- **① 根因**：`admin.py` 的 `edit_post` 第 662 行 `if post.content != content` 引用了**从未赋值的局部变量 `content`**（v3.0.0 引入版本历史时就存在）→ `NameError` → 500。此前新建文章走 `new_post` 不经过此路径，故长期未触发；直到用户报告「编辑文章改链接后缀保存报 500」。
+- **② 修复**：627 行先取新内容到局部变量 `content`、保留 `old_content` 旧值再覆盖 `post.content`；版本历史判断改为 `post.content != old_content`（新 vs 旧，语义才正确）；删除 664/665 死代码（重复赋值）。
+- **③ 附带修复（前端草稿丢 slug）**：编辑页草稿自动保存 `fields` 数组补 `"slug"`——`snapshot()`/`restore()` 共用该数组，改链接后缀后刷新页面草稿恢复不再丢 slug。
+- **验证**：完整 HTTP 链路复现（改 slug 200 且入库 / 改内容 200 且版本历史 +1 / 无变化 200 且历史不增长）；`py_compile` 通过；`smoke_v320.py` 回归通过。R36 七维审计 **0 Blocker，0 高危**（详见 `SECURITY_AUDIT.md` 第四十六轮 R36）。APP_VERSION 升为 v3.6.1。
+- ⚠️ 升级顺序：R36 **纯后端 + 模板改动**（无 DB 迁移、无前端构建，前端沿用 `_vite_build15`），服务器**直接跑一键更新**即可；覆盖后端后须在宝塔「停止 → 启动」gunicorn 方真正重载（restart 不重载）。升级后后台左下角显示 `v3.6.1`。

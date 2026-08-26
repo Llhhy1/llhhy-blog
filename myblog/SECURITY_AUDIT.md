@@ -1640,3 +1640,30 @@ fetch('/api/version/update', {
 - 全应用加载：`create_app()` 成功，蓝图 `['main', 'admin', 'api']`；GET 10 端点 + POST 6 端点（含 CSRF 链路）行为抽查全通过。
 - **拆包补测**：`smoke_api_pkg.py` 10 项断言全通过，覆盖 5 个缺陷模块的全部 `stats` 引用点（含写路径落库读回验证）。
 - `package.py --front-dir vue-frontend/_vite_build15` 产出 `myblog-backend.zip` + `vue-frontend-dist.zip` + `sha256.txt`；zip 内 `config.py` 的 `APP_VERSION` 校验为 `3.6.0`。
+
+## 第四十六轮（R36 · v3.6.1 · 编辑文章改 slug 保存 500 修复 + 草稿快照补 slug）
+
+**背景**：用户报告「文章编辑页修改链接后缀（slug）后保存文章报 500」。定位根因：`myblog/admin.py` 的 `edit_post` POST 分支第 662 行 `if post.content != content` 引用了**从未赋值的局部变量 `content`**（该缺陷自 v3.0.0 引入版本历史时即存在，此前仅新建文章走 `new_post` 不经过此路径，故长期未被触发）→ `NameError` → 500。前端附带缺陷：草稿自动保存 `snapshot()` 的 `fields` 数组未含 `slug`，用户改后缀后刷新页面会丢 slug。
+
+**改动文件**：`myblog/admin.py`（+5/-4，edit_post 局部变量修复 + 删除死代码）；`myblog/templates/admin/edit_post.html`（+1/-1，`fields` 数组补 `"slug"`）；`myblog/config.py`（`APP_VERSION` → `3.6.1`）；文档同步（README / deploy_guide / ROADMAP / SECURITY_AUDIT）。
+
+### R36 七维审计
+
+| # | 维度 | 审查点 | 结论 | 状态 |
+|---|---|---|---|---|
+| R36-1 | 注入 | 本轮仅修 Python 局部变量引用错误与前端数组常量，无任何新增 SQL 语句；原有参数化查询（`filter_by`/绑定参数）链路不变 | ✅ 无注入 |
+| R36-2 | 越权 | `edit_post` 仍由 `@login_required` + `_can_edit_post`（作者本人/管理员）双重保护，本轮未触碰鉴权逻辑；无新增路由 | ✅ 无越权 |
+| R36-3 | CSRF | 后端 POST 仍被全局 `_csrf_protect` 覆盖（含模板 `csrf_input()` 隐藏域）；前端改动仅涉及 localStorage 草稿快照，不触发服务端请求，无 CSRF 面 | ✅ 无 CSRF 影响 |
+| R36-4 | XSS | 后端：content/title 的取值、清洗、模板插值链路与修复前完全一致（无新增用户输入出口）；前端：`snapshot()` 用 `el.value` 读值（152 行）、`restore()` 用 `el.value = d[f]` 赋值（168 行），全程 **value 赋值、无 innerHTML 插入**，slug 由后端 `clean_slug()` 生成/校验（仅字母数字连字符），无 XSS 面 | ✅ 无新增 XSS |
+| R36-5 | 资源/异常 | 修复消除了 `edit_post` 保存路径的确定性运行时异常（NameError），`_save_post_history` / `count_words` / `_sync_tags` 调用逻辑不变；删除 664/665 行死代码（重复赋值）无副作用；前端 `draft:llhhy:*` localStorage 键结构不变 | ✅ 无资源/异常泄漏（反而消除 500 异常） |
+| R36-6 | 限流 | 无新增写接口，限流配置未触碰 | ✅ 不变 |
+| R36-7 | 回归风险 | ① 全链路 HTTP 复现验证：改 slug 保存 → 200 且 `slug` 正确入库（修复前 500）；② 内容变化保存 → 200 且版本历史 +1；③ 无变化保存 → 200 且历史不增长（新旧比较语义正确，`old_content` 保留旧值）；④ 前端模板静态检查 `fields` 数组含 `"slug"`（snapshot/restore 共用数组，自动双向覆盖）；⑤ `py_compile` admin/models/app 通过；⑥ `smoke_v320.py` 回归全通过 | ✅ 无功能性回归 |
+
+**R36 结论**：**0 Blocker，0 高危**。修复为最小改动（局部变量 `content` 先取值、`old_content` 保留旧值供版本历史比较、删除死代码；前端数组补 `slug`），消除了已存在多个版本的历史缺陷（v3.0.0 起 edit_post 保存即潜在 500），无新增攻击面、无行为差异。
+
+**验证记录（R36）**：
+- 完整 HTTP 链路复现（GET 编辑页取 CSRF → POST 保存）：改 slug 200、改内容 200、无变化 200，均修复前 500 / 修复后通过。
+- 定向断言：改 slug 后 `slug='my-custom-slug'` 入库；改内容后 `PostHistory` +1；无变化不增长。
+- `py_compile myblog/admin.py myblog/models.py myblog/app.py` 全部通过；`smoke_v320.py` 回归通过。
+- 前端模板静态断言：`fields` 数组含 `"slug"`（snapshot/restore 共用数组双向覆盖）。
+- `package.py` 产出两个 zip + sha256.txt；zip 内 `config.py` 的 `APP_VERSION` 校验为 `3.6.1`。

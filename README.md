@@ -325,6 +325,17 @@ llhhy-blog/
 - **③ 验证**：`_debug_admin500.py` 复现夹具确认「修复前 500 / 修复后 `compute_summary` + `guard_stats` + 三个后台模板（含 bot_guard.html 与 settings 新区块）全部正常」；`smoke_v380.py` 18/18 无回归。APP_VERSION 升为 v3.8.1。
 - ⚠️ 升级：纯后端一行迁移逻辑（无新表、无前端构建）。覆盖后端 → 宝塔「停止 → 启动」gunicorn。重启即自动补列，后台不再 500。
 
+### v3.8.2 安全补丁：合并独立复审 PR#1（M1-M4 + L6）
+
+- **背景**：第三方独立安全复审（基于 v3.8.1，完整报告见 `myblog/INDEPENDENT_SECURITY_REVIEW_v3.8.1.md`）发现若干纵深防御缺口，已评审确认属实并合并修复。
+- **① M1 SSR 验证码绕过**：`/register`、`/post/<slug>/comment` 两个 SSR 表单路由原本未接入图形验证码（仅 API 路由有），可直连绕过批量注册/刷评论。现与 API 口径统一（`_captcha_fail` fail-closed），模板按需渲染验证码输入框。
+- **② M2 XFF 限流伪造绕过**：`client_ip` / `client_key` 原无条件信任 `X-Forwarded-For` 首段（只要公网 IP 即采纳），攻击者可轮换公网 IP 绕过注册/登录/评论/点赞限流。现收口为 `utils.get_client_ip()`：仅当 TCP 直连对端为可信代理（新增 `TRUSTED_PROXIES` 环境变量，留空时安全默认=仅内部地址可信）才采纳 XFF，且取**最右端**真实客户端 IP，丢弃左侧伪造前缀。
+- **③ M3 Webhook 部署密钥泄露/重放可关**：`/api/webhook/deploy` 原接受 `?token=` URL 参数（会写入 Nginx/GitHub 投递日志），且 `WH_REPLAY_WINDOW=0` 可完全关闭重放保护。现只接受 `X-Deploy-Token` 请求头，重放窗口强制 ≥30s 且始终启用时间戳校验。
+- **④ M4 `/api/weather` 坐标未校验**：`lat`/`lon` 原未经校验直接拼进出站 URL（SSRF/CRLF 面）。现强校验浮点与范围（lat∈[-90,90]、lon∈[-180,180]），非法拒绝或回落默认；出站参数统一 `quote` 转义；新增限流。
+- **⑤ L6 `backup.py` 命令注入陷阱**：`_run()` 原保留 `shell=True` 分支（str 命令即走 shell），现强制 list 参数、str 一律 `TypeError` 拒绝。
+- **验证**：`smoke_audit_r30.py`（含 XFF 收口 4 项新断言）、`smoke_api_pkg.py`(10)、`smoke_backup_settings.py`(7) 全部通过；`smoke_v380.py` 18/18 无回归（测试夹具补充注册 `api_bp` 以解析验证码图片路由）。APP_VERSION 升为 v3.8.2。
+- ⚠️ 部署前置：若站点跑在「remote_addr 为公网 IP」的前置代理/CDN（Cloudflare、云 LB）之后，必须配置 `TRUSTED_PROXIES`（见 `config.py` 注释），否则真实访客 IP 会显示为代理 IP；Nginx 仍建议 `proxy_set_header X-Forwarded-For $remote_addr;`（替换非追加）。
+
 ## 快速开始（本地开发）
 
 后端（默认端口 5000）：

@@ -588,6 +588,16 @@ supervisorctl status
 - **验证**：`_debug_admin500.py` 复现夹具确认「修复前 500 / 修复后 `compute_summary`+`guard_stats`+三个后台模板全部正常」；`smoke_v380.py` 18/18 无回归。APP_VERSION 升为 v3.8.1。
 - **⚠️ 升级顺序**：① 覆盖后端 zip → ② 宝塔「停止 → 启动」gunicorn（restart 不重载）。重启即自动补列，后台统计页不再 500；左下角版本号显示 `v3.8.1`。
 
+### v3.8.2 升级注意（合并独立安全复审 PR#1 · M1-M4 + L6 · R41）
+
+- **🔥 必看（部署前置）**：本轮对限流 IP 做了**收口加固**（M2）。新增环境变量 `TRUSTED_PROXIES`：
+  - **留空（默认）**＝安全默认，仅「内部地址」（私网/回环/链路本地/保留）视为可信代理。即本机 Nginx 反代（`remote_addr=127.0.0.1`）天然可信，公网直连忽略 XFF。
+  - **若你的站点跑在「remote_addr 本身为公网 IP」的前置代理 / CDN（Cloudflare、云 LB、阿里/腾讯 CDN）之后**，必须显式填 `TRUSTED_PROXIES`（逗号分隔 IP/CIDR，如 `203.0.113.0/24,198.51.100.7`），否则会误把代理公网 IP 当客户端、且拿不到真实访客 IP。
+  - Nginx 仍建议 `proxy_set_header X-Forwarded-For $remote_addr;`（**替换而非追加**），从源头杜绝客户端自填 XFF。
+- **改的什么**：纯后端 + 模板（无新表、无前端构建）。涉及 `utils.get_client_ip()`（XFF 收口）、`/register`+`/post/<slug>/comment` 接入验证码、`/api/webhook/deploy` 仅接受 `X-Deploy-Token` 头 + 重放窗口强制 ≥30s、`/api/weather` 坐标校验 + 限流、`backup.py` 禁 `shell=True`。
+- **验证**：`smoke_audit_r30.py`（XFF 收口 4 项新断言）、`smoke_api_pkg.py`(10)、`smoke_backup_settings.py`(7) 全过；`smoke_v380.py` 18/18 无回归。APP_VERSION 升为 v3.8.2。
+- **⚠️ 升级顺序**：① 覆盖后端 zip（前端沿用既有 `vue-frontend-dist.zip`，无变动）→ ② 宝塔「停止 → 启动」gunicorn（restart 不重载）→ ③（可选）按上面说明核对 `TRUSTED_PROXIES` 是否需要配置。无需跑任何迁移脚本。
+
 ## 邮件设置（新文章通知订阅者 · 后台配置）
 
 > 从 v2.4.0 起，邮件群发配置**不需要再填环境变量**，直接在后台操作（更便捷）。

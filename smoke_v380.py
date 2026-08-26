@@ -20,6 +20,7 @@ import utils
 import bot_guard
 from routes import main_bp
 from admin import admin_bp
+from api import api_bp
 
 MYBLOG = os.path.join(os.path.dirname(os.path.abspath(__file__)), "myblog")
 app = Flask(__name__,
@@ -51,6 +52,7 @@ def _smoke_inject_globals():
 
 app.register_blueprint(main_bp)
 app.register_blueprint(admin_bp)
+app.register_blueprint(api_bp)
 
 PASS = []
 def check(name, cond):

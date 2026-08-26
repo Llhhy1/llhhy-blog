@@ -305,6 +305,16 @@
 - **③ 验证**：`_debug_admin500.py` 复现夹具确认修复前 500、修复后正常；`smoke_v380.py` 18/18 无回归。APP_VERSION 升为 v3.8.1。
 - ⚠️ 升级：纯后端一行迁移逻辑（无新表、无前端构建）。覆盖后端 → 宝塔「停止 → 启动」gunicorn 即自动补列。
 
+### v3.8.2 安全补丁：合并独立复审 PR#1（M1-M4 + L6 · R41）
+
+- **背景**：第三方独立安全复审（v3.8.1，报告见仓库 `myblog/INDEPENDENT_SECURITY_REVIEW_v3.8.1.md`）发现纵深防御缺口，确认属实并合并修复。
+- **M1**：`/register`、`/post/<slug>/comment` 接入图形验证码（与 API 口径统一，fail-closed），杜绝直连绕过批量注册/刷评论。
+- **M2**：新增 `utils.get_client_ip()` 收口 XFF——仅可信代理（TCP 对端命中 `TRUSTED_PROXIES` 或默认内部地址）才采纳 XFF，取最右端真实 IP；修复公网 XFF 轮换绕过限流。
+- **M3**：`/api/webhook/deploy` 仅接受 `X-Deploy-Token` 请求头（禁 `?token=` 入日志），重放窗口强制 ≥30s 且始终校验时间戳。
+- **M4**：`/api/weather` 的 `lat`/`lon` 强校验浮点+范围、出站参数 `quote` 转义、新增限流。
+- **L6**：`backup.py::_run` 移除 `shell=True`，强制 list 参数。
+- **验证**：`smoke_audit_r30.py`、`smoke_api_pkg.py`(10)、`smoke_backup_settings.py`(7) 全过；`smoke_v380.py` 18/18 无回归。APP_VERSION 升为 v3.8.2。
+
 ## 目录结构
 ```
 myblog/             # 后端（Flask + SQLite）

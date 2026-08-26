@@ -597,3 +597,13 @@ v3.1.7 修复 CSRF 隐藏域乱码后，用户反馈「退出登录按钮失效�
 - **① 根因**：`/admin/stats` 依赖 `visit_log` 的 bot 三列（v3.7.1 引入）；`db.create_all()` 不给已存在表加列，未跑过 v3.7.1 迁移脚本的库缺列 → `compute_summary()` 的 `VisitLog.query.count()` 报 `no such column: visit_log.is_bot` → 后台 500。
 - **② 修复**：`app.py` 启动序列新增 `_migrate_visit_log_table()`，每次启动幂等补列，取消对 v3.7.1 手动迁移脚本的依赖，旧库升级自动自愈。
 - **③ 验证**：`_debug_admin500.py` 复现夹具确认修复前 500 / 修复后正常；smoke_v380.py 18/18 无回归。APP_VERSION 升为 v3.8.1。
+
+## 44. v3.8.2：合并独立安全复审 PR#1（M1-M4 + L6）
+
+- **背景**：第三方独立复审（基于 v3.8.1，报告 `myblog/INDEPENDENT_SECURITY_REVIEW_v3.8.1.md`）发现纵深防御缺口，评审确认属实并合并修复（提交 `2338ec2`）。
+- **① M1 SSR 验证码绕过**：`/register`、`/post/<slug>/comment` 接入验证码（与 API 口径统一，`_captcha_fail` fail-closed）。
+- **② M2 XFF 限流伪造**：新增 `utils.get_client_ip()`——仅可信代理（TCP 对端命中 `TRUSTED_PROXIES` 或默认内部地址）才采纳 XFF，取最右端真实 IP；`client_ip`/`client_key` 统一收口。
+- **③ M3 Webhook 安全**：`/api/webhook/deploy` 仅接受 `X-Deploy-Token` 头（禁 `?token=`）；重放窗口强制 ≥30s 且始终启用时间戳校验。
+- **④ M4 weather 坐标校验**：`lat`/`lon` 强校验浮点+范围，出站参数 `quote` 转义，新增限流。
+- **⑤ L6 backup 加固**：`backup.py::_run` 移除 `shell=True`，强制 list 参数。
+- **⑥ 验证**：`smoke_audit_r30.py`（XFF 收口 4 项新断言）、`smoke_api_pkg.py`(10)、`smoke_backup_settings.py`(7) 全过；`smoke_v380.py` 18/18 无回归（夹具补注册 `api_bp`）。APP_VERSION 升为 v3.8.2。

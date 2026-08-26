@@ -1769,3 +1769,29 @@ fetch('/api/version/update', {
 - 本地 `myblog/data/blog.db` 实测：`visit_log` 表经一次启动后补齐 `is_bot`/`bot_name`/`bot_category` 三列。
 - `smoke_v380.py` 18 项断言全通过，无回归。
 - `python -m py_compile myblog/app.py` 通过。
+
+## 第五十一轮（R41 · v3.8.2 · 合并独立安全复审 PR#1）
+
+**背景**：用户朋友（ridd1ot）对 v3.8.1 做了独立第三方安全复审，提交 PR#1，完整报告见 `myblog/INDEPENDENT_SECURITY_REVIEW_v3.8.1.md`。审计逐文件读码核实，结论为「未发现严重或可独立利用的高危远程漏洞；现有若干纵深防御缺口/配置依赖型/一致性问题（中 4 / 低 7）」。本人（SecurityArchitect 审计视角）逐项核对 v3.8.1 源码，**确认 M1-M4 与 L6 均属实**，已合并 PR（提交 `2338ec2`）并随 v3.8.2 发布。低危 L1-L5/L7 属策略/配置层加固，本次未强制修改（不影响发布）。
+
+**改动文件**：`myblog/routes.py`（注册/评论接入验证码 fail-closed + weather 坐标校验/限流）、`myblog/utils.py`（新增 `get_client_ip`/`_parse_trusted_proxies`/`_is_trusted_proxy`，`client_key` 收口）、`myblog/stats.py`（`client_ip` 收口）、`myblog/api/system.py`（webhook 仅头令牌 + 重放窗口下限）、`myblog/backup.py`（`_run` 禁 `shell=True`）、`myblog/config.py`（新增 `TRUSTED_PROXIES`）、`myblog/templates/register.html` + `myblog/templates/post.html`（验证码输入框）、`smoke_audit_r30.py`（XFF 收口断言改写）、新增 `myblog/INDEPENDENT_SECURITY_REVIEW_v3.8.1.md`。
+
+### R41 审计（复核朋友 PR 的 4 个中危 + 1 个加固项）
+
+| # | 维度 | 审查点 | 结论 | 状态 |
+|---|---|---|---|---|
+| R41-1 (M1) | 验证码一致性 | SSR `/register`、`/post/<slug>/comment` 原无 `captcha_required`，可绕过 SPA 直打；现 `_captcha_fail(scope)` 与 API 同口径（fail-closed：异常即视为未通过） | ✅ 修复 |
+| R41-2 (M2) | 限流 IP 收口 | 原 `client_key`/`client_ip` 信任 XFF[0]（仅 `is_global` 才采纳）→ 攻击者轮换公网 XFF 即可绕过；现仅 TCP 对端为可信代理才采纳 XFF 且取最右端真实 IP，公网直连一律用不可伪造的 `remote_addr` | ✅ 修复（纵深防御正确） |
+| R41-3 (M3) | Webhook 密钥 | 原接受 `?token=` URL 参数（入日志泄露）+ `WH_REPLAY_WINDOW=0` 可关重放；现仅 `X-Deploy-Token` 头 + 重放窗口强制 ≥30s 且始终校验时间戳 | ✅ 修复（残余：仍明文 `token==secret` 直比而非请求体 HMAC，属可选进一步加固，已备注） |
+| R41-4 (M4) | SSRF/CRLF | `/api/weather` 原 `lat`/`lon` 未校验直接 f-string 拼出站 URL；现浮点+范围校验、非法拒绝/回落，出站参数 `quote` 转义，新增 60/60 限流 | ✅ 修复 |
+| R41-5 (L6) | 命令注入陷阱 | `backup.py::_run` 原 `str` 走 `shell=True`；现强制 list、str 一律 `TypeError` 拒绝 | ✅ 修复 |
+| R41-6 | 部署前置 | `TRUSTED_PROXIES` 留空时安全默认=仅内部地址可信；若跑在公网 IP 前置代理/CDN 后需显式配置，否则真实访客 IP 显示为代理 IP（已在 `config.py` 注释告警） | ✅ 已文档化 |
+
+**R41 结论**：**0 遗留（本次范围）**。朋友的 4 个中危 + 1 个加固项均确认属实并已合并修复；低危项作为后续可选加固，不影响本轮发布。
+
+**验证记录（R41）**：
+- `smoke_audit_r30.py`：全部通过，含 XFF 收口 4 项新断言（直连伪造公网/私网 XFF 均忽略取 remote_addr；可信代理取最右端真实 IP；左侧伪造前缀丢弃）。
+- `smoke_api_pkg.py`：10/10 通过。
+- `smoke_backup_settings.py`：7/7 通过。
+- `smoke_v380.py`：18/18 通过（测试夹具补充注册 `api_bp`，修复因模板新增 `url_for('api.captcha_image')` 导致的 BuildError 假阳性）。
+- `python -m py_compile` 全部改动文件通过。

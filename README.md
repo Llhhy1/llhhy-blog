@@ -302,6 +302,14 @@ llhhy-blog/
 - **⑤ 验证**：新增 `smoke_v370.py`（10 项断言全通过）覆盖 new_post 强制全局、edit_post 标题变/不变、title/id/category-slug 三种模式、前端无 slug 输入框；`py_compile` 通过。R37 七维审计 **0 Blocker，0 高危**（详见 `myblog/SECURITY_AUDIT.md` 第四十七轮）。APP_VERSION 升为 v3.7.0。
 - ⚠️ 升级顺序：R37 **纯后端 + 模板改动**（无 DB 迁移、无前端构建，前端沿用 `_vite_build15`），服务器**直接跑一键更新**即可；覆盖后端后须在宝塔「停止 → 启动」gunicorn 方真正重载（restart 不重载）。升级后后台左下角显示 `v3.7.0`。
 
+### v3.7.1 访问统计新增 Bot/爬虫识别（R38 审计通过）
+
+- **① 新增能力**：后台「📊 访问统计」新增**爬虫识别**维度——访问记录时从 User-Agent 自动识别是否为 Bot/爬虫，并细分**搜索引擎(search)/AI(ai)/工具脚本(tool)/未知(unknown)** 四类。
+- **② 数据落库**：`VisitLog` 新增 `is_bot`/`bot_name`/`bot_category` 三字段（SQLite 迁移脚本 `myblog/migrate_visit_log_bot.py`，幂等可重跑）；`stats.record_visit` 在记录访问时调用 `detect_bot()` 落库，`compute_summary` 新增 `bot_visits`/`human_visits`/`bot_today`/`bot_breakdown`。
+- **③ 后台可视化**：统计看板新增「🤖 爬虫访问」占比卡片 + 「🤖 爬虫/Bot 来源排行」（列出 Googlebot/Bingbot/Baiduspider/GPTBot/CCBot/ClaudeBot 等具体爬虫名与类型标签、次数、占比）。
+- **④ 验证**：新增 `smoke_v371.py`（19 项断言全通过）覆盖 detect_bot 五类 UA、record_visit 落库、compute_summary 维度；`py_compile` 通过。R38 七维审计 **0 Blocker，0 高危**（详见 `myblog/SECURITY_AUDIT.md` 第四十八轮）。APP_VERSION 升为 v3.7.1。
+- ⚠️ 升级顺序：R38 **有 SQLite DB 迁移**（visit_log 加 3 列）。覆盖后端后**先跑迁移** `python myblog/migrate_visit_log_bot.py`（或 `BLOG_DB=/www/wwwroot/你的站点/data/blog.db python myblog/migrate_visit_log_bot.py`），再宝塔「停止 → 启动」gunicorn 方真正重载。无前端构建改动，前端沿用 `_vite_build16`。升级后后台左下角显示 `v3.7.1`。
+
 ## 快速开始（本地开发）
 
 后端（默认端口 5000）：

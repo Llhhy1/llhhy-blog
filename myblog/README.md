@@ -282,6 +282,14 @@
 - **⑤ 验证**：新增 `smoke_v370.py`（10 项断言全通过）；`py_compile` 通过。R37 七维审计 **0 Blocker，0 高危**（详见 `SECURITY_AUDIT.md` 第四十七轮）。APP_VERSION 升为 v3.7.0。
 - ⚠️ 升级顺序：R37 纯后端 + 模板改动（无 DB 迁移、无前端构建，前端沿用 `_vite_build15`），服务器**直接跑一键更新**即可；覆盖后端后须宝塔「停止 → 启动」gunicorn 方真正重载。
 
+### v3.7.1 访问统计新增 Bot/爬虫识别（R38 审计通过）
+
+- **① 新增能力**：后台访问统计新增爬虫识别维度，访问记录时从 UA 自动识别 Bot/爬虫并细分搜索引擎/AI/工具/未知四类。
+- **② 数据落库**：`VisitLog` 新增 `is_bot`/`bot_name`/`bot_category` 三字段（迁移脚本 `myblog/migrate_visit_log_bot.py`）；`record_visit` 落库、`compute_summary` 新增 `bot_visits`/`human_visits`/`bot_today`/`bot_breakdown`。
+- **③ 后台可视化**：统计看板新增「🤖 爬虫访问」占比卡片 + 「🤖 爬虫/Bot 来源排行」。
+- **④ 验证**：新增 `smoke_v371.py`（19 项断言全通过）；`py_compile` 通过。R38 七维审计 **0 Blocker，0 高危**（详见 `SECURITY_AUDIT.md` 第四十八轮）。APP_VERSION 升为 v3.7.1。
+- ⚠️ 升级顺序：R38 **有 SQLite DB 迁移**（visit_log 加 3 列）。覆盖后端后先跑 `python myblog/migrate_visit_log_bot.py`（或 `BLOG_DB=...`），再宝塔「停止 → 启动」gunicorn；无前端构建改动。升级后后台左下角显示 `v3.7.1`。
+
 ## 目录结构
 ```
 myblog/             # 后端（Flask + SQLite）

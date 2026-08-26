@@ -14,6 +14,8 @@ import urllib.parse
 import urllib.request
 
 from models import db, Post, VisitLog, ReadLog, SearchLog, IpRegion, Comment
+from flask import request
+from utils import detect_bot
 
 _LOCAL_IPS = {"127.0.0.1", "::1", "localhost", "0.0.0.0"}
 
@@ -314,9 +316,12 @@ def record_visit(path, post_id=None):
     """记录一次访问；属地解析异步回填。任何异常都不影响页面本身。"""
     try:
         ip = client_ip()
+        ua = request.headers.get("User-Agent", "")
+        is_bot, bot_name, bot_category = detect_bot(ua)
         db.session.add(VisitLog(
             date=today_str(), hour=datetime.datetime.now().hour,
             ip=ip, region="", path=(path or "")[:255], post_id=post_id,
+            is_bot=is_bot, bot_name=bot_name, bot_category=bot_category,
         ))
         db.session.commit()
         _resolve_region_async(ip)
@@ -392,6 +397,19 @@ def _hot_searches(limit=10):
     return [{"keyword": r[0], "count": r[1]} for r in rows]
 
 
+def _bot_breakdown(limit=20):
+    """爬虫来源排行：按 bot_name + category 分组计数（仅 is_bot=True）。"""
+    try:
+        rows = (db.session.query(VisitLog.bot_name, VisitLog.bot_category,
+                                 db.func.count(VisitLog.id).label("c"))
+                .filter(VisitLog.is_bot == True)
+                .group_by(VisitLog.bot_name, VisitLog.bot_category)
+                .order_by(db.desc("c")).limit(limit).all())
+        return [{"name": r[0], "category": r[1], "count": r[2]} for r in rows]
+    except Exception:
+        return []
+
+
 def compute_trend(days=30):
     """访客趋势数据（v3.0.0 功能9）：返回最近 N 天每天的总访问次数（PV）与独立访客（UV）。
 
@@ -434,5 +452,9 @@ def compute_summary():
         "hot_searches": _hot_searches(),
         "hourly": _hourly(),
         "trend": compute_trend(30),
+        "bot_visits": VisitLog.query.filter_by(is_bot=True).count(),
+        "human_visits": VisitLog.query.filter_by(is_bot=False).count(),
+        "bot_today": VisitLog.query.filter_by(date=today_str(), is_bot=True).count(),
+        "bot_breakdown": _bot_breakdown(),
         "updated_at": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
     }

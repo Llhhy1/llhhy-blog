@@ -1,6 +1,15 @@
 {% extends "admin/base.html" %}
 {% block title %}访问统计{% endblock %}
 {% block content %}
+  <style>
+.tag{display:inline-block;padding:1px 8px;border-radius:10px;font-size:12px;line-height:1.6;}
+.tag-search{background:rgba(56,178,172,.15);color:#319795;}
+.tag-ai{background:rgba(159,122,234,.15);color:#9f7aea;}
+.tag-tool{background:rgba(237,137,54,.15);color:#dd6b20;}
+.tag-unknown{background:rgba(160,174,192,.18);color:#718096;}
+.bar-bot{background:linear-gradient(90deg,#9f7aea,#667eea);}
+.stats-sub{color:var(--muted,#888);font-size:13px;margin:0 0 10px;}
+  </style>
   <h1 class="page-title">📊 访问统计
     <span class="stats-updated">更新于 {{ summary.updated_at }}</span>
   </h1>
@@ -21,6 +30,10 @@
     <div class="stat-card">
       <span class="stat-num">{{ summary.hot_searches | length }}</span>
       <span class="stat-label">常搜词汇上榜</span>
+    </div>
+    <div class="stat-card">
+      <span class="stat-num">{{ summary.bot_visits }}</span>
+      <span class="stat-label">爬虫访问（占 {{ (summary.bot_visits * 100 / summary.total_visits)|round(1) if summary.total_visits else 0 }}%）</span>
     </div>
   </div>
 
@@ -111,7 +124,43 @@
         <p class="stats-empty">暂无访问数据</p>
       {% endif %}
     </div>
+
+    <!-- 爬虫 / Bot 来源排行 -->
+    <div class="stats-card">
+      <h3>🤖 爬虫 / Bot 来源排行</h3>
+      {% if summary.bot_visits %}
+        <p class="stats-sub">累计爬虫访问 <b>{{ summary.bot_visits }}</b> 次（占总访问
+          {{ (summary.bot_visits * 100 / summary.total_visits)|round(1) if summary.total_visits else 0 }}%，
+          今日 {{ summary.bot_today }} 次）；真实读者访问 <b>{{ summary.human_visits }}</b> 次。</p>
+        {% if summary.bot_breakdown %}
+        <table class="rank-table">
+          <thead>
+            <tr><th>爬虫</th><th>类型</th><th style="width:50%;">次数</th><th>占比</th></tr>
+          </thead>
+          <tbody>
+            {% for b in summary.bot_breakdown %}
+            <tr>
+              <td class="rank-title">{{ b.name }}</td>
+              <td>
+                {% if b.category == "search" %}<span class="tag tag-search">搜索引擎</span>
+                {% elif b.category == "ai" %}<span class="tag tag-ai">AI 爬虫</span>
+                {% elif b.category == "tool" %}<span class="tag tag-tool">工具/脚本</span>
+                {% else %}<span class="tag tag-unknown">未知</span>{% endif %}
+              </td>
+              <td><div class="bar-track"><div class="bar-fill bar-bot" style="width:{{ (b.count * 100 / summary.bot_visits)|round(1) }}%"></div></div></td>
+              <td class="rank-count">{{ (b.count * 100 / summary.bot_visits)|round(1) }}%</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+        {% else %}
+        <p class="stats-empty">暂无细分数据</p>
+        {% endif %}
+      {% else %}
+        <p class="stats-empty">暂无爬虫访问记录（Googlebot / Bingbot / GPTBot 等来过这里就会显示）</p>
+      {% endif %}
+    </div>
   </div>
 
-  <p class="stats-tip">数据来源：前端页面每次路由切换上报一次访问；区域属地由后台异步解析（缓存 30 天）。</p>
+  <p class="stats-tip">数据来源：前端页面每次路由切换上报一次访问；区域属地由后台异步解析（缓存 30 天）。🤖 爬虫识别：会执行 JS 的主流搜索引擎 / AI 爬虫（如 Googlebot、Bingbot、GPTBot）在上报时会被标记；纯无头脚本（不执行 JS）不触发信标，故不计入。</p>
 {% endblock %}

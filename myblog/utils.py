@@ -322,6 +322,85 @@ def parse_device(ua):
     return f"{device} · {os_name} · {browser}"
 
 
+def detect_bot(ua):
+    """从 User-Agent 识别爬虫 / Bot，返回 (is_bot, bot_name, bot_category)。
+
+    bot_category 取值：
+      - "search" : 搜索引擎爬虫（Google/Bing/Baidu/Sogou/360/Yandex/DuckDuckGo/字节搜索/Apple/Petal 等）
+      - "ai"     : AI / LLM 爬虫（GPTBot/CCBot/ClaudeBot/Google-Extended/PerplexityBot/Anthropic/Meta/Cohere 等）
+      - "tool"   : 工具 / SEO 类 bot（Ahrefs/Semrush/MJ12/DotBot/python-requests/curl/Scrapy 及社交抓取等）
+      - "unknown": 含 bot/spider/crawler 但没匹配到具体名称的未知爬虫
+      - ""       : 非 bot（真人浏览器）
+    分类优先级：ai > search > tool > 兜底，避免多重命名词义冲突。
+    """
+    ua = (ua or "").lower()
+    if not ua:
+        return (False, "", "")
+
+    # AI / LLM 爬虫（优先，避免与搜索引擎混淆）
+    ai_rules = [
+        ("gptbot", "GPTBot"),
+        ("ccbot", "CCBot"),
+        ("claudebot", "ClaudeBot"),
+        ("google-extended", "Google-Extended"),
+        ("perplexitybot", "PerplexityBot"),
+        ("anthropic", "AnthropicBot"),
+        ("meta-external", "MetaBot"),
+        ("cohere", "CohereBot"),
+        ("chatgpt-user", "ChatGPT-User"),
+        ("oai-searchbot", "OAI-SearchBot"),
+    ]
+    # 搜索引擎爬虫
+    search_rules = [
+        ("googlebot", "Googlebot"),
+        ("bingbot", "Bingbot"),
+        ("baiduspider", "Baiduspider"),
+        ("sogou", "Sogou"),
+        ("360spider", "360Spider"),
+        ("yandex", "YandexBot"),
+        ("duckduckbot", "DuckDuckBot"),
+        ("bytespider", "Bytespider"),
+        ("applebot", "Applebot"),
+        ("qwantbot", "QwantBot"),
+        ("petalbot", "PetalBot"),
+        ("naver", "NaverBot"),
+        ("seznambot", "SeznamBot"),
+    ]
+    # 工具 / SEO / 脚本 / 社交预览类
+    tool_rules = [
+        ("ahrefsbot", "AhrefsBot"),
+        ("semrushbot", "SemrushBot"),
+        ("mj12bot", "MJ12Bot"),
+        ("dotbot", "DotBot"),
+        ("dataforseo", "DataForSeoBot"),
+        ("python-requests", "python-requests"),
+        ("axios", "axios"),
+        ("curl/", "curl"),
+        ("go-http-client", "go-http-client"),
+        ("java/", "Java"),
+        ("okhttp", "OkHttp"),
+        ("scrapy", "Scrapy"),
+        ("feedfetcher", "FeedFetcher"),
+        ("facebookexternalhit", "FacebookBot"),
+        ("whatsapp", "WhatsAppBot"),
+        ("telegrambot", "TelegramBot"),
+        ("twitterbot", "TwitterBot"),
+    ]
+
+    for key, name in ai_rules:
+        if key in ua:
+            return (True, name, "ai")
+    for key, name in search_rules:
+        if key in ua:
+            return (True, name, "search")
+    for key, name in tool_rules:
+        if key in ua:
+            return (True, name, "tool")
+    if "bot" in ua or "spider" in ua or "crawler" in ua or "crawl" in ua:
+        return (True, "未知爬虫", "unknown")
+    return (False, "", "")
+
+
 def get_setting(key, default=None):
     """读取站点设置（Setting 表键值对）。返回字符串；不存在返回 default。
     用于后台可动态调整的开关（如评论审核），优先级高于环境变量默认值。

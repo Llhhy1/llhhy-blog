@@ -118,6 +118,9 @@ class VisitLog(db.Model):
     path = db.Column(db.String(255), default="")
     post_id = db.Column(db.Integer, default=None)  # 若访问的是文章页，记录文章 id
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    is_bot = db.Column(db.Boolean, default=False, index=True)   # 是否爬虫/Bot（v3.7.1）
+    bot_name = db.Column(db.String(60), default="")             # 具体爬虫名（Googlebot 等，v3.7.1）
+    bot_category = db.Column(db.String(20), default="")         # search/ai/tool/unknown（v3.7.1）
 
 
 class ReadLog(db.Model):

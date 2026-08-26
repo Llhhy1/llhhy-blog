@@ -562,6 +562,17 @@ supervisorctl status
 - **验证**：新增 `smoke_v370.py`（10 项断言全通过：new_post 强制全局、edit_post 标题变/不变、title/id/category-slug 三模式、前端无 slug 输入框）；`py_compile` 通过。R37 七维审计 **0 Blocker，0 高危**（详见 `SECURITY_AUDIT.md` 第四十七轮 R37）。
 - **⚠️ 升级顺序**：R37 **改了后端 + 模板**（无 DB 迁移、无前端构建，前端沿用 `_vite_build15`），服务器**直接跑一键更新**即可；覆盖后端后须在宝塔「停止 → 启动」gunicorn 方真正重载（restart 不重载）。升级后后台侧边栏左下角版本号应显示 `v3.7.0`。
 
+### v3.7.1 升级注意（访问统计新增 Bot/爬虫识别 · R38 审计通过）
+
+- **改的什么**：① 后台「📊 访问统计」新增**爬虫识别**——访问记录时从 User-Agent 自动识别 Bot/爬虫并细分搜索引擎(search)/AI(ai)/工具脚本(tool)/未知(unknown)；② `VisitLog` 新增 `is_bot`/`bot_name`/`bot_category` 三字段；③ `stats.record_visit` 落库 bot 信息、`compute_summary` 新增 `bot_visits`/`human_visits`/`bot_today`/`bot_breakdown`；④ 后台看板新增「🤖 爬虫访问」占比卡片 + 「🤖 爬虫/Bot 来源排行」（label 区分搜索引擎/AI/工具/未知）。
+- **🚨 本次有 SQLite DB 迁移（重点）**：`visit_log` 表需新增 3 列。覆盖后端代码后，**必须先在服务器跑迁移脚本**，否则旧库无这 3 列会 500：
+  1. SSH/宝塔终端进入项目目录；
+  2. 用项目 venv 的 python 执行：`python myblog/migrate_visit_log_bot.py`
+     （若 blog.db 不在默认 `../data/blog.db` 或 `./data/blog.db`，用环境变量指定：`BLOG_DB=/www/wwwroot/你的站点/data/blog.db python myblog/migrate_visit_log_bot.py`）；
+  3. 脚本幂等：已存在列会跳过，可重复运行；输出 `done.` 即成功。
+- **验证**：新增 `smoke_v371.py`（19 项断言全通过：detect_bot 五类 UA、record_visit 落库、compute_summary 四维度）；`py_compile` 通过。R38 七维审计 **0 Blocker，0 高危**（详见 `SECURITY_AUDIT.md` 第四十八轮 R38）。
+- **⚠️ 升级顺序**：R38 **改了后端 + 模板 + 有 DB 迁移**（前端沿用 `_vite_build16`，无前端构建）。步骤：① 覆盖后端代码 → ② **先跑迁移脚本**（见上）→ ③ 宝塔「停止 → 启动」gunicorn 方真正重载（restart 不重载）。升级后后台侧边栏左下角版本号应显示 `v3.7.1`。
+
 ## 邮件设置（新文章通知订阅者 · 后台配置）
 
 > 从 v2.4.0 起，邮件群发配置**不需要再填环境变量**，直接在后台操作（更便捷）。

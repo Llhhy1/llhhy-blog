@@ -577,3 +577,10 @@ v3.1.7 修复 CSRF 隐藏域乱码后，用户反馈「退出登录按钮失效�
 - **② 保留原则**：编辑文章标题未变 → 保持原 slug 不动（不破坏旧 URL）；标题变 → 按全局模板重建。
 - **③ 删除死代码**：`clean_slug()` 无调用方，已删除。
 - **④ 验证**：`smoke_v370.py` 10 项断言全通过；R37 七维审计 0 Blocker。APP_VERSION 升为 v3.7.0。
+
+## 41. v3.7.1：访问统计新增 Bot/爬虫识别（R38 审计通过）
+
+- **① 新增能力**：后台访问统计新增爬虫识别维度，从 UA 细分搜索引擎/AI/工具/未知四类。
+- **② 数据落库**：VisitLog 新增 is_bot/bot_name/bot_category 三字段（迁移脚本 myblog/migrate_visit_log_bot.py）；record_visit 落库，compute_summary 新增 bot_visits/human_visits/bot_today/bot_breakdown。
+- **③ 后台可视化**：统计看板新增「🤖 爬虫访问」占比卡片 + 「🤖 爬虫/Bot 来源排行」。
+- **④ 验证**：smoke_v371.py 19 项断言全通过；R38 七维审计 0 Blocker。APP_VERSION 升为 v3.7.1。

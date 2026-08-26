@@ -1693,3 +1693,29 @@ fetch('/api/version/update', {
 - `smoke_v370.py`（临时 SQLite 隔离库）10 项断言全通过，覆盖 new_post 强制全局、edit_post 标题变/不变、title/id/category-slug 三模式、前端无 slug 输入框。
 - 前端静态断言：`edit_post.html` 无 `name="slug"`、草稿 `fields` 数组无 `slug`。
 - `package.py` 产出 `myblog-backend.zip` + `vue-frontend-dist.zip` + `sha256.txt`；zip 内 `config.py` 的 `APP_VERSION` 校验为 `3.7.0`。
+
+## 第四十八轮（R38 · v3.7.1 · 访问统计新增 Bot/爬虫识别）
+
+**背景**：用户希望给博客加「bot/爬虫识别」能力。本轮落地最贴合「识别」且零风险的方向——后台访问统计新增爬虫识别维度：访问记录时从 User-Agent 自动识别是否为 Bot/爬虫并细分搜索引擎(search)/AI(ai)/工具脚本(tool)/未知(unknown)；VisitLog 新增 is_bot/bot_name/bot_category 三字段（SQLite 迁移脚本 myblog/migrate_visit_log_bot.py，幂等）；后台统计看板新增「🤖 爬虫访问」占比卡片与「🤖 爬虫/Bot 来源排行」。反爬限流（有「误伤正常搜索引擎」风险）与 SEO 服务增强作为后续可选阶段，本轮未做。
+
+**改动文件**：`myblog/utils.py`（新增 `detect_bot()`）、`myblog/models.py`（`VisitLog` 加三字段）、`myblog/stats.py`（`record_visit` 落库 + `compute_summary` 新增四维度 + 新增 `_bot_breakdown()`）、`myblog/templates/admin/stats.html`（占比卡片 + 来源排行 + 样式 + 说明）、新增 `myblog/migrate_visit_log_bot.py`、新增 `smoke_v371.py`；文档同步（README / myblog/README / ROADMAP / deploy_guide / SECURITY_AUDIT）。
+
+### R38 七维审计
+
+| # | 维度 | 审查点 | 结论 | 状态 |
+|---|---|---|---|---|
+| R38-1 | 注入 | `detect_bot()` 仅对 UA 做子串匹配、返回**硬编码预定义名称**（来自规则列表或常量「未知爬虫」），从不反射原始 UA；`record_visit` 写入的 `bot_name` 为枚举值而非原始 UA；`VisitLog` 写入经 ORM 参数化；迁移脚本 DDL 为固定字符串、无用户输入 | ✅ 无注入 |
+| R38-2 | 越权 | 无新增路由/接口；`record_visit` 仍走既有匿名埋点信标 `/api/stats/visit`；统计看板仍需登录 | ✅ 无越权 |
+| R38-3 | CSRF | 无新增写接口；`detect_bot`/`_bot_breakdown` 为只读查询；迁移脚本为本地运维工具、非 Web 面 | ✅ 无 CSRF |
+| R38-4 | XSS | 关键安全点：`bot_name` 写入值**仅来自 detect_bot 预定义名称集合**（Googlebot/Bingbot/Baiduspider/GPTBot/CCBot/ClaudeBot/…/「未知爬虫」），绝不回显用户原始 UA；`stats.html` 渲染 `{{ b.name }}` 走 Jinja autoescape；类别标签为模板分支硬编码 | ✅ 无 XSS |
+| R38-5 | 资源/异常 | `record_visit` 的 bot 解析被外层 try/except 兜底（不影响页面）；`_bot_breakdown` 异常返回空列表；新增字段均为轻量 Bool/字符串，无新连接/文件句柄 | ✅ 无泄漏 |
+| R38-6 | 限流 | `record_visit` 入参来自既有 `/api/stats/visit`（已有限流 60/60）；Bot 识别不新增写面 | ✅ 不变 |
+| R38-7 | 回归风险 | ① `smoke_v371.py` 19 项断言全过：detect_bot 11 类 UA、record_visit 落库 is_bot/bot_name/bot_category、compute_summary 四维度数值；② `py_compile` utils/stats/models/admin/config/api/stats 通过；③ 既有统计口径（PV/UV/区域/热读/时段）未改动；④ DB 迁移脚本幂等（PRAGMA 查列后 ALTER，可重跑）；⑤ 纯无头爬虫（不执行 JS）不触发前端信标故不计入访统，已在看板说明标注，属既有架构预期 | ✅ 无功能性回归 |
+
+**R38 结论**：**0 Blocker，0 高危**。本轮为统计增量（新增 bot 识别与可视化），攻击面无扩大；核心安全点在于 `bot_name` 不回显原始 UA，从源头杜绝 XSS/注入。
+
+**验证记录（R38）**：
+- `python -m py_compile myblog/utils.py myblog/stats.py myblog/models.py myblog/admin.py myblog/config.py myblog/api/stats.py` 通过。
+- `smoke_v371.py`（临时 SQLite 隔离库）19 项断言全通过：detect_bot 五类 UA 识别正确、record_visit 落库 bot 字段、compute_summary 四维度数值正确。
+- DB 迁移脚本 `myblog/migrate_visit_log_bot.py` 幂等（PRAGMA table_info 查列后 ALTER ADD COLUMN，已存在则跳过）。
+- 前端静态断言：`stats.html` 含「爬虫访问」卡片与「爬虫/Bot 来源排行」区块、`bot_name` 经 autoescape 渲染。

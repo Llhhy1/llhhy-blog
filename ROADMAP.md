@@ -614,3 +614,11 @@ v3.1.7 修复 CSRF 隐藏域乱码后，用户反馈「退出登录按钮失效�
 - **② 修复**：异常分支现把完整栈打到 `sys.stderr`，由 gunicorn 写入 `gunicorn.log`（搜 `[SMTP ERROR]` 即可定位）。无新路由/表/模板/前端改动。
 - **③ 排错指引**：重部署后填对 SMTP（授权码≠登录密码、465 勾 SSL / 587 取消勾选、出站端口放行），点测试邮件；`tail -n 60 /www/wwwroot/<站点>/gunicorn.log | grep "SMTP ERROR"` 看真实报错（535 认证失败 / 超时 / SSL 握手 / 连接拒绝）。
 - **④ 验证**：py_compile 通过；R42 七维审计 0 遗留。APP_VERSION 升为 v3.8.3。
+
+## 46. v3.8.4：修复点赞不累加 + 友链 RSS 聚合可观测性（R43）
+
+- **① 点赞不累加（BUG）**：v3.1.6 起后端严格校验所有 POST 的 CSRF Token；前端 `LikeButton.vue`（Vue 文章页）与 `script.js`（SSR 文章页）用裸 `fetch` POST 不带 token 被 403 拦截，服务端 `likes` 从未 +1；前端 `catch` 还「本地假加一 + 假置已赞」误导用户。
+  - 修复：`LikeButton.vue` 改用 `apiPost`（自动带 `X-CSRF-Token`），`script.js` 从 `csrf_input` 取 token 带上；移除 catch 假加一，失败如实报错。
+- **② 友链 RSS 不聚合（可观测性）**：`feed_agg.py` / `api/social.py` 原静默吞掉友链抓取异常，现场无迹可查；现失败原因打到日志，区分「未填 RSS 地址 / RSS 地址未过 SSRF 校验 / feedparser 未安装 / 抓取解析异常」四类。
+- **③ 验证**：R43 七维审计 0 遗留（1 中危 CSRF 缺失已修）；前端 `node --check` 语法校验通过；本地 test_client 实测裸 POST→403、带 token→200 且 DB `likes=1` 落库；公网 RSS 经 `get_circle_feed()` 正常拉回 3 条。
+- **④ 部署注意**：**含前端构建产物**，须重新 `vite build` + `package.py` 打包；宝塔「停止 → 启动」gunicorn 重载前端静态资源。APP_VERSION 升为 v3.8.4。

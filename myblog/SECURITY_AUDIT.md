@@ -1819,3 +1819,53 @@ fetch('/api/version/update', {
 - `python -m py_compile myblog/mail_notify.py` 通过。
 - 人工核对 `_send_smtp` 上下文：`sendmail` 成功返回 True，异常分支现打印栈后返回 False，语义不变。
 - `python -m py_compile` 全部改动文件通过。
+
+---
+
+## 第五十三轮（R43 · v3.8.4 · 修复点赞不累加 + 友链 RSS 聚合可观测性）
+
+**背景**：用户反馈两个 BUG：①「点赞不会累加」②「友链 RSS 不会聚合到广场」。
+
+### ① 点赞不累加（BUG 根因）
+v3.1.6 起后端 `app.py::_csrf_protect` 严格校验**所有非豁免 POST** 必须带 `X-CSRF-Token` 头。
+前端两处点赞用了**裸 `fetch` POST**：
+- `vue-frontend/src/components/LikeButton.vue`（Vue 文章页）：`fetch("/api/post/<slug>/like", {method:"POST"})` 不带任何 token → 后端 403 → `resp.json()` 解析出 `{error:...}`，`data.likes` 非 number → 计数不变；但 `catch` 分支无条件 `count.value += 1` + `liked = true`，**按钮假成功**（实际服务端从未 +1）。
+- `myblog/static/script.js`（SSR 文章页）：`fetch("/post/<slug>/like", {method:"POST"})` 同样不带 token，被 403 拦截。
+
+实测（本地 Flask test_client）：裸 POST → 403（CSRF 拦截），带 token → 200 且 DB `likes=1` 落库。复现实锤。
+
+### ② 友链 RSS 不聚合（可观测性）
+`myblog/feed_agg.py::get_friend_feed()` 与 `myblog/api/social.py::circle()` 原把友链抓取异常**全部 `except Exception: continue` / `print("博客圈聚合失败")` 静默吞掉**，现场无迹可查。本地实测：公网 RSS（阮一峰 atom.xml）能正常拉回 3 条，说明代码路径本身正常；线上不聚合大概率是**环境**（feedparser 未装 / 服务器出站抓不到外网 / 友链后台没填 RSS 地址）而非代码 bug，但缺少日志无法区分。
+
+### 改动文件
+- `vue-frontend/src/components/LikeButton.vue`：`like()` 改用项目已有的 `apiPost`（自动带 `X-CSRF-Token`）；移除 `catch` 假加一 + 假置已赞，失败如实 `alert` 报错。
+- `myblog/static/script.js`：`csrf_input` 隐藏域取 token 带上 `X-CSRF-Token` 头；失败 `alert` 报错（不再静默）。
+- `myblog/feed_agg.py`：聚合循环把失败原因打到 `sys.stderr`（区分「未填 RSS 地址 / RSS 地址未过 SSRF 校验 / feedparser 未安装 / 抓取解析异常（含具体错误类型与消息）」）；`get_circle_feed()` 空结果也区分「0 条友链」与「0 条填了 RSS」。
+- `myblog/api/social.py`：`circle()` 异常改为打印具体错误（含类型与 message）。
+- 文档同步（README / myblog/README / ROADMAP / SECURITY_AUDIT）；APP_VERSION 升为 3.8.4。
+
+### R43 审计（聚焦改动安全面）
+
+| # | 维度 | 审查点 | 结论 | 状态 |
+|---|---|---|---|---|
+| R43-1 | CSRF | 点赞前端改用 `apiPost`（与项目其它 POST 同口径，自动带 `X-CSRF-Token`）；`script.js` 从 `csrf_input` 隐藏域取 token 带上。修复「裸 POST 被 403」根因，服务端 `likes` 正常 +1。无绕过 | ✅ 已修复（1 中危）|
+| R43-2 | XSS | RSS 摘要经既有 `clean_html`（bleach 白名单）清洗；失败日志仅 `sys.stderr`，不进任何 HTML 响应/模板；`print(f"...{link.name}...")` 的 `link.name` 是后台管理数据（管理员可控），非访客请求输入 | ✅ 无 XSS |
+| R43-3 | 注入 | 无新增 SQL/命令拼接；`feedparser.parse(link.rss_url)` 的 `rss_url` 来自数据库（管理员配置），且 `_safe_url` 已做 SSRF 校验（拦截私有地址）| ✅ 无注入 |
+| R43-4 | 越权 | 点赞接口（`/api/post/<slug>/like`、`/post/<slug>/like`）保持原 `@login_required`/游客放行语义不变；`/api/feed/circle` 保持公开只读不变 | ✅ 无越权 |
+| R43-5 | SSRF | `feed_agg._safe_url` 仍强制 http/https 且仅放行公网地址（127.0.0.1/192.168.*/10.*/172.16-31.*/169.254.* 全拦截）；新日志明确提示「RSS 地址未过 SSRF 校验」便于运维识别 | ✅ 无 SSRF |
+| R43-6 | 密钥泄露 | 失败日志打印 `link.name`/`link.rss_url`/错误类型与 message，不含任何账号密码/授权码；`feed_agg` 不接触 SMTP 等凭证 | ✅ 无密钥泄露 |
+| R43-7 | 资源/异常 | 聚合循环 `try/except` 仍 `continue` 跳过坏源不影响其它源；`sys.stderr.write` 由 gunicorn 兜底，无文件句柄/subprocess 泄漏 | ✅ 无泄漏 |
+
+**R43 结论**：**0 遗留（本次范围）**。1 个中危（点赞 CSRF 缺失致不累加）已修复；RSS 为可观测性增强，不引入安全回归。
+
+**验证记录（R43）**：
+- 前端语法：`node --check myblog/static/script.js` 通过；`vue-frontend/src/components/LikeButton.vue` 经 `node --check` 跳过（项目用 Vite 构建，语法由 `vue-tsc` 保证）。
+- 后端语法：`python -m py_compile myblog/feed_agg.py myblog/api/social.py` 通过。
+- 本地实测（Flint test_client）：① 裸 POST 点赞 → 403；② 带 `X-CSRF-Token` 点赞 → 200 且 DB `likes=1` 落库；③ 公网 RSS（阮一峰 atom.xml）经 `get_circle_feed()` 正常拉回 3 条 —— 代码路径验证正常。
+- 前端构建：须重新 `vite build` 生成 `dist` 并打包（见 `README.md`「构建」章节），仅覆盖后端不生效。
+
+**部署注意（强提醒）**：v3.8.4 **含前端构建产物**。必须：
+1. `cd vue-frontend && npm install && npm run build` 生成 `dist/`
+2. 回到仓库根 `python package.py` 重新打包（包内 `vue-frontend-dist.zip` 已含新 `LikeButton.vue` 构建结果）
+3. 宝塔「停止 → 启动」gunicorn 重载前端静态资源（restart 不重载）
+4. 升级后后台左下角显示 `v3.8.4`；`tail -n 60 /www/wwwroot/<站点>/gunicorn.log` 看 RSS 聚合日志（搜 `[FEED AGG]`）

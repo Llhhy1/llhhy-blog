@@ -622,6 +622,22 @@ supervisorctl status
 > - `SSL: wrong version number` → 端口与 SSL 开关不匹配：465 **必须勾选** SSL，587 **必须取消**勾选。
 > - 另注意 `SMTP_PASSWORD_ENV_FIRST`（默认 `true`）：宝塔环境变量里的 `SMTP_PASSWORD` 优先于后台填的密码，若两者不一致以环境变量为准——核对宝塔「Python 项目 → 设置 → 环境变量」是否覆盖。
 
+## 友链 RSS 聚合到广场（博客圈）· 排错（v3.8.4 起日志可见）
+
+> 广场（博客圈）页面的「友链 RSS 聚合」依赖后台「友链管理」里给友链填的 RSS 地址。若广场上始终看不到友链文章，按以下顺序排查。
+
+1. **确认友链填了 RSS 地址**：后台 → 「🔗 友链管理」→ 给每个要聚合的友链填 `RSS 地址`（如 `https://example.com/feed.xml` 或 `atom.xml`）。未填的友链不会聚合。
+2. **确认服务器装了 feedparser**：SSH 进服务器 `pip show feedparser`；若未安装，在站点 Python 环境执行 `pip install feedparser==6.0.11`，然后宝塔「停止 → 启动」gunicorn。**v3.8.4 起**：若未装，日志会明确提示 `pip install feedparser==6.0.11`。
+3. **确认服务器能出站抓 RSS**：服务器安全组/防火墙放行出站 443（HTTPS RSS 多为 443）。可用 `curl -I https://友链RSS地址` 在服务器上自测连通性。
+4. **看日志定位具体失败**（v3.8.4 起失败原因不再静默）：
+   - 定位日志：`tail -n 60 /www/wwwroot/<站点>/gunicorn.log | grep "FEED AGG"`
+   - 四类提示：
+     - `[FEED AGG] 共 N 条友链，其中 0 条填写了 RSS 地址` → 后台补填 RSS 地址即可。
+     - `[FEED AGG] 跳过友链「X」：RSS 地址未通过安全校验` → RSS 地址指向私有 IP（SSRF 防护拦截），换公网可访问地址。
+     - `[FEED AGG] feedparser 未安装！` → 按提示 `pip install feedparser==6.0.11` 后重启服务。
+     - `[FEED AGG] 抓取友链「X」RSS 失败: <错误类型>: <消息>` → 具体错误（超时/证书/格式），按消息修复（多为出站网络或 RSS 格式问题）。
+5. **缓存**：聚合结果内存缓存 15 分钟。确认配置正确后，等 15 分钟或重启服务即时生效。
+
 ## 自动部署（GitHub push → 服务器自动更新）
 
 > 想让「GitHub 推送代码 = 服务器自动更新」，只需三步。**可选功能，不配不影响使用。**

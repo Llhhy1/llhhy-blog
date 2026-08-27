@@ -343,6 +343,18 @@ llhhy-blog/
 - **排错**：重部署后填对 SMTP（授权码≠登录密码、465 勾 SSL / 587 取消勾选、出站端口放行），点测试邮件；`tail -n 60 /www/wwwroot/<站点>/gunicorn.log | grep "SMTP ERROR"` 看真实报错（535 认证失败 / 超时 / SSL 握手 / 连接拒绝）。详见 `myblog/deploy_guide.md`「邮件设置」排错块。
 - ⚠️ 升级：纯后端一行改动（无 DB 迁移、无前端构建）。覆盖后端 → 宝塔「停止 → 启动」gunicorn 方真正重载（restart 不重载）。升级后后台左下角显示 `v3.8.3`。
 
+### v3.8.4：修复点赞不累加 + 友链 RSS 聚合可观测性（R43）
+
+- **① 点赞不累加（BUG）**：v3.1.6 起后端严格校验所有 POST 的 CSRF Token；前端 `LikeButton.vue`（Vue 文章页）与 `script.js`（SSR 文章页）用裸 `fetch` POST 不带 token，被 403 拦截，服务端 `likes` 从未 +1。更槽的是前端 `catch` 分支还「本地假加一 + 假置已赞」误导用户以为成功。
+  - 修复：`LikeButton.vue` 改用项目已有的 `apiPost`（自动带 `X-CSRF-Token`），`script.js` 从 `csrf_input` 隐藏域取 token 带上；移除 catch 假加一逻辑，失败如实报错。
+- **② 友链 RSS 不聚合到广场（可观测性）**：`feed_agg.py` / `api/social.py` 原静默吞掉友链抓取异常，现场无迹可查（与 SMTP 同类病）。现把失败原因打到日志，区分四类：
+  1. 友链未填 RSS 地址（后台友链管理里补填即可）
+  2. RSS 地址未过 SSRF 安全校验（私有地址拦截）
+  3. 服务器未装 `feedparser`（日志提示 `pip install feedparser==6.0.11`）
+  4. 抓取/解析异常（含具体错误类型与消息，便于定位超时/证书/格式问题）
+- **验证**：R43 七维审计 0 遗留（无 XSS/注入/越权/SSRF/CSRF/密钥泄露/资源泄漏）；前端用 `node --check` 校验语法。APP_VERSION 升为 v3.8.4。
+- ⚠️ 升级：**含前端构建产物**——必须重新 `vite build` 并打包（见下方构建说明），仅覆盖后端不会生效。宝塔「停止 → 启动」gunicorn 重载前端静态资源。
+
 ## 快速开始（本地开发）
 
 后端（默认端口 5000）：

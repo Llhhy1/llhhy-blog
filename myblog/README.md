@@ -337,6 +337,15 @@
 - **内容**：认证 + 通用说明 + 文章 API + 评论 API + RSS 订阅 + 博客圈聚合。
 - APP_VERSION 升为 v3.8.5。
 
+### v3.8.6：博客圈聚合自诊断 + 系列热门标签 + 文档页导航
+
+- **① 博客圈自诊断（可观测性增强）**：`/api/feed/circle` 响应新增 `debug` 字段（友链总数 / 已填 RSS 数 / feedparser 是否安装 / 成功抓取 / 跳过数 / 每条友链具体原因）。`SquareView.vue` 博客圈为空时显示「聚合诊断」面板，无需登服务器即可看到为什么聚合为空（没填 RSS / feedparser 没装 / 网络抓不到）。
+- **② 系列详情页热门标签**：`SeriesDetailView.vue` 统计该系列所有文章标签的出现频次，取前 20 以标签云展示「本系列热门标签」，点击跳转到 `/tag/:slug`（纯前端计算，复用现有 `/api/series/:slug` 返回的 posts.tags，无后端改动）。
+- **③ 文档页导航入口**：`App.vue` 桌面导航 + 移动抽屉导航各加「文档」链接，跳转 `/docs`（此前 /docs 路由已存在但无入口）。
+- **④ 文档页内容充实（完整 API 参考 + 二次开发指南）**：重写 `DocsView.vue`，基于实际路由清单与 `API.md` 校正旧文档错误路径（如 `/api/login`→`/api/auth/login`、移除不存在的 `/api/post/:slug/comments` GET），按模块列出全部 `/api` 接口（方法 / 路径 / 鉴权级别 / 参数 / cURL / 响应样例），并新增「二次开发指南」章节（后端新增 API 的完整步骤 + 代码模板、CSRF 处理、三种鉴权级别实现、前端 `apiGet`/`apiPost` 调用、新增页面、本地调试、文档同步要求）。兼容深色模式，代码块接入 highlight.js。
+- **验证**：R44 审计 0 遗留（文档为静态只读内容，无新增安全面）；前端 `vite build` 编译通过（DocsView 44.7 kB）。APP_VERSION 升为 v3.8.6。
+- ⚠️ 升级：**含前端构建产物**，须重新 `vite build` 并打包；仅覆盖后端不生效。宝塔「停止 → 启动」gunicorn 重载前端静态资源。
+
 ## 目录结构
 ```
 myblog/             # 后端（Flask + SQLite）

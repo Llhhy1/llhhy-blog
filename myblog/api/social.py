@@ -81,18 +81,27 @@ def comment_moment(mid):
 
 @api_bp.route("/feed/circle")
 def feed_circle():
-    """博客圈：抓取友链站点 RSS，按时间混排（带缓存 + SSRF 防护）。"""
+    """博客圈：抓取友链站点 RSS，按时间混排（带缓存 + SSRF 防护）。
+
+    v3.8.6：响应附 `debug` 诊断块，无需登服务器即可看到「聚合为何为空」：
+    - total_links / links_with_rss：友链总数 / 已填 RSS 数
+    - feedparser_ok：feedparser 是否安装
+    - fetched / skipped：成功抓取 / 跳过的源数
+    - notes：每条友链的具体原因（安全校验未过 / 抓取失败 / 解析 0 条等）
+    """
     try:
         import feed_agg
         force = request.args.get("refresh") == "1"
         items = feed_agg.get_circle_feed(force=force)
+        debug = feed_agg.get_last_diag()
     except Exception as e:
         # v3.8.4：不再静默——异常栈落日志（gunicorn.log 可查）
         import traceback
         print("[FEED AGG] 博客圈聚合异常:", repr(e))
         traceback.print_exc()
         items = []
-    return jsonify({"items": items})
+        debug = {"error": repr(e)}
+    return jsonify({"items": items, "debug": debug})
 
 
 @api_bp.route("/social-accounts")

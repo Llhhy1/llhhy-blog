@@ -1869,3 +1869,35 @@ v3.1.6 起后端 `app.py::_csrf_protect` 严格校验**所有非豁免 POST** �
 2. 回到仓库根 `python package.py` 重新打包（包内 `vue-frontend-dist.zip` 已含新 `LikeButton.vue` 构建结果）
 3. 宝塔「停止 → 启动」gunicorn 重载前端静态资源（restart 不重载）
 4. 升级后后台左下角显示 `v3.8.4`；`tail -n 60 /www/wwwroot/<站点>/gunicorn.log` 看 RSS 聚合日志（搜 `[FEED AGG]`）
+
+## 第五十四轮（R44 · v3.8.6 · 博客圈自诊断 + 系列热门标签 + 文档页导航 + 文档页内容充实）
+
+- **范围**：`feed_agg.py`（诊断收集）、`api/social.py`（`/api/feed/circle` 附 debug）、`SquareView.vue`（聚合诊断面板）、`SeriesDetailView.vue`（本系列热门标签云）、`App.vue`（文档导航入口）。
+- **审计维度**：XSS / 注入 / 越权 / SSRF / CSRF / 密钥泄露 / 资源泄漏 / 限流。
+
+### R44 审计（聚焦改动安全面）
+
+| 编号 | 维度 | 结论 |
+|------|------|------|
+| R44-1 | XSS | ① 博客圈 `debug.notes` 仅前端展示 `link.name`/`rss_url`/`reason`，均来自数据库（管理员配置）或内部异常类型，非访客请求输入；`SquareView` 渲染 `notes` 用 `{{ }}` 文本插值（自动转义），无 `v-html`。② 系列热门标签 `t.name` 文本插值，跳转为 `/tag/:slug`（slug 来自数据库）。③ 博客圈文章 `summary` 仍走既有 `clean_html`（bleach 白名单），`v-html` 渲染经清洗内容。 | ✅ 无 XSS |
+| R44-2 | 注入 | 无新增 SQL/命令拼接；诊断信息均为只读统计，不进入任何 DDL/DML。 | ✅ 无注入 |
+| R44-3 | 越权 | `/api/feed/circle` 保持公开只读；系列详情 `/api/series/:slug` 保持公开；导航链接仅前端路由跳转，无权限变化。 | ✅ 无越权 |
+| R44-4 | SSRF | 博客圈诊断复用既有 `_safe_url`/`_safe_url_fail_reason`（http/https + 公网校验），新增 `debug` 仅回显判定结果，不新增任何出站请求。 | ✅ 无 SSRF |
+| R44-5 | CSRF | 三处改动均为 GET/只读展示或纯前端路由（`router-link`），不涉及状态变更 POST，不受影响。 | ✅ 无 CSRF |
+| R44-6 | 密钥泄露 | `debug` 不输出任何账号密码/Token/授权码；`feedparser_ok`/`counts`/`notes` 均为非敏感运维信息。 | ✅ 无密钥泄露 |
+| R44-7 | 资源/异常 | 诊断收集在既有聚合循环内完成（无额外请求/子进程）；`computed` 标签频次为纯内存计算（O(文章数×标签数)），无泄漏。 | ✅ 无泄漏 |
+| R44-8 | 限流 | 系列热门标签为前端本地计算，不新增后端调用；博客圈诊断不新增接口调用。 | ✅ 无限流回归 |
+
+**R44 结论**：**0 遗留**。四处改动（①②③④）均为只读展示 / 前端路由增强 / 静态文档，不引入任何安全回归；博客圈诊断直显根因，降低运维排查成本。④ 文档页（`DocsView.vue`）为纯静态内容：示例代码仅前端展示，不执行任何服务端逻辑、不接受用户入参、不触发状态变更；代码高亮用的 highlight.js 由 cdnjs 公共 CDN 加载（仅作用于静态代码块，可改为自托管进一步收敛外部依赖）。
+
+**验证记录（R44）**：
+- 前端 `vite build`（_vite_build15）编译通过，`node --check` 全过；`DocsView` 产物 ~44.7 kB。
+- 本地 `/api/feed/circle` 实测返回 `debug` 块（友链总数 / 已填 RSS / feedparser_ok / notes 具体原因）。
+- 系列详情 `hotTags` 由 `posts.tags` 频次统计，纯前端 `computed`。
+- `/docs` 文档页重写覆盖全部 `/api` 端点，路径已对照 `myblog/api/*.py` 路由清单校正（修正旧文档 `/api/login`、移除不存在的评论列表 GET 等）。
+
+**部署注意（强提醒）**：v3.8.6 **含前端构建产物**。必须：
+1. `cd vue-frontend && npm install && npm run build` 生成 `dist/`（本次用 `_vite_build15`）
+2. 回到仓库根 `python package.py` 重新打包（`vue-frontend-dist.zip` 已含新 `SeriesDetailView`/`App`/`SquareView` 构建结果）
+3. 宝塔「停止 → 启动」gunicorn 重载前端静态资源（restart 不重载）
+4. 升级后后台左下角显示 `v3.8.6`；访问 `/docs` 确认文档页有导航入口；进任意系列详情页确认「🔥 本系列热门标签」云显示。

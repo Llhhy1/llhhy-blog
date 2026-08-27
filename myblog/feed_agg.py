@@ -16,6 +16,22 @@ from utils import clean_html
 _CACHE = {"items": [], "ts": 0}
 _CACHE_TTL = 900  # 秒
 
+# v3.8.6：自诊断（让前端/用户无需登服务器即可看到「博客圈为何为空」）
+_LAST_DIAG = {
+    "total_links": 0,
+    "links_with_rss": 0,
+    "feedparser_ok": True,
+    "fetched": 0,
+    "skipped": 0,
+    "last_run": "",
+    "notes": [],
+}
+
+
+def get_last_diag():
+    """返回最近一次聚合的诊断信息（供 /api/feed/circle 附在响应里）。"""
+    return dict(_LAST_DIAG)
+
 
 def _is_private_ip(ip):
     """判断 IP 是否为内网/回环/保留地址。用于 DNS 重绑定缓解的最终裁决。"""
@@ -115,33 +131,50 @@ def get_circle_feed(force=False):
     if not force and _CACHE["items"] and now - _CACHE["ts"] < _CACHE_TTL:
         return _CACHE["items"]
 
+    # v3.8.6：重置诊断
+    diag = {"total_links": 0, "links_with_rss": 0, "feedparser_ok": True,
+            "fetched": 0, "skipped": 0, "last_run": "", "notes": []}
+
     items = []
-    links = FriendLink.query.filter(
-        FriendLink.rss_url.isnot(None),
-        FriendLink.rss_url != "",
-    ).all()
+    all_links = FriendLink.query.all()
+    diag["total_links"] = len(all_links)
+    links = [l for l in all_links if l.rss_url]
+    diag["links_with_rss"] = len(links)
+    diag["last_run"] = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(now))
+
     if not links:
         # v3.8.4：可观测性——聚合为空时区分「没填 RSS」与「抓取失败」，日志可查
-        total_links = FriendLink.query.count()
-        print(f"[FEED AGG] 博客圈聚合：共 {total_links} 条友链，其中 0 条填写了 RSS 地址（后台友链管理里给友链填 RSS 地址即可聚合）")
+        total_links = diag["total_links"]
+        note = (f"共 {total_links} 条友链，其中 0 条填写了 RSS 地址"
+                f"（后台「友链管理」给友链填 RSS 地址即可聚合）")
+        print(f"[FEED AGG] 博客圈聚合：{note}")
+        diag["notes"].append(note)
     for link in links:
         if not _safe_url(link.rss_url):
-            print(f"[FEED AGG] 跳过友链「{link.name}」：RSS 地址未通过安全校验（{_safe_url_fail_reason(link.rss_url)}）")
+            reason = _safe_url_fail_reason(link.rss_url)
+            print(f"[FEED AGG] 跳过友链「{link.name}」：RSS 地址未通过安全校验（{reason}）")
+            diag["skipped"] += 1
+            diag["notes"].append(f"跳过友链「{link.name}」：RSS 地址未过安全校验（{reason}）")
             continue
         try:
             import feedparser
             parsed = feedparser.parse(link.rss_url)
         except ImportError:
             print("[FEED AGG] feedparser 未安装！请在服务器上执行: pip install feedparser==6.0.11 后重启服务")
+            diag["feedparser_ok"] = False
+            diag["notes"].append("feedparser 未安装：pip install feedparser==6.0.11 后重启服务")
             break
         except Exception as e:
             # 抓取/解析失败跳过该源，不影响其它源
             print(f"[FEED AGG] 抓取友链「{link.name}」RSS 失败: {type(e).__name__}: {e}")
+            diag["skipped"] += 1
+            diag["notes"].append(f"抓取友链「{link.name}」RSS 失败：{type(e).__name__}: {e}")
             continue
         entries = parsed.entries or []
         if not entries:
             bozo = getattr(parsed, "bozo", 0)
             print(f"[FEED AGG] 友链「{link.name}」RSS 解析到 0 条（bozo={bozo}，地址：{link.rss_url}）")
+            diag["notes"].append(f"友链「{link.name}」RSS 解析到 0 条（地址：{link.rss_url}）")
         for e in entries[:10]:
             title = (e.get("title") or "").strip()
             href = (e.get("link") or "").strip()
@@ -162,9 +195,13 @@ def get_circle_feed(force=False):
                 "published_at": time.strftime("%Y-%m-%d %H:%M", time.localtime(ts)),
                 "ts": int(ts),
             })
+        diag["fetched"] += 1
 
     items.sort(key=lambda x: x["ts"], reverse=True)
     items = items[:40]
     _CACHE["items"] = items
     _CACHE["ts"] = now
+    # v3.8.6：写回诊断（供 API 返回）
+    for k, v in diag.items():
+        _LAST_DIAG[k] = v
     return items

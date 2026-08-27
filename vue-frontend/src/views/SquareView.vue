@@ -57,6 +57,16 @@
       <!-- 博客圈：友链 RSS 聚合 -->
       <template v-if="tab === 'all' || tab === 'circle'">
         <p v-if="tab === 'circle' && !circle.length && !loadingC" class="empty">还没有可聚合的友链 RSS，去后台给友链填上 RSS 地址吧。</p>
+        <div v-if="tab === 'circle' && !circle.length && !loadingC && diag" class="sq-diag">
+          <div class="sq-diag-title">聚合诊断</div>
+          <ul>
+            <li>友链总数：{{ diag.total_links }}；已填 RSS：{{ diag.links_with_rss }}</li>
+            <li>feedparser 已安装：{{ diag.feedparser_ok ? '是' : '否（需 pip install feedparser==6.0.11）' }}</li>
+            <li>成功抓取：{{ diag.fetched }}；跳过：{{ diag.skipped }}</li>
+            <li v-for="(n, i) in (diag.notes || [])" :key="i" class="sq-diag-note">{{ n }}</li>
+          </ul>
+          <button type="button" class="sq-refresh" @click="loadCircle(true)">强制刷新</button>
+        </div>
         <article v-for="(it, i) in circle" :key="'c' + i" class="post-card sq-circle">
           <div class="sq-circle-badge">博客圈 · 来自 <a :href="it.source_url" target="_blank" rel="noopener">{{ it.source }}</a></div>
           <a class="sq-circle-title" :href="it.url" target="_blank" rel="noopener">{{ it.title }}</a>
@@ -92,6 +102,7 @@ const tab = ref("all");
 const moments = ref([]);
 const circle = ref([]);
 const accounts = ref([]);
+const diag = ref(null);
 const draft = ref("");
 const posting = ref(false);
 const loadingM = ref(false);
@@ -106,11 +117,12 @@ async function loadMoments() {
   loadingM.value = false;
 }
 
-async function loadCircle() {
+async function loadCircle(force) {
   loadingC.value = true;
   try {
-    const d = await apiGet("/api/feed/circle");
+    const d = await apiGet("/api/feed/circle" + (force ? "?refresh=1" : ""));
     circle.value = d.items || [];
+    diag.value = d.debug || null;
   } catch (e) { circle.value = []; }
   loadingC.value = false;
 }
@@ -204,6 +216,15 @@ onMounted(() => {
 .sq-account-platform { font-size: 15px; font-weight: 600; color: var(--accent); }
 .sq-account-handle { font-size: 13px; color: #666; word-break: break-all; }
 .sq-account-go { font-size: 13px; color: #999; margin-top: 4px; }
+.sq-diag { background: #f8fafc; border: 1px solid #e5e7eb; border-radius: 8px; padding: 14px 16px; margin-bottom: 16px; font-size: 13px; color: #475569; }
+.sq-diag-title { font-weight: 600; color: #334155; margin-bottom: 8px; }
+.sq-diag ul { margin: 0; padding-left: 18px; }
+.sq-diag li { margin: 4px 0; line-height: 1.6; }
+.sq-diag-note { color: #b45309; }
+.sq-refresh { margin-top: 10px; padding: 6px 14px; border: 1px solid var(--accent); background: #fff; color: var(--accent); border-radius: 6px; cursor: pointer; font-size: 13px; }
+.sq-refresh:hover { background: var(--accent); color: #fff; }
+[data-theme="dark"] .sq-diag { background: #1d2025; border-color: #2a2e35; color: #c7ccd1; }
+[data-theme="dark"] .sq-diag-title { color: #e3e6ea; }
 [data-theme="dark"] .sq-tab { background: #1d2025; border-color: #2a2e35; color: #c7ccd1; }
 [data-theme="dark"] .sq-moment-content, [data-theme="dark"] .sq-comment { color: #d7d9dc; }
 [data-theme="dark"] .sq-comments { border-color: #2a2e35; }

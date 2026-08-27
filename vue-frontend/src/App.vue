@@ -16,6 +16,7 @@
       <router-link to="/square" @click="drawerOpen = false">{{ t('square') }}</router-link>
       <router-link to="/series" @click="drawerOpen = false">{{ t('series') }}</router-link>
       <router-link to="/tags/hot" @click="drawerOpen = false">{{ t('hot_tags') }}</router-link>
+      <router-link to="/docs" @click="drawerOpen = false">文档</router-link>
       <router-link to="/guestbook" @click="drawerOpen = false">{{ t('guestbook') }}</router-link>
     </nav>
     <div class="drawer-foot">
@@ -47,6 +48,7 @@
         <router-link to="/square">{{ t('square') }}</router-link>
         <router-link to="/series">{{ t('series') }}</router-link>
         <router-link to="/tags/hot">{{ t('hot_tags') }}</router-link>
+        <router-link to="/docs">文档</router-link>
         <router-link to="/guestbook">{{ t('guestbook') }}</router-link>
         <template v-if="state.user">
           <span class="nav-user">

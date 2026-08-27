@@ -25,6 +25,7 @@ _LAST_DIAG = {
     "skipped": 0,
     "last_run": "",
     "notes": [],
+    "per_link": [],
 }
 
 
@@ -149,13 +150,21 @@ def get_circle_feed(force=False):
                 f"（后台「友链管理」给友链填 RSS 地址即可聚合）")
         print(f"[FEED AGG] 博客圈聚合：{note}")
         diag["notes"].append(note)
+    diag["per_link"] = []
     for link in links:
+        rec = {"name": link.name, "url": link.url, "rss_url": link.rss_url,
+               "safe": None, "entries": 0, "status": "", "reason": ""}
         if not _safe_url(link.rss_url):
             reason = _safe_url_fail_reason(link.rss_url)
             print(f"[FEED AGG] 跳过友链「{link.name}」：RSS 地址未通过安全校验（{reason}）")
             diag["skipped"] += 1
             diag["notes"].append(f"跳过友链「{link.name}」：RSS 地址未过安全校验（{reason}）")
+            rec["safe"] = False
+            rec["reason"] = reason
+            rec["status"] = "skipped"
+            diag["per_link"].append(rec)
             continue
+        rec["safe"] = True
         try:
             import feedparser
             parsed = feedparser.parse(link.rss_url)
@@ -163,18 +172,29 @@ def get_circle_feed(force=False):
             print("[FEED AGG] feedparser 未安装！请在服务器上执行: pip install feedparser==6.0.11 后重启服务")
             diag["feedparser_ok"] = False
             diag["notes"].append("feedparser 未安装：pip install feedparser==6.0.11 后重启服务")
+            rec["status"] = "error"
+            rec["reason"] = "feedparser 未安装"
+            diag["per_link"].append(rec)
             break
         except Exception as e:
             # 抓取/解析失败跳过该源，不影响其它源
             print(f"[FEED AGG] 抓取友链「{link.name}」RSS 失败: {type(e).__name__}: {e}")
             diag["skipped"] += 1
             diag["notes"].append(f"抓取友链「{link.name}」RSS 失败：{type(e).__name__}: {e}")
+            rec["status"] = "error"
+            rec["reason"] = f"{type(e).__name__}: {e}"
+            diag["per_link"].append(rec)
             continue
         entries = parsed.entries or []
+        rec["entries"] = len(entries)
         if not entries:
             bozo = getattr(parsed, "bozo", 0)
             print(f"[FEED AGG] 友链「{link.name}」RSS 解析到 0 条（bozo={bozo}，地址：{link.rss_url}）")
             diag["notes"].append(f"友链「{link.name}」RSS 解析到 0 条（地址：{link.rss_url}）")
+            rec["status"] = "empty"
+        else:
+            rec["status"] = "ok"
+        diag["per_link"].append(rec)
         for e in entries[:10]:
             title = (e.get("title") or "").strip()
             href = (e.get("link") or "").strip()

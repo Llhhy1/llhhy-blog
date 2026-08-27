@@ -19,6 +19,7 @@ import fts
 import notify
 import bot_guard
 import mail_notify
+import feed_agg
 
 admin_bp = Blueprint("admin", __name__, url_prefix="/admin")
 
@@ -1913,3 +1914,24 @@ def toggle_subscriber(sid):
     db.session.commit()
     flash(f"已{'启用' if sub.active else '停用'}订阅者：{sub.email}")
     return redirect(url_for("admin.manage_subscribers"))
+
+
+# ---------- 运维诊断：博客圈 RSS 聚合诊断助手（v3.8.7）----------
+@admin_bp.route("/feed-diag", methods=["GET", "POST"])
+@super_required
+def feed_diag():
+    """博客圈 RSS 聚合诊断助手（仅超管）：展示最近一次聚合诊断 + 逐条友链明细。
+
+    POST 触发强制重新聚合（force=True），刷新诊断数据；GET 仅展示。
+    诊断数据来自 feed_agg.get_last_diag()，含总数/已填RSS/feedparser状态/抓取数/跳过数/
+    逐条 per_link（安全校验、解析条数、状态、原因）与 notes。
+    """
+    if request.method == "POST":
+        try:
+            feed_agg.get_circle_feed(force=True)
+            flash("已强制刷新博客圈聚合与诊断")
+        except Exception as e:
+            flash("刷新失败：" + str(e)[:200])
+        return redirect(url_for("admin.feed_diag"))
+    diag = feed_agg.get_last_diag()
+    return render_template("admin/feed_diag.html", diag=diag)

@@ -459,6 +459,15 @@ print(c.get('/api/posts').get_json())
       </div>
     </main>
 
+    <aside class="docs-toc">
+      <div class="toc-title">本页目录</div>
+      <nav class="toc-nav">
+        <a v-for="t in tocItems" :key="t.id" :href="'#'+t.id"
+           class="toc-link" :class="{ 'toc-h3': t.level === 3, 'active': activeId === t.id }"
+           @click.prevent="scrollTo(t.id)">{{ t.text }}</a>
+      </nav>
+    </aside>
+
     <!-- highlight.js（CDN）：在模板内引入，由下方 onMounted 初始化 -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
@@ -466,14 +475,41 @@ print(c.get('/api/posts').get_json())
 </template>
 
 <script setup>
-import { onMounted } from "vue";
+import { onMounted, ref } from "vue";
+
+const tocItems = ref([]);
+const activeId = ref("");
 
 function scrollTo(id) {
-  document.getElementById(id)?.scrollIntoView({ behavior: "smooth" });
+  const el = document.getElementById(id);
+  if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
-// highlight.js 通过 CDN &lt;script&gt; 异步加载，挂载后轮询初始化，确保代码块高亮生效
+function buildToc() {
+  const heads = document.querySelectorAll(".docs-main h1, .docs-main h3");
+  const items = [];
+  heads.forEach((h, i) => {
+    if (!h.id) h.id = "doc-h-" + i;
+    items.push({ id: h.id, text: h.textContent.trim(), level: h.tagName === "H3" ? 3 : 1 });
+  });
+  tocItems.value = items;
+}
+
+function fallbackCopy(text, done) {
+  const ta = document.createElement("textarea");
+  ta.value = text;
+  ta.style.position = "fixed";
+  ta.style.opacity = "0";
+  document.body.appendChild(ta);
+  ta.select();
+  try { document.execCommand("copy"); done(); } catch (e) { /* ignore */ }
+  document.body.removeChild(ta);
+}
+
 onMounted(() => {
+  buildToc();
+
+  // highlight.js 通过 CDN 异步加载，挂载后轮询初始化，确保代码块高亮生效
   let n = 0;
   const tryHl = () => {
     if (window.hljs) {
@@ -486,13 +522,43 @@ onMounted(() => {
     }
   };
   tryHl();
+
+  // 给每个代码块加「复制」按钮（仿 API 文档站）
+  document.querySelectorAll(".docs-main pre").forEach((pre) => {
+    if (pre.querySelector(".copy-btn")) return;
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "copy-btn";
+    btn.textContent = "复制";
+    btn.addEventListener("click", () => {
+      const code = pre.querySelector("code");
+      if (!code) return;
+      const text = code.innerText;
+      const done = () => { btn.textContent = "已复制"; setTimeout(() => { btn.textContent = "复制"; }, 1500); };
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(done).catch(() => fallbackCopy(text, done));
+      } else {
+        fallbackCopy(text, done);
+      }
+    });
+    pre.appendChild(btn);
+  });
+
+  // 右侧「本页目录」随滚动高亮当前章节
+  if ("IntersectionObserver" in window) {
+    const obs = new IntersectionObserver((entries) => {
+      entries.forEach((e) => { if (e.isIntersecting) activeId.value = e.target.id; });
+    }, { rootMargin: "-80px 0px -70% 0px", threshold: 0 });
+    document.querySelectorAll(".docs-main h1, .docs-main h3").forEach((h) => obs.observe(h));
+  }
 });
 </script>
 
 <style scoped>
 .docs-container {
   display: flex;
-  max-width: 1200px;
+  gap: 32px;
+  max-width: 1400px;
   margin: 0 auto;
   padding: 20px;
   min-height: calc(100vh - 100px);
@@ -566,7 +632,7 @@ onMounted(() => {
   padding: 12px;
   background-color: #f8fafc;
   border-radius: 8px;
-  border-left: 4px solid #3b82f6;
+  border-left: 4px solid var(--accent);
   flex-wrap: wrap;
 }
 
@@ -652,4 +718,41 @@ code { font-family: 'Courier New', monospace; font-size: 13px; }
 [data-theme="dark"] .params-table th,
 [data-theme="dark"] .params-table td { border-color: #2a2e35; color: #c7ccd1; }
 [data-theme="dark"] .params-table th { background-color: #23272e; }
+
+/* 代码块复制按钮（仿 API 文档站） */
+.docs-main pre { position: relative; }
+.copy-btn {
+  position: absolute; top: 8px; right: 8px;
+  background: rgba(255,255,255,.12); color: #e5e7eb;
+  border: 1px solid rgba(255,255,255,.22); border-radius: 5px;
+  font-size: 11px; padding: 3px 10px; cursor: pointer;
+}
+.copy-btn:hover { background: rgba(255,255,255,.22); }
+
+/* 右侧「本页目录」TOC 栏 */
+.docs-toc {
+  width: 200px; flex-shrink: 0;
+  position: sticky; top: 80px; height: fit-content;
+  max-height: calc(100vh - 100px); overflow-y: auto;
+  padding-left: 16px; border-left: 1px solid #e5e7eb;
+}
+.toc-title { font-size: 12px; font-weight: 700; color: #6b7280; text-transform: uppercase; margin-bottom: 12px; }
+.toc-nav { display: flex; flex-direction: column; gap: 2px; }
+.toc-link {
+  display: block; padding: 5px 10px; font-size: 13px; color: #6b7280;
+  text-decoration: none; border-radius: 6px; border-left: 2px solid transparent;
+}
+.toc-link:hover { color: var(--accent); background: #f3f4f6; }
+.toc-link.active { color: var(--accent); border-left-color: var(--accent); font-weight: 600; }
+.toc-h3 { padding-left: 22px; font-size: 12.5px; }
+
+[data-theme="dark"] .docs-toc { border-color: #2a2e35; }
+[data-theme="dark"] .toc-title { color: #9aa3ad; }
+[data-theme="dark"] .toc-link { color: #9aa3ad; }
+[data-theme="dark"] .toc-link:hover { background: #23272e; }
+
+/* 中屏隐藏右侧 TOC，避免挤压正文 */
+@media (max-width: 1100px) {
+  .docs-toc { display: none; }
+}
 </style>

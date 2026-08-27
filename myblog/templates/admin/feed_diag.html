@@ -1,0 +1,93 @@
+{% extends "admin/base.html" %}
+{% block title %}诊断助手{% endblock %}
+{% block content %}
+  <h1 class="page-title">🩺 博客圈聚合诊断助手</h1>
+  <p class="stats-sub">
+    聚合「博客圈」友链 RSS 时采集的诊断数据。若前台博客圈为空，这里能快速定位原因：
+    是没填 RSS、RSS 解析到 0 条、被安全校验跳过，还是 feedparser 未安装。
+  </p>
+
+  <div class="stats-grid">
+    <div class="stat-card">
+      <span class="stat-num">{{ diag.total_links }}</span>
+      <span class="stat-label">友链总数</span>
+    </div>
+    <div class="stat-card">
+      <span class="stat-num">{{ diag.links_with_rss }}</span>
+      <span class="stat-label">已填 RSS</span>
+    </div>
+    <div class="stat-card">
+      <span class="stat-num" style="color:{{ '#1e7e34' if diag.feedparser_ok else '#c53030' }}">
+        {{ '已安装' if diag.feedparser_ok else '未安装' }}
+      </span>
+      <span class="stat-label">feedparser</span>
+    </div>
+    <div class="stat-card">
+      <span class="stat-num">{{ diag.fetched }}</span>
+      <span class="stat-label">成功抓取</span>
+    </div>
+    <div class="stat-card">
+      <span class="stat-num" style="color:{{ '#c53030' if diag.skipped else '#1e7e34' }}">{{ diag.skipped }}</span>
+      <span class="stat-label">跳过</span>
+    </div>
+    <div class="stat-card">
+      <span class="stat-num" style="font-size:18px;">{{ diag.last_run or '—' }}</span>
+      <span class="stat-label">最近运行</span>
+    </div>
+  </div>
+
+  <div class="stats-card" style="margin-top:24px;">
+    <h3>🔗 逐条友链明细</h3>
+    {% if diag.per_link %}
+    <table class="stats-table">
+      <thead>
+        <tr><th>友链</th><th>站点</th><th>RSS 地址</th><th>安全校验</th><th>解析条数</th><th>状态</th><th>原因</th></tr>
+      </thead>
+      <tbody>
+      {% for rec in diag.per_link %}
+        <tr>
+          <td>{{ rec.name }}</td>
+          <td><a href="{{ rec.url }}" target="_blank" rel="noopener">{{ rec.url }}</a></td>
+          <td><a href="{{ rec.rss_url }}" target="_blank" rel="noopener">{{ rec.rss_url }}</a></td>
+          <td>
+            {% if rec.safe %}通过{% elif rec.safe is sameas false %}<span style="color:#c53030;">未通过</span>{% else %}—{% endif %}
+          </td>
+          <td>{{ rec.entries }}</td>
+          <td>
+            {% if rec.status == 'ok' %}<span class="tag" style="background:#e6f4ea;color:#1e7e34;">正常</span>
+            {% elif rec.status == 'empty' %}<span class="tag" style="background:#fff4e5;color:#b45309;">解析 0 条</span>
+            {% elif rec.status == 'skipped' %}<span class="tag" style="background:#fde8e8;color:#c53030;">跳过（安全）</span>
+            {% elif rec.status == 'error' %}<span class="tag" style="background:#fde8e8;color:#c53030;">错误</span>
+            {% else %}—{% endif %}
+          </td>
+          <td style="color:#b45309;max-width:280px;">{{ rec.reason or '' }}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+      <p class="stats-empty">暂无填写 RSS 的友链。去「<a href="{{ url_for('admin.links') }}">友链管理</a>」给友链填上 RSS 地址即可聚合。</p>
+    {% endif %}
+  </div>
+
+  {% if diag.notes %}
+  <div class="stats-card" style="margin-top:24px;">
+    <h3>📋 诊断说明</h3>
+    <ul class="diag-notes">
+      {% for n in diag.notes %}
+        <li>{{ n }}</li>
+      {% endfor %}
+    </ul>
+  </div>
+  {% endif %}
+
+  <div style="margin-top:24px;">
+    <form method="POST" style="display:inline;">
+      {{ csrf_input() }}
+      <button type="submit" class="btn-sm" style="font-size:14px;padding:8px 18px;">↻ 强制刷新聚合</button>
+    </form>
+    <span class="stats-sub" style="margin-left:10px;">
+      强制重新抓取全部友链 RSS 并刷新诊断（聚合结果内存缓存 15 分钟，刷新可立即更新）。
+    </span>
+  </div>
+{% endblock %}

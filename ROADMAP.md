@@ -654,3 +654,10 @@ v3.1.7 修复 CSRF 隐藏域乱码后，用户反馈「退出登录按钮失效�
 - **② 修复文档页显示不全**：`.site-frame` 1100px 限宽挤压三栏 + 媒体查询隐藏 TOC + `overflow:hidden` 破坏 sticky；`/docs` 路由加 `site-frame--wide`（`App.vue`）放开限宽与裁剪（`global.css`），恢复三栏 + 右 TOC + sticky；highlight.js 移入 `onMounted` 动态加载。
 - **③ 验证**：`py_compile` 全过；`vite build`（`_vite_build16`）70 模块通过；R46 七维审计 0 遗留。
 - **④ 部署注意**：含前端构建产物，须重新 `vite build` + `package.py`；宝塔「停止 → 启动」gunicorn；硬刷新清缓存。APP_VERSION 升为 v3.8.8。
+
+## 51. v3.8.9：修复 RSS 订阅失败 + 导航栏「文档」不切英文（R47 审计通过）
+
+- **① 修复 RSS 订阅失败**：朋友 RSS 阅读器订阅 `域名/feed.xml` 失败。本地 `GET /feed.xml` → `200 + application/rss+xml`（合法 RSS）证明代码健康；线上 Nginx 只反代 `/api/`、`/admin`、`/static/`，`/feed.xml`/`/sitemap.xml`/`/robots.txt` 被 Vue SPA 兜底成 `index.html`，阅读器拿到网页而非 XML。`deploy_guide.md` 补 Nginx 精确反代段；`bot_guard.py` 的 `_SKIP_PREFIXES` 增加 `/feed.xml`。
+- **② 修复导航栏「文档」不切英文**：导航栏「文档」两项硬编码中文、且 `I18N` 词典缺 `docs` key，切 EN 不变。`store.js` 加 `docs`（zh「文档」/en「Docs」），`App.vue` 两处改用 `{{ t('docs') }}`；重建 `_vite_build17`。
+- **③ 验证**：`py_compile` 通过；本地冒烟三端点正常；前端 70 模块通过；R47 审计 0 遗留。
+- **④ 部署注意**：**含前端构建产物**，须覆盖 `vue-frontend-dist.zip` + 后端「停止 → 启动」gunicorn + 硬刷新清缓存；宝塔 Nginx 补三段反代并「重载配置」。APP_VERSION 升为 v3.8.9。

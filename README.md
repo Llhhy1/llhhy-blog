@@ -381,6 +381,13 @@ llhhy-blog/
 - **③ 验证**：后端 `py_compile` 全过；前端 `vite build`（`_vite_build16`）70 模块全部转换成功；隔离临时库 + test_client 冒烟确认 500→200。R46 七维审计 **0 遗留**（详见 `myblog/SECURITY_AUDIT.md` R46 轮）。
 - **④ 部署注意**：**含前端构建产物**，须重新 `vite build` + `package.py` 打包；宝塔「停止 → 启动」gunicorn 重载前端静态资源（restart 不重载）；前端 SPA 由 Nginx 服务，上线后请硬刷新 / 清浏览器与 Nginx 缓存。APP_VERSION 升为 v3.8.8。
 
+### v3.8.9：修复 RSS 订阅失败 + 导航栏「文档」不切英文（R47 审计通过）
+
+- **① 修复 RSS 订阅失败（Nginx 未反代 feed.xml）**：朋友用 RSS 阅读器订阅 `域名/feed.xml` 失败。代码本身健康（本地 `GET /feed.xml` → `200 + application/rss+xml` 合法 RSS），但线上 Nginx 只反代 `/api/`、`/admin`、`/static/` 给 Flask，其余走 Vue SPA 兜底，`/feed.xml`（及 `/sitemap.xml`、`/robots.txt`）被兜底成 `index.html` → 阅读器拿到网页而非 XML。修复：`deploy_guide.md` 补 Nginx 精确反代段（`location = /feed.xml` 等三块反代到 `127.0.0.1:8686`）；`bot_guard.py` 的 `_SKIP_PREFIXES` 增加 `/feed.xml`，防止将来开启反爬限流时误封 RSS 阅读器（与 `/robots.txt`、`/sitemap.xml` 同级）。
+- **② 修复前台导航栏「文档」不切英文**：导航栏其他项用 `t('...')` 接自研 i18n（`store.js`），唯独「文档」两项（桌面 + 移动抽屉）硬编码中文，且 `I18N` 词典缺 `docs` key，故切 EN 不变。修复：`store.js` 词典加 `docs`（zh「文档」/ en「Docs」），`App.vue` 两处导航项改用 `{{ t('docs') }}`（已 `vite build _vite_build17`）。
+- **③ 验证**：`py_compile` 通过；本地冒烟 `/feed.xml`/`/sitemap.xml`/`/robots.txt` 均正常；前端重建 70 模块通过；R47 审计 0 遗留（含 i18n 维度）。
+- **④ 部署注意（强提醒）**：**含前端构建产物**，须覆盖 `vue-frontend-dist.zip` 到 Nginx 根 + 后端覆盖 `myblog-backend.zip` 后「停止 → 启动」gunicorn + 硬刷新清缓存；**且宝塔 Nginx 必须补三段 feed/sitemap/robots 反代并「重载配置」**，朋友才能订阅、「文档」英文才生效。APP_VERSION 升为 v3.8.9。
+
 ## 快速开始（本地开发）
 
 后端（默认端口 5000）：

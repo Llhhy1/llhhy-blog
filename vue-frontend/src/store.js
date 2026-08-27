@@ -16,14 +16,14 @@ export const state = reactive({
 // v3.0.0 功能11：轻量 i18n 词典（覆盖核心导航与常用文案）
 const I18N = {
   zh: {
-    "home": "首页", "archive": "归档", "stats": "统计", "about": "关于",
+    "home": "首页", "archive": "归档", "stats": "统计", "about": "关于", "docs": "文档",
     "links": "友链", "square": "广场", "series": "系列", "hot_tags": "热门标签",
     "guestbook": "留言墙", "login": "登录", "register": "注册", "logout": "退出",
     "admin": "后台", "write": "写文章", "theme": "主题",
     "search_placeholder": "搜索文章…",
   },
   en: {
-    "home": "Home", "archive": "Archive", "stats": "Stats", "about": "About",
+    "home": "Home", "archive": "Archive", "stats": "Stats", "about": "About", "docs": "Docs",
     "links": "Links", "square": "Square", "series": "Series", "hot_tags": "Hot Tags",
     "guestbook": "Guestbook", "login": "Login", "register": "Register", "logout": "Logout",
     "admin": "Admin", "write": "Write", "theme": "Theme",

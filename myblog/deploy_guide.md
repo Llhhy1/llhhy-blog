@@ -105,6 +105,32 @@
         try_files $uri $uri/ /index.html;
     }
 
+    # ⚠️ 根路径下的 Flask 路由（RSS / sitemap / robots）必须反代给后端，
+    # 绝不能落入上面的 location / 被 SPA 兜底成 index.html，否则 RSS 阅读器
+    # 拿到的是 HTML 而非 XML → 表现为「朋友订阅不了 RSS」。这三段必须放在
+    # location / 之前（精确匹配优先于前缀匹配）。
+    location = /feed.xml {
+        proxy_pass http://127.0.0.1:8686;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+    location = /sitemap.xml {
+        proxy_pass http://127.0.0.1:8686;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+    location = /robots.txt {
+        proxy_pass http://127.0.0.1:8686;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
     # 后端接口反代
     location /api/ {
         proxy_pass http://127.0.0.1:8686;
@@ -135,7 +161,7 @@
     }
 ```
 
-> 端口 `8686` 要与第 2 步 Python 项目里填的「监听端口」一致。`/api/`、`/admin`、`/static/` 三段都要有，缺一不可。
+> 端口 `8686` 要与第 2 步 Python 项目里填的「监听端口」一致。`/api/`、`/admin`、`/static/` 三段都要有；`/feed.xml`、`/sitemap.xml`、`/robots.txt` 三段是 RSS/SEO 的根路径路由，**同样必须反代给后端**，否则会落到 `location /` 被 SPA 兜底成 `index.html`（RSS 阅读器收不到 XML、搜索引擎抓不到 sitemap）。缺一不可。
 
 5. 点 **「保存」** → 再点 **「重载配置」**（或重启 Nginx）。
 6. 浏览器访问 `http://你的域名`，应能看到博客首页（文章列表 + 右侧边栏 + 天气）。

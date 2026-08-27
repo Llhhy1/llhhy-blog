@@ -1951,3 +1951,20 @@ v3.1.6 起后端 `app.py::_csrf_protect` 严格校验**所有非豁免 POST** �
 | R46-7 | 资源/异常 | `diagnostics.py` 各 checker 仍独立 `try/except` 降级；无 `open()`/subprocess。 | ✅ 无泄漏 |
 
 **R46 结论**：**0 遗留**。v3.8.8 仅修复两个展示 / 崩溃回归，不引入任何安全面。`grep APP_VERSION myblog/config.py` 发版前已改为 `3.8.8`（与 Release tag 一致）。
+
+## R47 轮（v3.8.9 订阅修复 · 2026-08-28）
+
+审计对象：v3.8.9 修复「朋友用 RSS 阅读器订阅不了」。根因为线上 Nginx 未把 Flask 路由 `/feed.xml`（及 `/sitemap.xml`、`/robots.txt`）反代给后端，被 Vue SPA 的 `location /` 兜底成 `index.html`，阅读器拿到网页而非 XML。本轮代码改动仅两处：① `bot_guard.py` 的 `_SKIP_PREFIXES` 增加 `/feed.xml`（反爬限流豁免，与既有 `/robots.txt`、`/sitemap.xml` 同级，防止将来开启反爬限流时误封 RSS 阅读器）；② `deploy_guide.md` 补 Nginx 反代段（运维文档）。无新增用户输入处理 / 命令执行 / 出站请求 / 数据变更。
+
+| 编号 | 维度 | 结论 |
+|------|------|------|
+| R47-1 | XSS | `/feed.xml` 由 `visible_posts_query()` 参数化查询产出，标题/摘要经 `clean_html`/`html.escape` 转义；`bot_guard` 仅改路径豁免清单，不触碰响应体。 | ✅ 无 XSS |
+| R47-2 | 注入 | `feed()` 路由查询全部参数化（filter_by/ORM）；`bot_guard` 改动为静态路径前缀常量元组，无字符串拼接。 | ✅ 无注入 |
+| R47-3 | 越权 | `/feed.xml` 本就是公开 GET 路由（无需登录），加入反爬豁免不影响鉴权边界；限流仅针对未登录 bot，不涉及越权提升。 | ✅ 无越权 |
+| R47-4 | SSRF | 无新增出站请求；`bot_guard` 改动仅为路径前缀集合，无 URL 访问。 | ✅ 无 SSRF |
+| R47-5 | CSRF | `/feed.xml` 为 GET 只读，无 POST；反爬豁免逻辑无状态变更。 | ✅ 无 CSRF |
+| R47-6 | 密钥泄露 | 无密钥读取/打印；deploy_guide 仅补 Nginx 反代文本，无凭据入仓。 | ✅ 无密钥泄露 |
+| R47-7 | 资源/异常 | `bot_guard` 改动为常量元组加一项，无文件句柄/连接/子进程；`feed()` 逻辑未变。 | ✅ 无泄漏 |
+| R47-8 | 展示/i18n | 导航栏「文档」改接 `{{ t('docs') }}` 静态文案插值（无用户可控输入）；`store.js` 的 `I18N` 词典补充 `docs`（zh「文档」/en「Docs」）。不涉及 XSS/注入/越权/SSRF。 | ✅ 无风险 |
+
+**R47 结论**：**0 遗留**。v3.8.9 含部署层（Nginx 反代）修正 + 反爬限流豁免放行 + 前台导航栏 i18n 补全，不引入任何安全面。`grep APP_VERSION myblog/config.py` 发版前已改为 `3.8.9`（与 Release tag 一致）。

@@ -16,7 +16,9 @@ from stats import client_ip
 
 # 不参与限流的路径前缀（搜索引擎必须能抓 robots/sitemap；静态资源不计；
 # 后台 / 接口各自已有 rate_limit，避免被 bot_guard 误伤或自锁）。
-_SKIP_PREFIXES = ("/static/", "/robots.txt", "/sitemap.xml", "/admin/", "/api/")
+# ⚠️ /feed.xml 也必须跳过：RSS 阅读器（Feedly/Inoreader/NewsBlur 等）大多带
+# bot 类 UA，开启反爬限流后会被按 tool/unknown 阈值限流甚至封禁，导致订阅失败。
+_SKIP_PREFIXES = ("/static/", "/robots.txt", "/sitemap.xml", "/feed.xml", "/admin/", "/api/")
 
 
 def guard_enabled():

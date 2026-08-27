@@ -87,7 +87,10 @@ def feed_circle():
         force = request.args.get("refresh") == "1"
         items = feed_agg.get_circle_feed(force=force)
     except Exception as e:
-        print("博客圈聚合失败:", e)
+        # v3.8.4：不再静默——异常栈落日志（gunicorn.log 可查）
+        import traceback
+        print("[FEED AGG] 博客圈聚合异常:", repr(e))
+        traceback.print_exc()
         items = []
     return jsonify({"items": items})
 

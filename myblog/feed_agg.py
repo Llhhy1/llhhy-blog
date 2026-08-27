@@ -5,6 +5,7 @@
 - 外部内容清洗：摘要 HTML 经 bleach 白名单清理，避免 XSS。
 - 缓存：聚合结果内存缓存 15 分钟，避免每次请求都抓取（慢且易被限流）。
 """
+import sys
 import time
 import urllib.parse
 
@@ -72,6 +73,42 @@ def _safe_url(url):
     return True
 
 
+def _safe_url_fail_reason(url):
+    """返回 _safe_url 拒绝的原因（仅供日志排查用，与 _safe_url 判定逻辑一一对应）。"""
+    try:
+        p = urllib.parse.urlparse(url)
+    except Exception:
+        return "URL 无法解析"
+    if p.scheme not in ("http", "https"):
+        return f"协议 {p.scheme!r} 非 http/https"
+    host = (p.hostname or "").lower()
+    if not host:
+        return "缺少主机名"
+    if host in ("localhost", "127.0.0.1", "::1", "0.0.0.0"):
+        return "主机为回环地址"
+    if host.startswith("10.") or host.startswith("192.168.") or host.startswith("169.254."):
+        return "主机为内网地址"
+    if host.startswith("172."):
+        try:
+            second = int(host.split(".")[1])
+            if 16 <= second <= 31:
+                return "主机为内网地址"
+        except (ValueError, IndexError):
+            pass
+    import socket
+    try:
+        infos = socket.getaddrinfo(host, None, type=socket.SOCK_STREAM)
+        ips = {info[4][0] for info in infos}
+        for ip in ips:
+            if _is_private_ip(ip):
+                return f"域名解析到内网/保留 IP（{ip}）"
+        if not ips:
+            return "域名解析结果为空"
+    except OSError as e:
+        return f"DNS 解析失败（{e}）——检查服务器出网/DNS"
+    return "未知原因"
+
+
 def get_circle_feed(force=False):
     """返回聚合后的博客圈条目（按时间倒序，最多 40 条）。force=True 忽略缓存。"""
     now = time.time()
@@ -83,16 +120,29 @@ def get_circle_feed(force=False):
         FriendLink.rss_url.isnot(None),
         FriendLink.rss_url != "",
     ).all()
+    if not links:
+        # v3.8.4：可观测性——聚合为空时区分「没填 RSS」与「抓取失败」，日志可查
+        total_links = FriendLink.query.count()
+        print(f"[FEED AGG] 博客圈聚合：共 {total_links} 条友链，其中 0 条填写了 RSS 地址（后台友链管理里给友链填 RSS 地址即可聚合）")
     for link in links:
         if not _safe_url(link.rss_url):
+            print(f"[FEED AGG] 跳过友链「{link.name}」：RSS 地址未通过安全校验（{_safe_url_fail_reason(link.rss_url)}）")
             continue
         try:
             import feedparser
             parsed = feedparser.parse(link.rss_url)
-        except Exception:
+        except ImportError:
+            print("[FEED AGG] feedparser 未安装！请在服务器上执行: pip install feedparser==6.0.11 后重启服务")
+            break
+        except Exception as e:
             # 抓取/解析失败跳过该源，不影响其它源
+            print(f"[FEED AGG] 抓取友链「{link.name}」RSS 失败: {type(e).__name__}: {e}")
             continue
-        for e in (parsed.entries or [])[:10]:
+        entries = parsed.entries or []
+        if not entries:
+            bozo = getattr(parsed, "bozo", 0)
+            print(f"[FEED AGG] 友链「{link.name}」RSS 解析到 0 条（bozo={bozo}，地址：{link.rss_url}）")
+        for e in entries[:10]:
             title = (e.get("title") or "").strip()
             href = (e.get("link") or "").strip()
             if not (title and href):

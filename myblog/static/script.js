@@ -142,6 +142,15 @@ function bindUpload(btnId, inputId, onDone) {
     if (!file) return;
     const fd = new FormData();
     fd.append("file", file);
+    // v3.8.4：上传也是 POST，需带 CSRF Token（FormData 场景附到表单字段）
+    let tok = (document.querySelector('input[name="csrf_token"]') || {}).value || "";
+    if (!tok) {
+      try {
+        const tr = await fetch("/api/csrf", { credentials: "same-origin" });
+        tok = ((await tr.json()) || {}).csrf_token || "";
+      } catch (e) {}
+    }
+    if (tok) fd.append("csrf_token", tok);
     try {
       const resp = await fetch("/admin/upload", { method: "POST", body: fd });
       const data = await resp.json();
@@ -221,7 +230,21 @@ bindUpload("cover-upload-btn", "cover-image-input", (url) => {
   btn.addEventListener("click", async () => {
     if (liked) return;
     try {
-      const resp = await fetch("/post/" + slug + "/like", { method: "POST" });
+      // v3.8.4 修复：点赞 POST 需携带 CSRF Token（后端对全部 POST 校验）。
+      // token 来源：页面任意 {{ csrf_input() }} 隐藏域（评论区表单已渲染）；无则回退 /api/csrf 获取。
+      let tok = (document.querySelector('input[name="csrf_token"]') || {}).value || "";
+      if (!tok) {
+        try {
+          const tr = await fetch("/api/csrf", { credentials: "same-origin" });
+          tok = ((await tr.json()) || {}).csrf_token || "";
+        } catch (e) {}
+      }
+      const resp = await fetch("/post/" + slug + "/like", {
+        method: "POST",
+        credentials: "same-origin",
+        headers: tok ? { "X-CSRF-Token": tok } : {},
+      });
+      if (!resp.ok) throw new Error("HTTP " + resp.status);
       const data = await resp.json();
       if (countEl && typeof data.likes === "number") countEl.textContent = data.likes;
       liked = true;

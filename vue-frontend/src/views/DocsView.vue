@@ -35,7 +35,7 @@
       <!-- ============ 通用约定 ============ -->
       <div id="common" class="doc-section">
         <h1>通用约定</h1>
-        <p>本文档覆盖 llhhy-blog 的全部 JSON 接口（前缀 <code>/api</code>）与 SSR 页面。当前版本基于 <strong>v3.8.6</strong>。前端（<code>vue-frontend/src/lib/api.js</code>）与站内页面共用这些接口；你可以用它们自定义客户端、App 或第三方集成。</p>
+        <p>本文档覆盖 llhhy-blog 的全部 JSON 接口（前缀 <code>/api</code>）与 SSR 页面。当前版本基于 <strong>v3.8.7</strong>。前端（<code>vue-frontend/src/lib/api.js</code>）与站内页面共用这些接口；你可以用它们自定义客户端、App 或第三方集成。</p>
 
         <h3>基地址与返回格式</h3>
         <ul>
@@ -315,7 +315,7 @@ curl -X POST http://your-domain.com/api/post/my-post/like \
       <div id="system" class="doc-section">
         <h1>系统 System</h1>
         <div class="endpoint"><span class="method get">GET</span><span class="path">/api/version/check</span><span class="auth auth-login">登录</span></div>
-        <p>检测新版本。<code>200 {"latest":"v3.8.6","current":"v3.8.6","has_update":false}</code>（对比 GitHub latest tag 与本地 <code>APP_VERSION</code>）。</p>
+        <p>检测新版本。<code>200 {"latest":"v3.8.7","current":"v3.8.7","has_update":false}</code>（对比 GitHub latest tag 与本地 <code>APP_VERSION</code>）。</p>
 
         <div class="endpoint"><span class="method post">POST</span><span class="path">/api/version/update</span><span class="auth auth-admin">超管</span></div>
         <p>触发在线更新。成功 <code>200 {"ok":true,"message":"更新已触发，服务器将自动重启"}</code>（异步执行 <code>update.sh</code>）。</p>

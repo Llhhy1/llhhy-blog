@@ -1901,3 +1901,35 @@ v3.1.6 起后端 `app.py::_csrf_protect` 严格校验**所有非豁免 POST** �
 2. 回到仓库根 `python package.py` 重新打包（`vue-frontend-dist.zip` 已含新 `SeriesDetailView`/`App`/`SquareView` 构建结果）
 3. 宝塔「停止 → 启动」gunicorn 重载前端静态资源（restart 不重载）
 4. 升级后后台左下角显示 `v3.8.6`；访问 `/docs` 确认文档页有导航入口；进任意系列详情页确认「🔥 本系列热门标签」云显示。
+
+## 第五十五轮（R45 · v3.8.7 · 前台移除诊断面板 + 后台全站健康体检中心 + 文档页 BigModel 风格改造）
+
+- **范围**：`diagnostics.py`（新增，全站体检中心 9 维 checker）、`admin.py`（新增 `feed_diag` 路由 + import feed_agg/diagnostics）、`feed_agg.py`（逐条 `per_link` 诊断）、`templates/admin/feed_diag.html`（仪表盘重写，全 `{{ }}` 转义）、`templates/admin/base.html`（「全站体检」入口，仅超管）、`DocsView.vue`（BigModel 三栏 + 本页目录 TOC + 复制按钮 + 深色适配）、`SquareView.vue`（移除前台博客圈诊断面板）。
+- **审计维度**：XSS / 注入 / 越权 / SSRF / CSRF / 密钥泄露 / 资源泄漏 / 限流。
+
+### R45 审计（聚焦改动安全面）
+
+| 编号 | 维度 | 结论 |
+|------|------|------|
+| R45-1 | XSS | ① `feed_diag.html` 所有输出（`sec.title`/`it.label`/`it.value`/`rec.name`/`rec.rss_url`/`rec.reason`/`n` in `sec.notes`）均用 `{{ }}` 文本插值，Jinja2 自动转义；`href="{{ rec.rss_url }}"` 属性值同样转义，`rel="noopener"` 防反向标签劫持。`rec.rss_url` 来自管理员配置的友链（经 `_safe_url` 校验为 http/https），非访客输入。② `DocsView.vue` 为纯静态文档，示例代码仅展示不执行；`v-html` 已无（R44 起仅 `SquareView` 渲染 `clean_html` 清洗后的 `summary`）。③ `SquareView.vue` 移除诊断面板后，仅渲染既有的 `clean_html` 清洗 `summary`，无新增 `v-html`。 | ✅ 无 XSS |
+| R45-2 | 注入 | `diagnostics.py` 仅用 `text("PRAGMA integrity_check")` / `text("PRAGMA compile_options")`（无参只读，无字符串拼接）；所有表计数走 ORM `Model.query.count()` / `filter_by()`（SQLAlchemy 参数化）。无新增 DDL/DML/命令拼接。 | ✅ 无注入 |
+| R45-3 | 越权 | `feed_diag` 路由加 `@super_required`（仅超级管理员）；`base.html` 入口包在 `{% if current_user.is_super %}` 内，普通管理员不可见不可达。`diagnostics.run_all()` 仅在请求上下文内由超管路由调用。无新增公开/低权接口。 | ✅ 无越权 |
+| R45-4 | SSRF | `diagnostics.py` 不发起任何出站请求（仅读本地 DB/文件系统/设置）；博客圈诊断复用 `feed_agg._safe_url`/`_safe_url_fail_reason`（http/https + 公网校验 + DNS 重绑定缓解）。`get_last_diag()` 仅回显既有判定结果。 | ✅ 无 SSRF |
+| R45-5 | CSRF | `feed_diag.html` POST 表单含 `{{ csrf_input() }}`；POST 分支触发 `feed_agg.get_circle_feed(force=True)`，被全局 `enforce_same_origin` CSRF 保护覆盖。`SquareView.vue` 移除的仅为前端展示面板，无状态变更。 | ✅ 无 CSRF |
+| R45-6 | 密钥泄露 | `check_config` 读 `SMTP_HOST` 仅判断「是否配置」不打印值；`check_backup` 读 `backup_oss_bucket`/`backup_scp_host`/`backup_webdav_url` 仅显示「OSS/SCP/WebDAV」类型标签，不展示账号/密码/Token/密钥。`_db_path()` 仅显示文件路径。无硬编码密钥、无凭证入库入仓。 | ✅ 无密钥泄露 |
+| R45-7 | 资源/异常 | `diagnostics.py` 无 `open()`/subprocess；`glob.glob`/`os.path.getmtime` 不产生句柄；`db.session.execute` 为只读、在请求上下文内由 Flask-SQLAlchemy 自动回收。每个 checker 单独 `try/except`，单点异常降级为 `error` 不影响整页。 | ✅ 无泄漏 |
+| R45-8 | 限流 | 无新增公开写接口；`feed_diag` 为超管 GET/POST 诊断页，强刷 RSS 属低频运维动作，无需额外限流。 | ✅ 无限流回归 |
+
+**R45 结论**：**0 遗留**。本次三项改动（①前台移除诊断面板、②后台新增全站体检中心、③文档页 BigModel 风格改造）均为只读展示 / 超管运维 / 静态文档，不引入任何安全回归；体检中心把数据库/依赖/配置/备份/SEO/待办/前端构建/存储/RSS 聚合 9 维统一可视化，降低运维排查成本，且所有输出严格走模板转义，无 XSS/注入/越权/SSRF/CSRF/密钥/泄漏面。
+
+**验证记录（R45）**：
+- 后端 `py_compile` 全过（diagnostics.py / admin.py / feed_agg.py 语法正确）。
+- 前端 `vite build`（_vite_build15）编译通过，`DocsView` 产物含 TOC/复制按钮逻辑，`SquareView` 移除诊断面板后编译通过。
+- 本地冒烟：超管访问 `/admin/feed-diag` 返回 9 维体检仪表盘；POST 强制刷新走 `csrf_input()` + 全局 CSRF，返回 redirect。
+- `grep APP_VERSION myblog/config.py` 发版前已改为 `3.8.7`（与 Release tag 一致）。
+
+**部署注意（强提醒）**：v3.8.7 **含前端构建产物**。必须：
+1. `cd vue-frontend && npm install && npm run build` 生成 `dist/`（本次用 `_vite_build15`）
+2. 回到仓库根 `python package.py` 重新打包（`vue-frontend-dist.zip` 含新 `DocsView`/`SquareView` 构建结果）
+3. 宝塔「停止 → 启动」gunicorn 重载前端静态资源（restart 不重载）
+4. 升级后后台左下角显示 `v3.8.7`；侧栏「运维诊断 → 全站体检」可看 9 维体检；`/docs` 确认三栏 + 右侧本页目录 + 代码块复制按钮。

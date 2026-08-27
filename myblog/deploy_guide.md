@@ -598,6 +598,13 @@ supervisorctl status
 - **验证**：`smoke_audit_r30.py`（XFF 收口 4 项新断言）、`smoke_api_pkg.py`(10)、`smoke_backup_settings.py`(7) 全过；`smoke_v380.py` 18/18 无回归。APP_VERSION 升为 v3.8.2。
 - **⚠️ 升级顺序**：① 覆盖后端 zip（前端沿用既有 `vue-frontend-dist.zip`，无变动）→ ② 宝塔「停止 → 启动」gunicorn（restart 不重载）→ ③（可选）按上面说明核对 `TRUSTED_PROXIES` 是否需要配置。无需跑任何迁移脚本。
 
+### v3.8.7 升级注意（前台移除诊断面板 + 后台全站体检中心 + 文档页 BigModel 风格 · R45 审计通过）
+
+- **改的什么**：纯后端（新增 `diagnostics.py` 全站体检中心）+ 后台模板（体检仪表盘）+ 前端（`DocsView` BigModel 三栏 + 复制按钮、`SquareView` 移除诊断面板）。无新数据库表/字段、无新环境变量、无新接口。
+- **新增后台入口（仅超管）**：侧栏「运维诊断 → 🩺 全站体检」（`/admin/feed-diag`），一键体检数据库/依赖/配置/备份/SEO/待办/前端构建/存储/RSS 聚合 9 维，异常标红、警告标黄。
+- **验证**：R45 审计 0 遗留（全 `{{ }}` 转义、无 XSS/注入/越权/SSRF/CSRF/密钥/泄漏面）；后端 `py_compile` 全过；前端 `vite build` 编译通过。APP_VERSION 升为 v3.8.7。
+- **⚠️ 升级顺序**：① 覆盖后端 zip（`myblog-backend.zip`）→ ② 宝塔「停止 → 启动」gunicorn（restart 不重载）→ ③ 覆盖前端 zip（`vue-frontend-dist.zip`，本轮前端有变动）→ ④ 无痕窗口验证左下角版本号 `v3.8.7` + 侧栏「🩺 全站体检」可看 9 维体检 + `/docs` 三栏 + 代码块复制按钮。
+
 ## 邮件设置（新文章通知订阅者 · 后台配置）
 
 > 从 v2.4.0 起，邮件群发配置**不需要再填环境变量**，直接在后台操作（更便捷）。

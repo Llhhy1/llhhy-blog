@@ -346,6 +346,14 @@
 - **验证**：R44 审计 0 遗留（文档为静态只读内容，无新增安全面）；前端 `vite build` 编译通过（DocsView 44.7 kB）。APP_VERSION 升为 v3.8.6。
 - ⚠️ 升级：**含前端构建产物**，须重新 `vite build` 并打包；仅覆盖后端不生效。宝塔「停止 → 启动」gunicorn 重载前端静态资源。
 
+### v3.8.7：前台移除诊断面板 + 后台全站健康体检中心 + 文档页 BigModel 风格改造
+
+- **① 前台移除博客圈诊断面板（精简）**：`SquareView.vue` 广场页「博客圈」移除「聚合诊断」面板与「强制刷新」按钮（用户要求「前台就不要诊断助手了」），仅保留顶部「↻ 刷新聚合」按钮（`loadCircle(true)` 带 `refresh=1` 调 `/api/feed/circle`）。诊断能力收归后台，前台更干净。
+- **② 后台新增全站健康体检中心（diagnostics.py · 仅超管）**：把 `feed_diag` 路由从单一 RSS 聚合诊断升级为统一诊断中心 `diagnostics.run_all()`，汇总 9 个 checker，覆盖：数据库健康（PRAGMA integrity_check / 文件大小 / 核心表行数）、运行环境依赖（feedparser/Pillow/bleach/markdown/FTS5）、站点配置（站点名/注册/验证码/评论/SMTP/site_url）、博客圈 RSS 聚合（复用 feed_agg 逐条诊断）、数据备份（目录/保留天数/远端目标/最近备份文件）、SEO（site_url/robots/sitemap/feed 路由）、待处理事项（待审评论/友链申请/未读留言）、前端构建产物（`_vite_build*` 是否存在）、存储权限（数据目录可写）。每个 checker 单点异常被捕获降级为 error，不拖垮整页；任何小问题都会在此标红（异常）/标黄（警告）。入口：后台侧栏「运维诊断 → 🩺 全站体检」（`/admin/feed-diag`，`@super_required` + CSRF）。可直接定位此前「小艺的日记」RSS 解析 0 条等问题。
+- **③ 文档页 BigModel 风格改造（DocsView.vue）**：仿 https://docs.bigmodel.cn/cn/api/introduction 三栏布局——左侧分组导航 + 中间内容 + 右侧「本页目录」TOC（IntersectionObserver 滚动高亮当前章节）；每个代码块加「复制」按钮；endpoint 卡片左边框色改用 `var(--accent)` 跟随主题；补齐深色模式适配。
+- **验证**：R45 审计 0 遗留（全 `{{ }}` 转义、无 XSS/注入/越权/SSRF/CSRF/密钥/泄漏面）；后端 `py_compile` 全过；前端 `vite build`（`_vite_build15`）编译通过。APP_VERSION 升为 v3.8.7。
+- ⚠️ 升级：**含前端构建产物**，须重新 `vite build` 并打包；仅覆盖后端不生效。宝塔「停止 → 启动」gunicorn 重载前端静态资源。
+
 ## 目录结构
 ```
 myblog/             # 后端（Flask + SQLite）

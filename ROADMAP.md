@@ -640,3 +640,10 @@ v3.1.7 修复 CSRF 隐藏域乱码后，用户反馈「退出登录按钮失效�
 - **③ 文档页导航入口**：`App.vue` 桌面导航 + 移动抽屉导航各加「文档」链接（`to="/docs"`）。此前 v3.8.5 已建 `/docs` 路由与 `DocsView.vue`，但导航无入口，用户无法访问。
 - **④ 文档页内容充实（完整 API 参考 + 二次开发指南）**：重写 `DocsView.vue`，校正旧文档错误路径（`/api/login`→`/api/auth/login`、移除不存在的 `/api/post/:slug/comments` GET），按模块列出全部 `/api` 接口（方法/路径/鉴权/参数/cURL/响应样例），并新增「二次开发指南」章节（后端新增 API 步骤+代码模板、CSRF、三种鉴权级别、前端 `apiGet`/`apiPost`、新增页面、本地调试、文档同步要求）。兼容深色模式，代码块接入 highlight.js。
 - **⑤ 部署注意**：**含前端构建产物**，须重新 `vite build` + `package.py` 打包；宝塔「停止 → 启动」gunicorn 重载前端静态资源。APP_VERSION 升为 v3.8.6。
+
+## 49. v3.8.7：前台移除诊断面板 + 后台全站体检中心 + 文档页 BigModel 风格
+
+- **① 前台移除诊断面板**：`SquareView.vue` 博客圈移除「聚合诊断」面板与「强制刷新」按钮，仅留「↻ 刷新聚合」（`loadCircle(true)` 带 `refresh=1`）；诊断能力收归后台，前台更简洁。
+- **② 后台全站健康体检中心（diagnostics.py · 仅超管）**：新增 `myblog/diagnostics.py` 统一诊断模块，`feed_diag` 路由（`@super_required` + CSRF）调用 `diagnostics.run_all()` 汇总 9 维 checker：数据库（PRAGMA integrity_check/大小/核心表行数）、依赖（feedparser/Pillow/bleach/markdown/FTS5）、配置（站点名/注册/验证码/评论/SMTP/site_url）、博客圈 RSS（复用 feed_agg 逐条诊断）、备份（目录/保留/远端/最近文件）、SEO（site_url/robots/sitemap/feed）、待处理（待审评论/友链申请/未读留言）、前端构建产物、存储权限。单 checker 异常降级为 error 不拖垮整页；异常标红、警告标黄，可定位「RSS 解析 0 条」等小问题。
+- **③ 文档页 BigModel 风格（DocsView.vue）**：三栏布局（左导航 + 中内容 + 右「本页目录」TOC 滚动高亮）+ 代码块「复制」按钮 + endpoint 卡片 `var(--accent)` 主题色 + 深色模式适配。
+- **④ 部署注意**：**含前端构建产物**，须重新 `vite build` + `package.py` 打包；宝塔「停止 → 启动」gunicorn 重载前端静态资源。APP_VERSION 升为 v3.8.7。

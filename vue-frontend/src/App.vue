@@ -99,7 +99,8 @@
   </div>
 
   <!-- 大框架：统一框住公告/便签/正文/页脚（v3.1.0，视觉与后台 .section-box 一致） -->
-  <div class="site-frame">
+  <!-- 文档页（/docs）内容极宽，用 site-frame--wide 打破 1100px 限宽并放开裁剪，否则三栏布局被压窄、右侧「本页目录」被媒体查询隐藏 -->
+  <div class="site-frame" :class="{ 'site-frame--wide': $route.name === 'docs' }">
     <main class="site-frame-inner">
       <router-view v-slot="{ Component }">
         <component :is="Component" />

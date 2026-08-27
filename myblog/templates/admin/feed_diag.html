@@ -46,10 +46,10 @@
       </span>
     </h3>
 
-    {% if sec.items %}
+    {% if sec.rows %}
     <table class="stats-table">
       <tbody>
-      {% for it in sec.items %}
+      {% for it in sec.rows %}
         <tr>
           <td style="width:240px;color:#6b7280;">{{ it.label }}</td>
           <td><span class="diag-lv diag-lv-{{ it.level }}">{{ it.value }}</span></td>

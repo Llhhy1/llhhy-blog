@@ -224,7 +224,7 @@ def check_feed_agg():
             status = "warn" if status == "ok" else status
     notes.extend(d.get("notes", []) or [])
     return {"key": "feed_agg", "title": "博客圈 RSS 聚合", "status": status,
-            "items": items, "notes": notes, "per_link": d.get("per_link", []) or []}
+            "rows": items, "notes": notes, "per_link": d.get("per_link", []) or []}
 
 
 # ---------------------------------------------------------------------------
@@ -395,7 +395,7 @@ def run_all():
             sec = fn()
         except Exception as e:
             sec = {"key": fn.__name__, "title": fn.__name__, "status": "error",
-                   "items": [], "notes": [f"checker 异常：{type(e).__name__}: {e}"]}
+                   "rows": [], "notes": [f"checker 异常：{type(e).__name__}: {e}"]}
         sections.append(sec)
         summary[sec.get("status", "ok")] = summary.get(sec.get("status", "ok"), 0) + 1
     return {

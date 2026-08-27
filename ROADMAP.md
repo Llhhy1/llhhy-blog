@@ -647,3 +647,10 @@ v3.1.7 修复 CSRF 隐藏域乱码后，用户反馈「退出登录按钮失效�
 - **② 后台全站健康体检中心（diagnostics.py · 仅超管）**：新增 `myblog/diagnostics.py` 统一诊断模块，`feed_diag` 路由（`@super_required` + CSRF）调用 `diagnostics.run_all()` 汇总 9 维 checker：数据库（PRAGMA integrity_check/大小/核心表行数）、依赖（feedparser/Pillow/bleach/markdown/FTS5）、配置（站点名/注册/验证码/评论/SMTP/site_url）、博客圈 RSS（复用 feed_agg 逐条诊断）、备份（目录/保留/远端/最近文件）、SEO（site_url/robots/sitemap/feed）、待处理（待审评论/友链申请/未读留言）、前端构建产物、存储权限。单 checker 异常降级为 error 不拖垮整页；异常标红、警告标黄，可定位「RSS 解析 0 条」等小问题。
 - **③ 文档页 BigModel 风格（DocsView.vue）**：三栏布局（左导航 + 中内容 + 右「本页目录」TOC 滚动高亮）+ 代码块「复制」按钮 + endpoint 卡片 `var(--accent)` 主题色 + 深色模式适配。
 - **④ 部署注意**：**含前端构建产物**，须重新 `vite build` + `package.py` 打包；宝塔「停止 → 启动」gunicorn 重载前端静态资源。APP_VERSION 升为 v3.8.7。
+
+## 50. v3.8.8：修复「全站体检」500 与文档页显示不全（R46 审计通过）
+
+- **① 修复后台全站体检 500**：`feed_diag.html` 的 `sec.items` 与 Python `dict.items` 方法冲突（`{% for it in sec.items %}` 报 `TypeError`），根因是将诊断结果数据键 `items` 重命名为 `rows`、模板同步改为 `sec.rows`。冒烟验证 500→200。
+- **② 修复文档页显示不全**：`.site-frame` 1100px 限宽挤压三栏 + 媒体查询隐藏 TOC + `overflow:hidden` 破坏 sticky；`/docs` 路由加 `site-frame--wide`（`App.vue`）放开限宽与裁剪（`global.css`），恢复三栏 + 右 TOC + sticky；highlight.js 移入 `onMounted` 动态加载。
+- **③ 验证**：`py_compile` 全过；`vite build`（`_vite_build16`）70 模块通过；R46 七维审计 0 遗留。
+- **④ 部署注意**：含前端构建产物，须重新 `vite build` + `package.py`；宝塔「停止 → 启动」gunicorn；硬刷新清缓存。APP_VERSION 升为 v3.8.8。

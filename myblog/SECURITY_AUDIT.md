@@ -1933,3 +1933,21 @@ v3.1.6 起后端 `app.py::_csrf_protect` 严格校验**所有非豁免 POST** �
 2. 回到仓库根 `python package.py` 重新打包（`vue-frontend-dist.zip` 含新 `DocsView`/`SquareView` 构建结果）
 3. 宝塔「停止 → 启动」gunicorn 重载前端静态资源（restart 不重载）
 4. 升级后后台左下角显示 `v3.8.7`；侧栏「运维诊断 → 全站体检」可看 9 维体检；`/docs` 确认三栏 + 右侧本页目录 + 代码块复制按钮。
+
+---
+
+## R46 轮（v3.8.8 回归修复 · 2026-08-28）
+
+审计对象：v3.8.8 两项回归修复（后台全站体检 500、文档页显示不全）。变更仅涉及展示层与崩溃修复，无新增用户输入处理 / 命令执行 / 出站请求。
+
+| 编号 | 维度 | 结论 |
+|------|------|------|
+| R46-1 | XSS | `feed_diag.html` 仍全部 `{{ }}` 文本插值（Jinja2 自动转义）；数据键 `items`→`rows` 不影响转义。`DocsView.vue` 为静态文档，`v-html` 仍无（R44 起）。 | ✅ 无 XSS |
+| R46-2 | 注入 | `diagnostics.py` 仅 `text("PRAGMA ...")` 只读 + ORM `Model.query.count()`；无新增字符串拼接。 | ✅ 无注入 |
+| R46-3 | 越权 | `feed_diag` 仍 `@super_required` + 全局 `enforce_same_origin` CSRF；`/docs` 为公开静态页。 | ✅ 无越权 |
+| R46-4 | SSRF | 无新增出站请求；highlight.js 走固定 CDN URL（cdnjs），无用户输入拼接。 | ✅ 无 SSRF |
+| R46-5 | CSRF | `feed_diag.html` POST 仍含 `{{ csrf_input() }}`；文档页无状态变更。 | ✅ 无 CSRF |
+| R46-6 | 密钥泄露 | `check_config`/`check_backup` 仍只显示「是否配置 / 类型标签」，不打印账号密码 Token 密钥。 | ✅ 无密钥泄露 |
+| R46-7 | 资源/异常 | `diagnostics.py` 各 checker 仍独立 `try/except` 降级；无 `open()`/subprocess。 | ✅ 无泄漏 |
+
+**R46 结论**：**0 遗留**。v3.8.8 仅修复两个展示 / 崩溃回归，不引入任何安全面。`grep APP_VERSION myblog/config.py` 发版前已改为 `3.8.8`（与 Release tag 一致）。

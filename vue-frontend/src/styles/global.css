@@ -84,6 +84,10 @@ body {
 }
 /* 框内内容区：负责实际左右留白（避免与外框 padding 叠加） */
 .site-frame-inner { padding: 22px 18px 8px; }
+/* v3.8.8：文档页（/docs）内容极宽（三栏 + 右侧「本页目录」），打破 1100px 限宽并放开裁剪，
+   否则三栏被压窄、TOC 被 @media(max-width:1100px) 隐藏、且 overflow:hidden 破坏 sticky 侧栏 */
+.site-frame--wide { max-width: 1500px; overflow: visible; }
+.site-frame--wide .site-frame-inner { padding: 22px 24px 8px; }
 /* 页脚：在大框内，去掉全宽白底，改为透明分隔线 */
 .site-footer {
   background: transparent;

@@ -467,10 +467,6 @@ print(c.get('/api/posts').get_json())
            @click.prevent="scrollTo(t.id)">{{ t.text }}</a>
       </nav>
     </aside>
-
-    <!-- highlight.js（CDN）：在模板内引入，由下方 onMounted 初始化 -->
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css">
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
   </div>
 </template>
 
@@ -507,6 +503,21 @@ function fallbackCopy(text, done) {
 }
 
 onMounted(() => {
+  // highlight.js 通过 CDN 动态加载（写在模板里会在每次挂载重复注入 <script> 并触发告警），
+  // 这里幂等地注入一次，下方轮询 window.hljs 即可高亮；CDN 不可达时优雅跳过（不高亮而已）。
+  if (!document.getElementById("hljs-cdn-css")) {
+    const l = document.createElement("link");
+    l.id = "hljs-cdn-css"; l.rel = "stylesheet";
+    l.href = "https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css";
+    document.head.appendChild(l);
+  }
+  if (!document.getElementById("hljs-cdn-js")) {
+    const s = document.createElement("script");
+    s.id = "hljs-cdn-js";
+    s.src = "https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js";
+    document.head.appendChild(s);
+  }
+
   buildToc();
 
   // highlight.js 通过 CDN 异步加载，挂载后轮询初始化，确保代码块高亮生效

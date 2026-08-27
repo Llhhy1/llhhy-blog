@@ -327,6 +327,13 @@ supervisorctl status
 
 ---
 
+### v3.8.8 升级注意（修复全站体检 500 + 文档页显示不全）
+
+- **必含前端构建产物**：本次修复文档页 `/docs` 显示不全（三栏布局被 `.site-frame` 的 `max-width:1100px` 限宽挤压、右侧「本页目录」被 `@media(max-width:1100px)` 隐藏、sticky 侧栏被 `overflow:hidden` 破坏）。必须重新覆盖 `vue-frontend-dist.zip` 并清缓存，否则线上仍是压窄的旧版。
+- **后端**：覆盖 `myblog-backend.zip` 后**停止 → 启动** gunicorn（修复 `/admin/feed-diag` 500：模板 `sec.items` 与 Python `dict.items` 方法冲突，诊断结果数据键 `items`→`rows`）。
+- **前端缓存**：SPA 由 Nginx 直接服务，覆盖 `index.html`+`assets/` 后请**硬刷新（Ctrl+F5）/无痕窗口**打开；可在宝塔「软件商店 → Nginx → 配置 → 重载」清 Nginx 缓存，避免旧 `index.html` 引用过期 JS 块导致文档页渲染不全。
+- **验证**：后台左下角显示 `v3.8.8`；超管访问 `/admin/feed-diag` 正常渲染 9 维体检；`/docs` 三栏完整、右侧「本页目录」可见、侧栏 sticky 跟随滚动。
+
 ### v2.7.0 升级注意（定时发布）
 
 - **新增数据库字段**：`post` 表新增 `scheduled_at` 列（DATETIME，可空）。**无需手动 SQL**——重启后端时 `app.py` 的 `_migrate_post_table()` 会自动 `ALTER TABLE` 补列（旧库无缝升级）。

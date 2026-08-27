@@ -366,6 +366,21 @@ llhhy-blog/
 - **跳过的**：搜索功能（初期 Ctrl+F 够用）、多语言（初期只中文）、版本管理（初期 git 标签即可）、接口自动生成（初期手写）。
 - APP_VERSION 升为 v3.8.5。
 
+### v3.8.6：博客圈自诊断 + 系列热门标签 + 文档页导航（R41–R44 审计通过）
+
+- 博客圈自诊断（`feed_agg._LAST_DIAG` + `/api/feed/circle` 附 `debug` 块，前端直显原因）、系列详情页热门标签云、文档页导航入口（App.vue 桌面 + 抽屉）、文档页内容充实（完整 API 参考 + 二次开发指南）、endpoint 卡片主题色。**含前端构建产物**，须重新 `vite build` + `package.py`。APP_VERSION 升为 v3.8.6。
+
+### v3.8.7：前台移除诊断面板 + 后台全站体检中心 + 文档页 BigModel 风格（R45 审计通过）
+
+- **① 前台移除诊断面板**：`SquareView.vue` 博客圈仅留「↻ 刷新聚合」。**② 后台全站健康体检中心**（`diagnostics.py` · 仅超管）：`feed_diag` 路由（`@super_required` + CSRF）调用 `run_all()` 汇总 9 维 checker（数据库/依赖/配置/备份/SEO/待办/前端构建/存储/RSS 聚合），单点异常降级为 error 不拖垮整页。**③ 文档页 BigModel 风格**：三栏（左导航 + 中内容 + 右「本页目录」TOC 滚动高亮）+ 代码块复制按钮 + 深色模式适配。含前端构建产物。APP_VERSION 升为 v3.8.7。
+
+### v3.8.8：补丁——修复「全站体检」500 与文档页显示不全（R46 审计通过）
+
+- **① 修复后台「🩺 全站体检」打开 500**：根因为 `feed_diag.html` 的 `sec.items` 被 Jinja 解析为 Python `dict.items` 方法（而非数据键），`{% for it in sec.items %}` 报 `TypeError: 'builtin_function_or_method' object is not iterable`。将 `diagnostics.py` 结果数据键 `items` 重命名为 `rows`（彻底规避该陷阱），模板同步改为 `sec.rows`。已本地冒烟验证：超管访问 `/admin/feed-diag` 返回 200 并渲染 9 维仪表盘。
+- **② 修复文档页 `/docs` 显示不全**：`.site-frame` 限宽 `max-width:1100px` + `overflow:hidden` 把文档页设计的三栏（1400px）压窄，且 `@media(max-width:1100px){.docs-toc{display:none}}` 直接隐藏右侧「本页目录」、overflow 还破坏了 sticky 侧栏。`App.vue` 给 `/docs` 路由加 `site-frame--wide` 类，`global.css` 对该类放开 `max-width:1500px` 与 `overflow:visible`，文档页恢复完整三栏 + TOC + sticky。`DocsView.vue` 把 highlight.js 的 `<link>/<script>` 从模板移入 `onMounted` 动态幂等加载（避免重复注入与告警）。
+- **③ 验证**：后端 `py_compile` 全过；前端 `vite build`（`_vite_build16`）70 模块全部转换成功；隔离临时库 + test_client 冒烟确认 500→200。R46 七维审计 **0 遗留**（详见 `myblog/SECURITY_AUDIT.md` R46 轮）。
+- **④ 部署注意**：**含前端构建产物**，须重新 `vite build` + `package.py` 打包；宝塔「停止 → 启动」gunicorn 重载前端静态资源（restart 不重载）；前端 SPA 由 Nginx 服务，上线后请硬刷新 / 清浏览器与 Nginx 缓存。APP_VERSION 升为 v3.8.8。
+
 ## 快速开始（本地开发）
 
 后端（默认端口 5000）：

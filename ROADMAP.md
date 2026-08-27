@@ -622,3 +622,13 @@ v3.1.7 修复 CSRF 隐藏域乱码后，用户反馈「退出登录按钮失效�
 - **② 友链 RSS 不聚合（可观测性）**：`feed_agg.py` / `api/social.py` 原静默吞掉友链抓取异常，现场无迹可查；现失败原因打到日志，区分「未填 RSS 地址 / RSS 地址未过 SSRF 校验 / feedparser 未安装 / 抓取解析异常」四类。
 - **③ 验证**：R43 七维审计 0 遗留（1 中危 CSRF 缺失已修）；前端 `node --check` 语法校验通过；本地 test_client 实测裸 POST→403、带 token→200 且 DB `likes=1` 落库；公网 RSS 经 `get_circle_feed()` 正常拉回 3 条。
 - **④ 部署注意**：**含前端构建产物**，须重新 `vite build` + `package.py` 打包；宝塔「停止 → 启动」gunicorn 重载前端静态资源。APP_VERSION 升为 v3.8.4。
+
+## 47. v3.8.5：新增 API 文档页面（懒方案）
+
+- **需求**：用户想把 API 文档做成智谱风格（左侧导航 + 右侧内容 + 代码高亮）。
+- **懒方案**：复用现有 Vue 前端，新增 `/docs` 路由 → `DocsView.vue`（纯 HTML）+ 左侧导航（硬编码）+ 代码高亮（CDN highlight.js）。
+- **优势**：3 个文件改完即可，无需额外框架（VitePress / Docusaurus / VuePress）、无需独立文档站点、无需学习新工具链。
+- **访问**：http://your-domain.com/docs
+- **内容**：认证 + 通用说明 + 文章 API（列表/详情/点赞）+ 评论 API（列表/创建）+ RSS 订阅 + 博客圈聚合。
+- **跳过的**：搜索功能（初期 Ctrl+F 够用）、多语言（初期只中文）、版本管理（初期 git 标签即可）、接口自动生成（初期手写）。
+- APP_VERSION 升为 v3.8.5。

@@ -329,6 +329,14 @@
 - **验证**：R43 七维审计 0 遗留；前端 `node --check` 语法校验通过。APP_VERSION 升为 v3.8.4。
 - ⚠️ 升级：**含前端构建产物**，须重新 `vite build` 并打包；仅覆盖后端不生效。宝塔「停止 → 启动」gunicorn 重载前端静态资源。
 
+### v3.8.5：新增 API 文档页面（懒方案）
+
+- **懒方案**：复用现有 Vue 前端，新增 `/docs` 路由 → `DocsView.vue`（纯 HTML）+ 左侧导航（硬编码）+ 代码高亮（CDN highlight.js）。
+- **优势**：3 个文件改完即可，无需额外框架（VitePress / Docusaurus / VuePress）、无需独立文档站点。
+- **访问**：http://your-domain.com/docs
+- **内容**：认证 + 通用说明 + 文章 API + 评论 API + RSS 订阅 + 博客圈聚合。
+- APP_VERSION 升为 v3.8.5。
+
 ## 目录结构
 ```
 myblog/             # 后端（Flask + SQLite）

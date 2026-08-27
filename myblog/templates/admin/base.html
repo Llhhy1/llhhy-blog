@@ -59,7 +59,7 @@
         <a href="{{ url_for('admin.backup') }}" class="{{ 'active' if ep in ('admin.backup', 'admin.backup_settings') }}"><span class="nav-emoji">💾</span>数据备份</a>
         <a href="{{ url_for('admin.backup_settings') }}" class="{{ 'active' if ep == 'admin.backup_settings' }}"><span class="nav-emoji">⚙️</span>备份配置</a>
         <p class="side-group">运维诊断</p>
-        <a href="{{ url_for('admin.feed_diag') }}" class="{{ 'active' if ep == 'admin.feed_diag' }}"><span class="nav-emoji">🩺</span>诊断助手</a>
+        <a href="{{ url_for('admin.feed_diag') }}" class="{{ 'active' if ep == 'admin.feed_diag' }}"><span class="nav-emoji">🩺</span>全站体检</a>
         {% endif %}
         {% else %}
         <p class="side-group">我的创作</p>

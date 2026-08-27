@@ -20,6 +20,7 @@ import notify
 import bot_guard
 import mail_notify
 import feed_agg
+import diagnostics
 
 admin_bp = Blueprint("admin", __name__, url_prefix="/admin")
 
@@ -1916,15 +1917,14 @@ def toggle_subscriber(sid):
     return redirect(url_for("admin.manage_subscribers"))
 
 
-# ---------- 运维诊断：博客圈 RSS 聚合诊断助手（v3.8.7）----------
+# ---------- 运维诊断：全站健康体检中心（v3.8.7）----------
 @admin_bp.route("/feed-diag", methods=["GET", "POST"])
 @super_required
 def feed_diag():
-    """博客圈 RSS 聚合诊断助手（仅超管）：展示最近一次聚合诊断 + 逐条友链明细。
+    """全站健康体检中心（仅超管）：汇总数据库/依赖/配置/备份/SEO/待办/前端构建/存储/RSS 聚合。
 
-    POST 触发强制重新聚合（force=True），刷新诊断数据；GET 仅展示。
-    诊断数据来自 feed_agg.get_last_diag()，含总数/已填RSS/feedparser状态/抓取数/跳过数/
-    逐条 per_link（安全校验、解析条数、状态、原因）与 notes。
+    POST 触发强制重新聚合（force=True），刷新 RSS 诊断；其余维度每次加载实时计算。
+    诊断逻辑见 myblog/diagnostics.py（run_all）。
     """
     if request.method == "POST":
         try:
@@ -1933,5 +1933,5 @@ def feed_diag():
         except Exception as e:
             flash("刷新失败：" + str(e)[:200])
         return redirect(url_for("admin.feed_diag"))
-    diag = feed_agg.get_last_diag()
-    return render_template("admin/feed_diag.html", diag=diag)
+    result = diagnostics.run_all()
+    return render_template("admin/feed_diag.html", result=result)

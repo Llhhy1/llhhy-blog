@@ -19,6 +19,7 @@ const routes = [
   { path: "/search", name: "search", component: () => import("./views/SearchView.vue") },
   { path: "/login", name: "login", component: () => import("./views/LoginView.vue") },
   { path: "/register", name: "register", component: () => import("./views/RegisterView.vue") },
+  { path: "/docs", name: "docs", component: () => import("./views/DocsView.vue") },
   { path: "/:pathMatch(.*)*", redirect: "/" },
 ];
 

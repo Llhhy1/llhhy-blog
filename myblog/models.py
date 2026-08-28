@@ -51,6 +51,12 @@ class Post(db.Model):
     series = db.relationship("Series", backref=db.backref("posts", lazy="dynamic"),
                              foreign_keys=[series_id],
                              primaryjoin="Series.id == Post.series_id")
+    # ===== v3.9.1 正文渲染缓存 =====
+    # content_html：Markdown 渲染 + XSS 清洗后的 HTML 结果（缓存，可为空）。
+    # content_hash：渲染时的正文指纹（版本号 + 正文 sha256），正文一变指纹即变、缓存自动失效。
+    # 二者仅作缓存，永远不对外直接展示——出口仍是 render_post_html()（渲染失败也只是变慢）。
+    content_html = db.Column(db.Text)
+    content_hash = db.Column(db.String(64))
 
 
 class Category(db.Model):

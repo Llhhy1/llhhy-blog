@@ -443,8 +443,16 @@ log "下载与校验完成。"
 log "③ 备份数据..."
 if [ -f "$APP_DIR/data/blog.db" ]; then
   mkdir -p "$APP_DIR/data/backup"
-  cp "$APP_DIR/data/blog.db" "$APP_DIR/data/backup/blog_$TS.db"
-  log "   数据库 → data/backup/blog_$TS.db"
+  # v3.9.1：WAL 模式下直接 cp 主库会得到「缺 WAL 中已提交数据」的陈旧快照，
+  # 优先用 sqlite3 在线备份产出一致性副本；无 sqlite3 命令时退化为 cp（连同 -wal 一起拷）。
+  if command -v sqlite3 >/dev/null 2>&1 \
+     && sqlite3 "$APP_DIR/data/blog.db" ".backup '$APP_DIR/data/backup/blog_$TS.db'" 2>/dev/null; then
+    log "   数据库（一致性快照）→ data/backup/blog_$TS.db"
+  else
+    cp "$APP_DIR/data/blog.db" "$APP_DIR/data/backup/blog_$TS.db"
+    [ -f "$APP_DIR/data/blog.db-wal" ] && cp "$APP_DIR/data/blog.db-wal" "$APP_DIR/data/backup/blog_$TS.db-wal"
+    log "   数据库（直拷，含 WAL）→ data/backup/blog_$TS.db"
+  fi
 fi
 if [ -d "$APP_DIR/static/uploads" ]; then
   mkdir -p "$APP_DIR/data/backup"

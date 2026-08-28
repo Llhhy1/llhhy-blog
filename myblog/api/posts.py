@@ -46,7 +46,7 @@ def post_detail(slug):
         db.session.commit()
 
     data = _post_summary(p)
-    data["html"] = _render_html(p.content)
+    data["html"] = _render_html(p)  # v3.9.1：走正文渲染缓存（content_html）
     # 审核流：前台只展示已通过审核的评论（approved=True）
     data["comments"] = [_comment(c) for c in p.comments.filter_by(approved=True).order_by(Comment.created_at.asc())]
     # 系列上下篇导航

@@ -32,7 +32,8 @@ _VER_CHECK_CACHE = {"ts": 0, "latest": ""}
 from models import db, Post, Category, Tag, Comment, FriendLink, Setting, User, ROLE_USER, \
     Moment, MomentComment, SocialAccount, Series, Announcement, Guestbook, Subscriber, Notification, \
     ReadLog, visible_posts_query, LinkApplication, AuditLog, PostHistory, RecycleBin
-from utils import render_markdown, clean_html, rate_limit, client_key
+from utils import (render_markdown, clean_html, render_post_html,
+                   rate_limit, client_key)
 import stats
 # v3.1.0：记录登录审计（log_login_attempt 定义在 admin 模块，admin 不依赖 api，无循环）
 from admin import log_login_attempt
@@ -90,9 +91,13 @@ def _csrf_token():
         return ""
 
 
-def _render_html(content):
-    """把 Markdown 正文渲染成 HTML（已做 XSS 白名单清理）。"""
-    return render_markdown(content)
+def _render_html(post):
+    """渲染文章正文为 HTML（已做 XSS 白名单清理）。
+
+    v3.9.1：参数由「正文字符串」改为「Post 对象」，走渲染缓存（post.content_html），
+    正文未变时不再重复渲染。仅 api/posts.py 的文章详情使用。
+    """
+    return render_post_html(post)
 
 
 def _settings_map():

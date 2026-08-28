@@ -649,6 +649,22 @@ supervisorctl status
 - **验证**：pytest 15 passed；前端 `vite build` 通过；R48 七维审计 0 遗留（详见 `SECURITY_AUDIT.md` R48 轮）。APP_VERSION 升为 v3.9.0。
 - **⚠️ 升级顺序**：① 覆盖后端 zip（`myblog-backend.zip`）→ ② 覆盖前端 zip（`vue-frontend-dist.zip`，本轮前端有变动，务必覆盖）→ ③ 宝塔「停止 → 启动」gunicorn（restart 不重载）→ ④ 无痕窗口验证左下角版本号 `v3.9.0` + 后台侧栏「🧩 插件管理」可看 `contact_card`/`article_toc` 状态 + 打开一篇长文右侧栏顶部出现「目录」卡片。远程组件走静态目录，前端无需重新构建即生效（但本版前端另有变动需覆盖）。
 
+### v3.9.1 升级注意（正文渲染缓存 + SQLite WAL · R49 审计通过）
+
+- **改的什么（纯后端，无前端构建产物）**：
+  - ① **正文渲染缓存**：`post` 表新增 `content_html`（渲染后的 HTML）+ `content_hash`（指纹）两列，启动时自动补列（沿用 `_migrate_post_table()` 范式，幂等）。出口统一为 `utils.render_post_html()`：命中缓存直接返回，未命中才渲染并写回。长文（1 万字符）实测 `87ms → 2.7ms`。
+  - ② **SQLite WAL**：每次建连执行 `PRAGMA journal_mode=WAL` + `busy_timeout=5000` + `synchronous=NORMAL`，解决多 worker 下偶发 `database is locked`（读不阻塞写、写不阻塞读）。
+  - ③ **备份链路配套（重要）**：WAL 下直接 `cp blog.db` 会漏掉未 checkpoint 的数据，故 `backup.py` 改用 sqlite3 在线备份 API、`update.sh`/`deploy.sh` 优先 `sqlite3 .backup`、恢复后自动清理 `-wal`/`-shm`。
+  - ④ 后台「🩺 全站体检 → 数据库健康」新增 `journal_mode`、`busy_timeout` 两行，用于部署后核验。
+- **🔑 无新增环境变量**，无需手工跑任何迁移脚本，首次访问文章会自动填充缓存（该次稍慢属正常）。
+- **🚨 升级后必查（3 步）**：
+  1. 宝塔「停止 → 启动」gunicorn（restart 不重载）；
+  2. 后台 → 运维诊断 → 🩺 全站体检 → 数据库健康，确认 **`日志模式 journal_mode` = `WAL`**、**`写锁等待 busy_timeout` = `5000 ms`**；
+     若显示 `delete`，说明 `data/` 目录对运行用户（一般 `www`）不可写 → 检查 `myblog/data/` 属主与权限（`chown -R www:www data` 并保证目录可写）。
+  3. 随便打开两篇文章（第一次会落缓存），随后刷新应明显变快。
+- **⚠️ 运维提醒（请务必告知自己/同伴）**：启用 WAL 后 `myblog/data/` 下会出现 `blog.db-wal`、`blog.db-shm` 两个文件，这是**正常产物，千万别手动删除**（删掉 -wal 可能丢失尚未 checkpoint 的已提交数据）。手动备份数据库请改用 `sqlite3 blog.db ".backup /path/to/backup.db"` 或后台「💾 数据备份」，**不要**直接拷 `blog.db`。
+- **验证**：pytest 23 passed（新增 8 条缓存/WAL/备份相关）；R49 十维审计 0 遗留（详见 `SECURITY_AUDIT.md` R49 轮）。APP_VERSION 升为 v3.9.1。
+
 ## 邮件设置（新文章通知订阅者 · 后台配置）
 
 > 从 v2.4.0 起，邮件群发配置**不需要再填环境变量**，直接在后台操作（更便捷）。

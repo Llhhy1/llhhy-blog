@@ -105,6 +105,94 @@ def _safe_rel(rel):
     return any(rel == p.rstrip("/") or rel.startswith(p) for p in ALLOWED_PREFIXES)
 
 
+def snapshot_db(src_path, dst_path):
+    """生成 SQLite 一致性快照（v3.9.1，WAL 安全）。
+
+    v3.9.1 起数据库启用 WAL：主库 blog.db 里可能还缺一批「已提交但仍留在
+    blog.db-wal 中、尚未 checkpoint」的数据。直接 cp 主库会得到一个陈旧且不完整的
+    快照（极端情况下打开即报 database disk image is malformed）。
+
+    这里改用 sqlite3 的在线备份 API（Connection.backup），它会读取逻辑数据库内容
+    （含 WAL 中已提交部分），产出一个自包含、可直接打开的普通 .db 文件。
+    失败（非 SQLite 文件 / 库损坏 / 被独占锁）则回退到直接复制，保证备份不中断。
+    """
+    import sqlite3
+    # 先确认源文件存在：sqlite3.connect 对不存在的路径会「新建一个空库」，
+    # 那样会备份出一个空快照，比备份失败更糟。
+    if not os.path.exists(src_path):
+        return False
+    try:
+        src = sqlite3.connect(src_path)
+        dst = sqlite3.connect(dst_path)
+        try:
+            src.backup(dst)
+        finally:
+            dst.close()
+            src.close()
+        return True
+    except Exception:
+        try:
+            shutil.copyfile(src_path, dst_path)
+            return False
+        except Exception:
+            return False
+
+
+def drop_wal_sidecars(db_path):
+    """删除数据库旁边的 -wal / -shm 残留文件（v3.9.1）。
+
+    恢复备份时若只覆盖 blog.db 而留下旧的 blog.db-wal，SQLite 启动时会拿旧 WAL
+    去回放新库，轻则数据错乱、重则报 database disk image is malformed。
+    覆盖写库后必须先清掉这两个伴随文件（服务停止状态下删除是安全的）。
+    """
+    removed = []
+    for suffix in ("-wal", "-shm"):
+        p = db_path + suffix
+        if os.path.exists(p):
+            try:
+                os.remove(p)
+                removed.append(suffix)
+            except Exception:
+                pass
+    return removed
+
+
+def make_db_snapshot(db_path):
+    """把数据库导出为一致性快照文件，返回快照路径（不存在则返回 None）。
+
+    调用方用完须调 cleanup_db_snapshot(path) 删除临时文件。
+    """
+    if not os.path.exists(db_path):
+        return None
+    tmp_dir = tempfile.mkdtemp(prefix="bkdb_")
+    tmp_db = os.path.join(tmp_dir, "blog.db")
+    try:
+        snapshot_db(db_path, tmp_db)
+    except Exception:
+        pass
+    if os.path.exists(tmp_db):
+        return tmp_db
+    try:
+        os.rmdir(tmp_dir)
+    except Exception:
+        pass
+    return None
+
+
+def cleanup_db_snapshot(path):
+    """删除 make_db_snapshot 产出的临时快照（含其临时目录）。"""
+    if not path:
+        return
+    try:
+        if os.path.exists(path):
+            os.remove(path)
+        parent = os.path.dirname(path)
+        if os.path.isdir(parent) and not os.listdir(parent):
+            os.rmdir(parent)
+    except Exception:
+        pass
+
+
 def create_backup():
     """打包 data/blog.db + static/uploads/* 为带 manifest 的 zip，存本地并同步远程。
 
@@ -121,14 +209,16 @@ def create_backup():
             "app_version": APP_VERSION,
             "files": [],
         }
+        snap = None
         with zipfile.ZipFile(arc_path, "w", zipfile.ZIP_DEFLATED) as zf:
-            # 1) 数据库
+            # 1) 数据库（v3.9.1：用一致性快照，避免 WAL 模式下 cp 到陈旧主库）
             db = os.path.join(DATA_DIR, "blog.db")
-            if os.path.exists(db):
+            snap = make_db_snapshot(db)
+            if snap:
                 rel = "data/blog.db"
-                zf.write(db, rel)
+                zf.write(snap, rel)
                 manifest["files"].append(
-                    {"path": rel, "sha256": _sha256_file(db), "size": os.path.getsize(db)})
+                    {"path": rel, "sha256": _sha256_file(snap), "size": os.path.getsize(snap)})
             # 2) 上传目录（图片等）
             if os.path.isdir(UPLOAD_DIR):
                 for dirpath, dirnames, filenames in os.walk(UPLOAD_DIR):
@@ -159,6 +249,7 @@ def create_backup():
         prune_local()
         return final_arc, manifest, sync_results
     finally:
+        cleanup_db_snapshot(snap)
         shutil.rmtree(tmp_dir, ignore_errors=True)
 
 
@@ -322,10 +413,11 @@ def _snapshot_before_restore(tag=""):
     name = "blog_prerestore_%s%s.zip" % (ts, ("_" + tag) if tag else "")
     os.makedirs(BACKUP_ROOT, exist_ok=True)
     arc = os.path.join(BACKUP_ROOT, name)
-    with zipfile.ZipFile(arc, "w", zipfile.ZIP_DEFLATED) as zf:
-        db = os.path.join(DATA_DIR, "blog.db")
-        if os.path.exists(db):
-            zf.write(db, "data/blog.db")
+    snap = make_db_snapshot(os.path.join(DATA_DIR, "blog.db"))
+    try:
+        with zipfile.ZipFile(arc, "w", zipfile.ZIP_DEFLATED) as zf:
+            if snap:
+                zf.write(snap, "data/blog.db")
         if os.path.isdir(UPLOAD_DIR):
             for dirpath, dirnames, filenames in os.walk(UPLOAD_DIR):
                 for fn in filenames:
@@ -333,6 +425,8 @@ def _snapshot_before_restore(tag=""):
                     rel = os.path.relpath(full, BASE_DIR).replace("\\", "/")
                     if _safe_rel(rel):
                         zf.write(full, rel)
+    finally:
+        cleanup_db_snapshot(snap)
     return arc
 
 
@@ -357,7 +451,10 @@ def restore(arc_path, yes=False, tag=""):
             os.makedirs(os.path.dirname(target), exist_ok=True)
             with open(target, "wb") as f:
                 f.write(zf.read(rel))
-    return {"restored_from": arc_path, "snapshot": snap, "file_count": man_or_msg["file_count"]}
+    # v3.9.1：覆盖主库后必须清掉旧的 -wal/-shm，否则 SQLite 会拿旧 WAL 回放新库导致损坏
+    cleared = drop_wal_sidecars(os.path.join(DATA_DIR, "blog.db"))
+    return {"restored_from": arc_path, "snapshot": snap,
+            "file_count": man_or_msg["file_count"], "wal_cleared": cleared}
 
 
 def main(argv=None):

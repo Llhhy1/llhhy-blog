@@ -348,3 +348,12 @@
 - **⑤ 首个真实插件 `article_toc`（文章目录侧栏）**：自包含原生 JS 扫描 `.post-body` 的 h2/h3/h4，以 sticky 形态注入文章页右侧栏顶部、随滚动高亮当前章节、点击平滑滚动、窄屏（≤820px）隐藏（由核心内联 TOC 兜底）。默认启用 `contact_card,article_toc`。
 - **验证**：pytest 15 passed；前端 `vite build`（`_vite_build17`）通过；R48 七维审计 **0 遗留**（详见 `myblog/SECURITY_AUDIT.md` R48 轮）。
 - **⚠️ 部署注意（强提醒）**：**含前端构建产物**——须重新 `vite build` + `package.py` 打包；覆盖后端 `myblog-backend.zip` + 前端 `vue-frontend-dist.zip` 后「停止 → 启动」gunicorn（restart 不重载）+ 硬刷新清缓存。新环境变量 `ENABLED_PLUGINS`/`DISABLED_PLUGINS`（紧急关停某插件）见 `myblog/README.md` 与 `deploy_guide.md`。APP_VERSION 升为 v3.9.0。
+
+### v3.9.1：正文渲染缓存 + SQLite WAL（打开文章从「每次重算」到「秒开」· R49 审计通过）
+
+- **① 修复：文章页每次打开都要重算 Markdown（长文 ~87ms）**。根因：`render_markdown()`（Markdown 解析 + bleach 白名单清洗）在**每次请求**都跑一遍——文章详情接口 `/api/post/<slug>`、SSR 首页/文章页/分类/标签/搜索结果（`routes.py::_render()`）无一例外，正文越长越慢，且与内容是否被修改无关。修法：`Post` 新增 `content_html`（渲染结果）+ `content_hash`（指纹）两列，新增 `utils.render_post_html()` 作为唯一渲染出口——命中缓存直接返回，未命中才渲染并写回。指纹 = `sha256(渲染版本号 | 正文 | HTML)`，正文一改指纹即变、缓存自动失效（**无需在保存文章的各处手工清缓存**）；把 HTML 也算进指纹，缓存被意外改坏时会自动重新渲染自愈。实测（1 万字符长文样本）：`87ms → 2.7ms`（约 30×）。
+- **② 修复：并发下偶发 `database is locked`**。根因：SQLite 默认 rollback journal，且未设 `busy_timeout`，gunicorn 多 worker 下每个访客都在写（阅读量 + 统计埋点），读写互相阻塞即报错。修法：`app.py::_install_sqlite_pragmas()` 挂 SQLAlchemy `connect` 事件，逐连接执行 `PRAGMA journal_mode=WAL` + `busy_timeout=5000` + `synchronous=NORMAL`（PRAGMA 是连接级的，只设一次不够；非 SQLite 与 `:memory:` 自动跳过）。WAL 让**读不阻塞写、写不阻塞读**。
+- **③ 配套（不做则启用 WAL 有数据风险）**：WAL 模式下 `cp blog.db` 会漏掉「已提交但未 checkpoint」的数据，备份静默不完整、恢复可能报 `database disk image is malformed`。故同步改造：① `backup.py` 备份改用 sqlite3 **在线备份 API**（`snapshot_db()`，产出自包含 .db；失败回退直拷），恢复后删除 `-wal`/`-shm` 残留（`drop_wal_sidecars()`，否则旧 WAL 会回放新库）；② `update.sh` / `deploy.sh` 升级前备份优先用 `sqlite3 .backup`，无该命令时退化为 `cp` 且连 `-wal` 一起拷；③ 后台「🩺 全站体检 → 数据库健康」新增 `journal_mode` 与 `busy_timeout` 两行，便于部署后核验。
+- **④ 核实（不做无谓改动）**：传言中的「评论 XSS（`_comment()` 返回未消毒原文 + 前端 `v-html`）」经核实为**误判**——`CommentForm.vue` 用 `{{ c.content }}` 文本插值，前台 4 处 `v-html` 的内容均经服务端 `clean_html()` / `escape()` 处理。本次未改动评论链路。
+- **验证**：pytest **23 passed**（新增 8 条：缓存写入/命中不重算/正文变更失效/篡改自愈/迁移幂等/WAL PRAGMA 生效/备份快照完整性/清理 WAL 残留）；R49 十维审计 **0 遗留**（详见 `myblog/SECURITY_AUDIT.md` R49 轮）。
+- **⚠️ 部署注意**：**纯后端改动，不含前端构建产物**（前端 dist 无需重建，但发布包仍会整体重打）。覆盖 `myblog-backend.zip` 后「停止 → 启动」gunicorn；升级后请到后台「运维诊断 → 🩺 全站体检 → 数据库健康」确认 `日志模式 journal_mode` 显示 **WAL**、`写锁等待 busy_timeout` 显示 **5000 ms**（若显示 `delete` 说明 `data/` 目录不可写，检查属主与权限）。首次访问文章会触发一次渲染并落缓存，属正常现象。`data/` 目录下新增的 `blog.db-wal`、`blog.db-shm` 是 WAL 正常产物，**请勿手动删除**。APP_VERSION 升为 v3.9.1。

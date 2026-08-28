@@ -8,8 +8,8 @@ from flask import (Blueprint, render_template, request, redirect, url_for,
 from markupsafe import escape
 
 from models import db, Post, Category, Tag, Comment, Setting, User, ROLE_USER, visible_posts_query
-from utils import (make_slug, render_markdown, safe_redirect, rate_limit, client_key,
-                   validate_password, get_setting)
+from utils import (make_slug, render_post_html, safe_redirect, rate_limit,
+                   client_key, validate_password, get_setting)
 # v3.1.0：登录审计（log_login_attempt 定义于 admin 模块，admin 不依赖 routes，无循环）
 from admin import log_login_attempt
 
@@ -151,8 +151,11 @@ def _captcha_fail(scope):
 
 
 def _render(post):
-    """把文章的 Markdown 正文渲染成 HTML（已做 XSS 白名单清理），挂到 post.html 上。"""
-    post.html = render_markdown(post.content)
+    """把文章的 Markdown 正文渲染成 HTML（已做 XSS 白名单清理），挂到 post.html 上。
+
+    v3.9.1：走渲染缓存（post.content_html），正文未变时不再重复渲染。
+    """
+    post.html = render_post_html(post)
     return post
 
 

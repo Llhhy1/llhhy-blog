@@ -20,6 +20,54 @@ from admin import admin_bp
 from api import api_bp
 
 
+_PRAGMAS_INSTALLED = False
+
+
+def _install_sqlite_pragmas():
+    """v3.9.1：给每个新建的 SQLite 连接设置 WAL / busy_timeout / synchronous。
+
+    背景：SQLite 默认是 rollback journal + 无等待（撞锁即报 "database is locked"）。
+    本博客每位访客都会触发写操作（阅读量/统计埋点），gunicorn 多 worker 并发下
+    读写互相阻塞，偶发 500。WAL 让「读不阻塞写、写不阻塞读」，busy_timeout 让
+    写并发自动排队等待 5 秒而不是立刻报错，synchronous=NORMAL 是 WAL 下的常规折中。
+
+    注意：
+    - PRAGMA 是**连接级**的，故挂 SQLAlchemy 的 connect 事件逐个设置（只设一次不够）。
+    - 非 SQLite（Postgres/MySQL）自动跳过；内存库（:memory:）不支持 WAL，异常静默忽略。
+    - 幂等：模块级开关保证多次 create_app（测试常见）只注册一次监听。
+    - 副作用：数据库目录会多出 blog.db-wal / blog.db-shm 两个文件（正常，勿手删），
+      备份必须用一致性快照（见 backup.py 与 update.sh 的配套改动）。
+    """
+    global _PRAGMAS_INSTALLED
+    if _PRAGMAS_INSTALLED:
+        return
+    try:
+        import sqlite3
+        from sqlalchemy import event
+        from sqlalchemy.engine import Engine
+
+        @event.listens_for(Engine, "connect")
+        def _set_sqlite_pragma(dbapi_conn, _record):
+            if not isinstance(dbapi_conn, sqlite3.Connection):
+                return
+            cur = dbapi_conn.cursor()
+            try:
+                cur.execute("PRAGMA journal_mode=WAL")
+                cur.execute("PRAGMA busy_timeout=5000")
+                cur.execute("PRAGMA synchronous=NORMAL")
+            except Exception:
+                pass  # 内存库/只读库不支持 WAL，忽略即可
+            finally:
+                try:
+                    cur.close()
+                except Exception:
+                    pass
+
+        _PRAGMAS_INSTALLED = True
+    except Exception as e:
+        print("SQLite PRAGMA 初始化跳过:", e)
+
+
 def _ensure_settings(app):
     """保证站点设置表有默认值（首次运行时写入）。"""
     defaults = {
@@ -87,7 +135,9 @@ def _migrate_post_table():
                   "word_count": "INTEGER DEFAULT 0", "reading_minutes": "INTEGER DEFAULT 0",
                   "reward_enabled": "BOOLEAN DEFAULT 0", "reward_qr": "VARCHAR(500) DEFAULT ''",
                   "is_private": "BOOLEAN DEFAULT 0", "in_trash": "BOOLEAN DEFAULT 0",
-                  "deleted_at": "DATETIME"}
+                  "deleted_at": "DATETIME",
+                  # v3.9.1 正文渲染缓存列（旧库自动补，缺省为 NULL = 未缓存，首次访问时渲染并写入）
+                  "content_html": "TEXT", "content_hash": "VARCHAR(64)"}
         need = [c for c in specs if c not in cols]
         if need:
             db.session.remove()
@@ -344,6 +394,8 @@ def create_app():
     # 把管理员密码预先哈希，登录时比对哈希值（不存明文）——旧版兼容保留
     app.config["ADMIN_HASH"] = generate_password_hash(app.config["ADMIN_PASSWORD"])
 
+    # v3.9.1：SQLite WAL + busy_timeout（必须在建连/建表之前装好监听）
+    _install_sqlite_pragmas()
     db.init_app(app)
     app.register_blueprint(main_bp)
     app.register_blueprint(admin_bp)

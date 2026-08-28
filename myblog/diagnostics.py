@@ -95,6 +95,21 @@ def check_database():
             notes.append("数据库可能存在损坏，建议从备份恢复或执行 PRAGMA repair。")
             status = "error"
 
+        # v3.9.1：WAL 模式（多 worker 下读写并发的关键指标，未生效多半是内存库或只读盘）
+        try:
+            mode = db.session.execute(text("PRAGMA journal_mode")).scalar()
+            mode = (mode or "").lower()
+            if mode == "wal":
+                items.append({"label": "日志模式 journal_mode", "value": "WAL（读不阻塞写）", "level": "ok"})
+            else:
+                items.append({"label": "日志模式 journal_mode", "value": f"{mode or '未知'}（建议 WAL）", "level": "warn"})
+                notes.append("数据库未处于 WAL 模式，多 worker 并发下可能出现 database is locked；"
+                             "检查数据库文件所在目录是否可写。")
+            bt = db.session.execute(text("PRAGMA busy_timeout")).scalar()
+            items.append({"label": "写锁等待 busy_timeout", "value": f"{bt} ms", "level": "ok" if bt else "warn"})
+        except Exception:
+            pass
+
         # 核心表行数
         counts = {
             "文章 Post": Post.query.count(),

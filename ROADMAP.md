@@ -57,6 +57,12 @@
 - **E4 后台插件管理页**：「🧩 插件管理」列出状态 + 运行时启用/停用/重载（写 disabled 标记 + 内存覆盖）✅
 - **E5 内置插件**：`contact_card`（联系卡片，默认启用）、`article_toc`（文章目录侧栏，默认启用）✅
 
+### 模块 F：性能与稳定性（v3.9.1 落地）✅
+- **F1 正文渲染缓存**：`Post.content_html` + `content_hash`（指纹 `sha256(版本|正文|HTML)`），唯一出口 `render_post_html()`；命中即返回、正文一改自动失效、被改坏可自愈。长文 `87ms → 2.7ms` ✅
+- **F2 SQLite WAL**：建连即 `PRAGMA journal_mode=WAL` + `busy_timeout=5000` + `synchronous=NORMAL`，读不阻塞写，消除并发 `database is locked` ✅
+- **F3 备份链路 WAL 适配**：备份走 sqlite3 在线备份 API、恢复后清理 `-wal`/`-shm`、Shell 升级脚本优先 `sqlite3 .backup` ✅
+- **F4 可观测**：「🩺 全站体检 → 数据库健康」显示 `journal_mode` / `busy_timeout`，部署后可一键核验 ✅
+
 ---
 
 ## 三、分期计划（已完成存档）
@@ -68,6 +74,7 @@
 | **Phase 3 · 互动深化** | C2 评论嵌套+@、C3 邮件订阅、B4 文章系列 | ✅ 已上线 |
 | **Phase 4 · 运营分发** | D1 分享卡片、D2 推送、D3 自动部署、D4 公告、B5 搜索升级 | ✅ 已上线 |
 | **Phase 5 · 插件系统** | E1 加载框架、E2 事件总线、E3 前端槽位+远程组件、E4 后台管理页、E5 内置插件（contact_card/article_toc） | ✅ 已上线（v3.9.0） |
+| **Phase 6 · 性能与稳定性** | F1 正文渲染缓存、F2 SQLite WAL、F3 备份链路适配、F4 体检项可观测 | ✅ 已上线（v3.9.1） |
 
 ---
 
@@ -75,7 +82,7 @@
 
 1. **数据库迁移**：本项目用 `db.create_all()` + 启动时手动 `ALTER TABLE`（`app.py` 中 `_migrate_*` 系列函数）自动补列/建表，**重启即迁移，无需手动 SQL**。新增模型直接在 `models.py` 定义即可。
 2. **安全**：微动态 / 留言墙 / 评论 / RSS 聚合内容统一走 `clean_html()` 清洗 + 限流；RSS 抓取防 SSRF（只抓 http/https、拦截内网地址）；Webhook 密钥 HMAC 恒定时间比对。
-3. **性能**：RSS 抓取 15 分钟内存缓存；FTS5 全文索引与文章同步更新。
+3. **性能**：RSS 抓取 15 分钟内存缓存；FTS5 全文索引与文章同步更新；**文章正文渲染结果落库缓存**（v3.9.1，指纹失效制）；**SQLite 启用 WAL**（v3.9.1，注意备份必须走在线备份 API，不可直接 `cp blog.db`）。
 4. **开源发布**：v2.0.0（全功能）+ v2.1.0（后台消息提醒）+ v2.2.0（订阅框 + 版本自检）已发布到 GitHub Releases，部署包随 Release 提供。
 
 ---
@@ -669,3 +676,23 @@ v3.1.7 修复 CSRF 隐藏域乱码后，用户反馈「退出登录按钮失效�
 - **② 修复导航栏「文档」不切英文**：导航栏「文档」两项硬编码中文、且 `I18N` 词典缺 `docs` key，切 EN 不变。`store.js` 加 `docs`（zh「文档」/en「Docs」），`App.vue` 两处改用 `{{ t('docs') }}`；重建 `_vite_build17`。
 - **③ 验证**：`py_compile` 通过；本地冒烟三端点正常；前端 70 模块通过；R47 审计 0 遗留。
 - **④ 部署注意**：**含前端构建产物**，须覆盖 `vue-frontend-dist.zip` + 后端「停止 → 启动」gunicorn + 硬刷新清缓存；宝塔 Nginx 补三段反代并「重载配置」。APP_VERSION 升为 v3.8.9。
+
+---
+
+## 52. v3.9.0：全栈插件系统（M0/M1/M2/M3）+ 文章目录侧栏插件（补记）
+
+- **① 插件加载框架**：`myblog/plugins/` + `ENABLED_PLUGINS`/`DISABLED_PLUGINS`，单插件崩溃隔离不拖垮博客。
+- **② 事件总线（M1）**：`plugins/signals.py`，blinker 5 信号 + `emit_*` 助手吞异常。
+- **③ 前端槽位 + 路由级启停（M2）**：nav/sidebar/footer 结构化槽位 + `/api/plugins/<slug>/set-enabled`、`/api/plugins/reload`。
+- **④ 后台管理页 + 远程组件（M3）**：「🧩 插件管理」页、DOMPurify 消毒 html 槽位、同源 `/static/plugins/` 远程组件。
+- **⑤ 首个真实插件 `article_toc`**：sticky 文章目录侧栏 + 滚动高亮（核心代码零改动）。
+- **④ 部署注意**：含前端构建产物（v3.9.0 时前端有变动）；远程组件走静态目录，装新插件无需重建前端。APP_VERSION 升为 v3.9.0。
+
+## 53. v3.9.1：正文渲染缓存 + SQLite WAL（R49 审计通过）
+
+- **① 修复文章页每次请求重算 Markdown**：`render_markdown()`（解析 + bleach 清洗）在文章详情接口与 SSR 首页/文章页/分类/标签/搜索全部重复执行。改为渲染结果落库（`Post.content_html` + 指纹 `content_hash`，出口 `utils.render_post_html()`），命中即返回；长文实测 `87ms → 2.7ms`。
+- **② 修复并发 `database is locked`**：建连即设 `PRAGMA journal_mode=WAL` + `busy_timeout=5000` + `synchronous=NORMAL`（PRAGMA 连接级，挂 `connect` 事件；非 SQLite 与 `:memory:` 跳过）。
+- **③ 备份链路配套**：`backup.py` 改走 sqlite3 在线备份 API + 恢复后清理 `-wal`/`-shm`；`update.sh`、`deploy.sh` 优先 `sqlite3 .backup`；体检页新增 `journal_mode`/`busy_timeout` 两项。
+- **④ 核实（不做无谓改动）**：「评论 XSS」传言核实为误判——`CommentForm.vue` 用文本插值 `{{ c.content }}`，前台 `v-html` 仅 4 处且内容均经服务端清洗/转义。
+- **验证**：pytest 23 passed（新增 8 条）；R49 十维审计 0 遗留。
+- **部署注意**：纯后端改动（前端 dist 无需重建）；**启用 WAL 后 `data/` 下的 `blog.db-wal`、`blog.db-shm` 是正常产物，勿手动删除；手工备份请用 `sqlite3 .backup` 或后台「💾 数据备份」，不要直接 `cp blog.db`**；升级后到体检页确认 `journal_mode = wal`。APP_VERSION 升为 v3.9.1。

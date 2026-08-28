@@ -2,7 +2,7 @@
 
 llhhy-blog 的后端：Flask + SQLite，服务端渲染前台 + `/api/*` JSON 接口 + Jinja2 管理后台。
 
-- 当前版本：**v3.9.0**
+- 当前版本：**v3.9.1**
 - 根目录 README / 历史版本见仓库根 [README.md](../README.md) 与 [CHANGELOG.md](../CHANGELOG.md)
 
 ## 目录结构
@@ -11,6 +11,7 @@ llhhy-blog 的后端：Flask + SQLite，服务端渲染前台 + `/api/*` JSON �
 myblog/
 ├── app.py          # 应用工厂（自动迁移 + FTS 初始化 + CLI + 首建超管）
 ├── models.py       # 数据模型（文章/评论/用户/系列/公告/留言/订阅者等）
+│                   #   Post.content_html/content_hash = 正文渲染缓存（v3.9.1）
 ├── routes.py       # 前台页面 / 登录注册 / 评论 / 天气 / RSS
 ├── admin.py        # 后台管理（内容/评论/统计/用户/设置/系列/公告/留言墙/订阅者）
 ├── api/            # JSON 接口（/api/*，按功能拆分，见 API.md）
@@ -80,6 +81,27 @@ python app.py            # http://127.0.0.1:5000
 
 其他备份（`BACKUP_*`）、推送（`TELEGRAM_*` / `WECOM_WEBHOOK_URL`）、Webhook（`WH_DEPLOY_SECRET`）等变量见 [deploy_guide.md](deploy_guide.md)。密钥一律走环境变量，绝不落库。
 
+## 正文渲染缓存与 WAL（v3.9.1）
+
+**渲染缓存**：文章正文的 Markdown 渲染结果存在 `post.content_html`，指纹存 `content_hash`
+（`sha256(渲染版本号 | 正文 | HTML)`）。唯一出口是 `utils.render_post_html(post)`：
+
+- 命中指纹 → 直接返回缓存，**不再渲染**（1 万字符长文实测 `87ms → 2.7ms`）；
+- 正文一改指纹即变 → 自动重新渲染，**保存文章无需手工清缓存**；
+- HTML 本身也进指纹，缓存被意外改坏会自愈（重新渲染）；
+- 写回用独立连接、撞锁 800ms 即放弃，任何失败都静默回退为「本次重算」，不影响正确性。
+
+若将来调整 Markdown 扩展或 `clean_html()` 白名单，把 `utils._RENDER_VERSION` +1 即可让全部缓存一次性失效。
+
+**SQLite WAL**：`app.py` 在每次建连时执行 `PRAGMA journal_mode=WAL` + `busy_timeout=5000` +
+`synchronous=NORMAL`（PRAGMA 是连接级的，故挂 connect 事件；非 SQLite / `:memory:` 自动跳过）。
+副作用与注意：
+
+- `data/` 下会多出 `blog.db-wal`、`blog.db-shm` 两个文件，属**正常产物，请勿手动删除**；
+- 备份**不能**直接 `cp blog.db`（会漏掉 WAL 中已提交的数据）——`backup.py` 已改用 sqlite3
+  在线备份 API，`update.sh`/`deploy.sh` 改走 `sqlite3 .backup`，恢复后会自动清理 `-wal`/`-shm`；
+- 部署后可在后台「运维诊断 → 🩺 全站体检 → 数据库健康」查看 `journal_mode` 是否为 `wal`。
+
 ## 常见问题
 
 - **502**：gunicorn 未起来，看项目管理器状态与日志（端口冲突 / 依赖缺失最常见）。
@@ -88,6 +110,10 @@ python app.py            # http://127.0.0.1:5000
 - **RSS/sitemap 是 localhost**：设 `SITE_URL=https://你的域名` 并重启。
 - **写接口 403（CSRF）**：先 GET `/api/csrf` 取 token，再带 `X-CSRF-Token` 头提交。
 - **搜索降级 LIKE**：服务器 SQLite 无 FTS5，功能正常但较慢。
+- **`database is locked`**：v3.9.1 起已启用 WAL + `busy_timeout=5000`；若仍出现，检查 `data/` 目录
+  是否可写（体检页 `journal_mode` 应为 `wal`）以及是否有外部进程长期持锁（如手工 sqlite3 会话）。
+- **改了文章前台没变**：缓存按正文指纹自动失效，理论上不会残留；若手工改过数据库，
+  可把该行 `content_html`/`content_hash` 置空，下次访问即重新渲染。
 - **订阅者收不到邮件**：需在后台「📧 邮件设置」配置 SMTP（用授权码，非登录密码）。
 
 ## 部署

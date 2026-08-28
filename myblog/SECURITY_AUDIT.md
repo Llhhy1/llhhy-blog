@@ -1985,3 +1985,27 @@ v3.1.6 起后端 `app.py::_csrf_protect` 严格校验**所有非豁免 POST** �
 | R48-8 | 信任边界 | 插件 `register(app,cfg)` 执行插件代码属设计内「可信插件」模型（红线：只装自写/审计过的插件，第三方=任意代码执行）；`disabled` 标记 + `DISABLED_PLUGINS` 提供紧急关停。 | ✅ 符合设计 |
 
 **R48 结论**：**0 遗留**。插件系统全维度通过；唯一固有信任假设「插件代码=可信」已在设计文档红线与部署注意中声明。发版前 `APP_VERSION` 已改为 `3.9.0`（与 Release tag 一致）。
+
+## R49 轮（v3.9.1 · 正文渲染缓存 + SQLite WAL · 2026-08-29）
+
+审计对象：v3.9.1 两项性能/稳定性改动。
+1. **正文渲染缓存**：`Post` 新增 `content_html`（渲染结果）/`content_hash`（指纹）两列；新增 `utils.content_digest()` / `utils.render_post_html()`；调用点改为 `api/posts.py` 文章详情与 `routes.py::_render()`（SSR 首页/文章页/分类/标签/搜索）；`app.py::_migrate_post_table()` 补列。
+2. **SQLite WAL**：`app.py::_install_sqlite_pragmas()` 挂 SQLAlchemy `connect` 事件，逐连接执行 `PRAGMA journal_mode=WAL` / `busy_timeout=5000` / `synchronous=NORMAL`。
+3. 配套（**不做则启用 WAL 会引入数据风险**）：`backup.py` 新增 `snapshot_db()`（sqlite3 在线备份 API）/ `make_db_snapshot()` / `cleanup_db_snapshot()` / `drop_wal_sidecars()`，备份改打一致性快照、恢复后清 `-wal`/`-shm`；`update.sh`、`deploy.sh` 的 `cp blog.db` 改为优先 `sqlite3 .backup`；`diagnostics.py` 健康体检新增 journal_mode / busy_timeout 两行。
+
+| 编号 | 维度 | 结论 |
+|------|------|------|
+| R49-1 | XSS | 出口唯一且未变：`render_post_html()` → `render_markdown()` → `clean_html()`（bleach 白名单，禁 script/on*/危险协议）。缓存列写的正是 `clean_html()` 的输出，不是新渲染路径；缓存命中时多了一层保险——指纹把 HTML 本身也算进去（`sha256(版本\|正文\|HTML)`），缓存被人手工改坏/回档错乱会立刻指纹不符 → 自动重新渲染自愈（用例 `test_tampered_cache_self_heals`）。 | ✅ 无 XSS |
+| R49-2 | 信任边界（缓存列） | `content_html` 与 `content` 同级信任：能写这两列 = 已有数据库写权限（等同全站沦陷），未引入**新的**信任边界。真正的防护在运维侧：数据库文件权限、不开放数据库的公网访问、备份包加密存储（同 v3.3.0 既有约定）。指纹校验只用于「自愈意外损坏」，不作为对抗性防护，不做安全剧场式的二次哈希。 | ✅ 无新增边界 |
+| R49-3 | 注入 | 缓存写回仅一条 `UPDATE post SET content_html=:h, content_hash=:d WHERE id=:i`，走 `sqlalchemy.text()` + 命名绑定参数，表名/列名是固定字面量、无字符串拼接；`id` 取自 ORM 对象主键（整型）。PRAGMA 三条均为无参常量语句。 | ✅ 无注入 |
+| R49-4 | 越权 / 信息泄露 | 无新端点、无新响应字段：`_post_summary()` 未包含这两列，对外仍只暴露既有的 `html` 键（与 v3.9.0 及之前完全等价）。缓存写回发生在 GET 读路径，无权限面变化。 | ✅ 无越权 |
+| R49-5 | CSRF | 本次未触及写接口；渲染缓存写入由 GET 触发且不含用户可控输入（内容来自库中正文），无跨站风险。 | ✅ 无 CSRF |
+| R49-6 | 可用性（关键） | 缓存写回用**独立连接**（`engine.connect()`，非当前 session），避免把调用方未提交的改动一起 `commit()`；写回前把该连接 `busy_timeout` 压到 **800ms**，撞锁即放弃并在 `finally` 复原 5000ms，杜绝「读请求排队等写锁」；任何异常静默吞掉，最坏情况只是本次不缓存（回退到 v3.9.0 的每次重算），**不影响响应正确性**。 | ✅ 无阻塞退化 |
+| R49-7 | 并发 | WAL 让读不阻塞写、写不阻塞读，是本次修复 `database is locked` 的核心；`synchronous=NORMAL` 为 WAL 下常规折中（断电可能丢最后若干已提交事务，**不会**损坏库文件）。PRAGMA 是连接级，挂 `connect` 事件逐连接设置；非 SQLite（Postgres）与 `:memory:` 库自动跳过并静默异常。 | ✅ 无并发回归 |
+| R49-8 | WAL 副作用（配套） | 启用 WAL 后目录多出 `blog.db-wal` / `blog.db-shm`（正常，勿手删）。**若只做 WAL 不改备份，备份会静默不完整**：`cp blog.db` 会漏掉尚未 checkpoint 的已提交数据，极端情况恢复后报 `database disk image is malformed`。已配套：① `backup.py` 备份改走 sqlite3 在线备份 API（含 WAL 已提交部分，产出自包含 .db，失败回退直拷）；② 恢复后删除 `-wal`/`-shm`（否则旧 WAL 回放新库会损坏）；③ `update.sh` / `deploy.sh` 升级前备份优先 `sqlite3 .backup`，无 sqlite3 命令时退化为 `cp` 且连 `-wal` 一起拷。 | ✅ 已闭环 |
+| R49-9 | 迁移安全 | `_migrate_post_table()` 沿用既有范式（`inspect` 查列 → 缺才 `ALTER TABLE ADD COLUMN`），新增两列缺省为 NULL = 未缓存，首次访问自动填充；幂等可重复执行（用例 `test_cache_columns_migration_idempotent`）。`db.create_all()` 对新库直接建全列。 | ✅ 幂等无破坏 |
+| R49-10 | 回归核实 | 传言项「评论 XSS（`_comment()` 返回原文 + 前端 `v-html`）」经核实为**误判**：`vue-frontend/src/components/CommentForm.vue` 第 14/29 行用 `{{ c.content }}` 文本插值，非 `v-html`；前台 `v-html` 仅 4 处，内容均经服务端 `clean_html()`（公告）或 `escape()`（搜索高亮）。本次**不改**评论链路，避免无意义改动。 | ✅ 无需修复 |
+
+**R49 结论**：**0 遗留**。性能改动未引入新的安全边界；唯一有实质风险的「WAL 与备份不兼容」已通过 backup.py + update.sh + deploy.sh 三处配套闭环，并在诊断页暴露 journal_mode 便于部署后核验。发版前 `APP_VERSION` 已改为 `3.9.1`（与 Release tag 一致）。
+
+**升级后必查**（宝塔 → 后台「运维诊断 → 全站健康体检 → 数据库健康」）：`日志模式 journal_mode` 应显示 **WAL**，`写锁等待 busy_timeout` 应显示 **5000 ms**；若显示 `delete` 说明 data 目录不可写，需检查目录权限与属主（www）。

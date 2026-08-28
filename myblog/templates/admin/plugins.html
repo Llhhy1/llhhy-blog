@@ -1,0 +1,69 @@
+{% extends "admin/base.html" %}
+{% block title %}插件管理{% endblock %}
+{% block content %}
+<div class="section-box">
+  <h2>🧩 插件管理</h2>
+  <p class="muted">启用/停用会即时影响前端展示槽位（导航/侧栏/页脚/富文本）；路由级启停需重启 gunicorn 生效。装卸插件走发版流程，不运行时热加载。</p>
+  <div id="plugin-msg" class="flash" style="display:none;"></div>
+  <table class="data-table">
+    <thead>
+      <tr><th>插件</th><th>版本</th><th>槽位</th><th>状态</th><th>操作</th></tr>
+    </thead>
+    <tbody>
+      {% for p in plugins %}
+      <tr>
+        <td>
+          <strong>{{ p.name }}</strong>
+          <br><small class="muted">{{ p.slug }} · {{ p.author }} · {{ p.description }}</small>
+        </td>
+        <td>{{ p.version }}</td>
+        <td>{{ p.slots | join(', ') }}</td>
+        <td>
+          {% if p.disabled %}<span class="badge badge-off">已停用</span>
+          {% elif p.loaded %}<span class="badge badge-on">运行中</span>
+          {% else %}<span class="badge badge-warn">未加载</span>{% endif %}
+        </td>
+        <td>
+          {% if p.disabled %}
+            <button class="btn" data-toggle data-slug="{{ p.slug }}" data-enabled="true">启用</button>
+          {% else %}
+            <button class="btn btn-danger" data-toggle data-slug="{{ p.slug }}" data-enabled="false">停用</button>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+      {% if not plugins %}<tr><td colspan="5">暂无已配置插件（在 ENABLED_PLUGINS 中启用）</td></tr>{% endif %}
+    </tbody>
+  </table>
+  <button id="reload-btn" class="btn">立即重载插件</button>
+</div>
+
+<script>
+(function () {
+  var msg = document.getElementById('plugin-msg');
+  function show(t) { msg.textContent = t; msg.style.display = 'block'; setTimeout(function () { msg.style.display = 'none'; }, 3500); }
+  document.querySelectorAll('[data-toggle]').forEach(function (b) {
+    b.addEventListener('click', function () {
+      var slug = b.getAttribute('data-slug');
+      var enabled = b.getAttribute('data-enabled') === 'true';
+      fetch('/api/plugins/' + slug + '/set-enabled', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': '{{ csrf_token }}' },
+        body: JSON.stringify({ enabled: enabled })
+      }).then(function (r) { return r.json(); }).then(function (d) {
+        if (d.ok) { show((enabled ? '已启用 ' : '已停用 ') + slug + '（前端槽位即时生效，路由需重启）'); setTimeout(function () { location.reload(); }, 1200); }
+        else show('操作失败：' + (d.error || ''));
+      }).catch(function () { show('网络错误'); });
+    });
+  });
+  var rb = document.getElementById('reload-btn');
+  if (rb) rb.addEventListener('click', function () {
+    fetch('/api/plugins/reload', { method: 'POST', headers: { 'X-CSRF-Token': '{{ csrf_token }}' } })
+      .then(function (r) { return r.json(); }).then(function (d) {
+        show(d.ok ? ('重载完成，已加载 ' + d.loaded + ' 个') : '重载失败');
+        setTimeout(function () { location.reload(); }, 1200);
+      }).catch(function () { show('网络错误'); });
+  });
+})();
+</script>
+{% endblock %}

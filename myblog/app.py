@@ -588,6 +588,12 @@ def create_app():
                         p.published = True
                         p.scheduled_at = None  # 发布后清空，避免重复触发
                         db.session.commit()
+                        # v3.9.0 M1：文章定时到点发布 → 触发插件事件（订阅者异常已隔离）
+                        try:
+                            from plugins.signals import emit_post_published
+                            emit_post_published(p)
+                        except Exception:
+                            pass
                         try:
                             import notify as _notify
                             _notify.notify_new_post(p, app.config.get("SITE_URL", ""))

@@ -378,6 +378,12 @@ def publish_now(post_id):
         post.published = True
         post.scheduled_at = None
         db.session.commit()
+        # v3.9.0 M1：文章发布 → 触发插件事件（订阅者异常已隔离）
+        try:
+            from plugins.signals import emit_post_published
+            emit_post_published(post)
+        except Exception:
+            pass
         try:
             notify.notify_new_post(post, current_app.config.get("SITE_URL", ""))
         except Exception:
@@ -1935,3 +1941,32 @@ def feed_diag():
         return redirect(url_for("admin.feed_diag"))
     result = diagnostics.run_all()
     return render_template("admin/feed_diag.html", result=result)
+
+
+# ---------- 插件管理（v3.9.0 M3）----------
+@admin_bp.route("/plugins")
+@admin_required
+def plugins():
+    """插件管理页：列出已配置插件及其运行状态，支持运行时启停与整体重载。
+
+    启停写 disabled 标记文件 + 内存覆盖，前端槽位即时生效；路由级启停需重启 gunicorn。
+    """
+    from plugins import (PLUGIN_REGISTRY, RUNTIME_DISABLED, _marker_path, _parse_list)
+    cfg = current_app.config
+    enabled = _parse_list(cfg.get("ENABLED_PLUGINS", ""))
+    items = []
+    for slug in enabled:
+        m = PLUGIN_REGISTRY.get(slug, {})
+        mp = _marker_path(cfg, slug)
+        disabled = (slug in RUNTIME_DISABLED) or (mp and os.path.exists(mp))
+        items.append({
+            "slug": slug,
+            "name": m.get("name", slug),
+            "version": m.get("version", ""),
+            "author": m.get("author", ""),
+            "description": m.get("description", ""),
+            "slots": m.get("slots", []) or [],
+            "loaded": slug in PLUGIN_REGISTRY,
+            "disabled": bool(disabled),
+        })
+    return render_template("admin/plugins.html", plugins=items, app_version=APP_VERSION)

@@ -76,3 +76,6 @@ deploy_scripts_crlf_fix.zip
 # API 路由快照产物（tools/api_routes_snapshot.py 的输出，可随时重跑，不入库）
 tools/_api_routes_*.txt
 .venv-audit/
+
+# 插件运行时禁用标记（手动关停某插件用，勿提交；见 PLUGIN_SYSTEM.md M3）
+myblog/plugins/*/disabled

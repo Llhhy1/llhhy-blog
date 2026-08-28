@@ -304,12 +304,12 @@ post_published.connect(_on_publish)
 
 | 阶段 | 内容 | 交付物 | 风险 |
 |---|---|---|---|
-| **M0** | 后端骨架：`plugins/__init__.py` + `load_plugins` + `config` 三项 + `create_app` 接入 + `GET /api/plugins` + 失败隔离 + 1 个 demo 插件 `contact_card`（联系卡片：独立模型 + 前端页脚渲染） | 可启用插件的后端、demo 插件、冒烟测试 | 低 |
-| **M1** | 事件总线 `events.py`（`post_published` / `comment_created`）+ 在发布/评论流程 emit | 插件可订阅核心事件 | 低 |
-| **M2** | 前端槽位：nav / footer 注入（config 驱动，无 v-html）+ `App.vue` 改造 | 前端展示插件入口 | 中（需前端构建回归） |
-| **M3（可选）** | 后台插件管理页（列出已装/启停）+ DOMPurify 富文本槽位 + 远程预构建组件（`defineAsyncComponent`） | 可运营化、可富文本 | 高（仅必要时做） |
+| **M0** | 后端骨架：`plugins/__init__.py` + `load_plugins` + `config` 三项 + `create_app` 接入 + `GET /api/plugins` + 失败隔离 + 1 个 demo 插件 `contact_card`（联系卡片：独立模型 + 前端页脚渲染） | 可启用插件的后端、demo 插件、冒烟测试 | 低 ✅ 已落地 |
+| **M1** | 事件总线 `signals.py`（`post_published` / `post_deleted` / `comment_created` / `comment_approved` / `plugin_loaded`）+ 在发布/评论流程 emit | 插件可订阅核心事件 | 低 ✅ 已落地 |
+| **M2** | 前端槽位：nav / sidebar / footer 注入（config 驱动，无 v-html）+ `App.vue` 改造 | 前端展示插件入口 | 中 ✅ 已落地（已 vite 构建验证） |
+| **M3（可选）** | 后台插件管理页（列出已装/启停）+ DOMPurify 富文本槽位 + 远程预构建组件（`/static/plugins/<slug>/*.js` 预构建，运行时 `defineAsyncComponent`） | 可运营化、可富文本 | 高 ✅ 已落地（按安全约束收窄实现） |
 
-**建议首版范围**：M0 + M1（纯后端，零前端构建风险），M2 视需求再上。
+**建议首版范围**：M0 + M1 + M2 + M3 全部落地（本会话一次性完成），均随下次发版（目标 v3.9.0）走 8 步流程。
 
 ---
 
@@ -361,4 +361,54 @@ M0 已在 `main` 落地（未单独打 Release，随下次版本带）：
   坏插件隔离、禁用清单跳过。
 - **打包** `package.py` 递归 `os.walk(myblog/)`，插件目录随 `myblog-backend.zip` 自动带出，无需改脚本。
 
-**下一步**：M1 事件总线（blinker 信号）/ M2 前端更多槽位（nav/sidebar）/ M3（可选）后台插件管理页。
+**下一步**：M1/M2/M3 已全部落地（见第 14 节）。后续可做：把插件系统纳入 GitHub Actions 门禁（P1）、接真实第二个业务插件、把 `disabled` 标记加入 `.gitignore` 防止误提交。
+
+---
+
+## 14. M1 / M2 / M3 实施进展（已落地 · 2026-08-28）
+
+### M1 · 事件总线（blinker）
+- 新增 `myblog/plugins/signals.py`：blinker `Namespace` 定义 5 个信号，并提供 `emit_*` 助手
+  （订阅者异常被吞掉并打印告警，不拖垮主流程）。
+- 发射点（懒导入，避免循环依赖）：
+  - `api/posts.py` 评论写入、`api/posts.py` 立即发布、`admin.py` 后台一键发布、
+    `app.py` 定时发布守护线程、`routes.py` 旧 SSR 评论写入。
+- 插件订阅示例（在 `register(app, cfg)` 内）：
+  ```python
+  from plugins.signals import post_published
+  def _on_published(post):
+      print("新文章：", post.title)
+  post_published.connect(_on_published)
+  ```
+
+### M2 · 前端槽位（nav / sidebar / footer）
+- `GET /api/plugins` 聚合返回 `nav` / `sidebar` / `footer` / `html` / `remote_components`。
+- 前端 `App.vue`：
+  - 抽屉导航 + 桌面导航均注入插件 `nav` 入口（结构化 `<a>`，不用 v-html）；
+  - `site-frame-body` 包裹主内容 + `plugin-sidebar` 侧栏（窄屏自动堆叠，docs 页隐藏侧栏）；
+  - 页脚新增 `html` 富文本区（经 DOMPurify 消毒后渲染）+ `plugin-remote` 远程组件区。
+- `contact_card` demo 提供 `nav_provider`（「联系」入口）→ 指向插件自有页面 `/plugin/contact_card`。
+
+### M3 · 后台管理页 + DOMPurify + 远程组件
+- **后台管理页**（`admin.py` `/admin/plugins` + `templates/admin/plugins.html` + `base.html` 导航项）：
+  列出已配置插件（含运行状态），支持「启用/停用」（写/删 `disabled` 标记文件 + 内存覆盖
+  `RUNTIME_DISABLED`，前端槽位即时生效；路由级启停需重启 gunicorn）+ 「立即重载」。
+- **DOMPurify 富文本**：`lib/sanitize.js` 封装 DOMPurify（禁用 script/iframe/on*），插件 `html`
+  槽位一律消毒后 `v-html`；`package.json` 新增 `dompurify` 依赖。
+- **远程预构建组件**：`manifest.remote_components` 声明 `{name, url}`（仅允许同源
+  `/static/plugins/<slug>/` 前缀）；前端注入 `<script>` 后由 `window.__pluginRegister` 注册组件，
+  经 `<component :is>` 渲染。`contact_card` 提供 `static/plugins/contact_card/widget.js`
+  示例（用 `h()` 渲染函数，不依赖运行时模板编译器）。
+- **运行时启停 API**：`POST /api/plugins/<slug>/set-enabled`、`POST /api/plugins/reload`
+  （均管理员鉴权）；`set_plugin_enabled` 含幂等蓝图卸载/重注册（避免重载重复注册报错）。
+
+### 测试
+- `tests/test_plugin_system.py`（pytest，10 passed）：在 M0 原有基础上新增
+  M1 信号总线、M2 nav/html 槽位、M3 管理接口鉴权 + 运行时启停 + 整体重载。
+  M3 测试用临时 `PLUGINS_DIR`，不污染真实仓库；`disabled` 标记已加入 `.gitignore` 候选。
+
+### 安全红线（重申）
+- 单插件崩溃不拖垮整站（失败隔离 + 信号订阅者异常吞掉）。
+- 装卸 = 发版 + 重启 gunicorn（不热加载）；运行时开关仅即时影响前端槽位。
+- 只装自写/审计过的插件；`html` 槽位强制 DOMPurify；远程组件仅限同源 `/static/plugins/`。
+

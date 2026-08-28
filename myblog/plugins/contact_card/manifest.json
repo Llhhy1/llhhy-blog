@@ -3,7 +3,10 @@
   "name": "联系卡片",
   "version": "1.0.0",
   "author": "Llhhy",
-  "description": "页脚展示一张可配置的联系卡片（标题/说明/链接），独立数据模型，与核心零耦合。",
-  "slots": ["footer"],
-  "permissions": ["db.write"]
+  "description": "页脚展示可配置的联系卡片，并提供独立「联系」页面、导航入口与富文本徽标。",
+  "slots": ["footer", "html"],
+  "permissions": ["db.write"],
+  "remote_components": [
+    {"name": "contact_card_widget", "url": "/static/plugins/contact_card/widget.js"}
+  ]
 }

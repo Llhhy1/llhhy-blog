@@ -237,10 +237,17 @@ def add_comment(slug):
     from utils import parse_device
     from stats import client_ip, cached_region
     ip = client_ip()
-    db.session.add(Comment(post_id=p.id, author=author[:80], content=content,
-                          ip=ip, region=cached_region(ip),
-                          device=parse_device(request.headers.get("User-Agent", ""))[:120]))
+    c = Comment(post_id=p.id, author=author[:80], content=content,
+                ip=ip, region=cached_region(ip),
+                device=parse_device(request.headers.get("User-Agent", ""))[:120])
+    db.session.add(c)
     db.session.commit()
+    # v3.9.0 M1：新评论写入 → 触发插件事件（订阅者异常已隔离）
+    try:
+        from plugins.signals import emit_comment_created
+        emit_comment_created(c)
+    except Exception:
+        pass
     flash("评论成功，感谢留言！")
     return redirect(url_for("main.post", slug=slug) + "#comments")
 

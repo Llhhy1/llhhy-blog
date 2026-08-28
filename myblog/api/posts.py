@@ -264,6 +264,12 @@ def comment(slug):
                 parent_id=parent_id or None, reply_to=reply_to[:80])
     db.session.add(c)
     db.session.commit()
+    # v3.9.0 M1：新评论写入 → 触发插件事件（订阅者异常已隔离）
+    try:
+        from plugins.signals import emit_comment_created
+        emit_comment_created(c)
+    except Exception:
+        pass
     # A4 站内 @ 通知：解析评论内容里 @username，给注册用户发通知
     notify_mentioned(content, f"/post/{p.slug}", author, post_id=p.id)
     return jsonify({"ok": True, "comment": _comment(c),
@@ -414,6 +420,12 @@ def publish_now(post_id):
     p.published = True
     p.scheduled_at = None  # 清空定时，避免后台线程重复触发
     db.session.commit()
+    # v3.9.0 M1：文章发布 → 触发插件事件（订阅者异常已隔离）
+    try:
+        from plugins.signals import emit_post_published
+        emit_post_published(p)
+    except Exception:
+        pass
     # 发布后推送 + 邮件（与正常发布一致，全部静默）
     try:
         import notify as _notify

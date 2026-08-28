@@ -18,6 +18,10 @@
       <router-link to="/tags/hot" @click="drawerOpen = false">{{ t('hot_tags') }}</router-link>
       <router-link to="/docs" @click="drawerOpen = false">{{ t('docs') }}</router-link>
       <router-link to="/guestbook" @click="drawerOpen = false">{{ t('guestbook') }}</router-link>
+      <!-- v3.9.0 M2：插件导航入口（结构化 <a>，不用 v-html） -->
+      <template v-for="ni in pluginNav" :key="'drawer-' + ni.label">
+        <a :href="ni.href || ni.to" class="plugin-nav-link" @click="drawerOpen = false">{{ ni.icon ? ni.icon + ' ' : '' }}{{ ni.label }}</a>
+      </template>
     </nav>
     <div class="drawer-foot">
       <template v-if="state.user">
@@ -50,6 +54,10 @@
         <router-link to="/tags/hot">{{ t('hot_tags') }}</router-link>
         <router-link to="/docs">{{ t('docs') }}</router-link>
         <router-link to="/guestbook">{{ t('guestbook') }}</router-link>
+        <!-- v3.9.0 M2：插件导航入口（结构化 <a>，不用 v-html） -->
+        <template v-for="ni in pluginNav" :key="'desk-' + ni.label">
+          <a :href="ni.href || ni.to" class="plugin-nav-link">{{ ni.icon ? ni.icon + ' ' : '' }}{{ ni.label }}</a>
+        </template>
         <template v-if="state.user">
           <span class="nav-user">
             👤 {{ state.user.username }}
@@ -101,11 +109,19 @@
   <!-- 大框架：统一框住公告/便签/正文/页脚（v3.1.0，视觉与后台 .section-box 一致） -->
   <!-- 文档页（/docs）内容极宽，用 site-frame--wide 打破 1100px 限宽并放开裁剪，否则三栏布局被压窄、右侧「本页目录」被媒体查询隐藏 -->
   <div class="site-frame" :class="{ 'site-frame--wide': $route.name === 'docs' }">
-    <main class="site-frame-inner">
-      <router-view v-slot="{ Component }">
-        <component :is="Component" />
-      </router-view>
-    </main>
+    <div class="site-frame-body" :class="{ 'has-sidebar': pluginSidebar.length && $route.name !== 'docs' }">
+      <main class="site-frame-inner">
+        <router-view v-slot="{ Component }">
+          <component :is="Component" />
+        </router-view>
+      </main>
+      <!-- v3.9.0 M2：插件侧栏槽位（结构化 <a>，不用 v-html） -->
+      <aside class="plugin-sidebar" v-if="pluginSidebar.length && $route.name !== 'docs'">
+        <p class="plugin-sidebar-title">插件</p>
+        <a v-for="si in pluginSidebar" :key="si.label" class="plugin-sidebar-link"
+           :href="si.href || si.to" target="_blank" rel="noopener">{{ si.icon ? si.icon + ' ' : '' }}{{ si.label }}</a>
+      </aside>
+    </div>
 
     <footer class="site-footer">
       <p>{{ state.site.footer_text }}</p>
@@ -120,23 +136,52 @@
           <span v-if="c.link_text" class="plugin-footer-link">{{ c.link_text }}</span>
         </a>
       </div>
+      <!-- v3.9.0 M3：插件 html 富文本（DOMPurify 消毒后渲染） -->
+      <template v-if="pluginHtml.length">
+        <div v-for="h in pluginHtml" :key="h.slug" class="plugin-html" v-html="sanitizeHtml(h.html)"></div>
+      </template>
     </footer>
+
+    <!-- v3.9.0 M3：插件远程预构建组件（仅同源 /static/plugins/ 资源） -->
+    <div v-if="Object.keys(remoteDefs).length" class="plugin-remote">
+      <component :is="remoteDefs[name]" v-for="name in Object.keys(remoteDefs)" :key="name" />
+    </div>
   </div>
 
   <button id="back-to-top" title="回到顶部" aria-label="回到顶部" @click="scrollTop">↑</button>
 </template>
 
 <script setup>
-import { onMounted, ref } from "vue";
+import { onMounted, ref, h, reactive } from "vue";
 import { useRouter } from "vue-router";
 import { state, initSite, logout, t, setLang } from "./store.js";
 import { apiPost, apiGet } from "./lib/api.js";
+import { sanitizeHtml } from "./lib/sanitize.js";
 const themeIcon = ref("🌙");
 const noteClosed = ref(false);
 const drawerOpen = ref(false);  // v2.6.0 mobile 抽屉开关
 const announcements = ref([]);
 const pluginFooter = ref([]);  // v3.9.0 插件页脚卡片
+const pluginNav = ref([]);     // v3.9.0 M2 插件导航入口
+const pluginSidebar = ref([]); // v3.9.0 M2 插件侧栏入口
+const pluginHtml = ref([]);    // v3.9.0 M3 插件富文本（已消毒渲染）
+// v3.9.0 M3 远程预构建组件注册表：name -> 组件定义（由 widget.js 经 window.__pluginRegister 注入）
+const remoteDefs = reactive({});
 const router = useRouter();
+
+// v3.9.0 M3：把 Vue 运行时（h）与远程组件注册入口暴露给插件预构建 JS。
+window.__vueH = h;
+window.__pluginRegister = (name, def) => { remoteDefs[name] = def; };
+
+// v3.9.0 M3：仅加载同源 /static/plugins/ 下的远程组件脚本（防止任意外链注入）。
+function loadRemoteComponent(url) {
+  if (!url || !url.startsWith("/static/plugins/")) return;
+  const s = document.createElement("script");
+  s.src = url;
+  s.async = true;
+  s.onerror = () => console.warn("[插件] 远程组件加载失败：", url);
+  document.head.appendChild(s);
+}
 // 站内通知（A4）
 const notifUnread = ref(0);
 const notifList = ref([]);
@@ -264,10 +309,16 @@ onMounted(async () => {
     announcements.value = an.items || [];
   } catch (e) {}
   loadNotifs();  // 加载站内通知未读数
-  // v3.9.0：插件系统（M0）— 拉取页脚插件渲染数据（联系卡片等），结构化渲染不使用 v-html
+  // v3.9.0：插件系统（M0/M2/M3）— 拉取页脚/导航/侧栏/html/远程组件渲染数据
   try {
     const pd = await apiGet("/api/plugins");
     if (pd && pd.footer) pluginFooter.value = pd.footer;
+    if (pd && pd.nav) pluginNav.value = pd.nav;
+    if (pd && pd.sidebar) pluginSidebar.value = pd.sidebar;
+    if (pd && pd.html) pluginHtml.value = pd.html;
+    if (pd && Array.isArray(pd.remote_components)) {
+      pd.remote_components.forEach((rc) => loadRemoteComponent(rc.url));
+    }
   } catch (e) {}
   window.addEventListener("scroll", onScroll, { passive: true });
   window.addEventListener("resize", onScroll);
@@ -276,3 +327,32 @@ onMounted(async () => {
 // 路由切换后刷新通知（评论被@后能及时看到）
 router.afterEach(() => { loadNotifs(); });
 </script>
+
+<style scoped>
+.site-frame-body { display: block; }
+.site-frame-body.has-sidebar { display: flex; gap: 24px; align-items: flex-start; }
+.site-frame-body.has-sidebar .site-frame-inner { flex: 1 1 auto; min-width: 0; }
+.plugin-sidebar {
+  flex: 0 0 240px; width: 240px;
+  background: var(--card-bg, #fff);
+  border: 1px solid var(--border-color, #ececec);
+  border-radius: 12px;
+  padding: 14px 16px;
+  align-self: flex-start;
+}
+.plugin-sidebar-title { margin: 0 0 8px; font-size: 13px; color: var(--muted, #888); font-weight: 600; }
+.plugin-sidebar-link { display: block; padding: 6px 0; color: var(--link, #1a73e8); text-decoration: none; font-size: 14px; }
+.plugin-sidebar-link:hover { text-decoration: underline; }
+.plugin-html { margin-top: 10px; font-size: 13px; }
+.plugin-html :deep(a) { color: var(--link, #1a73e8); }
+.plugin-remote-badge {
+  display: inline-block; margin: 8px 0 0; padding: 6px 14px;
+  background: var(--accent, #1a73e8); color: #fff; border-radius: 20px;
+  text-decoration: none; font-size: 13px;
+}
+.plugin-nav-link { /* 视觉由全局导航样式兜底 */ }
+@media (max-width: 900px) {
+  .site-frame-body.has-sidebar { flex-direction: column; }
+  .plugin-sidebar { width: 100%; flex-basis: auto; }
+}
+</style>

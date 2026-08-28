@@ -1968,3 +1968,20 @@ v3.1.6 起后端 `app.py::_csrf_protect` 严格校验**所有非豁免 POST** �
 | R47-8 | 展示/i18n | 导航栏「文档」改接 `{{ t('docs') }}` 静态文案插值（无用户可控输入）；`store.js` 的 `I18N` 词典补充 `docs`（zh「文档」/en「Docs」）。不涉及 XSS/注入/越权/SSRF。 | ✅ 无风险 |
 
 **R47 结论**：**0 遗留**。v3.8.9 含部署层（Nginx 反代）修正 + 反爬限流豁免放行 + 前台导航栏 i18n 补全，不引入任何安全面。`grep APP_VERSION myblog/config.py` 发版前已改为 `3.8.9`（与 Release tag 一致）。
+
+## R48 轮（v3.9.0 插件系统 M0/M1/M2/M3 + article_toc · 2026-08-28）
+
+审计对象：v3.9.0 新增全栈插件系统（动态加载 `myblog/plugins/<slug>`、blinker 事件总线、前端 nav/sidebar/footer/html 结构化槽位 + 同源远程组件、后台 SSR 插件管理页 + 运行时启停 API）与首个真实插件 `article_toc`（文章目录侧栏）。新增/改动文件：`myblog/plugins/__init__.py`、`myblog/plugins/signals.py`、`myblog/plugins/contact_card/*`、`myblog/plugins/article_toc/*`、`myblog/static/plugins/*/widget.js`、`myblog/admin.py`(plugins 路由)、`myblog/api/posts.py`、`myblog/app.py`、`myblog/routes.py`(信号发射点)、`myblog/templates/admin/{base,plugins}.html`、`myblog/config.py`(ENABLED_PLUGINS)、`vue-frontend/src/App.vue`、`vue-frontend/src/lib/sanitize.js`。
+
+| 编号 | 维度 | 结论 |
+|------|------|------|
+| R48-1 | XSS | SSR 模板 `plugins.html` 全用 `{{ }}` 自动转义；前端 `App.vue` 的 `v-html` 仅作用于 `sanitizeHtml(h.html)`（DOMPurify 禁 script/iframe/object/embed/link/style 及 on* 属性，失败兜底空串）；导航/侧栏槽位用结构化 `<a>`（`:href` 绑定，非 v-html）；`widget.js` 全部 `createElement`+`textContent`，无 `innerHTML` 拼接用户数据（仅两处 `innerHTML=''` 清空）。 | ✅ 无 XSS |
+| R48-2 | 注入 | 插件系统无手写 SQL，状态变更走 ORM；`ENABLED_PLUGINS`/`DISABLED_PLUGINS` 为 slug 白名单解析（`_parse_list`），不进查询。 | ✅ 无注入 |
+| R48-3 | 越权 | 后台 SSR 页 `admin.plugins` 带 `@admin_required`；写路由 `/api/plugins/<slug>/set-enabled`、`/reload`、`/status` 均经 `_require_admin()`（未登录 401 / 非管理员 403）。插件无法提权。 | ✅ 无越权 |
+| R48-4 | SSRF | 远程组件 URL 前后端双重限制仅同源 `/static/plugins/` 前缀（`_collect_providers` 过滤 + `App.vue.loadRemoteComponent` 校验），杜绝任意外链脚本注入；无其它出站请求。 | ✅ 无 SSRF |
+| R48-5 | CSRF | 全局 `before_request` 的 `enforce_same_origin`→`_csrf_protect` 覆盖所有 POST/PUT/DELETE/PATCH；插件写路由不在豁免清单（`/api/webhook/deploy`、`/api/captcha*`、`/api/stats/*`），必须带 `X-CSRF-Token`；模板 fetch 已带 `{{ csrf_token }}`。 | ✅ 无 CSRF |
+| R48-6 | 密钥泄露 | 插件代码无密钥读取/打印；`disabled` 标记文件仅存 slug，无凭据；`config.py` 仅新增 `ENABLED_PLUGINS`/`DISABLED_PLUGINS` 环境变量（非机密）。 | ✅ 无密钥泄露 |
+| R48-7 | 资源/异常 | `_load_one` 整个 import/register 包 try/except（失败隔离，仅告警不阻断启动）；信号 `emit_*` 助手吞订阅者异常；蓝图重载 `_unregister_blueprints` 异常忽略；无文件句柄/subprocess 泄漏（`disabled` 标记 open 即关）。 | ✅ 无泄漏 |
+| R48-8 | 信任边界 | 插件 `register(app,cfg)` 执行插件代码属设计内「可信插件」模型（红线：只装自写/审计过的插件，第三方=任意代码执行）；`disabled` 标记 + `DISABLED_PLUGINS` 提供紧急关停。 | ✅ 符合设计 |
+
+**R48 结论**：**0 遗留**。插件系统全维度通过；唯一固有信任假设「插件代码=可信」已在设计文档红线与部署注意中声明。发版前 `APP_VERSION` 已改为 `3.9.0`（与 Release tag 一致）。

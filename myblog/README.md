@@ -354,6 +354,16 @@
 - **验证**：R45 审计 0 遗留（全 `{{ }}` 转义、无 XSS/注入/越权/SSRF/CSRF/密钥/泄漏面）；后端 `py_compile` 全过；前端 `vite build`（`_vite_build15`）编译通过。APP_VERSION 升为 v3.8.7。
 - ⚠️ 升级：**含前端构建产物**，须重新 `vite build` 并打包；仅覆盖后端不生效。宝塔「停止 → 启动」gunicorn 重载前端静态资源。
 
+### v3.9.0：全栈插件系统（M0/M1/M2/M3）+ 文章目录侧栏插件
+
+- **① 插件系统（全栈）**：新增 `myblog/plugins/` 动态加载框架——扫描 `ENABLED_PLUGINS`、importlib 加载 `myblog/plugins/<slug>/__init__.py` 的 `register(app, cfg)`，失败隔离（单插件崩溃只告警不拖垮博客）；`PLUGIN_SYSTEM.md` 设计文档同仓。三条红线：单插件隔离、装卸=发版+重启（不热加载）、只装自写/审计过的插件。
+- **② 事件总线（M1）**：`plugins/signals.py` 基于 blinker 定义发布/评论/插件加载 5 信号，`emit_*` 助手吞订阅者异常。
+- **③ 前端槽位 + 路由级启停（M2）**：`App.vue` 新增 nav/sidebar/footer 结构化 `<a>` 槽位（不用 v-html）；后端 `/api/plugins` 暴露槽位；新增 `/api/plugins/<slug>/set-enabled`、`/api/plugins/reload` 运行时启停 API。
+- **④ 后台插件管理页 + 远程组件（M3）**：后台「运维诊断 → 🧩 插件管理」；html 富文本经 `vue-frontend/src/lib/sanitize.js`（DOMPurify）消毒；远程组件走同源 `/static/plugins/` 前缀 + `<component :is>`（零改动核心代码）。
+- **⑤ 首个真实插件 `article_toc`（文章目录侧栏）**：自包含原生 JS 扫描 `.post-body` 的 h2/h3/h4，sticky 注入文章页右侧栏顶部、滚动高亮当前章节、点击平滑滚动、窄屏隐藏（核心内联 TOC 兜底）。默认启用 `contact_card,article_toc`。
+- **验证**：pytest 15 passed；前端 `vite build`（`_vite_build17`）通过；R48 审计 0 遗留。`APP_VERSION` 升为 v3.9.0。
+- ⚠️ 升级：**含前端构建产物**，须重新 `vite build` 并打包；仅覆盖后端不生效。宝塔「停止 → 启动」gunicorn 重载前端静态资源。
+
 ## 目录结构
 ```
 myblog/             # 后端（Flask + SQLite）
@@ -382,6 +392,10 @@ myblog/             # 后端（Flask + SQLite）
 │   ├── notifications.py # 站内通知
 │   └── system.py   # 版本更新/部署 webhook
 ├── API.md          # API 接口文档（全部 /api/* 端点，含鉴权与 CSRF 约定）
+├── plugins/        # 插件系统（v3.9.0）：每个插件一个目录 <slug>/，含 __init__.py(register) + 可选 manifest.json/模型/Blueprint；静态资源在 static/plugins/<slug>/
+│   ├── __init__.py # 插件加载核心：load_plugins / set_plugin_enabled / reload_plugins / 槽位聚合 / 运行时启停 API
+│   ├── signals.py  # M1 事件总线（blinker 5 信号 + emit_* 助手，吞订阅者异常）
+│   └── contact_card/ article_toc/  # 内置 demo 插件与首个真实插件
 ├── security.py     # 安全响应头 / 图形验证码 / SMTP 密码优先级（v3.1.6 新增）
 ├── backup.py       # 数据备份与异地容灾（v3.3.0，可插拔：本地/OSS/SCP/WebDAV）
 ├── backup_settings.py # 备份配置后台化 + 密钥加密（v3.4.0，Fernet/Setting 表）
@@ -469,6 +483,11 @@ vue-frontend/       # 前端（Vue3 + Vite，构建成静态站）
 - `CAPTCHA_ENABLED`：默认 `true`——注册/评论/留言图形验证码（未装 Pillow 自动降级关闭）。
 - `SECURITY_HEADERS`：默认 `true`——安全响应头（X-Frame-Options/CSP/X-Content-Type-Options/Referrer-Policy）。
 - `UPDATE_HMAC_KEY`：可选——为发布包生成 HMAC 签名并在 `update.sh` 校验（增强更新包完整性）。
+
+**v3.9.0 插件系统环境变量**（可选，不配用默认值）：
+- `ENABLED_PLUGINS`：逗号分隔的启用插件 slug 列表（默认 `contact_card,article_toc`）；不在列表中的插件不加载。
+- `DISABLED_PLUGINS`：逗号分隔的紧急关停 slug 列表（优先级高于 `ENABLED_PLUGINS`，重启生效）；也可在插件目录放 `disabled` 标记文件临时关停单个插件（免改配置）。
+- `PLUGINS_DIR`：插件根目录（默认 `myblog/plugins`，一般无需改）。
 
 **v3.3.0 数据备份环境变量**（均为可选，不配默认只做本地备份；**密钥只走环境变量，绝不落库、后台不回显**）：
 - `BACKUP_DIR`：本地备份目录（默认项目上级 `backups/`）。

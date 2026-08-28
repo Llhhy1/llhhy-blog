@@ -638,6 +638,17 @@ supervisorctl status
 - **验证**：R45 审计 0 遗留（全 `{{ }}` 转义、无 XSS/注入/越权/SSRF/CSRF/密钥/泄漏面）；后端 `py_compile` 全过；前端 `vite build` 编译通过。APP_VERSION 升为 v3.8.7。
 - **⚠️ 升级顺序**：① 覆盖后端 zip（`myblog-backend.zip`）→ ② 宝塔「停止 → 启动」gunicorn（restart 不重载）→ ③ 覆盖前端 zip（`vue-frontend-dist.zip`，本轮前端有变动）→ ④ 无痕窗口验证左下角版本号 `v3.8.7` + 侧栏「🩺 全站体检」可看 9 维体检 + `/docs` 三栏 + 代码块复制按钮。
 
+### v3.9.0 升级注意（全栈插件系统 M0/M1/M2/M3 + 文章目录侧栏插件 · R48 审计通过）
+
+- **改的什么**：① 新增全栈插件系统 `myblog/plugins/`（动态加载 `register(app,cfg)`、失败隔离、blinker 事件总线）；② 前端 `App.vue` 新增 nav/sidebar/footer 结构化槽位 + 同源远程组件（`<component :is>`）；③ 后台新增「运维诊断 → 🧩 插件管理」页（`/admin/plugins`，仅超管/管理员）列出插件状态、支持运行时启用/停用/整体重载；④ 首个真实插件 `article_toc`（文章目录侧栏，sticky + 滚动高亮）；`contact_card` 仍为默认启用插件。
+- **🔑 新增环境变量（可选，不配用默认值）**：
+  - `ENABLED_PLUGINS`：启用插件 slug 列表，**默认 `contact_card,article_toc`**；不在列表里的不加载。
+  - `DISABLED_PLUGINS`：紧急关停 slug 列表，优先级高于 `ENABLED_PLUGINS`（重启生效）；也可在插件目录放 `disabled` 标记文件临时关停单个插件（免改配置、重启仍生效）。
+  - 一般无需改动；若只想关掉某插件，二选一：后台「🧩 插件管理」点「停用」（即时影响前端槽位，路由级需重启），或宝塔环境变量设 `DISABLED_PLUGINS=article_toc` 后「停止 → 启动」。
+- **🚨 本次无 DB 迁移（重点）**：插件系统不建表（contact_card/article_toc 均为纯前端/无模型），`db.create_all()` 自动创建既有表，旧库无缝升级。
+- **验证**：pytest 15 passed；前端 `vite build` 通过；R48 七维审计 0 遗留（详见 `SECURITY_AUDIT.md` R48 轮）。APP_VERSION 升为 v3.9.0。
+- **⚠️ 升级顺序**：① 覆盖后端 zip（`myblog-backend.zip`）→ ② 覆盖前端 zip（`vue-frontend-dist.zip`，本轮前端有变动，务必覆盖）→ ③ 宝塔「停止 → 启动」gunicorn（restart 不重载）→ ④ 无痕窗口验证左下角版本号 `v3.9.0` + 后台侧栏「🧩 插件管理」可看 `contact_card`/`article_toc` 状态 + 打开一篇长文右侧栏顶部出现「目录」卡片。远程组件走静态目录，前端无需重新构建即生效（但本版前端另有变动需覆盖）。
+
 ## 邮件设置（新文章通知订阅者 · 后台配置）
 
 > 从 v2.4.0 起，邮件群发配置**不需要再填环境变量**，直接在后台操作（更便捷）。

@@ -388,6 +388,16 @@ llhhy-blog/
 - **③ 验证**：`py_compile` 通过；本地冒烟 `/feed.xml`/`/sitemap.xml`/`/robots.txt` 均正常；前端重建 70 模块通过；R47 审计 0 遗留（含 i18n 维度）。
 - **④ 部署注意（强提醒）**：**含前端构建产物**，须覆盖 `vue-frontend-dist.zip` 到 Nginx 根 + 后端覆盖 `myblog-backend.zip` 后「停止 → 启动」gunicorn + 硬刷新清缓存；**且宝塔 Nginx 必须补三段 feed/sitemap/robots 反代并「重载配置」**，朋友才能订阅、「文档」英文才生效。APP_VERSION 升为 v3.8.9。
 
+### v3.9.0：全栈插件系统（M0/M1/M2/M3）+ 文章目录侧栏插件（R48 审计通过）
+
+- **① 插件系统（全栈，分阶段落地）**：新增 `myblog/plugins/` 动态加载框架——扫描 `ENABLED_PLUGINS`、importlib 加载 `myblog/plugins/<slug>/__init__.py` 的 `register(app, cfg)`，失败隔离（单插件崩溃不拖垮博客）；设计文档 `PLUGIN_SYSTEM.md` 同仓。
+- **② 事件总线（M1）**：`myblog/plugins/signals.py` 基于 blinker 定义发布/评论/插件加载等 5 个信号，`emit_*` 助手吞掉订阅者异常。
+- **③ 前端槽位 + 路由级启停（M2）**：`App.vue` 新增 nav/sidebar/footer 结构化 `<a>` 槽位（不用 v-html）；后端 `/api/plugins` 暴露槽位声明；新增 `/api/plugins/<slug>/set-enabled`、`/api/plugins/reload` 运行时启停 API（写/删 `disabled` 标记 + 内存覆盖，前端槽位即时生效；路由级启停需重启 gunicorn）。
+- **④ 后台插件管理页 + 远程组件（M3）**：后台「运维诊断 → 🧩 插件管理」列出插件状态与启停；html 富文本经 `vue-frontend/src/lib/sanitize.js`（DOMPurify）消毒后渲染；远程组件走同源 `/static/plugins/` 前缀 + `<component :is>`（runtime-only Vue 渲染函数，零改动核心代码）。
+- **⑤ 首个真实插件 `article_toc`（文章目录侧栏）**：自包含原生 JS 扫描 `.post-body` 的 h2/h3/h4，以 sticky 形态注入文章页右侧栏顶部、随滚动高亮当前章节、点击平滑滚动、窄屏（≤820px）隐藏（由核心内联 TOC 兜底）。默认启用 `contact_card,article_toc`。
+- **验证**：pytest 15 passed；前端 `vite build`（`_vite_build17`）通过；R48 七维审计 **0 遗留**（详见 `myblog/SECURITY_AUDIT.md` R48 轮）。
+- **⚠️ 部署注意（强提醒）**：**含前端构建产物**——须重新 `vite build` + `package.py` 打包；覆盖后端 `myblog-backend.zip` + 前端 `vue-frontend-dist.zip` 后「停止 → 启动」gunicorn（restart 不重载）+ 硬刷新清缓存。新环境变量 `ENABLED_PLUGINS`/`DISABLED_PLUGINS`（紧急关停某插件）见 `myblog/README.md` 与 `deploy_guide.md`。APP_VERSION 升为 v3.9.0。
+
 ## 快速开始（本地开发）
 
 后端（默认端口 5000）：

@@ -112,6 +112,14 @@
       <p v-if="state.site.beian_code">
         <a href="https://beian.miit.gov.cn" target="_blank" rel="noopener">{{ state.site.beian_code }}</a>
       </p>
+      <div v-if="pluginFooter.length" class="plugin-footer-cards">
+        <a v-for="c in pluginFooter" :key="c.id" class="plugin-footer-card"
+           :href="c.link || '#'" target="_blank" rel="noopener">
+          <strong v-if="c.title">{{ c.title }}</strong>
+          <span v-if="c.text">{{ c.text }}</span>
+          <span v-if="c.link_text" class="plugin-footer-link">{{ c.link_text }}</span>
+        </a>
+      </div>
     </footer>
   </div>
 
@@ -127,6 +135,7 @@ const themeIcon = ref("🌙");
 const noteClosed = ref(false);
 const drawerOpen = ref(false);  // v2.6.0 mobile 抽屉开关
 const announcements = ref([]);
+const pluginFooter = ref([]);  // v3.9.0 插件页脚卡片
 const router = useRouter();
 // 站内通知（A4）
 const notifUnread = ref(0);
@@ -255,6 +264,11 @@ onMounted(async () => {
     announcements.value = an.items || [];
   } catch (e) {}
   loadNotifs();  // 加载站内通知未读数
+  // v3.9.0：插件系统（M0）— 拉取页脚插件渲染数据（联系卡片等），结构化渲染不使用 v-html
+  try {
+    const pd = await apiGet("/api/plugins");
+    if (pd && pd.footer) pluginFooter.value = pd.footer;
+  } catch (e) {}
   window.addEventListener("scroll", onScroll, { passive: true });
   window.addEventListener("resize", onScroll);
   onScroll();

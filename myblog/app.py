@@ -498,6 +498,13 @@ def create_app():
         _ensure_settings(app)
         _ensure_super_admin(app)
 
+        # v3.9.0：插件系统（M0）— 核心表/设置/超管就绪后加载；单插件崩溃不拖垮博客
+        try:
+            from plugins import load_plugins
+            load_plugins(app, app.config)
+        except Exception as e:
+            print("插件系统加载失败（已跳过，不影响博客启动）:", e)
+
     # v3.1.6：确保每个请求都生成会话 CSRF Token（未登录访客也有，用于游客提交表单/API）
     def _csrf_generate():
         from utils import generate_csrf_token

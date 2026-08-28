@@ -1,0 +1,9 @@
+{
+  "id": "contact_card",
+  "name": "联系卡片",
+  "version": "1.0.0",
+  "author": "Llhhy",
+  "description": "页脚展示一张可配置的联系卡片（标题/说明/链接），独立数据模型，与核心零耦合。",
+  "slots": ["footer"],
+  "permissions": ["db.write"]
+}

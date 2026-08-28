@@ -136,6 +136,14 @@ class Config:
     # Referrer-Policy / CSP（同源受限，允许内联样式/脚本，放宽 img 与 connect）。
     SECURITY_HEADERS = os.environ.get("SECURITY_HEADERS", "true").lower() != "false"
 
+    # ===== 插件系统（v3.9.0 起）=====
+    # 启用清单：逗号分隔的插件 slug；置空 = 不加载任何插件。
+    # 紧急关停：DISABLED_PLUGINS 内的 slug 即使出现在 ENABLED_PLUGINS 也会被跳过（重启生效）。
+    # 插件目录默认 myblog/plugins/（随代码一起发版，不做运行时热加载）。
+    ENABLED_PLUGINS = os.environ.get("ENABLED_PLUGINS", "contact_card")
+    DISABLED_PLUGINS = os.environ.get("DISABLED_PLUGINS", "")
+    PLUGINS_DIR = os.path.join(BASE_DIR, "plugins")
+
     # Redis 全局限流（高优）：REDIS_URL 配置后（如 redis://127.0.0.1:6379/0），
     # rate_limit 改用 Redis 计数（多 worker 全局一致）；未配置自动回退内存计数（单进程）。
     REDIS_URL = os.environ.get("REDIS_URL", "")

@@ -304,7 +304,7 @@ post_published.connect(_on_publish)
 
 | 阶段 | 内容 | 交付物 | 风险 |
 |---|---|---|---|
-| **M0** | 后端骨架：`plugins/__init__.py` + `load_plugins` + `config` 三项 + `create_app` 接入 + `GET /api/plugins` + 失败隔离 + 1 个 demo 插件（如「访客统计」：后端记数据 + 前端页脚渲染） | 可启用插件的后端、demo 插件、冒烟测试 | 低 |
+| **M0** | 后端骨架：`plugins/__init__.py` + `load_plugins` + `config` 三项 + `create_app` 接入 + `GET /api/plugins` + 失败隔离 + 1 个 demo 插件 `contact_card`（联系卡片：独立模型 + 前端页脚渲染） | 可启用插件的后端、demo 插件、冒烟测试 | 低 |
 | **M1** | 事件总线 `events.py`（`post_published` / `comment_created`）+ 在发布/评论流程 emit | 插件可订阅核心事件 | 低 |
 | **M2** | 前端槽位：nav / footer 注入（config 驱动，无 v-html）+ `App.vue` 改造 | 前端展示插件入口 | 中（需前端构建回归） |
 | **M3（可选）** | 后台插件管理页（列出已装/启停）+ DOMPurify 富文本槽位 + 远程预构建组件（`defineAsyncComponent`） | 可运营化、可富文本 | 高（仅必要时做） |
@@ -328,6 +328,37 @@ ENABLED_PLUGINS=demo python -c "from myblog.app import create_app; app=create_ap
 
 ## 12. 开放决策点（待你拍板）
 
-1. **首个真实插件做什么？** 候选：访客统计增强、友链 RSS 聚合面板、文章目录(TOC)侧栏、第三方评论接入。决定后我按 M0 直接脚手架。
+1. **首个真实插件做什么？** M0 demo 已落地为 `contact_card`（联系卡片）。下一个真实业务插件候选：访客统计增强、友链 RSS 聚合面板（核心已有 FriendLink，插件可做 RSS 聚合增强）、文章目录(TOC)侧栏、第三方评论接入。决定后按现有骨架直接加 `myblog/plugins/<slug>/`。
 2. **M2 是否随 M0 一起做？** 建议分开（降风险），除非你马上要在前台看到插件入口。
 3. **插件数据持久化方式**：共用主库 SQLite 表（简单，随备份走）vs 插件独立文件（隔离，但备份需单独处理）。默认共用主库。
+
+---
+
+## 13. M0 实施进展（已落地 · 2026-08-28）
+
+M0 已在 `main` 落地（未单独打 Release，随下次版本带）：
+
+- **插件系统核心** `myblog/plugins/__init__.py`
+  - `load_plugins(app, cfg)` 在 `create_app()` 的 `with app.app_context():` 末尾
+    （`_ensure_super_admin` 之后）调用，扫描 `ENABLED_PLUGINS` → importlib 动态加载
+    `myblog/plugins/<slug>/__init__.py` 的 `register(app, cfg)`，返回 manifest dict。
+  - **失败隔离**：单插件 import/register 抛异常只 `print` 告警、不阻断博客启动。
+  - **紧急关停**：`DISABLED_PLUGINS` 优先级高于 `ENABLED_PLUGINS`（重启生效）；
+    插件目录放置 `disabled` 标记文件也跳过（免改配置）。
+  - `GET /api/plugins`（`strict_slashes` 兼容有无尾斜杠）：返回已启用插件的 `slots` 声明
+    + `footer` 渲染数据，供前端**结构化**渲染（不用 `v-html`，防 XSS）。
+- **配置** `config.Config` 新增 `ENABLED_PLUGINS`（默认 `contact_card`）/
+  `DISABLED_PLUGINS`/`PLUGINS_DIR`。
+- **demo 插件** `myblog/plugins/contact_card/`（联系卡片）
+  - 自带独立模型 `PluginContactCard`（表 `plugin_contact_card`，与核心零耦合）；
+    选 contact_card 而非原设想「友链」，是因为 `FriendLink` 已是核心模型，避免插件与核心重复。
+  - 独立 Blueprint：`GET /api/plugin/contact_card/list`（公开）、
+    `POST /upsert`、`POST /delete`（管理员鉴权，复用前端 `apiPost` 自带 CSRF）。
+  - `manifest.json` 声明 `slots: ["footer"]`。
+- **前端** `App.vue` 页脚新增插件槽位，启动拉 `GET /api/plugins` 后结构化渲染
+  `<a>` 联系卡片（`.plugin-footer-card`）。
+- **测试** `tests/`（pytest，5 passed）：覆盖启动、`/api/plugins`、公开 list、admin 鉴权、
+  坏插件隔离、禁用清单跳过。
+- **打包** `package.py` 递归 `os.walk(myblog/)`，插件目录随 `myblog-backend.zip` 自动带出，无需改脚本。
+
+**下一步**：M1 事件总线（blinker 信号）/ M2 前端更多槽位（nav/sidebar）/ M3（可选）后台插件管理页。

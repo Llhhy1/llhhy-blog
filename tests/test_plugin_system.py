@@ -110,6 +110,97 @@ def test_plugins_endpoint_exposes_nav_and_html(client):
         assert rc["url"].startswith("/static/plugins/")
 
 
+# ---------- 首个真实插件：article_toc（文章目录侧栏） ----------
+def test_article_toc_loaded(client):
+    # 默认启用 article_toc（config.ENABLED_PLUGINS），应出现在 /api/plugins。
+    import config as _cfg
+    assert "article_toc" in _cfg.Config.ENABLED_PLUGINS
+    r = client.get("/api/plugins")
+    assert r.status_code == 200
+    ids = [p["id"] for p in r.get_json()["plugins"]]
+    assert "article_toc" in ids
+
+
+def test_article_toc_declares_remote_component(client):
+    # TOC 走 M3 远程组件（纯前端）：声明且仅允许同源 /static/plugins/ 前缀。
+    r = client.get("/api/plugins")
+    data = r.get_json()
+    remotes = data.get("remote_components", [])
+    mine = [rc for rc in remotes if rc.get("name") == "article_toc_widget"]
+    assert len(mine) == 1
+    assert mine[0]["url"] == "/static/plugins/article_toc/widget.js"
+    assert mine[0]["url"].startswith("/static/plugins/")
+
+
+def test_article_toc_no_unexpected_slots(client):
+    # article_toc 是纯前端插件：不占 footer/nav/sidebar/html 槽位，避免与核心 UI 冲突。
+    r = client.get("/api/plugins")
+    data = r.get_json()
+    meta = [p for p in data["plugins"] if p["id"] == "article_toc"][0]
+    assert meta["slots"] == []
+    # 因此不会往 nav/sidebar/html 里塞内容
+    assert all(n.get("label") != "目录" for n in data["nav"])
+
+
+def test_article_toc_widget_file_exists():
+    # 打包/部署前确认静态资源存在（前端按此 URL 加载脚本）。
+    import os
+    import config as _cfg
+    # 注意：BASE_DIR 是 config 模块级变量，不是 Config 类的属性。
+    path = os.path.join(
+        _cfg.BASE_DIR, "static", "plugins", "article_toc", "widget.js"
+    )
+    assert os.path.isfile(path), f"缺少远程组件文件：{path}"
+    assert os.path.getsize(path) > 500
+
+
+def test_article_toc_widget_static_safety_and_behavior():
+    """静态审查 widget.js：关键行为存在 + 无危险写法（远程组件随发版走，需守红线）。
+
+    远程组件等同插件代码信任级别，这里用静态检查守住几条不可回归的红线：
+    - 只用 textContent 写标题文本（不用 innerHTML 拼用户内容），避免 XSS；
+    - 无 eval / new Function / 外链请求（fetch / XHR）；
+    - 具备 sticky 定位、平滑滚动、防遮挡、窄屏隐藏、SPA 重建、滚动节流。
+    """
+    import os
+    import config as _cfg
+
+    path = os.path.join(
+        _cfg.BASE_DIR, "static", "plugins", "article_toc", "widget.js"
+    )
+    src = open(path, encoding="utf-8").read()
+
+    # --- 行为（不可回归）---
+    assert '.post-body' in src, "应只扫描文章正文容器"
+    assert 'querySelectorAll("h2, h3, h4")' in src, "应扫描 h2/h3/h4"
+    assert "sidebar.insertBefore(nav, sidebar.firstChild)" in src, "应注入 .sidebar 顶部"
+    assert "position: sticky" in src, "应为 sticky 常驻侧栏"
+    assert "scrollIntoView" in src, "点击应平滑滚动"
+    assert "scroll-margin-top" in src, "应有防固定头部遮挡的偏移"
+    assert "max-width: 820px" in src, "窄屏应隐藏（由核心内联 TOC 兜底）"
+    assert "MutationObserver" in src, "应监听 SPA 内容变化以重建"
+    assert "requestAnimationFrame" in src, "滚动监听应节流"
+    assert "var(--card-bg" in src and "data-theme" in src, "应使用 CSS 变量适配深色模式"
+
+    # --- 安全红线 ---
+    assert "eval(" not in src and "new Function" not in src, "禁止动态执行代码"
+    assert "fetch(" not in src and "XMLHttpRequest" not in src, "禁止发起外链请求"
+    # innerHTML 只允许用于清空（赋值空串），不得拼接内容。
+    # 先剔除注释行与行尾注释，避免说明文字里的 "innerHTML" 触发误报。
+    code_lines = []
+    for line in src.splitlines():
+        s = line.split("//", 1)[0].strip()  # 去掉行尾注释（简化处理，本文件无含 // 的字符串）
+        if s:
+            code_lines.append(s)
+    for line in code_lines:
+        if "innerHTML" in line:
+            assert 'innerHTML = ""' in line or "innerHTML = ''" in line, (
+                f"innerHTML 仅可用于清空，发现：{line}"
+            )
+    # 标题文本必须走 textContent（防 XSS）
+    assert "a.textContent = text" in src, "标题文本应用 textContent 写入"
+
+
 # ---------- M3：后台管理页接口鉴权 + 运行时启停 ----------
 def test_plugins_status_requires_admin(client):
     # 未登录访问管理状态接口应被拒。

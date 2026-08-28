@@ -140,7 +140,7 @@ class Config:
     # 启用清单：逗号分隔的插件 slug；置空 = 不加载任何插件。
     # 紧急关停：DISABLED_PLUGINS 内的 slug 即使出现在 ENABLED_PLUGINS 也会被跳过（重启生效）。
     # 插件目录默认 myblog/plugins/（随代码一起发版，不做运行时热加载）。
-    ENABLED_PLUGINS = os.environ.get("ENABLED_PLUGINS", "contact_card")
+    ENABLED_PLUGINS = os.environ.get("ENABLED_PLUGINS", "contact_card,article_toc")
     DISABLED_PLUGINS = os.environ.get("DISABLED_PLUGINS", "")
     PLUGINS_DIR = os.path.join(BASE_DIR, "plugins")
 

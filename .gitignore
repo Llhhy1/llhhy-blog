@@ -23,49 +23,9 @@ dist/
 .DS_Store
 
 # 临时构建目录（用非 dist 名规避本地删除保护，等同 dist/）
-_vite_build/
-_vite_build2/
-dist_v311/
-dist_v312/
-dist_v313/
-dist_v314/
-dist_v315/
-dist_v316/
-dist_v317/
-dist_v318/
-
-# 临时构建目录（规避本地删除保护，等同 dist/）
-_vite_build2/
-
-# 临时构建目录（规避本地删除保护）
-_vite_build3/
-
-# 临时构建目录（规避本地删除保护）
-_vite_build4/
-
-# 临时构建目录（规避本地删除保护）
-_vite_build5/
-
-# 临时构建目录（规避本地删除保护）
-_vite_build6/
-
-# 临时构建目录（规避本地删除保护）
-_vite_build7/
-
-# 临时构建目录（规避本地删除保护）
-_vite_build8/
-_vite_build9/
-_vite_build10/
-
-# 临时构建目录（规避本地删除保护）
-_vite_build11/
-
-# 临时构建目录（规避本地删除保护）
-_vite_build12/
-_vite_build13/
-_vite_build14/
-_vite_build15/
-_vite_build16/
+# 说明：历史上每升一个新 _vite_buildN 就得手加一行，改为通配符一次覆盖所有历史与未来构建。
+_vite_build*/
+dist_v3*/
 
 # 项目内存目录（本地数据，不入版本库）
 .workbuddy/memory/

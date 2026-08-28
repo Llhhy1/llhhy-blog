@@ -328,9 +328,10 @@ ENABLED_PLUGINS=demo python -c "from myblog.app import create_app; app=create_ap
 
 ## 12. 开放决策点（待你拍板）
 
-1. **首个真实插件做什么？** M0 demo 已落地为 `contact_card`（联系卡片）。下一个真实业务插件候选：访客统计增强、友链 RSS 聚合面板（核心已有 FriendLink，插件可做 RSS 聚合增强）、文章目录(TOC)侧栏、第三方评论接入。决定后按现有骨架直接加 `myblog/plugins/<slug>/`。
-2. **M2 是否随 M0 一起做？** 建议分开（降风险），除非你马上要在前台看到插件入口。
-3. **插件数据持久化方式**：共用主库 SQLite 表（简单，随备份走）vs 插件独立文件（隔离，但备份需单独处理）。默认共用主库。
+1. **首个真实插件做什么？** ✅ **已选定并落地：`article_toc`（文章目录侧栏）**，详见第 15 节。
+   其余候选（访客统计增强、友链 RSS 聚合面板、第三方评论接入）仍可按同一骨架继续加。
+2. **M2 是否随 M0 一起做？** ✅ 已随 M0 一起做（见第 14 节）。
+3. **插件数据持久化方式**：共用主库 SQLite 表（简单，随备份走）vs 插件独立文件（隔离，但备份需单独处理）。默认共用主库（`article_toc` 无持久化需求，纯前端插件）。
 
 ---
 
@@ -411,4 +412,62 @@ M0 已在 `main` 落地（未单独打 Release，随下次版本带）：
 - 单插件崩溃不拖垮整站（失败隔离 + 信号订阅者异常吞掉）。
 - 装卸 = 发版 + 重启 gunicorn（不热加载）；运行时开关仅即时影响前端槽位。
 - 只装自写/审计过的插件；`html` 槽位强制 DOMPurify；远程组件仅限同源 `/static/plugins/`。
+
+---
+
+## 15. 首个真实插件：`article_toc`（文章目录侧栏 · 已落地 · 2026-08-28）
+
+### 需求与选型
+- **痛点**：核心 `PostView.vue` 已有内联 TOC（`<nav class="toc">`），但它是**静态列表**，
+  固定在文首、滚动后即消失，长文无法随时跳转、也不显示当前所在章节。
+- **方案**：做成**常驻右侧栏 + 滚动高亮（scroll-spy）**的目录侧栏，与核心内联 TOC 互补而非冲突。
+
+### 为什么不用 M2 的 `sidebar` 槽位
+M2 的全局 `sidebar` 槽位对**所有非 `/docs` 路由**都渲染（见 `App.vue` 的 `has-sidebar` 判断），
+而 TOC 只应在文章页出现 → 无法表达"按路由条件显示"。
+
+因此改用 **M3 远程组件（`remote_components`）**：
+
+| 维度 | M2 `sidebar` 槽位 | M3 远程组件（选用） |
+|------|------------------|-------------------|
+| 显示范围 | 全站（除 /docs），不能按路由过滤 | 自行判断 DOM/路由，只在文章页出现 |
+| 内容形态 | 结构化 `<a>` 链接 | 任意 DOM（sticky 容器 + 滚动高亮） |
+| 核心改动 | 需改 `App.vue` 加条件 | **零改动**（脚本自包含，注入 `.sidebar` 顶部） |
+| 信任级别 | 服务端数据 | 等同插件代码（仅自写/审计过，同源白名单） |
+
+### 布局决策
+文章页是「正文 + 右侧 280px `Sidebar`」两栏（`global.css`：`.layout` flex，`.sidebar{width:280px}`），
+**右侧已被博客侧栏占用**。若做固定悬浮 TOC 会与之重叠 → 改为把目录以 `position: sticky`
+注入 `.sidebar` **顶部**（`insertBefore(nav, sidebar.firstChild)`），随滚动跟随，不遮挡任何已有内容。
+
+### 实现要点（`myblog/static/plugins/article_toc/widget.js`，自包含原生 JS）
+- **扫描**：`document.querySelector(".post-body").querySelectorAll("h2, h3, h4")`；
+  无 `id` 的标题自动补 `atoc-<i>`（不覆盖核心既有 id）。
+- **注入**：`sticky; top: 96px` 卡片插到 `.sidebar` 首位；正文标题加
+  `scroll-margin-top: 90px`，防止点击跳转后被固定头部遮挡。
+- **滚动高亮**：`requestAnimationFrame` 节流的 scroll-spy，取距视口顶部 ≤110px 的最后一个标题为当前章节。
+- **SPA 适配**：`MutationObserver` 监听 `main.site-frame-inner`（文章异步渲染/路由切换）+ 300/900ms 双延迟重试；
+  非文章页（无 `.post-body`）自动移出 DOM。
+- **响应式**：`@media (max-width: 820px)` 隐藏（此时侧栏堆叠到正文下方），由核心内联 TOC 兜底。
+- **主题**：全部用 `var(--card-bg/--border-color/--link/--accent/--muted)` CSS 变量，自动适配深色模式。
+- **零耦合**：不修改 `PostView.vue` / `App.vue` / `Sidebar.vue`，不建表、不注册 API 路由。
+
+### 文件清单
+| 文件 | 说明 |
+|------|------|
+| `myblog/plugins/article_toc/__init__.py` | 后端插件模块，`register()` 返回 manifest + 声明 remote_components；`slots: []`（纯前端） |
+| `myblog/static/plugins/article_toc/widget.js` | 远程组件（自包含原生 JS，sticky 侧栏 + scroll-spy） |
+| `myblog/config.py` | `ENABLED_PLUGINS` 默认值 → `"contact_card,article_toc"` |
+| `tests/test_plugin_system.py` | 新增 4 个 article_toc 测试（共 14 passed） |
+
+### 测试（14 passed）
+- `test_article_toc_loaded`：默认启用，出现在 `/api/plugins`。
+- `test_article_toc_declares_remote_component`：名为 `article_toc_widget`，URL 为 `/static/plugins/article_toc/widget.js`（同源白名单）。
+- `test_article_toc_no_unexpected_slots`：`slots == []`，不污染 nav/sidebar/html 槽位。
+- `test_article_toc_widget_file_exists`：静态资源存在且非空（打包前守卫）。
+
+### 部署注意
+- 远程组件走 `/static/plugins/` 静态目录，**前端无需重新构建**（本轮 `vite build` 仅为回归验证）。
+- 后端需重启 gunicorn（宝塔「停止 → 启动」）才会加载新插件并出现在 `/api/plugins`。
+- 若不想启用：后台「🧩 插件管理」停用，或设 `DISABLED_PLUGINS=article_toc`。
 

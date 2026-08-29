@@ -37,7 +37,7 @@
             <td><a href="{{ url_for('admin.edit_post', post_id=p.id) }}">{{ p.title }}</a></td>
             <td>
               {% if p.scheduled_at and not p.published %}
-                <span class="status-scheduled">⏰ 定时 {{ p.scheduled_at.strftime('%m-%d %H:%M') }}</span>
+                <span class="status-scheduled">⏰ 定时 {{ p.scheduled_at | bj('%m-%d %H:%M') }}</span>
                 <form method="post" action="{{ url_for('admin.publish_now', post_id=p.id) }}" class="inline-form">
                       {{ csrf_input() }}
                   <input type="hidden" name="back" value="admin.my_posts">
@@ -52,7 +52,7 @@
               {% if p.pin_requested and not p.is_pinned %}<span class="status-requested">🔔 待审批</span>{% endif %}
             </td>
             <td>{{ p.views }}</td>
-            <td>{{ p.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
+            <td>{{ p.created_at | bj('%Y-%m-%d %H:%M') }}</td>
             <td>
               <a href="{{ url_for('admin.edit_post', post_id=p.id) }}">编辑</a>
               {% if not p.is_pinned and p.published %}

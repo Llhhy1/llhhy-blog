@@ -78,6 +78,7 @@
    > - `SECURITY_HEADERS`：默认 `true`——追加 X-Frame-Options / CSP / X-Content-Type-Options / Referrer-Policy 安全响应头。
    > - `UPDATE_HMAC_KEY`：可选——为发布包生成 HMAC 签名并在 `update.sh` 校验（增强更新包完整性，见「一键更新」章节）。
    > - `FEED_FETCH_TIMEOUT`：默认 `8`——友链 RSS 聚合抓取 socket 超时（秒）；不可达/超慢源超时只跳过、不卡死 worker（v3.10.4 新增）。
+   > - `TIME_ZONE`：固定 `Asia/Shanghai`（北京时间，UTC+8）；全站时间按此展示，**暂不可经环境变量改**（避免 UI 内部错位）。v3.10.5 起展示层统一转北京时间，数据库存储仍为 UTC。
 
 4. 点 **「提交」**。等待依赖安装完成（首次约 1-3 分钟，面板会显示进度）。
 5. 项目状态变为 **运行中（绿色）** 即成功。若报错，点项目右侧 **「日志」** 查看原因。
@@ -106,9 +107,9 @@
         try_files $uri $uri/ /index.html;
     }
 
-    # ⚠️ 根路径下的 Flask 路由（RSS / sitemap / robots）必须反代给后端，
+    # ⚠️ 根路径下的 Flask 路由（RSS / sitemap / robots / 评论RSS）必须反代给后端，
     # 绝不能落入上面的 location / 被 SPA 兜底成 index.html，否则 RSS 阅读器
-    # 拿到的是 HTML 而非 XML → 表现为「朋友订阅不了 RSS」。这三段必须放在
+    # 拿到的是 HTML 而非 XML → 表现为「朋友订阅不了 RSS」。这几段必须放在
     # location / 之前（精确匹配优先于前缀匹配）。
     location = /feed.xml {
         proxy_pass http://127.0.0.1:8686;
@@ -125,6 +126,17 @@
         proxy_set_header X-Forwarded-Proto $scheme;
     }
     location = /robots.txt {
+        proxy_pass http://127.0.0.1:8686;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    # ⚠️ 评论 RSS 订阅源（v3.10.3 新增 /feed/comments）：必须反代给后端，
+    # 否则会被 location / 兜底成 index.html（拿到 HTML 而非 RSS XML）。
+    # 用前缀匹配，同时覆盖「/feed/comments」与「/feed/comments/」两种写法。
+    location /feed/comments {
         proxy_pass http://127.0.0.1:8686;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
@@ -162,7 +174,7 @@
     }
 ```
 
-> 端口 `8686` 要与第 2 步 Python 项目里填的「监听端口」一致。`/api/`、`/admin`、`/static/` 三段都要有；`/feed.xml`、`/sitemap.xml`、`/robots.txt` 三段是 RSS/SEO 的根路径路由，**同样必须反代给后端**，否则会落到 `location /` 被 SPA 兜底成 `index.html`（RSS 阅读器收不到 XML、搜索引擎抓不到 sitemap）。缺一不可。
+> 端口 `8686` 要与第 2 步 Python 项目里填的「监听端口」一致。`/api/`、`/admin`、`/static/` 三段都要有；`/feed.xml`、`/sitemap.xml`、`/robots.txt`、`/feed/comments` 四段是 RSS/SEO 的根路径路由，**同样必须反代给后端**，否则会落到 `location /` 被 SPA 兜底成 `index.html`（RSS 阅读器收不到 XML、搜索引擎抓不到 sitemap）。缺一不可。
 
 5. 点 **「保存」** → 再点 **「重载配置」**（或重启 Nginx）。
 6. 浏览器访问 `http://你的域名`，应能看到博客首页（文章列表 + 右侧边栏 + 天气）。
@@ -360,6 +372,12 @@ supervisorctl status
 - **核心修复**：友链 RSS 聚合（博客圈）抓不可达/超慢源时曾因无 socket 超时永久挂起 worker、拖垮整站（后台点「强制刷新聚合」即 502/罢工）。v3.10.4 起抓前设 8s socket 超时（`FEED_FETCH_TIMEOUT` 环境变量可改），坏源只跳过不卡死。
 - **部署前建议**：若站点曾因强制刷新罢工，先「停止 → 启动」恢复；后台「友链管理」先清空 `hedelei` 的 RSS（避开被墙源），保留自身 `https://www.llhhy.cn/feed.xml`（同服务器秒回）；恢复后「诊断助手」点「强制刷新聚合」验证博客圈出文章、`feed_agg` 转 `ok`。
 - **验证**：后台左下角显示 `v3.10.4`；体检「博客圈 RSS」维度 `ok`。
+
+### v3.10.5 升级注意（全站时间转北京时间）
+
+- **纯后端改动，前端无需重新构建**：覆盖 `myblog-backend.zip` 后「停止 → 启动」gunicorn 即生效（restart 不重载）。
+- **核心改动**：全站时间展示统一转「北京时间（UTC+8）」——API JSON、RSS（偏移 `+0000`→`+0800`）、sitemap、JSON-LD、后台模板、诊断/聚合/统计可见时间全部按北京时间；定时发布把编辑页 `datetime-local` 输入当北京时间、换算回 UTC 存储（输入框默认值也显示北京时间），彻底消除「填 20:00 实际次日凌晨 04:00 才发布」的 8 小时错位。
+- **部署验证**：后台左下角显示 `v3.10.5`；任意文章/评论时间显示与北京时间一致；RSS 阅读器订阅 `https://www.llhhy.cn/feed.xml` 看到的 `pubDate` 偏移为 `+0800`。存量「已排定未发布」的定时文章存储值不变，仅展示偏移 +8，发布时刻不受影响。
 
 ### v3.8.8 升级注意（修复全站体检 500 + 文档页显示不全）
 

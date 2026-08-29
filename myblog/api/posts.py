@@ -8,6 +8,7 @@ from markupsafe import escape
 
 from .common import (api_bp, db, Post, Category, Tag, Comment, ReadLog, Setting, User, visible_posts_query, _current_user_or_none, _post_summary, _is_visible, _comment, _render_html, rate_limit, client_key)
 import stats  # myblog/stats.py：client_ip / cached_region（浏览量去重与评论归属地）
+from utils import fmt_bj, to_beijing, BEIJING_TZ
 
 # ---------- 文章列表（分页 + 搜索）----------
 @api_bp.route("/posts")
@@ -128,7 +129,7 @@ def _rss_xml(posts, title, desc, base):
     items = []
     for p in posts:
         link = f"{base}/post/{p.slug}"
-        pub = p.created_at.strftime("%a, %d %b %Y %H:%M:%S +0000")
+        pub = fmt_bj(p.created_at, "%a, %d %b %Y %H:%M:%S") + " +0800"
         summary = escape((p.summary or (p.content or "")[:200]).strip())
         author = (p.author.username if p.author
                   else current_app.config.get("SITE_TITLE", "站长"))
@@ -144,7 +145,7 @@ def _rss_xml(posts, title, desc, base):
             f"      <description>{summary}</description>\n"
             "    </item>"
         )
-    last = posts[0].created_at.strftime("%a, %d %b %Y %H:%M:%S +0000") if posts else ""
+    last = fmt_bj(posts[0].created_at, "%a, %d %b %Y %H:%M:%S") + " +0800" if posts else ""
     xml = (
         '<?xml version="1.0" encoding="UTF-8"?>\n'
         '<rss version="2.0" xmlns:dc="http://purl.org/dc/elements/1.1/">\n'
@@ -184,8 +185,8 @@ def archive():
     posts = visible_posts_query().order_by(Post.is_pinned.desc(), Post.created_at.desc()).all()
     timeline = {}
     for p in posts:
-        y = p.created_at.strftime("%Y")
-        m = p.created_at.strftime("%m")
+        y = fmt_bj(p.created_at, "%Y")
+        m = fmt_bj(p.created_at, "%m")
         timeline.setdefault(y, {}).setdefault(m, []).append(_post_summary(p))
     # 转成有序列表，方便前端渲染
     result = []

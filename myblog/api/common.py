@@ -33,7 +33,7 @@ from models import db, Post, Category, Tag, Comment, FriendLink, Setting, User, 
     Moment, MomentComment, SocialAccount, Series, Announcement, Guestbook, Subscriber, Notification, \
     ReadLog, visible_posts_query, LinkApplication, AuditLog, PostHistory, RecycleBin
 from utils import (render_markdown, clean_html, render_post_html,
-                   rate_limit, client_key)
+                   rate_limit, client_key, fmt_bj, to_beijing, BEIJING_TZ)
 import stats
 # v3.1.0：记录登录审计（log_login_attempt 定义在 admin 模块，admin 不依赖 api，无循环）
 from admin import log_login_attempt
@@ -53,7 +53,7 @@ def _user_pub(u):
         "role_label": u.role_label,
         "is_super": u.is_super,
         "is_admin": u.is_admin_role,
-        "created_at": u.created_at.strftime("%Y-%m-%d") if u.created_at else "",
+        "created_at": fmt_bj(u.created_at, "%Y-%m-%d"),
     }
 
 
@@ -111,7 +111,7 @@ def _post_summary(p):
         "author": p.author.username if p.author else "",  # 作者身份（普通用户发表的文章记录作者；管理员/旧文章为空）
         "summary": p.summary or "",
         "cover": p.cover or "",
-        "created_at": p.created_at.strftime("%Y-%m-%d %H:%M"),
+        "created_at": fmt_bj(p.created_at, "%Y-%m-%d %H:%M"),
         "views": p.views,
         "likes": p.likes,
         "is_pinned": bool(p.is_pinned),  # 是否置顶（首页/列表优先展示）
@@ -142,7 +142,7 @@ def _comment(c):
         "id": c.id,
         "author": c.author,
         "content": c.content,
-        "created_at": c.created_at.strftime("%Y-%m-%d %H:%M"),
+        "created_at": fmt_bj(c.created_at, "%Y-%m-%d %H:%M"),
         "region": c.region or "",        # 归属地（前台展示；IP 原文不返回）
         "device": c.device or "",        # 设备信息
         "parent_id": c.parent_id or 0,   # 嵌套回复：父评论 id（0=顶层）
@@ -164,7 +164,7 @@ def _moment(m):
         "id": m.id,
         "author": m.author.username if m.author else "匿名",
         "content": m.content,
-        "created_at": m.created_at.strftime("%Y-%m-%d %H:%M") if m.created_at else "",
+        "created_at": fmt_bj(m.created_at, "%Y-%m-%d %H:%M"),
         "likes": m.likes,
         "comments": [_mcomment(c) for c in m.comments.order_by(MomentComment.created_at.asc())],
     }
@@ -175,7 +175,7 @@ def _mcomment(c):
         "id": c.id,
         "author": c.author,
         "content": c.content,
-        "created_at": c.created_at.strftime("%Y-%m-%d %H:%M") if c.created_at else "",
+        "created_at": fmt_bj(c.created_at, "%Y-%m-%d %H:%M"),
         "region": c.region or "",
     }
 
@@ -183,7 +183,7 @@ def _mcomment(c):
 def _gb(g):
     return {
         "id": g.id, "author": g.author, "content": g.content,
-        "created_at": g.created_at.strftime("%Y-%m-%d %H:%M"),
+        "created_at": fmt_bj(g.created_at, "%Y-%m-%d %H:%M"),
         "likes": g.likes or 0,
         "region": g.region or "", "device": g.device or "",
     }

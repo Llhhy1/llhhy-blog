@@ -2118,3 +2118,20 @@ v3.1.6 起后端 `app.py::_csrf_protect` 严格校验**所有非豁免 POST** �
 **R54 结论**：**0 遗留**。SSRF 防护经复核未受影响；无新增鉴权/注入面；socket 超时确保 worker 不被外部抓取挂死。发版前 `APP_VERSION` 已改为 `3.10.4`（与 Release tag 一致）。
 
 **部署注意**：纯后端改动，**前端无需 vite build**；覆盖后端后「停止 → 启动」gunicorn 即生效。⚠️ 部署前若站点曾因强制刷新罢工，先「停止 → 启动」恢复；后台「友链管理」建议先清空 `hedelei` 的 RSS（避免重启后再次抓取被墙源），保留自身 `https://www.llhhy.cn/feed.xml`（同服务器秒回）；恢复后在「诊断助手」点「强制刷新聚合」验证博客圈出文章、`feed_agg` 转 ok。
+
+---
+
+## 第五十五轮 R55（v3.10.5 · 全站时间转北京时间）
+
+| 维度 | 检查点 | 结论 |
+|------|--------|------|
+| XSS | `fmt_bj` 仅对 naive UTC `datetime` 做 `astimezone(BEIJING_TZ).strftime(fmt)`，输出为纯时间字符串；所有模板仍走 Jinja `{{ }}` 自动转义，`bj` 过滤器不引入任何 HTML/JS；RSS/sitemap/JSON-LD 的标题/作者等用户字段继续 `escape()`。时间值本身非用户可控。 | ✅ 无 XSS |
+| SQL 注入 | 全程无 SQL 拼接：`to_beijing`/`fmt_bj` 纯时间换算，定时发布 `_parse_scheduled` 仍用 `datetime.fromisoformat`（非法值返回 None），ORM 查询不变。 | ✅ 无注入 |
+| 越权 | 仅改展示/序列化逻辑，未新增/改写任何路由与权限边界（admin 路由 `@admin_required` + 全局同源/CSRF 不变）。 | ✅ 无越权 |
+| SSRF/密钥/路径遍历 | 无外部 URL 访问、无密钥读取或回显、无文件操作；纯时间格式化与模板渲染。 | ✅ 无 |
+| 资源/DoS | 每次调用仅 `astimezone` + `strftime`（O(1)，无 IO/连接），Jinja 过滤器与既有 `strftime` 开销同级；无长连接、无写操作。 | ✅ 无风险 |
+| CSRF | 未新增任何 POST 接口或表单；后台模板仅把 `strftime` 换成 `\| bj(...)` 过滤器。 | ✅ 无 CSRF 缺口 |
+| 定时发布语义 | `_parse_scheduled` 把编辑页 `datetime-local` 输入从「当 UTC」改为「当北京时间」→ 存 UTC；输入框默认值（`scheduled_local`/`now_local`）同步显示北京时间。存量已排定未发布的定时文章存储值不变，仅展示偏移 +8，发布时刻不受影响。 | ✅ 语义自洽 |
+| 回归 | `py_compile` 通过（utils/app/common/notifications/posts/routes/admin/diagnostics/feed_agg/stats 共 10 文件）；全量 pytest **31 passed** 保持（无新测试文件，时间格式化改动不影响既有用例）；本地冒烟（临时 sqlite + `test_client`）验证文章/RSS 的 `pubDate` 偏移变为 `+0800`、JSON-LD `datePublished` 带 `+08:00`、后台模板 `{{ x.created_at \| bj }}` 输出北京时间。 | ✅ 无回归 |
+
+**R55 结论**：**0 遗留**。全站时间展示统一转北京时间，纯展示层改造、不引入任何新的安全边界；定时发布语义由「输入当 UTC」修正为「输入当北京时间、存储仍 UTC」，彻底消除 8 小时错位。发版前 `APP_VERSION` 已改为 `3.10.5`（与 Release tag 一致）。

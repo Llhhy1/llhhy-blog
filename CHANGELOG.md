@@ -398,3 +398,9 @@
 - **修复**：后台点「强制刷新聚合」即触发 502/罢工。根因：`feed_agg.get_circle_feed` 抓友链 RSS 时 `feedparser.parse` 默认**无 socket 超时**，单个不可达源（如被墙的外站 hedelei）会让 worker 永久挂起、拖垮整站。改为抓取前 `socket.setdefaulttimeout(8)`（取 `current_app.config["FEED_FETCH_TIMEOUT"]`，环境变量 `FEED_FETCH_TIMEOUT` 可覆盖，`try/finally` 还原），坏源超时被 `except` 捕获标记 `skipped/error`、**不再无限挂起**。同时：① `diagnostics.check_feed_agg` 改**实时读库**计数，消除多 gunicorn worker 下内存快照滞后（填了 RSS 仍长时间误报「没有任何友链填写 RSS」）；② `admin.set_link_rss` 保存后**软校验** RSS 可达性（填错 `/feed/` 这类路径立即 warning，保存照常）。纯后端改动，**无需 vite build**。
 - **验证**：`py_compile` 通过（feed_agg/diagnostics/admin/config 四文件）；R54 九维审计 **0 遗留**（详见 `myblog/SECURITY_AUDIT.md` R54 轮）；pytest **31 passed** 保持。
 - **⚠️ 部署注意**：**纯后端改动，前端产物无变化**。覆盖 `myblog-backend.zip` 后「停止 → 启动」gunicorn（restart 不重载）即生效。若此前因强制刷新罢工，先「停止 → 启动」恢复；后台「友链管理」建议先清空 `hedelei` 的 RSS（避开被墙源），保留自身 `https://www.llhhy.cn/feed.xml`（同服务器秒回）；恢复后「诊断助手」点「强制刷新聚合」验证博客圈出文章、`feed_agg` 转 ok。APP_VERSION 升为 v3.10.4。
+
+### v3.10.5 全站时间转北京时间（R55 审计通过）
+
+- **改的什么**：此前全站时间显示用的是数据库里 UTC 值直接 `strftime`，国内访客看到的时间比北京晚 8 小时；定时发布输入框把用户输入当 UTC，导致「填 20:00 实际次日凌晨 04:00 才发布」。本次统一在展示层转「北京时间（UTC+8）」：新增 `myblog/utils.py` 的 `to_beijing()` / `fmt_bj()`（固定偏移，不依赖服务器 OS 时区），`app.py` 注册 Jinja 过滤器 `bj` 供后台模板使用；API JSON（`api/common.py`/`notifications.py`）、RSS（`routes.py` 文章/评论源 + `api/posts.py` 分类/标签源，偏移由 `+0000` 改为 `+0800`）、sitemap、JSON-LD（`datePublished`/`dateModified` 改带 `+08:00` 的 ISO）、后台模板（13 处）、后台审计导出与诊断/聚合/统计的可见时间全部走 `fmt_bj`。**定时发布语义修正**：`_parse_scheduled` 把编辑页 `datetime-local` 输入当北京时间、换算回 UTC 存储，输入框默认值也按北京时间展示，彻底消除 8 小时错位。
+- **验证**：`py_compile` 通过（utils/app/common/notifications/posts/routes/admin/diagnostics/feed_agg/stats 共 10 文件）；R55 审计 **0 遗留**（详见 `myblog/SECURITY_AUDIT.md` R55 轮）；pytest **31 passed** 保持。
+- **⚠️ 部署注意**：**纯后端改动，前端产物无变化**。覆盖 `myblog-backend.zip` 后「停止 → 启动」gunicorn（restart 不重载）即生效；后台左下角显示 `v3.10.5`。存量「已排定未发布」的定时文章不受影响（存储值不变，仅展示偏移 +8）。APP_VERSION 升为 v3.10.5。

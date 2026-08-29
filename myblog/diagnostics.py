@@ -24,13 +24,14 @@ import importlib
 import os
 import glob
 import time
+import datetime
 
 from flask import current_app
 from sqlalchemy import text
 
 from models import (db, Post, Comment, User, FriendLink, Guestbook,
                     LinkApplication, Subscriber, Notification)
-from utils import get_setting, setting_bool
+from utils import get_setting, setting_bool, fmt_bj, to_beijing, BEIJING_TZ
 
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -505,7 +506,7 @@ def run_all():
         sections.append(sec)
         summary[sec.get("status", "ok")] = summary.get(sec.get("status", "ok"), 0) + 1
     return {
-        "generated_at": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime()),
+        "generated_at": fmt_bj(datetime.datetime.utcnow(), "%Y-%m-%d %H:%M:%S"),
         "summary": summary,
         "sections": sections,
     }

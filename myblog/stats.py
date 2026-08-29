@@ -15,7 +15,7 @@ import urllib.request
 
 from models import db, Post, VisitLog, ReadLog, SearchLog, IpRegion, Comment
 from flask import request
-from utils import detect_bot
+from utils import detect_bot, fmt_bj, to_beijing, BEIJING_TZ
 
 _LOCAL_IPS = {"127.0.0.1", "::1", "localhost", "0.0.0.0"}
 
@@ -452,5 +452,5 @@ def compute_summary():
         "human_visits": VisitLog.query.filter_by(is_bot=False).count(),
         "bot_today": VisitLog.query.filter_by(date=today_str(), is_bot=True).count(),
         "bot_breakdown": _bot_breakdown(),
-        "updated_at": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "updated_at": fmt_bj(datetime.datetime.utcnow(), "%Y-%m-%d %H:%M:%S"),
     }

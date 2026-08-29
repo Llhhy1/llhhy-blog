@@ -9,9 +9,10 @@ import sys
 import time
 import socket
 import urllib.parse
+import datetime
 
 from models import FriendLink
-from utils import clean_html
+from utils import clean_html, fmt_bj, to_beijing, BEIJING_TZ
 
 # 内存缓存（单进程有效；多 worker 下各进程独立缓存，足够个人博客使用）
 _CACHE = {"items": [], "ts": 0}
@@ -182,7 +183,7 @@ def get_circle_feed(force=False):
         diag["total_links"] = len(all_links)
         links = [l for l in all_links if l.rss_url]
         diag["links_with_rss"] = len(links)
-        diag["last_run"] = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(now))
+        diag["last_run"] = fmt_bj(datetime.datetime.fromtimestamp(now, tz=datetime.timezone.utc), "%Y-%m-%d %H:%M:%S")
 
         if not links:
             # v3.8.4：可观测性——聚合为空时区分「没填 RSS」与「抓取失败」，日志可查
@@ -253,7 +254,7 @@ def get_circle_feed(force=False):
                     "summary": summary,
                     "source": link.name,
                     "source_url": link.url,
-                    "published_at": time.strftime("%Y-%m-%d %H:%M", time.localtime(ts)),
+                    "published_at": fmt_bj(datetime.datetime.fromtimestamp(ts, tz=datetime.timezone.utc), "%Y-%m-%d %H:%M"),
                     "ts": int(ts),
                 })
             diag["fetched"] += 1

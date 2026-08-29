@@ -5,6 +5,7 @@
 from flask import jsonify, session
 
 from .common import (api_bp, db, Notification, User)
+from utils import fmt_bj, to_beijing, BEIJING_TZ
 
 # ---------- 站内通知（A4 评论 @ 通知）----------
 @api_bp.route("/notifications")
@@ -21,7 +22,7 @@ def notifications():
         "items": [{
             "id": n.id, "content": n.content, "link": n.link or "",
             "is_read": n.is_read,
-            "created_at": n.created_at.strftime("%Y-%m-%d %H:%M"),
+            "created_at": fmt_bj(n.created_at, "%Y-%m-%d %H:%M"),
         } for n in rows],
     })
 

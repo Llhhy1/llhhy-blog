@@ -22,7 +22,7 @@
     <tbody>
       {% for l in logs %}
         <tr>
-          <td>{{ l.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
+          <td>{{ l.created_at | bj('%Y-%m-%d %H:%M') }}</td>
           <td>{{ l.username or '—' }}</td>
           <td><span class="badge-ok">{{ l.action }}</span></td>
           <td>{{ l.target }}{% if l.target_id %} #{{ l.target_id }}{% endif %}</td>

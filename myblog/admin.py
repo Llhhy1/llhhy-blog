@@ -12,7 +12,7 @@ from models import (db, Post, Category, Tag, Comment, FriendLink, Setting,
                     User, ROLE_SUPER, ROLE_ADMIN, ROLE_USER, SocialAccount,
                     Series, Announcement, Guestbook, Subscriber,
                     AuditLog, RecycleBin, LinkApplication, PostHistory)
-from utils import make_slug, count_words, validate_password, apply_slug_template
+from utils import make_slug, count_words, validate_password, apply_slug_template, fmt_bj, BEIJING_TZ
 from config import APP_VERSION
 import stats as stats_mod
 import fts
@@ -26,21 +26,19 @@ admin_bp = Blueprint("admin", __name__, url_prefix="/admin")
 
 
 def _parse_scheduled(form_val):
-    """把编辑页 datetime-local 输入（YYYY-MM-DDTHH:MM，视为服务器本地时间）转成 UTC datetime。
+    """把编辑页 datetime-local 输入（YYYY-MM-DDTHH:MM，视为北京时间）转成 UTC datetime 存储。
 
-    为空或非法则返回 None（=立即/已发布，不定时）。返回的值会与 utcnow 比较，
-    故必须存 UTC；这里把本地输入按服务器时区转 UTC，避免定时时间偏差。
+    为空或非法则返回 None（=立即/已发布，不定时）。编辑页输入框与表单默认值均按北京时间
+    展示（见 edit_post 视图的 scheduled_local / now_local），此处把用户输入当北京时间，
+    换算回 UTC 存储，保证「所见即北京、所存即 UTC」，定时发布不再错位 8 小时。
     """
     if not form_val:
         return None
     try:
-        local = datetime.datetime.fromisoformat(form_val)  # naive 本地时间
-        if local.tzinfo is None:
-            # 视为服务器本地时区，转 UTC
-            local = local.replace(tzinfo=datetime.timezone.utc).astimezone(datetime.timezone.utc)
-            # 上面直接当 UTC 处理：因 gunicorn 容器多 UTC，简单以 UTC 解读输入更可预期
-            local = datetime.datetime.fromisoformat(form_val).replace(tzinfo=datetime.timezone.utc)
-        return local.astimezone(datetime.timezone.utc).replace(tzinfo=None)
+        bj = datetime.datetime.fromisoformat(form_val)  # naive 北京时间
+        if bj.tzinfo is None:
+            bj = bj.replace(tzinfo=BEIJING_TZ)
+        return bj.astimezone(datetime.timezone.utc).replace(tzinfo=None)
     except Exception:
         return None
 
@@ -669,10 +667,10 @@ def edit_post(post_id):
     # scheduled_at 转 datetime-local 输入框格式（YYYY-MM-DDTHH:MM）；按 UTC 显示
     scheduled_local = ""
     if post.scheduled_at:
-        scheduled_local = post.scheduled_at.strftime("%Y-%m-%dT%H:%M")
+        scheduled_local = fmt_bj(post.scheduled_at, "%Y-%m-%dT%H:%M")
     return render_template("admin/edit_post.html", post=post, cats=cats, series=series,
                            tag_names=tag_names, scheduled_local=scheduled_local,
-                           now_local=datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M"),
+                           now_local=fmt_bj(datetime.datetime.utcnow(), "%Y-%m-%dT%H:%M"),
                            current_user=user)
 
 
@@ -1277,7 +1275,7 @@ def slug_preview():
     else:
         template = SLUG_PRESETS.get(mode, SLUG_PRESETS["title"])
     # 预览用占位数据：ID=123、日期=今天、分类=技术
-    date_str = datetime.datetime.utcnow().strftime("%Y%m%d")
+    date_str = fmt_bj(datetime.datetime.utcnow(), "%Y%m%d")
     slug = render_slug_template(
         template,
         slug=make_slug(title) if title else "示例文章",
@@ -1737,7 +1735,7 @@ def export_audit_logs():
     writer.writerow(["时间", "操作人", "动作", "对象", "结果", "说明", "来源IP"])
     for l in logs:
         writer.writerow([
-            _csv_guard(l.created_at.strftime("%Y-%m-%d %H:%M:%S") if l.created_at else ""),
+            _csv_guard(fmt_bj(l.created_at, "%Y-%m-%d %H:%M:%S")),
             _csv_guard(l.username or ""),
             _csv_guard(l.action or ""),
             _csv_guard((l.target or "") + (f"#{l.target_id}" if l.target_id else "")),
@@ -1754,10 +1752,10 @@ def export_audit_logs():
     except Exception:
         keep_days = 90
     scope = f"时间范围：{frm or '起始'} → {to or '最新'}" if (frm or to) else f"保留 {keep_days} 天内的全部记录"
-    lines = ["llhhy-blog 后台审计日志导出", "生成时间：" + _dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+    lines = ["llhhy-blog 后台审计日志导出", "生成时间：" + fmt_bj(datetime.datetime.utcnow(), "%Y-%m-%d %H:%M:%S"),
              "共 %d 条记录（%s）" % (len(logs), scope), "=" * 60]
     for l in logs:
-        ts = l.created_at.strftime("%Y-%m-%d %H:%M:%S") if l.created_at else "?"
+        ts = fmt_bj(l.created_at, "%Y-%m-%d %H:%M:%S")
         obj = (l.target or "") + (f"#{l.target_id}" if l.target_id else "")
         res = "成功" if l.success else "失败"
         lines.append(f"[{ts}] {l.username or '—'} {l.action} {obj} {res} | {l.detail or ''} | IP:{l.ip or '—'}")
@@ -1770,7 +1768,7 @@ def export_audit_logs():
         zf.writestr("audit_logs.txt", txt_bytes)
     zip_buf.seek(0)
 
-    stamp = _dt.datetime.now().strftime("%Y%m%d_%H%M%S")
+    stamp = fmt_bj(datetime.datetime.utcnow(), "%Y%m%d_%H%M%S")
     return send_file(
         zip_buf,
         mimetype="application/zip",

@@ -727,4 +727,9 @@ v3.1.7 修复 CSRF 隐藏域乱码后，用户反馈「退出登录按钮失效�
 
 - **改的什么**：纯后端加固 `feed_agg.py`（抓友链 RSS 前 `socket.setdefaulttimeout(8)`，`FEED_FETCH_TIMEOUT` 环境变量可覆盖，`try/finally` 还原，坏源只 `skip` 不挂死 worker）、`diagnostics.py`（`check_feed_agg` 改实时读库，消除多 worker 快照滞后）、`admin.py`（`set_link_rss` 保存后软校验 RSS 可达性）、`config.py`（`APP_VERSION="3.10.4"` + 新增 `FEED_FETCH_TIMEOUT`）。无新功能 / 新接口 / 目录结构变化，**无需 vite build**。
 - **验证**：`py_compile` 通过（四文件）；R54 九维审计 0 遗留；pytest 31 passed 保持。APP_VERSION 升为 v3.10.4。
+
+## 59. v3.10.5：全站时间转北京时间（R55 审计通过）
+
+- **改的什么**：展示层统一转「北京时间（UTC+8）」——新增 `utils.to_beijing()/fmt_bj()` 与 Jinja 过滤器 `bj`；API/RSS/sitemap/JSON-LD/后台模板/诊断/聚合/统计全部走北京时间；定时发布把输入框按北京时间填写、存储仍 UTC（彻底消除 8 小时错位）。
+- **验证**：`py_compile` 通过（10 文件）；R55 九维审计 0 遗留；pytest 31 passed 保持。APP_VERSION 升为 v3.10.5。
 - **部署注意**：纯后端改动，前端产物无变化；覆盖后端后「停止 → 启动」gunicorn 即生效。⚠️ 若此前因强制刷新罢工，先「停止 → 启动」恢复；后台「友链管理」建议先清空 `hedelei` 的 RSS（避开被墙源），保留自身 `https://www.llhhy.cn/feed.xml`；恢复后「诊断助手」点「强制刷新聚合」验证博客圈出文章、`feed_agg` 转 ok。

@@ -8,7 +8,7 @@
     <tbody>
       {% for v in versions %}
         <tr>
-          <td>{{ v.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
+          <td>{{ v.created_at | bj('%Y-%m-%d %H:%M') }}</td>
           <td>{{ v.author or '—' }}</td>
           <td>{{ v.title }}<br><span class="muted">{{ (v.content or '')[:40] }}{% if (v.content or '')|length > 40 %}…{% endif %}</span></td>
           <td>{{ (v.content or '')|length }}</td>

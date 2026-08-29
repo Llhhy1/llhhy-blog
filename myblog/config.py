@@ -12,7 +12,7 @@ os.makedirs(DATA_DIR, exist_ok=True)
 
 # 应用版本号：与 GitHub Release 标签保持一致（vX.Y.Z）。
 # 后台侧边栏左下角会显示该版本，用于确认服务器安装的代码是否为最新。
-APP_VERSION = "3.10.4"
+APP_VERSION = "3.10.5"
 
 
 class Config:
@@ -55,6 +55,13 @@ class Config:
     # 防止不可达/超慢的 RSS 源（如被墙的外站）卡死整个聚合、甚至拖垮 gunicorn worker。
     # 0 = 不限制（不推荐）。
     FEED_FETCH_TIMEOUT = int(os.environ.get("FEED_FETCH_TIMEOUT", "8"))
+
+    # ===== v3.10.5 新增：展示时区（北京时间）=====
+    # 数据库所有时间按 UTC（naive）存储；展示 / 导出 / RSS / JSON-LD / 后台模板
+    # 一律转「北京时间（UTC+8）」显示，不依赖服务器 OS 时区（部署在 UTC 或任意 OS
+    # 时区都一致）。实际偏移在 myblog/utils.py 的 BEIJING_TZ 固定实现；此常量仅作文档
+    # 与未来可配置化预留（默认固定 Asia/Shanghai，暂不接受环境变量覆盖以避免 UI 错位）。
+    TIME_ZONE = os.environ.get("TIME_ZONE", "Asia/Shanghai")
 
     # 允许跨域访问的前端来源（前后端分离时，外部站点从这里调接口）。
     # 安全默认值：空字符串 = 不开启任何跨域（同源部署无需 CORS）。

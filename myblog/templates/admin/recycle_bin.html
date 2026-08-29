@@ -10,7 +10,7 @@
         <tr>
           <td>{{ r.title }}<br><span class="muted">/{{ r.slug }}</span></td>
           <td>{{ r.deleted_by or '—' }}</td>
-          <td>{{ r.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
+          <td>{{ r.created_at | bj('%Y-%m-%d %H:%M') }}</td>
           <td>
             <form method="post" action="{{ url_for('admin.restore_post', rid=r.id) }}" class="inline-form">
                   {{ csrf_input() }}

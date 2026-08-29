@@ -44,7 +44,7 @@
             {% if not c.region and not c.device %}<span class="muted">—</span>{% endif %}
           </td>
           <td><code>{{ c.ip or '—' }}</code></td>
-          <td>{{ c.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
+          <td>{{ c.created_at | bj('%Y-%m-%d %H:%M') }}</td>
           <td class="row-actions">
             {% if not c.approved %}
             <button type="submit" formaction="{{ url_for('admin.approve_comment', cid=c.id) }}" class="link-mark">通过</button>

@@ -22,7 +22,7 @@
             {% elif a.status == 'approved' %}<span class="badge-ok">已通过</span>
             {% else %}<span class="badge-rejected">已拒绝</span>{% endif %}
           </td>
-          <td>{{ a.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
+          <td>{{ a.created_at | bj('%Y-%m-%d %H:%M') }}</td>
           <td>
             {% if a.status == 'pending' %}
             <form method="post" action="{{ url_for('admin.approve_link_application', aid=a.id) }}" class="inline-form">
@@ -34,7 +34,7 @@
               <button type="submit" class="link-danger">拒绝</button>
             </form>
             {% else %}
-            <span class="muted">{{ a.reviewer or '' }}{% if a.reviewed_at %} · {{ a.reviewed_at.strftime('%m-%d') }}{% endif %}</span>
+            <span class="muted">{{ a.reviewer or '' }}{% if a.reviewed_at %} · {{ a.reviewed_at | bj('%m-%d') }}{% endif %}</span>
             {% endif %}
           </td>
         </tr>

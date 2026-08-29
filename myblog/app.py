@@ -403,6 +403,10 @@ def create_app():
     app.register_blueprint(api_bp)
     app.register_blueprint(mcp_bp)  # v3.10.0：/mcp（只读诊断，未配置 MCP_AUTH_TOKEN 时自动关闭）
 
+    # v3.10.5：北京时间 Jinja 过滤器（后台模板用 {{ dt | bj('fmt') }} 显示北京时间）
+    from utils import fmt_bj
+    app.jinja_env.filters["bj"] = fmt_bj
+
     # 前后端分离：仅在显式配置了 CORS_ORIGIN 时才允许跨域，且精确匹配来源（默认同源，不开通配）
     @app.after_request
     def add_cors_headers(resp):

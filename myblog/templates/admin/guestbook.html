@@ -17,7 +17,7 @@
         <tr class="{{ 'unread-row' if not g.is_read }}">
           <td>{{ g.author }}</td>
           <td>{{ g.content[:80] }}{% if g.content|length > 80 %}…{% endif %}</td>
-          <td>{{ g.created_at.strftime('%Y-%m-%d %H:%M') if g.created_at else '' }}</td>
+          <td>{{ g.created_at | bj('%Y-%m-%d %H:%M') }}</td>
           <td>
             {% if not g.is_read %}
             <form method="post" action="{{ url_for('admin.mark_guestbook_read', gid=g.id) }}" class="inline-form">

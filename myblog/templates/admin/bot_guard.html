@@ -44,7 +44,7 @@
           <td>{{ r.hit_count }}</td>
           <td>
             {% if r.blocked_until and r.blocked_until > now %}
-              封禁至 {{ r.blocked_until.strftime('%Y-%m-%d %H:%M') }}
+              封禁至 {{ r.blocked_until | bj('%Y-%m-%d %H:%M') }}
             {% else %}
               监控中
             {% endif %}

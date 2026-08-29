@@ -9,7 +9,8 @@ from markupsafe import escape
 
 from models import db, Post, Category, Tag, Comment, Setting, User, ROLE_USER, visible_posts_query
 from utils import (make_slug, render_post_html, safe_redirect, rate_limit,
-                   client_key, validate_password, get_setting)
+                   client_key, validate_password, get_setting,
+                   fmt_bj, to_beijing, BEIJING_TZ)
 # v3.1.0：登录审计（log_login_attempt 定义于 admin 模块，admin 不依赖 routes，无循环）
 from admin import log_login_attempt
 
@@ -191,8 +192,8 @@ def post(slug):
         "@context": "https://schema.org",
         "@type": "BlogPosting",
         "headline": p.title,
-        "datePublished": p.created_at.isoformat(),
-        "dateModified": (p.updated_at or p.created_at).isoformat(),
+        "datePublished": to_beijing(p.created_at).isoformat(),
+        "dateModified": to_beijing(p.updated_at or p.created_at).isoformat(),
         "author": {"@type": "Person", "name": author_name},
         "publisher": {"@type": "Organization",
                       "name": current_app.config.get("SITE_TITLE", "我的博客")},
@@ -492,7 +493,7 @@ def feed():
     items = []
     for p in posts:
         link = f"{base}/post/{p.slug}"
-        pub = p.created_at.strftime("%a, %d %b %Y %H:%M:%S +0000")
+        pub = fmt_bj(p.created_at, "%a, %d %b %Y %H:%M:%S") + " +0800"
         summary = (p.summary or (p.content or "")[:200]).strip()
         author = (p.author.username if p.author else site_title)
         cat = p.category.name if p.category else ""
@@ -507,7 +508,7 @@ def feed():
             f"      <description>{escape(summary)}</description>\n"
             "    </item>"
         )
-    last = posts[0].created_at.strftime("%a, %d %b %Y %H:%M:%S +0000") if posts else ""
+    last = fmt_bj(posts[0].created_at, "%a, %d %b %Y %H:%M:%S") + " +0800" if posts else ""
     xml = (
         '<?xml version="1.0" encoding="UTF-8"?>\n'
         '<rss version="2.0" xmlns:dc="http://purl.org/dc/elements/1.1/">\n'
@@ -539,7 +540,7 @@ def comments_feed():
     items = []
     for c, post in rows:
         link = f"{base}/post/{post.slug}#comment-{c.id}"
-        pub = c.created_at.strftime("%a, %d %b %Y %H:%M:%S +0000")
+        pub = fmt_bj(c.created_at, "%a, %d %b %Y %H:%M:%S") + " +0800"
         author = (c.author or "").strip() or "匿名"
         body = (c.content or "").strip()
         items.append(
@@ -552,7 +553,7 @@ def comments_feed():
             f"      <description>{escape(body)}</description>\n"
             "    </item>"
         )
-    last = rows[0][0].created_at.strftime("%a, %d %b %Y %H:%M:%S +0000") if rows else ""
+    last = fmt_bj(rows[0][0].created_at, "%a, %d %b %Y %H:%M:%S") + " +0800" if rows else ""
     xml = (
         '<?xml version="1.0" encoding="UTF-8"?>\n'
         '<rss version="2.0" xmlns:dc="http://purl.org/dc/elements/1.1/">\n'
@@ -579,7 +580,7 @@ def sitemap():
     ]
     for p in visible_posts_query().all():
         urls.append((f"{base}/post/{p.slug}", "weekly", "0.8",
-                     (p.updated_at or p.created_at).strftime("%Y-%m-%d"), p.cover))
+                     fmt_bj(p.updated_at or p.created_at, "%Y-%m-%d"), p.cover))
     lines = [
         '<?xml version="1.0" encoding="UTF-8"?>',
         '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" '

@@ -16,7 +16,7 @@
               <span class="badge badge-off">已停用</span>
             {% endif %}
           </td>
-          <td>{{ s.created_at.strftime('%Y-%m-%d %H:%M') if s.created_at else '' }}</td>
+          <td>{{ s.created_at | bj('%Y-%m-%d %H:%M') }}</td>
           <td class="sub-actions">
             <form method="post" action="{{ url_for('admin.toggle_subscriber', sid=s.id) }}" class="inline-form">
                   {{ csrf_input() }}

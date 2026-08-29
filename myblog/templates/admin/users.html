@@ -44,7 +44,7 @@
               </form>
             {% endif %}
           </td>
-          <td>{{ u.created_at.strftime('%Y-%m-%d') if u.created_at else '—' }}</td>
+          <td>{{ u.created_at | bj('%Y-%m-%d') if u.created_at else '—' }}</td>
           <td>
             {% if u.is_super %}
               <span class="muted">不可操作</span>

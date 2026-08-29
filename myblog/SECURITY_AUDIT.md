@@ -2152,3 +2152,18 @@ v3.1.6 起后端 `app.py::_csrf_protect` 严格校验**所有非豁免 POST** �
 | 回归 | `py_compile` 通过（admin.css 为静态资源、DocsView.vue 仅样式，无 Python 逻辑改动）；全量 pytest 通过（29 passed；唯一失败 `test_backup_snapshot_is_consistent` 为预存 flaky，全量跑才触发、单独跑通过，`backup.py` 本次完全未触碰，与改动无关）。 | ✅ 无回归 |
 
 **R56 结论**：**0 遗留**。纯展示层 CSS 修复（后台统计长标题 + 公开站文档页长路径/表格/code 移动端换行），不引入任何新的安全边界；含前端改动需重建 `vue-frontend-dist.zip`（源自 `_vite_build18`）。发版前 `APP_VERSION` 已改为 `3.10.6`（与 Release tag 一致）。
+
+## 第五十七轮 R57（v3.10.7 · Redis 业务缓存层）
+
+| 维度 | 检查点 | 结论 |
+|------|--------|------|
+| XSS | 缓存仅存储「应用自生成数据」：`get_setting` 存 Setting 表字符串值（原样回传模板，仍走 Jinja `{{ }}` 自动转义）；`compute_summary` 存聚合计数/字符串；`get_circle_feed` 存友链条目（摘要已在 `feed_agg` 经 `clean_html` 清洗）。值统一 `json.dumps` 序列化，不拼接任何 HTML/JS，无用户可控内容进入缓存键或值。 | ✅ 无 XSS |
+| SQL 注入 | 无新增 SQL；缓存键为硬编码前缀 `blog:cache:` + 受控后缀：常量化 `feed:circle`/`stats:summary`，以及 `setting:<key>`（`<key>` 来自代码常量如 `site_title`，非用户可控；即便含特殊字符也仅作 Redis 键字符串，非 SQL）。全部参数化/`filter_by`，无字符串拼接。 | ✅ 无注入 |
+| 越权 | 未新增/改写任何路由、接口或权限边界；`cache_clear_prefix` 仅为可调用辅助函数，本次未暴露为任何端点（清缓存走部署期 redis-cli / 后续管理脚本，不新增未鉴权写面）。 | ✅ 无越权 |
+| SSRF/密钥/路径遍历 | `cache.py` 复用既有 `REDIS_URL`（与 `rate_limit` 同源），仅从 `current_app.config` 读取，无新增外部 URL 访问、无密钥读取/回显、无文件操作。 | ✅ 无 |
+| 资源/DoS | Redis 客户端沿用既有 2s `socket_connect_timeout`/`socket_timeout`；连接/读写异常全程 `try/except` 静默降级为「无缓存」，绝不把异常抛到业务层，无连接泄漏。各缓存带 TTL（feed 900s / stats 120s / setting 300s，均可环境变量覆盖），内存占用有界。`feed_agg` 命中缓存时直接返回，省去多源 RSS 抓取（反而降低外部 DoS/限流风险）。 | ✅ 无风险 |
+| CSRF | 未新增任何 POST 接口或表单；纯后端缓存封装，不改变请求处理流程。 | ✅ 无 CSRF 缺口 |
+| 兼容性/回归 | `cache.py` 自包含（仅 `json`/`threading` 顶层导入，`flask`/`redis` 懒加载），复用久经生产验证的 `rate_limit`/`_redis()` 降级范式；未配置 `REDIS_URL` 时行为与旧版完全一致（设置直查 DB、统计/博客圈每次重算）。py_compile 通过；全量 pytest 35 passed（含新增 `test_cache_layer.py` 4 项：命中/降级/装饰器/集成）。 | ✅ 自洽 |
+| 回归 | 在博客自带 venv（pytest 9.1.1）跑 `tests/`：**35 passed, 0 failed**（仅预存 `datetime.utcnow()` 弃用警告，与本次无关）；另用 fakeredis 等价内联假 Redis 验证 `get_setting`/`compute_summary`/`get_circle_feed` 真实写入 `blog:cache:*` 且二次命中、无 Redis 时降级不崩。 | ✅ 无回归 |
+
+**R57 结论**：**0 遗留**。新增 Redis 业务缓存层（复用既有 `REDIS_URL`，独立前缀 `blog:cache:`），覆盖博客圈 RSS 聚合、访问统计汇总、站点设置三类读多写少热点；未配置 Redis 时静默降级为「无缓存」，向后兼容、零风险。FastAPI 迁移经 POC 验证在 SQLite 下无收益（见发布说明），本次不迁。发版前 `APP_VERSION` 已改为 `3.10.7`（与 Release tag 一致）。

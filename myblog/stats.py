@@ -436,9 +436,26 @@ def compute_trend(days=30):
         return []
 
 
+def _stats_cache_ttl():
+    """统计汇总缓存 TTL（秒），读配置，缺省 120。"""
+    try:
+        from flask import current_app
+        return int(current_app.config.get("CACHE_TTL_STATS", 120))
+    except Exception:
+        return 120
+
+
 def compute_summary():
-    """统计汇总：供 /api/stats/summary 与后台统计页使用。"""
-    return {
+    """统计汇总：供 /api/stats/summary 与后台统计页使用。
+
+    v3.10.7：结果缓存到 Redis（key=blog:cache:stats:summary，TTL=CACHE_TTL_STATS）。
+    统计非实时强一致需求，短 TTL 即可大幅削减聚合查询压力；未配置 REDIS_URL 静默降级为直算。
+    """
+    from cache import cache_get, cache_set
+    val, hit = cache_get("stats:summary")
+    if hit:
+        return val
+    result = {
         "total_visits": VisitLog.query.count(),
         "today_visits": VisitLog.query.filter_by(date=today_str()).count(),
         "today_date": today_str(),
@@ -454,3 +471,5 @@ def compute_summary():
         "bot_breakdown": _bot_breakdown(),
         "updated_at": fmt_bj(datetime.datetime.utcnow(), "%Y-%m-%d %H:%M:%S"),
     }
+    cache_set("stats:summary", result, ttl=_stats_cache_ttl())
+    return result

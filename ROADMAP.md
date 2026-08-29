@@ -738,3 +738,8 @@ v3.1.7 修复 CSRF 隐藏域乱码后，用户反馈「退出登录按钮失效�
 
 - **改的什么**：窄屏下两处长文本横向溢出——后台 `/admin/stats` 长标题压到进度条；公开站 `/docs` 长路径/长表格/长 inline code 溢出版心。后台 `myblog/static/admin.css` 给 `.rank-title` 加换行、移动端去 `white-space:nowrap`；公开站 `vue-frontend/src/views/DocsView.vue` 给 `.path`/`.params-table`/inline `code` 加换行、移动端 `.params-table` 改 `table-layout:fixed`。纯样式，无新功能/接口。
 - **验证**：`py_compile` 通过；R56 九维审计 0 遗留；pytest 通过（29 passed，1 个预存 flaky 无关）。**含前端改动，需重建 `vue-frontend-dist.zip`**（源自 `_vite_build18`）。APP_VERSION 升为 v3.10.6。
+
+## 61. v3.10.7：Redis 业务缓存层（R57 审计通过）
+
+- **改的什么**：新增 Redis 业务缓存层（复用 `REDIS_URL`，前缀 `blog:cache:`），覆盖博客圈 RSS 聚合、访问统计汇总、站点设置三类读多写少热点；未配 Redis 静默降级「无缓存」，零风险。另经 POC 验证 SQLite 下 FastAPI 异步无收益，本期不迁移 FastAPI。
+- **验证**：`py_compile` 通过；R57 九维审计 0 遗留；pytest **35 passed**（新增 `tests/test_cache_layer.py`）。APP_VERSION 升为 v3.10.7。

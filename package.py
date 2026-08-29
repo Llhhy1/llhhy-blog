@@ -27,7 +27,7 @@ BACKEND_SRC = os.path.join(ROOT, "myblog")
 FRONT_BASE = os.path.join(ROOT, "vue-frontend")
 
 # 后端打包排除项
-EXCLUDE_DIRS = {"data", "__pycache__", ".git", "node_modules"}
+EXCLUDE_DIRS = {"data", "__pycache__", ".git", "node_modules", "instance"}
 EXCLUDE_SUFFIXES = (".pyc",)
 
 

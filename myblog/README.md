@@ -2,9 +2,8 @@
 
 llhhy-blog 的后端：Flask + SQLite，服务端渲染前台 + `/api/*` JSON 接口 + Jinja2 管理后台。
 
-- 当前版本：**v3.10.7**
+- 当前版本：**v3.10.6**
 - 移动端适配（v3.10.6）：修复后台「统计」长标题与公开站「文档页」移动端长文本横向溢出穿模（窄屏统一换行而非挤压版心）。
-- Redis 业务缓存层（v3.10.7）：复用既有 `REDIS_URL` 新增博客圈 RSS 聚合 / 访问统计汇总 / 站点设置的 Redis 缓存（前缀 `blog:cache:`）；未配置 Redis 自动回退「无缓存」。
 - 时区：展示统一北京时间（UTC+8），存储仍为 UTC；配置见 `config.TIME_ZONE`（默认 `Asia/Shanghai`，固定不可经环境变量改，避免 UI 内部错位）。
 - 根目录 README / 历史版本见仓库根 [README.md](../README.md) 与 [CHANGELOG.md](../CHANGELOG.md)
 
@@ -70,10 +69,7 @@ python app.py            # http://127.0.0.1:5000
 | `COOKIE_SECURE` | `true` | 本地 HTTP 开发设 `false` |
 | `BLOG_OPEN_REGISTER` | `true` | 关闭公开注册设为 `false` |
 | `CORS_ORIGIN` | 空 | 跨域白名单，逗号分隔 |
-| `REDIS_URL` | — | 多 worker 全局限流；**v3.10.7 起同时作为业务缓存层数据源**（博客圈聚合 / 统计汇总 / 站点设置），未配置则业务缓存自动回退「无缓存」 |
-| `CACHE_TTL_FEED` | `900` | 博客圈 RSS 聚合缓存 TTL（秒） |
-| `CACHE_TTL_STATS` | `120` | 访问统计汇总缓存 TTL（秒） |
-| `CACHE_TTL_SETTING` | `300` | 站点设置缓存 TTL（秒） |
+| `REDIS_URL` | — | 多 worker 全局限流 |
 | `SESSION_IDLE_MINUTES` | `60` | 会话闲置超时，`0` 关闭 |
 | `CAPTCHA_ENABLED` | `true` | 图形验证码 |
 | `FEED_FETCH_TIMEOUT` | `8` | 友链 RSS 抓取 socket 超时（秒）；坏源超时只跳过、不卡死 worker |

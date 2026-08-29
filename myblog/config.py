@@ -12,7 +12,7 @@ os.makedirs(DATA_DIR, exist_ok=True)
 
 # 应用版本号：与 GitHub Release 标签保持一致（vX.Y.Z）。
 # 后台侧边栏左下角会显示该版本，用于确认服务器安装的代码是否为最新。
-APP_VERSION = "3.10.7"
+APP_VERSION = "3.10.6"
 
 
 class Config:
@@ -160,13 +160,6 @@ class Config:
     # Redis 全局限流（高优）：REDIS_URL 配置后（如 redis://127.0.0.1:6379/0），
     # rate_limit 改用 Redis 计数（多 worker 全局一致）；未配置自动回退内存计数（单进程）。
     REDIS_URL = os.environ.get("REDIS_URL", "")
-
-    # Redis 业务缓存层（v3.10.7）：与 rate_limit 共用 REDIS_URL，独立前缀 blog:cache:。
-    # 未配置 REDIS_URL 时全部静默降级为「无缓存」（passthrough），不影响主流程；
-    # Redis 连接/读写异常也降级为无缓存，绝不抛到业务层。均可用环境变量覆盖。
-    CACHE_TTL_FEED = int(os.environ.get("CACHE_TTL_FEED", "900"))       # 博客圈 RSS 聚合（秒）
-    CACHE_TTL_STATS = int(os.environ.get("CACHE_TTL_STATS", "120"))     # 访问统计汇总（秒）
-    CACHE_TTL_SETTING = int(os.environ.get("CACHE_TTL_SETTING", "300")) # 站点设置（秒）
 
     # ===== 只读诊断 MCP（v3.10.0）=====
     # 端点 /mcp：把「应用层健康状态」暴露给 AI 助手做远程诊断（全站体检/日志/数据库/统计）。

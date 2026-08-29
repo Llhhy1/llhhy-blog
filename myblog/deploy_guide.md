@@ -67,7 +67,7 @@
    > - **邮件群发（v2.4.0 起不需要在环境变量配）**：登录后台 → 「📧 邮件设置」直接填 SMTP 即可（见下方「邮件设置」章节）。若你更想用环境变量，也可配 `SMTP_HOST` / `SMTP_PORT` / `SMTP_USERNAME` / `SMTP_PASSWORD` / `SMTP_FROM` / `SMTP_USE_SSL`（后台设置优先于环境变量）。
    >
    > **v3.1.6 安全加固新增可选配置**（不配用默认值即可）：
-   > - `REDIS_URL`：多 worker 部署时启用 Redis 全局限流计数（如 `redis://127.0.0.1:6379/0`）。**不配则自动回退进程内内存滑动窗口**，单 worker 无影响，多 worker 限流各自独立（略弱但可用）。v3.10.7 起同一 `REDIS_URL` 同时驱动业务缓存层（博客圈聚合 / 统计汇总 / 站点设置），未配置则业务缓存回退「无缓存」，零风险。
+   > - `REDIS_URL`：多 worker 部署时启用 Redis 全局限流计数（如 `redis://127.0.0.1:6379/0`）。**不配则自动回退进程内内存滑动窗口**，单 worker 无影响，多 worker 限流各自独立（略弱但可用）。
    > - `SMTP_PASSWORD_ENV_FIRST`：默认 `true`——SMTP 密码优先读环境变量 `SMTP_PASSWORD`，库值仅兜底（避免数据库泄露时密码直接暴露）。
    > - `STRONG_PASSWORD`：默认 `true`——启用弱密码黑名单 + 字母/数字复杂度校验；`false` 关闭。
    > - `STRONG_PASSWORD_MIXED_CASE`：默认 `false`——`true` 时额外要求大小写混合。
@@ -385,17 +385,6 @@ supervisorctl status
 - **后端**：覆盖 `myblog-backend.zip` 后**停止 → 启动** gunicorn（修复后台「统计」排行长标题在手机端穿模：`admin.css` 的 `.rank-title` 换行、移除移动端 `white-space:nowrap`）。打包已排除 `instance/` 防本地库泄漏。
 - **前端缓存**：SPA 由 Nginx 直接服务，覆盖 `index.html`+`assets/` 后请**硬刷新（Ctrl+F5）/无痕窗口**；可在宝塔「软件商店 → Nginx → 配置 → 重载」清 Nginx 缓存。
 - **验证**：后台左下角显示 `v3.10.6`；手机端打开 `/admin/stats` 与 `/docs`，长标题/长路径/长表格不再横向溢出。
-
-### v3.10.7 升级注意（Redis 业务缓存层）
-
-- **本版纯后端改动，前端产物无变化**：前端沿用 v3.10.6 的 `_vite_build16`，只需覆盖 `myblog-backend.zip`，无需重建/覆盖前端。
-- **Redis 可选但推荐**：v3.10.7 新增业务缓存层（博客圈 RSS 聚合 / 访问统计汇总 / 站点设置），复用既有 `REDIS_URL`（与全局限流同源），独立前缀 `blog:cache:`。
-  - 若服务器**已装 Redis 并设了 `REDIS_URL`**（v3.1.6 起多 worker 限流就在用），缓存**自动生效**，无需额外操作；
-  - 若**未装 Redis / 未设 `REDIS_URL`**，缓存层静默回退「无缓存」，行为与升级前完全一致，零风险。
-- **部署步骤**：①（可选）宝塔「软件商店 → Redis」安装并启动，或 `apt install redis-server`；② 在 gunicorn 启动环境变量中设 `REDIS_URL=redis://127.0.0.1:6379/0`（同机零网络开销）；③ 覆盖 `myblog-backend.zip` 后**停止 → 启动** gunicorn（restart 不重载）即生效。
-- **缓存 TTL（均可环境变量覆盖）**：`CACHE_TTL_FEED=900` / `CACHE_TTL_STATS=120` / `CACHE_TTL_SETTING=300`（秒）。
-- **清缓存**：需强制失效时 `redis-cli --scan --pattern 'blog:cache:*' | xargs redis-cli del`，或直接重启 gunicorn（TTL 到点自然失效）。
-- **验证**：后台左下角显示 `v3.10.7`；设了 `REDIS_URL` 后 `redis-cli get blog:cache:stats:summary` 应有值；未设则无 Redis 连接、页面照常。
 
 ### v3.8.8 升级注意（修复全站体检 500 + 文档页显示不全）
 

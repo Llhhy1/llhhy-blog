@@ -14,8 +14,9 @@ import datetime
 from models import FriendLink
 from utils import clean_html, fmt_bj, to_beijing, BEIJING_TZ
 
-# v3.10.7：博客圈聚合缓存改为 Redis（见 get_circle_feed），跨 worker 共享、重启不丢；
-# 未配置 REDIS_URL 时 cache_get 静默降级为每次重算。不再使用进程内 _CACHE。
+# 内存缓存（单进程有效；多 worker 下各进程独立缓存，足够个人博客使用）
+_CACHE = {"items": [], "ts": 0}
+_CACHE_TTL = 900  # 秒
 # v3.10.4：博客圈 RSS 抓取超时（秒）。防止不可达/超慢的源（如被墙的外站）卡死整个
 # 聚合、甚至拖垮 gunicorn worker。运行时从 current_app.config["FEED_FETCH_TIMEOUT"] 读取（默认 8）。
 FEED_FETCH_TIMEOUT = 8
@@ -157,28 +158,11 @@ def validate_feed_url(url, timeout=8):
         _sock.setdefaulttimeout(_old)
 
 
-def _feed_cache_ttl():
-    """博客圈聚合缓存 TTL（秒），读配置，缺省 900。"""
-    try:
-        from flask import current_app
-        return int(current_app.config.get("CACHE_TTL_FEED", 900))
-    except Exception:
-        return 900
-
-
 def get_circle_feed(force=False):
-    """返回聚合后的博客圈条目（按时间倒序，最多 40 条）。force=True 忽略缓存。
-
-    v3.10.7 起缓存改用 Redis（key=blog:cache:feed:circle）：跨 gunicorn worker 共享、
-    重启不丢；未配置 REDIS_URL 时 cache_get 静默降级为「每次重算」。后台「诊断助手」的
-    强制刷新按钮走 force=True，会先删 key 再重算。
-    """
-    if not force:
-        from cache import cache_get
-        val, hit = cache_get("feed:circle")
-        if hit:
-            return val
+    """返回聚合后的博客圈条目（按时间倒序，最多 40 条）。force=True 忽略缓存。"""
     now = time.time()
+    if not force and _CACHE["items"] and now - _CACHE["ts"] < _CACHE_TTL:
+        return _CACHE["items"]
 
     # v3.10.4：抓取前设置全局 socket 超时，避免坏源卡死（finally 还原）。
     import socket as _sock
@@ -277,11 +261,8 @@ def get_circle_feed(force=False):
 
         items.sort(key=lambda x: x["ts"], reverse=True)
         items = items[:40]
-        # v3.10.7：写回 Redis（跨 worker 共享；未配置 REDIS_URL 静默降级）
-        from cache import cache_set, cache_delete
-        if force:
-            cache_delete("feed:circle")
-        cache_set("feed:circle", items, ttl=_feed_cache_ttl())
+        _CACHE["items"] = items
+        _CACHE["ts"] = now
         # v3.8.6：写回诊断（供 API 返回）
         for k, v in diag.items():
             _LAST_DIAG[k] = v

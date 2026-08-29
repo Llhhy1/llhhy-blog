@@ -553,34 +553,16 @@ def detect_bot(ua):
     return (False, "", "")
 
 
-def _setting_cache_ttl():
-    """站点设置缓存 TTL（秒），读配置，缺省 300。"""
-    try:
-        from flask import current_app
-        return int(current_app.config.get("CACHE_TTL_SETTING", 300))
-    except Exception:
-        return 300
-
-
 def get_setting(key, default=None):
     """读取站点设置（Setting 表键值对）。返回字符串；不存在返回 default。
     用于后台可动态调整的开关（如评论审核），优先级高于环境变量默认值。
-
-    v3.10.7：DB 查询结果缓存到 Redis（key=blog:cache:setting:<key>，TTL=CACHE_TTL_SETTING）。
-    站点设置读多写少，短 TTL 即可；未配置 REDIS_URL 静默降级为直查 DB。
     """
-    from cache import cache_get, cache_set
-    val, hit = cache_get("setting:" + key)
-    if hit:
-        return val if val is not None else default
     try:
         from models import Setting
         s = Setting.query.filter_by(key=key).first()
-        val = s.value if s and s.value is not None else None
+        return s.value if s and s.value is not None else default
     except Exception:
-        val = None
-    cache_set("setting:" + key, val, ttl=_setting_cache_ttl())
-    return val if val is not None else default
+        return default
 
 
 def setting_bool(key, default=False):

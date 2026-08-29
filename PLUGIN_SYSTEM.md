@@ -1,6 +1,7 @@
 # 插件系统设计方案（PLUGIN_SYSTEM）
 
 > 状态：设计稿（v1，2026-08-28）· 目标版本：v3.9.0 起逐步落地
+> **v3.10.0 变更（2026-08-29）**：内置插件 `contact_card`、`article_toc` 已**全部移除**，仅保留插件框架（加载器 / 事件总线 / 后台管理页 / 前端槽位）。`ENABLED_PLUGINS` 默认值改为空。详见第 16 节。
 > 适用仓库：`llhhy-blog`（Flask 后端 `myblog/` + Vue3 前端 `vue-frontend/`）
 > 关联纪律：发版仍走 8 步流程（审计→文档→版本→构建→打包→commit/tag→Release→记忆）；
 > 插件代码随博客一起走 Release，**不做运行时热加载**。
@@ -328,8 +329,9 @@ ENABLED_PLUGINS=demo python -c "from myblog.app import create_app; app=create_ap
 
 ## 12. 开放决策点（待你拍板）
 
-1. **首个真实插件做什么？** ✅ **已选定并落地：`article_toc`（文章目录侧栏）**，详见第 15 节。
-   其余候选（访客统计增强、友链 RSS 聚合面板、第三方评论接入）仍可按同一骨架继续加。
+1. **首个真实插件做什么？** ✅ 曾选定并落地 `article_toc`（文章目录侧栏），详见第 15 节。
+   ⚠️ **v3.10.0 起该插件已随 `contact_card` 一并移除**（内置插件全部下线，框架保留）。
+   其余候选（访客统计增强、友链 RSS 聚合面板、第三方评论接入）仍可按同一骨架继续加——新建目录 + 填 `ENABLED_PLUGINS` 即可，无需改核心代码。
 2. **M2 是否随 M0 一起做？** ✅ 已随 M0 一起做（见第 14 节）。
 3. **插件数据持久化方式**：共用主库 SQLite 表（简单，随备份走）vs 插件独立文件（隔离，但备份需单独处理）。默认共用主库（`article_toc` 无持久化需求，纯前端插件）。
 
@@ -415,7 +417,12 @@ M0 已在 `main` 落地（未单独打 Release，随下次版本带）：
 
 ---
 
-## 15. 首个真实插件：`article_toc`（文章目录侧栏 · 已落地 · 2026-08-28）
+## 15. 首个真实插件：`article_toc`（文章目录侧栏 · 已落地 · 2026-08-28 · ⚠️ v3.10.0 已移除）
+
+> **⚠️ 状态变更**：`article_toc` 与 `contact_card` 两个内置插件在 **v3.10.0** 已全部从仓库移除，
+> 仅插件框架保留。本节作为**设计参考**保留——若日后要重建文章目录侧栏插件，直接照此实现即可，
+> 核心代码（PostView.vue / App.vue / Sidebar.vue）无需改动。移除后文章目录回退到核心
+> `PostView.vue` 的内联 TOC（文首显示、不随滚动高亮，可用但体验降级）。
 
 ### 需求与选型
 - **痛点**：核心 `PostView.vue` 已有内联 TOC（`<nav class="toc">`），但它是**静态列表**，
@@ -457,8 +464,8 @@ M2 的全局 `sidebar` 槽位对**所有非 `/docs` 路由**都渲染（见 `App
 |------|------|
 | `myblog/plugins/article_toc/__init__.py` | 后端插件模块，`register()` 返回 manifest + 声明 remote_components；`slots: []`（纯前端） |
 | `myblog/static/plugins/article_toc/widget.js` | 远程组件（自包含原生 JS，sticky 侧栏 + scroll-spy） |
-| `myblog/config.py` | `ENABLED_PLUGINS` 默认值 → `"contact_card,article_toc"` |
-| `tests/test_plugin_system.py` | 新增 4 个 article_toc 测试（共 14 passed） |
+| `myblog/config.py` | `ENABLED_PLUGINS` 默认值 → 原 `"contact_card,article_toc"`；**v3.10.0 起改为空** |
+| `tests/test_plugin_system.py` | 原新增 4 个 article_toc 测试；**v3.10.0 起改为「临时插件驱动」，不再依赖任何内置插件**（共 31 passed 全量） |
 
 ### 测试（14 passed）
 - `test_article_toc_loaded`：默认启用，出现在 `/api/plugins`。
@@ -470,4 +477,27 @@ M2 的全局 `sidebar` 槽位对**所有非 `/docs` 路由**都渲染（见 `App
 - 远程组件走 `/static/plugins/` 静态目录，**前端无需重新构建**（本轮 `vite build` 仅为回归验证）。
 - 后端需重启 gunicorn（宝塔「停止 → 启动」）才会加载新插件并出现在 `/api/plugins`。
 - 若不想启用：后台「🧩 插件管理」停用，或设 `DISABLED_PLUGINS=article_toc`。
+
+---
+
+## 16. v3.10.0 内置插件下线 + 如何自建第一个插件（2026-08-29）
+
+### 16.1 为什么下线
+- 两个内置插件（`contact_card` 联系卡片、`article_toc` 文章目录侧栏）属于「演示性质」，长期维护成本高、与核心功能重叠（联系卡片可用后台「站点公告」替代；目录侧栏核心 `PostView.vue` 已有内联 TOC）。
+- 用户决策：**保留插件框架、移除内置插件**——框架是「能力」，一旦需要新插件随时可加；内置插件是「内容」，下线不影响框架可用性。
+- 框架保留项：`myblog/plugins/__init__.py`（加载器 + 失败隔离）、`myblog/plugins/signals.py`（事件总线）、`templates/admin/plugins.html`（后台管理页）、前端 `App.vue` 的 nav/sidebar/footer/html/remote_components 槽位、`/api/plugins` 与运行时启停接口。
+- `ENABLED_PLUGINS` 默认值改为空 → `create_app` 不加载任何插件，`/api/plugins` 返回空清单；前端槽位无数据渲染为空，不报错。
+- `article_toc` 下线后文章目录回退到核心内联 TOC（文首显示、不随滚动高亮）。
+
+### 16.2 自建一个插件（三步）
+以「友链 RSS 聚合面板」为例，照第 2/4/15 节的契约即可：
+
+1. **建目录 + register**：在 `myblog/plugins/<slug>/__init__.py` 写 `register(app, cfg)`，返回 manifest（含 `slots` / `remote_components` / `nav` 等声明），用 `app.register_blueprint(bp)` 挂路由。
+2. **（纯前端插件）** 在 `myblog/static/plugins/<slug>/widget.js` 写自包含原生 JS（参考第 15 节），manifest 里声明 `remote_components: [{name, url:"/static/plugins/<slug>/widget.js"}]`。
+3. **启用**：宝塔环境变量 `ENABLED_PLUGINS` 填 `<slug>`（多插件逗号分隔），「停止 → 启动」gunicorn 生效。后台「🧩 插件管理」可查看状态与运行时启停。
+
+> 红线（重申）：只装自写 / 审计过的插件（第三方插件 = 任意代码执行）；`html` 槽位强制 DOMPurify；远程组件仅限同源 `/static/plugins/`；装卸 = 发版 + 重启，不做运行时热加载。
+
+### 16.3 测试解耦
+`tests/test_plugin_system.py` 改为 **「临时插件驱动」**：用 `pluggy`-free 的 `tmp_path` 现场生成一个临时插件目录，并把 `plugins` 包的 `__path__` 指向它，从而验证「加载 / 槽位 / 事件 / 启停 / 失败隔离」完整链路，**不再依赖任何内置插件**（内置插件一删，测试不红）。
 

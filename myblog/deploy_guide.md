@@ -665,6 +665,73 @@ supervisorctl status
 - **⚠️ 运维提醒（请务必告知自己/同伴）**：启用 WAL 后 `myblog/data/` 下会出现 `blog.db-wal`、`blog.db-shm` 两个文件，这是**正常产物，千万别手动删除**（删掉 -wal 可能丢失尚未 checkpoint 的已提交数据）。手动备份数据库请改用 `sqlite3 blog.db ".backup /path/to/backup.db"` 或后台「💾 数据备份」，**不要**直接拷 `blog.db`。
 - **验证**：pytest 23 passed（新增 8 条缓存/WAL/备份相关）；R49 十维审计 0 遗留（详见 `SECURITY_AUDIT.md` R49 轮）。APP_VERSION 升为 v3.9.1。
 
+### v3.10.0 升级注意（只读诊断 MCP · 内置插件全部下线 · R50 审计通过）
+
+- **改的什么**：
+  - ① 新增**只读诊断 MCP 端点** `/mcp`（`myblog/mcp_diag.py`）：把「应用层健康状态」暴露给 AI 助手远程诊断——全站体检 9 维、数据库状态（journal_mode / 渲染缓存命中率）、版本与迁移一致性、最近错误日志、内容统计。**全部工具只读**，不开放任何写操作。
+  - ② 内置插件 `contact_card`、`article_toc` **全部下线**（含 `static/plugins/` 下两个远程组件），**插件框架保留**；`ENABLED_PLUGINS` 默认值改为空。文章目录回退到核心 `PostView.vue` 的内联 TOC（文首显示、不随滚动高亮）。
+  - ③ 纯后端改动，**前端产物无变化**（可只覆盖后端 zip）。
+- **🔑 新增环境变量（全部可选，不配则 /mcp 关闭）**：
+  | 变量 | 默认 | 说明 |
+  |---|---|---|
+  | `MCP_AUTH_TOKEN` | 空 | **认证令牌。留空 = /mcp 整体关闭（401）**，不会裸奔 |
+  | `MCP_LOG_FILES` | 空 | 允许被读取的日志文件绝对路径，逗号分隔；留空则「最近错误日志」工具不可用 |
+  | `MCP_ALLOWED_ORIGINS` | 空 | 额外合法的 Origin 白名单（防 DNS 重绑定），一般留空即可 |
+- **🚨 宝塔配置三步（缺一不可）**：
+  1. **生成 token**（服务器上执行，或用本机生成后复制）：
+     ```bash
+     python3 -c "import secrets;print(secrets.token_urlsafe(32))"
+     ```
+     把输出填到宝塔「Python 项目 → 环境变量」的 `MCP_AUTH_TOKEN`。**不要填进代码、不要提交到 git**。
+  2. **Nginx 必须补 `/mcp` 反代**（否则会被 Vue SPA 兜底成 index.html，返回 HTML 而不是 JSON）：
+     ```nginx
+     location = /mcp {
+         proxy_pass http://127.0.0.1:8686;
+         proxy_set_header Host $host;
+         proxy_set_header X-Real-IP $remote_addr;
+         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+         proxy_set_header X-Forwarded-Proto $scheme;
+     }
+     ```
+     加完「重载配置」。站点必须走 **HTTPS**（token 在请求头里，HTTP 明文传输等于裸奔）。
+  3. （可选，推荐）**Nginx 对 /mcp 加 IP 白名单**——只允许你常用的出口 IP：
+     ```nginx
+     location = /mcp {
+         allow 你的公网IP;
+         deny all;
+         proxy_pass http://127.0.0.1:8686;
+         # ...其余 proxy_set_header 同上
+     }
+     ```
+- **✅ 上线核验（逐条 curl，在服务器或本机执行）**：
+  ```bash
+  # ① 无 token → 必须 401（若返回 200 或 HTML，说明反代没生效）
+  curl -i -X POST https://你的域名/mcp -H 'Content-Type: application/json' -d '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}'
+  # ② 正确 token → 返回 JSON 工具列表
+  curl -s -X POST https://你的域名/mcp \
+    -H 'Content-Type: application/json' \
+    -H 'Accept: application/json, text/event-stream' \
+    -H "Authorization: Bearer 你的TOKEN" \
+    -d '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}'
+  # ③ 错误 token → 仍须 401
+  ```
+- **AI 助手接入（本机 `~/.workbuddy/mcp.json`）**：
+  ```json
+  {
+    "mcpServers": {
+      "llhhy-blog-diag": {
+        "type": "http",
+        "url": "https://你的域名/mcp",
+        "headers": { "Authorization": "Bearer 你的TOKEN" }
+      }
+    }
+  }
+  ```
+  保存后到 WorkBuddy 连接器管理页面对新出现的 `llhhy-blog-diag` 点「信任」才生效。之后直接问「博客现在健康吗」即可调用。
+- **⚠️ 安全红线**：端点只读、日志自动打码、路径不可遍历、未配 token 自动关闭——这四条是代码级约束并有测试兜底。请务必：token 定期轮换、站点强制 HTTPS、`/mcp` 尽量加 IP 白名单。
+- **验证**：pytest **31 passed**（新增 11 条 MCP 测试 + 重写 10 条插件框架测试）；R50 十二维审计 **0 遗留**。APP_VERSION 升为 v3.10.0。
+
+
 ## 邮件设置（新文章通知订阅者 · 后台配置）
 
 > 从 v2.4.0 起，邮件群发配置**不需要再填环境变量**，直接在后台操作（更便捷）。
@@ -807,3 +874,4 @@ with app.app_context():
 ## 云服务器安全组（如果端口访问不通）
 
 本博客对外只需 **80（HTTP）/ 443（HTTPS）** 两个端口。若部署后域名打不开，请到你的云厂商控制台 → 云服务器 → 安全组 → 确认入方向放行了 `80` 和 `443`（能正常打开面板一般说明安全组是通的，通常无需改动）。
+

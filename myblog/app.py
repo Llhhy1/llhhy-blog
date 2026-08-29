@@ -18,6 +18,7 @@ from utils import make_slug
 from routes import main_bp
 from admin import admin_bp
 from api import api_bp
+from mcp_diag import mcp_bp  # v3.10.0：只读诊断 MCP（端点 /mcp）
 
 
 _PRAGMAS_INSTALLED = False
@@ -400,6 +401,7 @@ def create_app():
     app.register_blueprint(main_bp)
     app.register_blueprint(admin_bp)
     app.register_blueprint(api_bp)
+    app.register_blueprint(mcp_bp)  # v3.10.0：/mcp（只读诊断，未配置 MCP_AUTH_TOKEN 时自动关闭）
 
     # 前后端分离：仅在显式配置了 CORS_ORIGIN 时才允许跨域，且精确匹配来源（默认同源，不开通配）
     @app.after_request
@@ -457,8 +459,10 @@ def create_app():
         # - /api/stats/read|visit|search：匿名埋点信标（SPA 每次路由变化/阅读即上报），
         #   不携带任何特权状态、仅累加计数，跨站 POST 至多污染统计，无安全风险，故豁免 CSRF，
         #   否则匿名访客首屏上报会被 403 拦截（既报控制台错误又丢失访问统计）。
+        # /mcp：自带 Bearer Token 鉴权（非会话），与 webhook 同理豁免 CSRF
         exempt = ("/api/webhook/deploy", "/api/captcha", "/api/captcha/verify",
-                  "/api/stats/read", "/api/stats/visit", "/api/stats/search")
+                  "/api/stats/read", "/api/stats/visit", "/api/stats/search",
+                  "/mcp")
         path = request.path
         if any(path.startswith(e) for e in exempt):
             return None

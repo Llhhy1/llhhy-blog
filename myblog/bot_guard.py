@@ -18,7 +18,10 @@ from stats import client_ip
 # 后台 / 接口各自已有 rate_limit，避免被 bot_guard 误伤或自锁）。
 # ⚠️ /feed.xml 也必须跳过：RSS 阅读器（Feedly/Inoreader/NewsBlur 等）大多带
 # bot 类 UA，开启反爬限流后会被按 tool/unknown 阈值限流甚至封禁，导致订阅失败。
-_SKIP_PREFIXES = ("/static/", "/robots.txt", "/sitemap.xml", "/feed.xml", "/admin/", "/api/")
+# ⚠️ /mcp 也必须跳过（v3.10.0）：诊断端点自带 Bearer Token 鉴权 + 独立限流，
+# 且调用方 UA 多为程序客户端，开启反爬后会被误判为 bot 而封禁，导致远程诊断失效。
+_SKIP_PREFIXES = ("/static/", "/robots.txt", "/sitemap.xml", "/feed.xml",
+                  "/admin/", "/api/", "/mcp")
 
 
 def guard_enabled():

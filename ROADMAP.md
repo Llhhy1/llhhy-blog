@@ -696,3 +696,11 @@ v3.1.7 修复 CSRF 隐藏域乱码后，用户反馈「退出登录按钮失效�
 - **④ 核实（不做无谓改动）**：「评论 XSS」传言核实为误判——`CommentForm.vue` 用文本插值 `{{ c.content }}`，前台 `v-html` 仅 4 处且内容均经服务端清洗/转义。
 - **验证**：pytest 23 passed（新增 8 条）；R49 十维审计 0 遗留。
 - **部署注意**：纯后端改动（前端 dist 无需重建）；**启用 WAL 后 `data/` 下的 `blog.db-wal`、`blog.db-shm` 是正常产物，勿手动删除；手工备份请用 `sqlite3 .backup` 或后台「💾 数据备份」，不要直接 `cp blog.db`**；升级后到体检页确认 `journal_mode = wal`。APP_VERSION 升为 v3.9.1。
+
+## 54. v3.10.0：只读诊断 MCP + 内置插件全部下线（R50 审计通过）
+
+- **① 新增只读诊断 MCP 端点 `/mcp`**（`myblog/mcp_diag.py`）：把「应用层健康状态」暴露给 AI 助手远程诊断，补的是云主机监控（Lighthouse MCP）看不到的那一层。实现 MCP Streamable HTTP 传输**最小子集**（仅 POST、响应单 JSON，不流式），Flask 直接承载、零新依赖、零新进程。提供 5 个只读工具：`health_overview`（全站体检 9 维）、`db_status`（journal_mode + 渲染缓存命中率）、`version_info`（版本与迁移一致性）、`recent_errors`（日志尾部，自动打码）、`content_stats`（内容与待办统计）。
+- **② 安全是设计出来的**（四条代码级约束 + 测试兜底）：认证 fail-closed（未配 `MCP_AUTH_TOKEN` 整体 401，绝不裸奔；`hmac.compare_digest` 恒定时间比较）、强制只读（源码无写操作，`test_mcp_source_is_readonly` 静态审查守红线）、日志必脱敏、`SECRET_KEY`/`password`/`token` 等打码、路径不可遍历（日志仅来自 `MCP_LOG_FILES` 环境变量）；另按 IP 限流 60 次/分钟 + MCP 规范 Origin 校验防 DNS 重绑定 + `/mcp` 加入 CSRF 豁免与 bot_guard 白名单。
+- **③ 内置插件全部下线**：移除 `contact_card`、`article_toc` 两个插件及 `static/plugins/` 下两个远程组件；**插件框架保留**（`plugins/__init__.py`、`signals.py`、后台「🧩 插件管理」页、前端 nav/sidebar/footer/html/remote_components 槽位），`ENABLED_PLUGINS` 默认置空。文章目录回退到核心 `PostView.vue` 的内联 TOC（文首、不随滚动高亮）。测试改为「临时插件驱动」（改写 `plugins` 包 `__path__` 指向 tmp 目录），不再依赖任何内置插件。
+- **验证**：pytest **31 passed**（新增 11 条 MCP 测试 + 重写 10 条插件框架测试）；发布包冒烟（MCP 握手/鉴权/Origin/5 工具/脱敏/错误码）全通过；R50 十二维审计 0 遗留。
+- **部署注意（必做）**：纯后端改动，前端产物无变化；① 生成 token 填宝塔环境变量 `MCP_AUTH_TOKEN`；② **Nginx 补 `location = /mcp` 反代**（否则被 Vue SPA 兜底成 index.html），站点强制 HTTPS；③ 建议 `/mcp` 再加 IP 白名单；④ 上线后 curl 核验（无 token 必须 401）。本机接入：`~/.workbuddy/mcp.json` 加 `type:"http"` + `headers.Authorization`，连接器管理页点「信任」。APP_VERSION 升为 v3.10.0。

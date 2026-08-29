@@ -2,7 +2,7 @@
 
 llhhy-blog 的后端：Flask + SQLite，服务端渲染前台 + `/api/*` JSON 接口 + Jinja2 管理后台。
 
-- 当前版本：**v3.9.1**
+- 当前版本：**v3.10.0**
 - 根目录 README / 历史版本见仓库根 [README.md](../README.md) 与 [CHANGELOG.md](../CHANGELOG.md)
 
 ## 目录结构
@@ -15,8 +15,9 @@ myblog/
 ├── routes.py       # 前台页面 / 登录注册 / 评论 / 天气 / RSS
 ├── admin.py        # 后台管理（内容/评论/统计/用户/设置/系列/公告/留言墙/订阅者）
 ├── api/            # JSON 接口（/api/*，按功能拆分，见 API.md）
+├── mcp_diag.py     # 只读诊断 MCP 端点 /mcp（v3.10.0，见文末说明）
 ├── plugins/        # 插件系统 v3.9.0（<slug>/ 目录 + signals.py 事件总线）
-│   └── contact_card/ article_toc/   # 内置示例插件与文章目录侧栏插件
+│                   #   v3.10.0 起仓库不再内置插件，放目录 + 填 ENABLED_PLUGINS 即启用
 ├── fts.py          # SQLite FTS5 全文搜索（不可用时降级 LIKE）
 ├── stats.py        # 访问统计与 IP 属地解析
 ├── backup.py       # 数据备份与异地容灾（本地/OSS/SCP/WebDAV）
@@ -71,13 +72,21 @@ python app.py            # http://127.0.0.1:5000
 | `CAPTCHA_ENABLED` | `true` | 图形验证码 |
 | `UPDATE_HMAC_KEY` | — | 发布包 HMAC 签名 |
 
-**插件系统（v3.9.0）**
+**插件系统（v3.9.0 起；v3.10.0 起不再内置插件）**
 
 | 变量 | 默认 | 说明 |
 |---|---|---|
-| `ENABLED_PLUGINS` | `contact_card,article_toc` | 启用插件列表 |
+| `ENABLED_PLUGINS` | 空 | 启用插件 slug 列表（v3.10.0 起默认为空 = 不加载任何插件） |
 | `DISABLED_PLUGINS` | 空 | 紧急关停，优先级高于启用列表 |
 | `PLUGINS_DIR` | `myblog/plugins` | 插件根目录 |
+
+**只读诊断 MCP（v3.10.0）**
+
+| 变量 | 默认 | 说明 |
+|---|---|---|
+| `MCP_AUTH_TOKEN` | 空 | 认证令牌。**留空 = `/mcp` 整体关闭（401）**，不会裸奔 |
+| `MCP_LOG_FILES` | 空 | 允许被读取的日志文件绝对路径，逗号分隔；留空则「最近错误日志」不可用 |
+| `MCP_ALLOWED_ORIGINS` | 空 | 额外的合法 Origin 白名单（防 DNS 重绑定），一般留空 |
 
 其他备份（`BACKUP_*`）、推送（`TELEGRAM_*` / `WECOM_WEBHOOK_URL`）、Webhook（`WH_DEPLOY_SECRET`）等变量见 [deploy_guide.md](deploy_guide.md)。密钥一律走环境变量，绝不落库。
 

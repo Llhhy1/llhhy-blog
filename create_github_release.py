@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-一键发布 GitHub Release（v3.9.1）。
+一键发布 GitHub Release（v3.10.0）。
 
 用法：
     set GH_TOKEN=ghp_xxx          (Windows)  /  export GH_TOKEN=ghp_xxx   (bash)
@@ -20,9 +20,9 @@ import urllib.error
 import urllib.parse
 
 REPO = "Llhhy1/llhhy-blog"
-TAG = "v3.9.1"
-TITLE = "llhhy-blog v3.9.1 - 正文渲染缓存 + SQLite WAL"
-NOTES_FILE = "_release_notes_v3.9.1.md"
+TAG = "v3.10.0"
+TITLE = "llhhy-blog v3.10.0 - 只读诊断 MCP + 内置插件下线"
+NOTES_FILE = "_release_notes_v3.10.0.md"
 ASSETS = ["myblog-backend.zip", "vue-frontend-dist.zip", "sha256.txt"]
 
 API = "https://api.github.com"

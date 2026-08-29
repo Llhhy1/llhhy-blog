@@ -12,7 +12,7 @@ os.makedirs(DATA_DIR, exist_ok=True)
 
 # 应用版本号：与 GitHub Release 标签保持一致（vX.Y.Z）。
 # 后台侧边栏左下角会显示该版本，用于确认服务器安装的代码是否为最新。
-APP_VERSION = "3.9.1"
+APP_VERSION = "3.10.0"
 
 
 class Config:
@@ -136,17 +136,30 @@ class Config:
     # Referrer-Policy / CSP（同源受限，允许内联样式/脚本，放宽 img 与 connect）。
     SECURITY_HEADERS = os.environ.get("SECURITY_HEADERS", "true").lower() != "false"
 
-    # ===== 插件系统（v3.9.0 起）=====
-    # 启用清单：逗号分隔的插件 slug；置空 = 不加载任何插件。
+    # ===== 插件系统（v3.9.0 起；v3.10.0 起不再内置任何插件）=====
+    # 启用清单：逗号分隔的插件 slug；置空 = 不加载任何插件（v3.10.0 起的默认值）。
     # 紧急关停：DISABLED_PLUGINS 内的 slug 即使出现在 ENABLED_PLUGINS 也会被跳过（重启生效）。
     # 插件目录默认 myblog/plugins/（随代码一起发版，不做运行时热加载）。
-    ENABLED_PLUGINS = os.environ.get("ENABLED_PLUGINS", "contact_card,article_toc")
+    # 自带插件请把目录放进 myblog/plugins/<slug>/ 并把 slug 填到这里。
+    ENABLED_PLUGINS = os.environ.get("ENABLED_PLUGINS", "")
     DISABLED_PLUGINS = os.environ.get("DISABLED_PLUGINS", "")
     PLUGINS_DIR = os.path.join(BASE_DIR, "plugins")
 
     # Redis 全局限流（高优）：REDIS_URL 配置后（如 redis://127.0.0.1:6379/0），
     # rate_limit 改用 Redis 计数（多 worker 全局一致）；未配置自动回退内存计数（单进程）。
     REDIS_URL = os.environ.get("REDIS_URL", "")
+
+    # ===== 只读诊断 MCP（v3.10.0）=====
+    # 端点 /mcp：把「应用层健康状态」暴露给 AI 助手做远程诊断（全站体检/日志/数据库/统计）。
+    # 全部工具**只读**，不开放任何写操作。
+    #   MCP_AUTH_TOKEN      ：认证令牌，缺失则 /mcp 整体关闭（fail-closed，绝不裸奔）。
+    #                         生成：python -c "import secrets;print(secrets.token_urlsafe(32))"
+    #   MCP_LOG_FILES       ：允许被 recent_errors 读取的日志文件绝对路径，逗号分隔；
+    #                         留空则该工具不可用（不猜路径、不遍历目录）。
+    #   MCP_ALLOWED_ORIGINS ：除本站外的合法 Origin 白名单（防 DNS 重绑定），逗号分隔，可留空。
+    MCP_AUTH_TOKEN = os.environ.get("MCP_AUTH_TOKEN", "")
+    MCP_LOG_FILES = os.environ.get("MCP_LOG_FILES", "")
+    MCP_ALLOWED_ORIGINS = os.environ.get("MCP_ALLOWED_ORIGINS", "")
 
     # ===== 可信代理（X-Forwarded-For 收口，安全相关）=====
     # 仅在请求确实由「可信代理」转发（TCP 直连地址 remote_addr 命中此处，或默认的内部地址）

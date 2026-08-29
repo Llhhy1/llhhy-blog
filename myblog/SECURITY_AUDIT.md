@@ -2009,3 +2009,32 @@ v3.1.6 起后端 `app.py::_csrf_protect` 严格校验**所有非豁免 POST** �
 **R49 结论**：**0 遗留**。性能改动未引入新的安全边界；唯一有实质风险的「WAL 与备份不兼容」已通过 backup.py + update.sh + deploy.sh 三处配套闭环，并在诊断页暴露 journal_mode 便于部署后核验。发版前 `APP_VERSION` 已改为 `3.9.1`（与 Release tag 一致）。
 
 **升级后必查**（宝塔 → 后台「运维诊断 → 全站健康体检 → 数据库健康」）：`日志模式 journal_mode` 应显示 **WAL**，`写锁等待 busy_timeout` 应显示 **5000 ms**；若显示 `delete` 说明 data 目录不可写，需检查目录权限与属主（www）。
+
+## R50 轮（v3.10.0 · 只读诊断 MCP + 内置插件全部下线 · 2026-08-29）
+
+审计对象：
+1. **新增只读诊断 MCP 端点** `/mcp`（`myblog/mcp_diag.py`）：实现 MCP Streamable HTTP 传输最小子集（仅 POST、响应单 JSON），暴露 5 个只读工具（全站体检 / 数据库状态 / 版本与迁移 / 最近错误日志 / 内容统计）；`app.py` 注册蓝图、CSRF 豁免、bot_guard 跳过；`config.py` 新增 `MCP_AUTH_TOKEN` / `MCP_LOG_FILES` / `MCP_ALLOWED_ORIGINS` 三个环境变量。
+2. **内置插件下线**：`contact_card`、`article_toc` 两个插件（含 `static/plugins/` 下的远程组件）移除；插件框架（`plugins/__init__.py`、`signals.py`、后台管理页、前端槽位）**保留**；`ENABLED_PLUGINS` 默认值改为空。
+
+| 编号 | 维度 | 结论 |
+|------|------|------|
+| R50-1 | 认证（关键） | `MCP_AUTH_TOKEN` **未配置时端点整体关闭**（`_token_ok()` 直接返回 False → 401），fail-closed，绝不存在「忘了配 token 就裸奔」的状态。校验用 `hmac.compare_digest` **恒定时间比较**，杜绝通过响应时间逐字节爆破 token。token 只从环境变量读取，不入代码、不入库、不在任何响应中回显。 | ✅ 强认证 |
+| R50-2 | DNS 重绑定 | MCP 规范强制要求：带 `Origin` 头时必须校验。实现为「无 Origin 放行（curl / MCP 客户端等非浏览器调用方通常不带）+ 同源或 `MCP_ALLOWED_ORIGINS` 白名单内放行 + 其余 403」，非法来源返回 403 且不泄露任何数据。 | ✅ 已防 |
+| R50-3 | 授权 / 只读红线 | 5 个工具全部只做**查询**：ORM `count()` / `PRAGMA` 只读 / 读日志文件。**代码层面不存在写操作**——由用例 `test_mcp_source_is_readonly` 静态审查兜底（禁 `db.session.commit/add/delete`、`os.remove/rename/unlink`、`shutil.`、`subprocess`、`eval/exec`），将来有人加写操作会直接测试失败。不暴露重启服务、改设置、删数据、发文章等任何变更能力。 | ✅ 强制只读 |
+| R50-4 | 注入 | 无 SQL 字符串拼接：`PRAGMA` 为无参常量语句，计数走 ORM；MCP 方法名/工具名走字典查表（未知返回 -32601/-32602），不拼进任何查询；日志读取路径**只取自环境变量 `MCP_LOG_FILES`**，不接受客户端传入路径，杜绝路径穿越（无 `../` 可注入的入口）。 | ✅ 无注入 |
+| R50-5 | 敏感信息泄露 | ① 日志内容经 `_redact()` 统一打码 `SECRET_KEY` / `password` / `token` / `api_key` / `Bearer xxx`（用例 `test_log_redaction` 覆盖）；② 不返回 `SECRET_KEY`、SMTP 密码、备份密钥、Webhook 密钥；③ `version_info` 只回显版本号与迁移列是否齐全，不含凭据。注：`db_status` 会返回数据库文件绝对路径——属**博主自查所需**（用于确认线上真实运行目录），且访问者已通过 token 认证，不构成外部泄露。 | ✅ 已脱敏 |
+| R50-6 | 路径与文件安全 | `recent_errors` **只读取显式配置的日志文件**，`MCP_LOG_FILES` 留空则该工具直接返回提示（不猜路径、不遍历目录、不允许客户端指定）；文件不存在返回结构化错误而非抛异常。读取用「尾部回看最多 512KB + 最多 200 行」双重上限，避免超大日志打满内存。 | ✅ 无遍历 |
+| R50-7 | DoS / 资源 | 三重约束：① 按 IP 限流 60 次/分钟（复用 `utils.rate_limit`，超限 429）；② 单文件最多读 512KB、最多 200 行；③ 端点不提供 SSE 长连接与会话（`GET/PUT/DELETE/PATCH` 一律 405），无长连接占用 worker。限流异常时静默放行（避免限流组件故障把自己锁在外面）。 | ✅ 有上限 |
+| R50-8 | CSRF | `/mcp` 加入 CSRF 豁免清单，理由充分：该端点**不依赖会话 Cookie**，走 `Authorization: Bearer` 鉴权，与既有 `/api/webhook/deploy` 同类；浏览器无法凭空附加正确的 Bearer 头，跨站表单/脚本均无法调用。豁免按**前缀精确匹配** `/mcp`，不误伤其它路径。同源校验仍由 R50-2 的 Origin 检查与全局 `enforce_same_origin` 兜底。 | ✅ 豁免合理 |
+| R50-9 | 传输 | 端点本身不区分 http/https，**强制依赖部署侧 HTTPS**（部署文档明确要求：Nginx 只经 443 暴露 `/mcp`，HTTP 全站 301 跳 HTTPS）；token 走请求头而非 URL 参数，避免落进 Nginx 访问日志与浏览器历史。 | ⚠️ 依赖部署 |
+| R50-10 | 反爬误伤 | `/mcp` 已加入 `bot_guard._SKIP_PREFIXES`：诊断调用方 UA 多为程序客户端，开启反爬后会被误判为 bot 封禁，导致远程诊断失效（与 `/api/`、`/feed.xml` 同理）。 | ✅ 已豁免 |
+| R50-11 | 内置插件下线 | 删除 `contact_card` / `article_toc` 插件及 `static/plugins/` 下两个远程组件后：① `ENABLED_PLUGINS` 默认置空，框架不加载任何插件，`/api/plugins` 返回空列表且不报错；② 前端槽位（nav/sidebar/footer/html）无数据时渲染为空，不报错；③ 后台「🧩 插件管理」页列出空清单（框架保留，装新插件后自动出现）；④ `article_toc` 下线后文章目录回退到核心 `PostView.vue` 的内联 TOC（文首、不随滚动高亮）——**功能降级但可用**，符合预期。测试已改为「临时插件驱动」，不再依赖任何内置插件。 | ✅ 无残留引用 |
+| R50-12 | 回归 | 全量 pytest **31 passed**（新增 11 条 MCP 测试 + 重写 10 条插件框架测试）；原有 23 条（v3.9.1）全部保持通过。 | ✅ 无回归 |
+
+**R50 结论**：**0 遗留**。MCP 端点在设计上把「认证失败即关闭」「只允许只读」「日志必脱敏」「路径不可遍历」四条做成了代码级约束并有测试兜底，而非依赖使用者的自觉。唯一的部署侧依赖是 **R50-9 的 HTTPS**——上线前必须确认 Nginx 已开启 443 且 `/mcp` 已反代（否则 token 会明文过公网，且 `/mcp` 会被 Vue SPA 兜底成 index.html 导致 404/HTML 而非 JSON）。发版前 `APP_VERSION` 已改为 `3.10.0`。
+
+**上线核验清单（部署后逐条确认）**：
+1. `curl -i https://你的域名/mcp -X POST -H 'Content-Type: application/json' -d '{}'` → 应返回 **401**（不是 200，也不是 index.html）；
+2. 带上正确 `Authorization: Bearer <token>` 再试 → 应返回 JSON-RPC 响应；
+3. 故意用错误 token → 仍为 401；
+4. 确认 Nginx 访问日志中**不出现** token 明文（token 走请求头，不应被记录）。

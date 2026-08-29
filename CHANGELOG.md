@@ -357,3 +357,16 @@
 - **④ 核实（不做无谓改动）**：传言中的「评论 XSS（`_comment()` 返回未消毒原文 + 前端 `v-html`）」经核实为**误判**——`CommentForm.vue` 用 `{{ c.content }}` 文本插值，前台 4 处 `v-html` 的内容均经服务端 `clean_html()` / `escape()` 处理。本次未改动评论链路。
 - **验证**：pytest **23 passed**（新增 8 条：缓存写入/命中不重算/正文变更失效/篡改自愈/迁移幂等/WAL PRAGMA 生效/备份快照完整性/清理 WAL 残留）；R49 十维审计 **0 遗留**（详见 `myblog/SECURITY_AUDIT.md` R49 轮）。
 - **⚠️ 部署注意**：**纯后端改动，不含前端构建产物**（前端 dist 无需重建，但发布包仍会整体重打）。覆盖 `myblog-backend.zip` 后「停止 → 启动」gunicorn；升级后请到后台「运维诊断 → 🩺 全站体检 → 数据库健康」确认 `日志模式 journal_mode` 显示 **WAL**、`写锁等待 busy_timeout` 显示 **5000 ms**（若显示 `delete` 说明 `data/` 目录不可写，检查属主与权限）。首次访问文章会触发一次渲染并落缓存，属正常现象。`data/` 目录下新增的 `blog.db-wal`、`blog.db-shm` 是 WAL 正常产物，**请勿手动删除**。APP_VERSION 升为 v3.9.1。
+
+### v3.10.0：只读诊断 MCP + 内置插件全部下线（R50 审计通过）
+
+- **① 新增只读诊断 MCP 端点 `/mcp`**（`myblog/mcp_diag.py`）：把「应用层健康状态」暴露给 AI 助手远程诊断，补的是云主机监控看不到的那一层。实现 MCP Streamable HTTP 传输的**最小子集**（仅 POST、响应单 JSON，不流式），因此无需 ASGI / 新依赖 / 新进程，Flask 直接承载。提供 5 个只读工具：`health_overview`（全站体检 9 维）、`db_status`（journal_mode + 渲染缓存命中率）、`version_info`（版本与迁移一致性）、`recent_errors`（日志尾部，自动打码）、`content_stats`（内容与待办统计）。
+- **② 安全是设计出来的，不是靠自觉**（四条都是代码级约束 + 测试兜底）：
+  - **认证 fail-closed**：未配置 `MCP_AUTH_TOKEN` 时端点整体返回 401，绝不存在「忘了配就裸奔」；校验用 `hmac.compare_digest` 恒定时间比较防时序爆破。
+  - **强制只读**：源码层不含任何写操作，由 `test_mcp_source_is_readonly` 静态审查（禁 commit/add/delete/os.remove/subprocess/eval）守住红线。
+  - **日志必脱敏**：`SECRET_KEY`、`password`、`token`、`api_key`、`Bearer xxx` 统一打码。
+  - **路径不可遍历**：日志文件只能由环境变量 `MCP_LOG_FILES` 显式指定，不接受客户端传路径。
+  - 另：按 IP 限流 60 次/分钟、MCP 规范要求的 Origin 校验（防 DNS 重绑定）、`/mcp` 加入 CSRF 豁免与 bot_guard 白名单（避免反爬误封）。
+- **③ 内置插件全部下线**：移除 `contact_card`、`article_toc` 两个插件及 `static/plugins/` 下两个远程组件；**插件框架保留**（加载器、事件总线、后台管理页、前端槽位），`ENABLED_PLUGINS` 默认值改为空。文章目录回退到核心 `PostView.vue` 的内联 TOC（文首显示、不随滚动高亮）。测试改为「临时插件驱动」（改写 plugins 包 `__path__` 指向 tmp 目录），不再依赖任何内置插件。
+- **验证**：pytest **31 passed**（新增 11 条 MCP 测试 + 重写 10 条插件框架测试）；发布包冒烟验证 MCP 握手/鉴权/Origin/5 工具/脱敏/错误码全通过；R50 十二维审计 **0 遗留**。
+- **⚠️ 部署注意（必做）**：**纯后端改动，前端产物无变化**。① 生成 token 填进宝塔环境变量 `MCP_AUTH_TOKEN`；② **Nginx 必须补 `location = /mcp` 反代**（否则被 Vue SPA 兜底成 index.html），站点强制 HTTPS；③ 建议对 `/mcp` 再加 IP 白名单；④ 上线后按 deploy_guide 的 curl 三步核验（无 token 必须 401）。本机接入：在 `~/.workbuddy/mcp.json` 加一条 `type: "http"` + `headers.Authorization`，再到连接器管理页点「信任」。APP_VERSION 升为 v3.10.0。

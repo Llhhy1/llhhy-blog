@@ -1,75 +1,142 @@
-"""插件系统冒烟测试（v3.9.0 · M0/M1/M2/M3）。
+"""插件系统冒烟测试（框架层 · v3.10.0 起不再依赖内置插件）。
 
-覆盖：应用能启动、插件系统接口可用、demo 插件公开接口可用、
-管理接口有鉴权、坏插件被隔离不拖垮博客、事件总线、nav/html 槽位、
-后台管理页鉴权与运行时启停。
+v3.10.0 起仓库**不再内置任何插件**（contact_card / article_toc 已下线），
+但插件框架本身保留，随时可装自写插件。因此本文件的定位是：
+
+- 验证「框架可用」：加载、槽位聚合、事件总线、失败隔离、运行时启停、后台鉴权；
+- **不依赖任何内置插件**：需要具体插件时，用 `tmp_plugin` fixture 在临时目录
+  现场生成一个最小插件（通过改写 plugins 包的 __path__ 让它可被 import），
+  测完自动恢复，不污染仓库。
+
 运行：在仓库根目录 `python -m pytest tests/ -q`
 """
 import os
 
+import pytest
+
+# 最小插件源码：覆盖 slots / footer / nav / html / remote_components 五类声明
+PROBE_SRC = '''
+def register(app, cfg):
+    return {
+        "name": "探测插件",
+        "version": "0.1.0",
+        "author": "tests",
+        "description": "仅用于测试插件框架的最小插件",
+        "slots": ["footer", "html"],
+        "footer_provider": lambda: [{"title": "探测", "text": "ok"}],
+        "nav_provider": lambda: [{"label": "探测", "url": "/probe"}],
+        "html_provider": lambda: "<b>probe</b>",
+        "remote_components": [
+            {"name": "probe_widget", "url": "/static/plugins/probe/widget.js"},
+            {"name": "bad_widget", "url": "https://evil.example.com/x.js"},
+        ],
+    }
+'''
+
+
+@pytest.fixture
+def tmp_plugin(app, tmp_path, monkeypatch):
+    """在临时目录造一个最小插件并加载，返回 slug。
+
+    原理：`_load_one` 用 `importlib.import_module("plugins.<slug>")` 加载，
+    只能从 plugins 包内导入。这里把包的 __path__ 临时指向 tmp 目录，
+    就能在不污染仓库的前提下测试真实加载链路（monkeypatch 结束后自动恢复）。
+    """
+    import plugins as plugins_pkg
+    from plugins import PLUGIN_REGISTRY, RUNTIME_DISABLED
+
+    slug = "probe_demo"
+    pkg = tmp_path / slug
+    pkg.mkdir()
+    (pkg / "__init__.py").write_text(PROBE_SRC, encoding="utf-8")
+
+    app.config["PLUGINS_DIR"] = str(tmp_path)
+    app.config["ENABLED_PLUGINS"] = slug
+    app.config["DISABLED_PLUGINS"] = ""
+    monkeypatch.setattr(plugins_pkg, "__path__",
+                        [str(tmp_path)] + list(plugins_pkg.__path__))
+    RUNTIME_DISABLED.clear()
+    PLUGIN_REGISTRY.clear()
+
+    # 用 reload 而非 load：它会先卸载 plugins_sys 蓝图再重新注册，
+    # 避免在同一个 app 上重复 register_blueprint 报「名字已注册」。
+    from plugins import reload_plugins
+    reload_plugins(app, app.config)
+    yield slug
+
+    # 收尾：清干净全局状态，避免影响其它测试
+    PLUGIN_REGISTRY.clear()
+    RUNTIME_DISABLED.clear()
+
 
 def test_app_boots_and_plugins_endpoint(client):
+    """框架端点可用且结构完整（五个槽位键齐全）。"""
     r = client.get("/api/plugins")
     assert r.status_code == 200
     data = r.get_json()
-    assert "plugins" in data and "footer" in data
-    # 默认启用 contact_card（见 config.ENABLED_PLUGINS）
-    ids = [p["id"] for p in data["plugins"]]
-    assert "contact_card" in ids
+    for key in ("plugins", "footer", "nav", "sidebar", "html", "remote_components"):
+        assert key in data, f"缺少槽位键：{key}"
 
 
-def test_contact_card_list_public(client):
-    r = client.get("/api/plugin/contact_card/list")
-    assert r.status_code == 200
-    assert isinstance(r.get_json(), list)
+def test_no_builtin_plugins_by_default():
+    """v3.10.0：默认不内置任何插件（ENABLED_PLUGINS 为空）。"""
+    import config as _cfg
+    assert (_cfg.Config.ENABLED_PLUGINS or "").strip() == ""
 
 
-def test_admin_upsert_requires_login(client):
-    # 未登录写操作应被拒（CSRF 或登录校验），验证管理接口有鉴权屏障。
-    r = client.post(
-        "/api/plugin/contact_card/upsert",
-        json={"title": "x", "csrf_token": "bad"},
-    )
-    assert r.status_code in (401, 403)
+def test_plugins_list_empty_when_nothing_enabled(client):
+    """未启用插件时列表为空，且前端槽位数据也为空（不应报错）。"""
+    data = client.get("/api/plugins").get_json()
+    assert data["plugins"] == []
+    assert data["footer"] == [] and data["nav"] == [] and data["html"] == []
 
 
 def test_failure_isolation_bad_plugin(monkeypatch):
-    # 启用一个不存在的插件 slug，create_app 不应崩溃，
-    # 且 /api/plugins 仍正常只列出 contact_card。
-    # 注意：Config 类在导入时即固化 env 值，需用 setattr 改类属性（setenv 无效）。
+    """启用不存在的 slug：create_app 不崩溃，坏插件被隔离。"""
     import config as _cfg
-    monkeypatch.setattr(_cfg.Config, "ENABLED_PLUGINS", "nonexistent_slug,contact_card")
+    monkeypatch.setattr(_cfg.Config, "ENABLED_PLUGINS", "nonexistent_slug")
     monkeypatch.setattr(_cfg.Config, "DISABLED_PLUGINS", "")
     from app import create_app
 
     app = create_app()
-    c = app.test_client()
-    r = c.get("/api/plugins")
+    r = app.test_client().get("/api/plugins")
     assert r.status_code == 200
-    ids = [p["id"] for p in r.get_json()["plugins"]]
-    assert "contact_card" in ids
-    assert "nonexistent_slug" not in ids
+    assert r.get_json()["plugins"] == []
 
 
-def test_disabled_plugin_skipped(monkeypatch):
-    # DISABLED_PLUGINS 优先级高于 ENABLED_PLUGINS，contact_card 应被跳过。
+def test_disabled_plugin_skipped(monkeypatch, tmp_path):
+    """DISABLED_PLUGINS 优先级高于 ENABLED_PLUGINS，命中的插件不加载。"""
     import config as _cfg
-    monkeypatch.setattr(_cfg.Config, "ENABLED_PLUGINS", "contact_card")
-    monkeypatch.setattr(_cfg.Config, "DISABLED_PLUGINS", "contact_card")
-    from app import create_app
+    import plugins as plugins_pkg
+    slug = "probe_demo"
+    pkg = tmp_path / slug
+    pkg.mkdir()
+    (pkg / "__init__.py").write_text(PROBE_SRC, encoding="utf-8")
+    monkeypatch.setattr(plugins_pkg, "__path__",
+                        [str(tmp_path)] + list(plugins_pkg.__path__))
+    monkeypatch.setattr(_cfg.Config, "ENABLED_PLUGINS", slug)
+    monkeypatch.setattr(_cfg.Config, "DISABLED_PLUGINS", slug)
+    monkeypatch.setattr(_cfg.Config, "PLUGINS_DIR", str(tmp_path))
 
+    from app import create_app
     app = create_app()
-    c = app.test_client()
-    r = c.get("/api/plugins")
-    assert r.status_code == 200
-    ids = [p["id"] for p in r.get_json()["plugins"]]
-    assert "contact_card" not in ids
+    assert app.test_client().get("/api/plugins").get_json()["plugins"] == []
+
+
+def test_plugin_dir_missing_is_safe(app):
+    """PLUGINS_DIR 不存在时应安全跳过，不影响启动。"""
+    from plugins import load_plugins, PLUGIN_REGISTRY
+    app.config["PLUGINS_DIR"] = "/definitely/not/a/real/path"
+    PLUGIN_REGISTRY.clear()
+    load_plugins(app, app.config)          # 不应抛异常
+    assert PLUGIN_REGISTRY == {}
 
 
 # ---------- M1：事件总线 ----------
 def test_signal_bus_fires():
-    # 连接订阅者后调用 emit 助手，订阅者应被触发（验证总线 + 助手可用）。
-    from plugins.signals import post_published, comment_created, emit_post_published, emit_comment_created
+    """连接订阅者后调用 emit 助手，订阅者应被触发（验证总线 + 助手可用）。"""
+    from plugins.signals import (post_published, comment_created,
+                                 emit_post_published, emit_comment_created)
 
     fired_posts, fired_comments = [], []
 
@@ -91,185 +158,67 @@ def test_signal_bus_fires():
         comment_created.disconnect(on_comment)
 
 
-# ---------- M2：前端 nav / html 槽位 ----------
-def test_plugins_endpoint_exposes_nav_and_html(client):
-    r = client.get("/api/plugins")
-    assert r.status_code == 200
-    data = r.get_json()
-    # nav：contact_card 提供「联系」导航入口
-    assert "nav" in data
-    labels = [n.get("label") for n in data["nav"]]
-    assert "联系" in labels
-    # html：contact_card 提供富文本徽标（前端须 DOMPurify 消毒）
-    assert "html" in data
-    slugs = [h.get("slug") for h in data["html"]]
-    assert "contact_card" in slugs
-    # remote_components：仅同源 /static/plugins/ 前缀
-    assert "remote_components" in data
-    for rc in data["remote_components"]:
-        assert rc["url"].startswith("/static/plugins/")
-
-
-# ---------- 首个真实插件：article_toc（文章目录侧栏） ----------
-def test_article_toc_loaded(client):
-    # 默认启用 article_toc（config.ENABLED_PLUGINS），应出现在 /api/plugins。
-    import config as _cfg
-    assert "article_toc" in _cfg.Config.ENABLED_PLUGINS
-    r = client.get("/api/plugins")
-    assert r.status_code == 200
-    ids = [p["id"] for p in r.get_json()["plugins"]]
-    assert "article_toc" in ids
-
-
-def test_article_toc_declares_remote_component(client):
-    # TOC 走 M3 远程组件（纯前端）：声明且仅允许同源 /static/plugins/ 前缀。
+# ---------- M2/M3：槽位聚合与远程组件（用临时插件验证） ----------
+def test_tmp_plugin_exposes_slots(client, tmp_plugin):
     r = client.get("/api/plugins")
     data = r.get_json()
+    assert [p["id"] for p in data["plugins"]] == [tmp_plugin]
+    assert data["plugins"][0]["slots"] == ["footer", "html"]
+
+    # nav / html / footer 聚合生效
+    assert "探测" in [n.get("label") for n in data["nav"]]
+    assert tmp_plugin in [h.get("slug") for h in data["html"]]
+    assert any(f.get("title") == "探测" for f in data["footer"])
+
+
+def test_remote_components_must_be_same_origin(client, tmp_plugin):
+    """远程组件只允许同源 /static/plugins/ 前缀，外链一律过滤（防任意脚本注入）。"""
+    data = client.get("/api/plugins").get_json()
     remotes = data.get("remote_components", [])
-    mine = [rc for rc in remotes if rc.get("name") == "article_toc_widget"]
-    assert len(mine) == 1
-    assert mine[0]["url"] == "/static/plugins/article_toc/widget.js"
-    assert mine[0]["url"].startswith("/static/plugins/")
+    urls = [rc["url"] for rc in remotes]
+    assert "/static/plugins/probe/widget.js" in urls
+    assert "https://evil.example.com/x.js" not in urls
+    assert all(u.startswith("/static/plugins/") for u in urls)
 
 
-def test_article_toc_no_unexpected_slots(client):
-    # article_toc 是纯前端插件：不占 footer/nav/sidebar/html 槽位，避免与核心 UI 冲突。
-    r = client.get("/api/plugins")
-    data = r.get_json()
-    meta = [p for p in data["plugins"] if p["id"] == "article_toc"][0]
-    assert meta["slots"] == []
-    # 因此不会往 nav/sidebar/html 里塞内容
-    assert all(n.get("label") != "目录" for n in data["nav"])
-
-
-def test_article_toc_widget_file_exists():
-    # 打包/部署前确认静态资源存在（前端按此 URL 加载脚本）。
-    import os
-    import config as _cfg
-    # 注意：BASE_DIR 是 config 模块级变量，不是 Config 类的属性。
-    path = os.path.join(
-        _cfg.BASE_DIR, "static", "plugins", "article_toc", "widget.js"
-    )
-    assert os.path.isfile(path), f"缺少远程组件文件：{path}"
-    assert os.path.getsize(path) > 500
-
-
-def test_article_toc_widget_static_safety_and_behavior():
-    """静态审查 widget.js：关键行为存在 + 无危险写法（远程组件随发版走，需守红线）。
-
-    远程组件等同插件代码信任级别，这里用静态检查守住几条不可回归的红线：
-    - 只用 textContent 写标题文本（不用 innerHTML 拼用户内容），避免 XSS；
-    - 无 eval / new Function / 外链请求（fetch / XHR）；
-    - 具备 sticky 定位、平滑滚动、防遮挡、窄屏隐藏、SPA 重建、滚动节流。
-    """
-    import os
-    import config as _cfg
-
-    path = os.path.join(
-        _cfg.BASE_DIR, "static", "plugins", "article_toc", "widget.js"
-    )
-    src = open(path, encoding="utf-8").read()
-
-    # --- 行为（不可回归）---
-    assert '.post-body' in src, "应只扫描文章正文容器"
-    assert 'querySelectorAll("h2, h3, h4")' in src, "应扫描 h2/h3/h4"
-    assert "sidebar.insertBefore(nav, sidebar.firstChild)" in src, "应注入 .sidebar 顶部"
-    assert "position: sticky" in src, "应为 sticky 常驻侧栏"
-    assert "scrollIntoView" in src, "点击应平滑滚动"
-    assert "scroll-margin-top" in src, "应有防固定头部遮挡的偏移"
-    assert "max-width: 820px" in src, "窄屏应隐藏（由核心内联 TOC 兜底）"
-    assert "MutationObserver" in src, "应监听 SPA 内容变化以重建"
-    assert "requestAnimationFrame" in src, "滚动监听应节流"
-    assert "var(--card-bg" in src and "data-theme" in src, "应使用 CSS 变量适配深色模式"
-
-    # --- 安全红线 ---
-    assert "eval(" not in src and "new Function" not in src, "禁止动态执行代码"
-    assert "fetch(" not in src and "XMLHttpRequest" not in src, "禁止发起外链请求"
-    # innerHTML 只允许用于清空（赋值空串），不得拼接内容。
-    # 先剔除注释行与行尾注释，避免说明文字里的 "innerHTML" 触发误报。
-    code_lines = []
-    for line in src.splitlines():
-        s = line.split("//", 1)[0].strip()  # 去掉行尾注释（简化处理，本文件无含 // 的字符串）
-        if s:
-            code_lines.append(s)
-    for line in code_lines:
-        if "innerHTML" in line:
-            assert 'innerHTML = ""' in line or "innerHTML = ''" in line, (
-                f"innerHTML 仅可用于清空，发现：{line}"
-            )
-    # 标题文本必须走 textContent（防 XSS）
-    assert "a.textContent = text" in src, "标题文本应用 textContent 写入"
-
-
-# ---------- M3：后台管理页接口鉴权 + 运行时启停 ----------
+# ---------- M3：后台鉴权 + 运行时启停 ----------
 def test_plugins_status_requires_admin(client):
-    # 未登录访问管理状态接口应被拒。
     r = client.get("/api/plugins/status")
     assert r.status_code in (401, 403)
 
 
-def test_runtime_enable_disable(app):
-    # 运行时启停：禁用 → 移出注册表 + 写 disabled 标记；启用 → 重新加载。
-    # 用临时 PLUGINS_DIR，避免把 disabled 标记写进真实仓库。
-    import os
+def test_runtime_enable_disable(app, tmp_plugin):
+    """禁用 → 移出注册表 + 写 disabled 标记；启用 → 重新加载回注册表。"""
     import tempfile
-    from plugins import (set_plugin_enabled, PLUGIN_REGISTRY, RUNTIME_DISABLED, _marker_path)
+    from plugins import (set_plugin_enabled, PLUGIN_REGISTRY, RUNTIME_DISABLED,
+                         _marker_path)
 
-    tmp = tempfile.mkdtemp()
-    app.config["PLUGINS_DIR"] = tmp
     cfg = app.config
-    slug = "contact_card"
+    slug = tmp_plugin
     mp = _marker_path(cfg, slug)
     try:
-        # 禁用
         res = set_plugin_enabled(app, cfg, slug, False)
-        assert res["ok"] is True
-        assert res["enabled"] is False
+        assert res["ok"] is True and res["enabled"] is False
         assert slug not in PLUGIN_REGISTRY
         assert slug in RUNTIME_DISABLED
         assert mp and os.path.exists(mp)
-        # 启用
+
         res2 = set_plugin_enabled(app, cfg, slug, True)
-        assert res2["ok"] is True
-        assert res2["enabled"] is True
+        assert res2["ok"] is True and res2["enabled"] is True
         assert slug in PLUGIN_REGISTRY
         assert slug not in RUNTIME_DISABLED
-        # 注：disabled 标记文件删除在真实服务器生效；本沙箱对 os.remove 做 fail-closed
-        # 拦截，故不在此断言物理文件已删除，仅校验内存态与返回值。
+        # 注：本沙箱对 os.remove 做 fail-closed 拦截，故不断言标记文件已物理删除。
     finally:
-        # 清理：确保恢复启用、删除标记与临时目录
-        try:
-            set_plugin_enabled(app, cfg, slug, True)
-        except Exception:
-            pass
         RUNTIME_DISABLED.discard(slug)
-        if mp and os.path.exists(mp):
-            try:
-                os.remove(mp)
-            except Exception:
-                pass
-        try:
-            os.rmdir(tmp)
-        except Exception:
-            pass
+        assert isinstance(tempfile.tempdir, str) or tempfile.tempdir is None
 
 
-def test_reload_plugins(app):
-    # 整体重载不报错，且 contact_card 仍在注册表。
+def test_reload_plugins(app, tmp_plugin):
+    """整体重载不报错，临时插件仍在注册表。"""
     import tempfile
-    from plugins import reload_plugins, PLUGIN_REGISTRY, RUNTIME_DISABLED
+    from plugins import reload_plugins, PLUGIN_REGISTRY
 
-    # 隔离：临时 PLUGINS_DIR + 清空运行时禁用，避免受其他测试影响。
-    tmp = tempfile.mkdtemp()
-    app.config["PLUGINS_DIR"] = tmp
-    RUNTIME_DISABLED.clear()
-    try:
-        res = reload_plugins(app, app.config)
-        assert res["ok"] is True
-        assert "contact_card" in PLUGIN_REGISTRY
-    finally:
-        RUNTIME_DISABLED.discard("contact_card")
-        try:
-            os.rmdir(tmp)
-        except Exception:
-            pass
+    res = reload_plugins(app, app.config)
+    assert res["ok"] is True
+    assert tmp_plugin in PLUGIN_REGISTRY
+    assert isinstance(tempfile.tempdir, str) or tempfile.tempdir is None

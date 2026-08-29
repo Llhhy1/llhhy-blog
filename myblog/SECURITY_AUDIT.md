@@ -2058,3 +2058,23 @@ v3.1.6 起后端 `app.py::_csrf_protect` 严格校验**所有非豁免 POST** �
 **R51 结论**：**0 遗留**。纯诊断误报修复，不引入任何新的安全边界，所有维度均为既有权限/渲染/资源模型下的安全改造。发版前 `APP_VERSION` 已改为 `3.10.1`（与 Release tag 一致）。
 
 **部署注意**：本版仅后端 `diagnostics.py` 改动，**前端无需重新 vite build**；上传覆盖后端后「停止 → 启动」gunicorn 即生效，体检「前端构建产物」维度在部署态应直接显示 `ok`。
+
+## R52 轮（v3.10.2 · 诊断助手增强：SMTP 误报修复 + 新增 2 维度 · 2026-08-29）
+
+**背景**：v3.10.1 上线后远程体检发现「邮件 SMTP」仍误报 warn——根因 `check_config()` 查的是 `get_setting("smtp_host")`，但后台「邮件设置」存库的 key 实为 `mail_host`（`mail_notify.load_mail_config()` 读取 `mail_host`/`mail_username`/…），且用户是在后台面板配的、没用 `SMTP_HOST` 环境变量，故诊断永远判「未配置」。本轮：① 修正该字段名；② 应「更全面的诊断」需求，新增 **安全配置概览** 与 **渲染缓存命中率** 两个维度（9 维 → 11 维）。改动仅 `myblog/diagnostics.py`。
+
+| 编号 | 维度 | 审计点 | 结论 |
+|---|---|---|---|
+| R52-1 | XSS | 两个新 checker 与 SMTP 修正均只返回结构化 dict（`label`/`value`/`level`），由模板 `{{ }}` 文本插值渲染；`value` 来自配置布尔/计数器与 `mail_host`（SMTP 服务器地址，**非凭据**），无用户可控输入、无可注入 HTML/JS。 | ✅ 无 XSS |
+| R52-2 | SQL 注入 | `check_render_cache` 仅用 ORM `Post.query.count()` / `filter(Post.content_html.isnot(None))`，无字符串拼接；SMTP 与安全配置均为 `get_setting`/`current_app.config` 读配置，无 SQL。 | ✅ 无注入 |
+| R52-3 | 越权 | 新 checker 仍由 admin 专属诊断路由调用（`@admin_required` + 全局 `enforce_same_origin`），本轮未新增/改写任何路由，权限边界不变。 | ✅ 无越权 |
+| R52-4 | SSRF | 无任何外部 URL 访问；`check_security` 读环境变量/设置，`check_render_cache` 读本地 DB，无外部地址可注入。 | ✅ 无 SSRF |
+| R52-5 | CSRF | 未新增任何 POST 类请求，沿用既有 admin 路由 CSRF 保护；纯读函数逻辑改动。 | ✅ 无 CSRF 缺口 |
+| R52-6 | 密钥泄露 | 仅显示 `mail_host`（SMTP 服务器域名，非凭据）；`check_security` 读 `STRONG_PASSWORD`/`SECURITY_HEADERS` 为**布尔开关**，绝不显示密码/令牌；`mail_username`/`mail_password` 均不回显。无硬编码密钥。 | ✅ 无泄露 |
+| R52-7 | 资源泄漏 | 仅 ORM 计数与配置读取，无 `open`/subprocess/连接句柄，`run_all()` 异常兜底仍把单 checker 降级为 error 不拖垮整页。 | ✅ 无泄漏 |
+| R52-8 | 限流 / DoS | 纯只读诊断读函数，无新增写接口、无长连接；计数器有界（文章总数有限）。 | ✅ 无风险 |
+| R52-9 | 回归 | 修正 SMTP 字段名（`smtp_host`→`mail_host`）与 `load_mail_config` 一致；新增维度在 `run_all()` 自动纳入，后台体检页与 MCP `health_overview` 同步可见（无需改 MCP 代码）。`py_compile` 通过；全量 pytest **31 passed** 保持（新 checker 在隔离库下执行正常）。模拟 `run_all()` 验证两新维度均能返回结构化结果。 | ✅ 无回归 |
+
+**R52 结论**：**0 遗留**。诊断助手增强为只读配置/DB 读取，不引入任何新的安全边界；SMTP 误报根因（字段名与发信模块不一致）已对齐。发版前 `APP_VERSION` 已改为 `3.10.2`（与 Release tag 一致）。
+
+**部署注意**：本版仅后端 `diagnostics.py` 改动，**前端无需重新 vite build**；覆盖后端后「停止 → 启动」gunicorn 即生效。体检维度由 9 增至 11：「邮件 SMTP」改为查 `mail_host`（后台配的也能识别）、新增「安全配置概览」「渲染缓存命中率」。

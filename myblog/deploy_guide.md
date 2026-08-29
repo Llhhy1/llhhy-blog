@@ -734,6 +734,14 @@ supervisorctl status
 
 - **改的什么（纯后端，仅 `myblog/diagnostics.py`）**：`check_frontend_build()` 原只查 `vue-frontend/_vite_build*`，在部署态（`vue-frontend-dist.zip` 平铺到站点根目录，直接是 `index.html + assets/`）永远查不到 → 误报「未构建」。改为查 SPA 入口 `index.html`（部署态优先 `fe_dir/index.html`，回退本地 `_vite_buildN` / `dist`），两种布局都能识别。友链 RSS 某源解析 0 条属对方源为空，非本博客 bug。
 - **⚠️ 部署注意**：**纯后端改动，前端产物无变化**。覆盖 `myblog-backend.zip` 后「停止 → 启动」gunicorn（restart 不重载）即生效；后台「🩺 全站体检 → 前端构建产物」在部署态应直接显示 `ok`（不再误报 warn）。APP_VERSION 升为 v3.10.1。
+
+### v3.10.2 升级注意（诊断助手增强：SMTP 误报修复 + 新增 2 维度 · R52 审计通过）
+
+- **改的什么（纯后端，仅 `myblog/diagnostics.py`）**：
+  - ① 修复「邮件 SMTP」误报：`check_config()` 改查 `get_setting("mail_host")`（与 `mail_notify.load_mail_config()` 一致），后台「邮件设置」面板配的 SMTP 现在能正确识别为「已配置」（仅显示 SMTP 服务器域名，不回显账号/密码）。
+  - ② 新增 2 个诊断维度（9 → 11）：**安全配置概览**（验证码/评论/强密码 `STRONG_PASSWORD`/安全响应头 `SECURITY_HEADERS`/接口限流 状态汇总，开着评论却关验证码或未开安全头时会 warn）+ **渲染缓存命中率**（`Post.content_html` 已缓存占比，全未缓存预警性能退化/写回失败）。
+  - 新维度自动纳入 `run_all()`，后台「🩺 全站体检」与 MCP `health_overview` 同步可见，无需改 MCP 代码。
+- **⚠️ 部署注意**：**纯后端改动，前端产物无变化**。覆盖 `myblog-backend.zip` 后「停止 → 启动」gunicorn（restart 不重载）即生效；体检维度由 9 增至 11，「邮件 SMTP」维度后台配的也能显示 `ok`。APP_VERSION 升为 v3.10.2。
 - **验证**：pytest **31 passed**（新增 11 条 MCP 测试 + 重写 10 条插件框架测试）；R50 十二维审计 **0 遗留**。APP_VERSION 升为 v3.10.0。
 
 

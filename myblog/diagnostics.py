@@ -11,12 +11,14 @@
 1. 数据库健康（路径/大小/完整性 PRAGMA integrity_check/核心表行数）
 2. 运行环境依赖（feedparser / Pillow / bleach / markdown / FTS5 编译选项）
 3. 站点配置（站点名 / 注册 / 验证码 / 评论 / 邮件 SMTP / site_url）
-4. 博客圈 RSS 聚合（复用 feed_agg 逐条诊断）
-5. 数据备份（本地目录 / 保留天数 / 远端目标 / 最近备份文件）
-6. 搜索引擎 SEO（site_url / robots / sitemap / feed 路由存在性）
-7. 待处理事项（待审评论 / 待审友链申请 / 未读留言）
-8. 前端构建产物（SPA 入口 index.html 是否存在，部署态/本地构建均识别）
-9. 存储权限（数据目录可写）
+4. 安全配置概览（v3.10.2：验证码 / 评论 / 强密码 / 安全响应头 / 限流 状态汇总）
+5. 博客圈 RSS 聚合（复用 feed_agg 逐条诊断）
+6. 数据备份（本地目录 / 保留天数 / 远端目标 / 最近备份文件）
+7. 搜索引擎 SEO（site_url / robots / sitemap / feed 路由存在性）
+8. 待处理事项（待审评论 / 待审友链申请 / 未读留言）
+9. 前端构建产物（SPA 入口 index.html 是否存在，部署态/本地构建均识别）
+10. 存储权限（数据目录可写）
+11. 渲染缓存命中率（v3.10.2：已缓存正文文章占比，暴露缓存写回是否失效）
 """
 import importlib
 import os
@@ -194,7 +196,9 @@ def check_config():
     comments_enabled = setting_bool("comments_enabled", True)
     items.append({"label": "评论功能", "value": "开启" if comments_enabled else "关闭", "level": "info"})
 
-    smtp = get_setting("smtp_host") or os.environ.get("SMTP_HOST")
+    # 注意：后台「邮件设置」存库的 key 是 mail_host（见 mail_notify.load_mail_config），
+    # 而非环境变量名 smtp_host；宝塔环境变量才是 SMTP_HOST。两者任一存在即视为已配置。
+    smtp = get_setting("mail_host") or os.environ.get("SMTP_HOST")
     items.append({"label": "邮件 SMTP", "value": (smtp or "未配置"), "level": "ok" if smtp else "warn"})
     if not smtp:
         notes.append("未配置 SMTP，订阅确认邮件、通知邮件等不会发送（不影响站内功能）。")
@@ -397,6 +401,64 @@ def _human_age(sec):
     return f"{int(sec/86400)} 天"
 
 
+def check_security():
+    """安全配置概览（v3.10.2）：验证码/评论/强密码/安全头/限流 状态汇总，暴露安全短板。
+
+    仅读取配置（环境变量 STRONG_PASSWORD / SECURITY_HEADERS + 后台设置 captcha_enabled/
+    comments_enabled），不做任何写操作与网络请求。
+    """
+    items, notes, status = [], [], "ok"
+    captcha = setting_bool("captcha_enabled", True)
+    comments = setting_bool("comments_enabled", True)
+    strong = current_app.config.get("STRONG_PASSWORD", True)
+    sec_headers = current_app.config.get("SECURITY_HEADERS", True)
+    items.append({"label": "图形验证码", "value": "开启" if captcha else "关闭", "level": "ok" if captcha else "warn"})
+    items.append({"label": "评论功能", "value": "开启" if comments else "关闭", "level": "info"})
+    items.append({"label": "强密码策略", "value": "开启" if strong else "关闭", "level": "ok" if strong else "warn"})
+    items.append({"label": "安全响应头", "value": "开启" if sec_headers else "关闭", "level": "ok" if sec_headers else "warn"})
+    items.append({"label": "接口限流", "value": "启用（按 IP 60/min）", "level": "ok"})
+    if comments and not captcha:
+        status = "warn"
+        notes.append("评论功能开启但未启用图形验证码：匿名评论易被垃圾评论刷屏，建议开启验证码或开启评论审核。")
+    if not sec_headers:
+        if status == "ok":
+            status = "warn"
+        notes.append("未启用安全响应头（X-Frame-Options / X-Content-Type-Options 等）：建议开启 SECURITY_HEADERS。")
+    if not strong:
+        if status == "ok":
+            status = "warn"
+        notes.append("未启用强密码策略：管理员账户建议开启 STRONG_PASSWORD。")
+    return {"key": "security", "title": "安全配置概览", "status": status, "items": items, "notes": notes}
+
+
+def check_render_cache():
+    """渲染缓存命中率（v3.10.2）：已缓存正文文章占比，暴露缓存写回是否失效。
+
+    纯 DB 读取：Post.content_html 非空即视为已缓存。全部未缓存=性能退化+可能写回失败。
+    """
+    items, notes, status = [], [], "ok"
+    try:
+        total = Post.query.count()
+        cached = Post.query.filter(Post.content_html.isnot(None)).count()
+        if total == 0:
+            items.append({"label": "文章总数", "value": "0", "level": "info"})
+            items.append({"label": "渲染缓存命中率", "value": "无文章，跳过", "level": "info"})
+        else:
+            pct = round(cached * 100.0 / total, 1) if total else 0.0
+            items.append({"label": "文章总数", "value": str(total), "level": "info"})
+            items.append({"label": "已缓存正文", "value": str(cached), "level": "info"})
+            items.append({"label": "渲染缓存命中率", "value": "%.1f%%" % pct, "level": "ok" if pct > 0 else "warn"})
+            if cached == 0:
+                status = "warn"
+                notes.append("全部文章均未缓存正文：首次访问会实时渲染（较慢），且可能说明缓存写回失败，检查 WAL/存储权限与 utils.render_post_html。")
+            elif pct < 50:
+                notes.append("部分文章尚未缓存（新文章首次访问才填充，属正常），命中率会随访问上升。")
+    except Exception as e:
+        status = "error"
+        notes.append("渲染缓存检查异常：%s: %s" % (type(e).__name__, e))
+    return {"key": "render_cache", "title": "渲染缓存命中率", "status": status, "items": items, "notes": notes}
+
+
 # ---------------------------------------------------------------------------
 # 汇总
 # ---------------------------------------------------------------------------
@@ -404,12 +466,14 @@ CHECKS = [
     check_database,
     check_dependencies,
     check_config,
+    check_security,
     check_feed_agg,
     check_backup,
     check_seo,
     check_pending,
     check_frontend_build,
     check_storage,
+    check_render_cache,
 ]
 
 

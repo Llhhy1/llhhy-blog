@@ -709,3 +709,9 @@ v3.1.7 修复 CSRF 隐藏域乱码后，用户反馈「退出登录按钮失效�
 
 - **改的什么**：纯后端修复 `diagnostics.py` 的 `check_frontend_build()`——判定依据从「`_vite_build*` 子目录是否存在」改为「SPA 入口 `index.html` 是否存在」，部署态（`/www/wwwroot/vue-frontend/` 平铺）与本地构建态（`_vite_buildN` / `dist`）均正确识别，消除部署态必现的 warn 误报。无新功能 / 新环境变量 / 新接口 / 目录结构变化。
 - **验证**：`py_compile` 通过 + 模拟布局验证；R51 九维审计 0 遗留；pytest 31 passed 保持。APP_VERSION 升为 v3.10.1。
+
+## 56. v3.10.2：诊断助手增强——SMTP 误报修复 + 新增 2 维度（R52 审计通过）
+
+- **① 修复「邮件 SMTP」误报**：`check_config()` 原查 `smtp_host`（环境变量名），但后台「邮件设置」存库 key 实为 `mail_host`（`mail_notify.load_mail_config()` 读取 `mail_host`/`mail_username`/…），后台面板配的 SMTP 永远查不到 → 误报 warn。改为 `get_setting("mail_host") or os.environ.get("SMTP_HOST")`，与发信一致（仅显示服务器域名，不回显账号/密码）。
+- **② 新增 2 维度（9 → 11）**：**安全配置概览**（`check_security`：验证码/评论/强密码/安全头/限流状态汇总，暴露安全短板）+ **渲染缓存命中率**（`check_render_cache`：`Post.content_html` 缓存占比，全未缓存预警）。两者自动纳入 `run_all()`，后台体检页与 MCP `health_overview` 同步可见。
+- **验证**：`py_compile` 通过；R52 九维审计 0 遗留；pytest 31 passed 保持。APP_VERSION 升为 v3.10.2。

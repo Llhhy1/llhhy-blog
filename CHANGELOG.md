@@ -376,3 +376,13 @@
 - **改的什么（纯后端，仅 `myblog/diagnostics.py` 一处）**：全站体检的「前端构建产物」维度在**部署态**永远误报 warn（「未找到 `_vite_build*`」）。根因：旧逻辑只查 `vue-frontend/_vite_build*`，但部署布局是 `vue-frontend-dist.zip` 平铺到站点根目录 `/www/wwwroot/vue-frontend/`，直接是 `index.html + assets/`，无 `_vite_build*` 子目录。改为查 **SPA 入口 `index.html` 是否存在**——部署态优先查 `fe_dir/index.html`，回退本地 `_vite_buildN` / `dist` 构建目录，两种布局都能正确识别。友链 RSS 某源解析 0 条属对方源为空（非本博客 bug），不在本轮修复范围。
 - **验证**：`py_compile` 通过；用模拟服务器布局（部署态 `vue-frontend/index.html`）验证返回 `ok`、本地无构建返回 `warn`（符合预期）；全量 pytest 预期保持 **31 passed**（本轮未动测试文件）。R51 九维审计 **0 遗留**（详见 `myblog/SECURITY_AUDIT.md` R51 轮）。
 - **⚠️ 部署注意**：**纯后端改动，前端产物无变化**。覆盖 `myblog-backend.zip` 后「停止 → 启动」gunicorn（restart 不重载）即生效；体检「前端构建产物」维度在部署态应直接显示 `ok`。APP_VERSION 升为 v3.10.1。
+
+### v3.10.2：诊断助手增强——SMTP 误报修复 + 新增 2 维度（R52 审计通过）
+
+- **① 修复「邮件 SMTP」误报（根因）**：`diagnostics.py::check_config()` 原查 `get_setting("smtp_host")`，但后台「邮件设置」存库的 key 实为 `mail_host`（`mail_notify.load_mail_config()` 读取 `mail_host`/`mail_username`/…），且用户是在后台面板配、没用 `SMTP_HOST` 环境变量 → 诊断永远判「未配置」误报 warn。改为 `get_setting("mail_host") or os.environ.get("SMTP_HOST")`，与实际发信配置一致（仅显示 SMTP 服务器域名，不回显账号/密码）。
+- **② 新增 2 个诊断维度（9 维 → 11 维）**：
+  - **安全配置概览**（`check_security`）：汇总图形验证码 / 评论开关 / 强密码策略(`STRONG_PASSWORD`) / 安全响应头(`SECURITY_HEADERS`) / 接口限流 状态；开着评论却关验证码、或未开安全头/强密码时告警，暴露安全短板。
+  - **渲染缓存命中率**（`check_render_cache`）：统计 `Post.content_html` 已缓存占比；全部未缓存则预警（性能退化 + 可能缓存写回失败）。
+  - 两个新维度自动纳入 `run_all()`，后台「🩺 全站体检」与 MCP `health_overview` 同步可见，无需改 MCP 代码。
+- **验证**：`py_compile` 通过；全量 pytest **31 passed**（无回归）；R52 九维审计 **0 遗留**（详见 `myblog/SECURITY_AUDIT.md` R52 轮）。
+- **⚠️ 部署注意**：**纯后端改动，前端产物无变化**。覆盖 `myblog-backend.zip` 后「停止 → 启动」gunicorn（restart 不重载）即生效；体检维度由 9 增至 11。APP_VERSION 升为 v3.10.2。

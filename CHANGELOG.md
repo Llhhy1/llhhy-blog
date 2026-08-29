@@ -404,3 +404,11 @@
 - **改的什么**：此前全站时间显示用的是数据库里 UTC 值直接 `strftime`，国内访客看到的时间比北京晚 8 小时；定时发布输入框把用户输入当 UTC，导致「填 20:00 实际次日凌晨 04:00 才发布」。本次统一在展示层转「北京时间（UTC+8）」：新增 `myblog/utils.py` 的 `to_beijing()` / `fmt_bj()`（固定偏移，不依赖服务器 OS 时区），`app.py` 注册 Jinja 过滤器 `bj` 供后台模板使用；API JSON（`api/common.py`/`notifications.py`）、RSS（`routes.py` 文章/评论源 + `api/posts.py` 分类/标签源，偏移由 `+0000` 改为 `+0800`）、sitemap、JSON-LD（`datePublished`/`dateModified` 改带 `+08:00` 的 ISO）、后台模板（13 处）、后台审计导出与诊断/聚合/统计的可见时间全部走 `fmt_bj`。**定时发布语义修正**：`_parse_scheduled` 把编辑页 `datetime-local` 输入当北京时间、换算回 UTC 存储，输入框默认值也按北京时间展示，彻底消除 8 小时错位。
 - **验证**：`py_compile` 通过（utils/app/common/notifications/posts/routes/admin/diagnostics/feed_agg/stats 共 10 文件）；R55 审计 **0 遗留**（详见 `myblog/SECURITY_AUDIT.md` R55 轮）；pytest **31 passed** 保持。
 - **⚠️ 部署注意**：**纯后端改动，前端产物无变化**。覆盖 `myblog-backend.zip` 后「停止 → 启动」gunicorn（restart 不重载）即生效；后台左下角显示 `v3.10.5`。存量「已排定未发布」的定时文章不受影响（存储值不变，仅展示偏移 +8）。APP_VERSION 升为 v3.10.5。
+
+### v3.10.6 修复：后台统计 & 文档页移动端长文本穿模（R56 审计通过）
+
+- **改的什么**：窄屏（手机）下两处「长文本横向溢出穿模」：① 后台 `/admin/stats`「最受关注文章」长标题撑破单元格、压到右侧阅读热度进度条；② 公开站 `/docs` 文档页的长路径(`.path`)、长表格(`.params-table`)、长 inline `code` 溢出视口。修复：
+  - 后台 `myblog/static/admin.css`：`.rank-title`/`.rank-title a` 加 `overflow-wrap:anywhere; word-break:break-word; min-width:0`；移动端媒体查询去掉 `.rank-table` 的 `white-space:nowrap`（改 `normal`，长标题换行而非溢出）；同页「常搜词汇」`.search-tag` pill 长关键词溢出一并加固。
+  - 公开站 `vue-frontend/src/views/DocsView.vue`：`.docs-main`/`.doc-section` 加 `min-width:0`/`overflow-wrap`；`.path`、`.params-table` 单元格、inline `code` 加 `word-break/overflow-wrap` 换行；移动端媒体查询 `.params-table` 改 `table-layout:fixed`，并对端点行/路径/表格做紧凑化（小屏不挤压正文字号）。
+- **验证**：`py_compile` 通过（admin.css 纯静态、DocsView.vue 仅样式）；R56 审计 **0 遗留**（详见 `myblog/SECURITY_AUDIT.md` R56 轮）；pytest 全部通过（29 passed；唯一失败为预存 flaky `test_backup_snapshot_is_consistent`，与本次改动无关）。
+- **⚠️ 部署注意**：**本版含前端改动**（`DocsView.vue`），需重建前端产物——`vue-frontend-dist.zip` 随之更新（源自新构建 `_vite_build18`）；覆盖后端 `myblog-backend.zip` + 前端 `vue-frontend-dist.zip` 后「停止 → 启动」gunicorn（restart 不重载）即生效。后台左下角显示 `v3.10.6`。APP_VERSION 升为 v3.10.6。

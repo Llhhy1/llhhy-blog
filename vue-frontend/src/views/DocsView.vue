@@ -617,9 +617,9 @@ onMounted(() => {
 
 .nav-link:hover { background-color: #f3f4f6; color: #3b82f6; }
 
-.docs-main { flex: 1; padding-left: 40px; }
+.docs-main { flex: 1; padding-left: 40px; min-width: 0; }
 
-.doc-section { margin-bottom: 60px; scroll-margin-top: 20px; }
+.doc-section { margin-bottom: 60px; scroll-margin-top: 20px; overflow-wrap: break-word; }
 
 .doc-section h1 {
   font-size: 32px;
@@ -662,6 +662,8 @@ onMounted(() => {
   font-family: 'Courier New', monospace;
   font-size: 14px;
   color: #1f2937;
+  word-break: break-all;
+  overflow-wrap: anywhere;
 }
 
 .auth {
@@ -675,8 +677,8 @@ onMounted(() => {
 .auth-login { background-color: #fef3c7; color: #92400e; }
 .auth-admin { background-color: #fee2e2; color: #991b1b; }
 
-.params-table { width: 100%; border-collapse: collapse; margin: 15px 0; }
-.params-table th, .params-table td { padding: 10px; text-align: left; border-bottom: 1px solid #e5e7eb; }
+.params-table { width: 100%; border-collapse: collapse; margin: 15px 0; table-layout: fixed; }
+.params-table th, .params-table td { padding: 10px; text-align: left; border-bottom: 1px solid #e5e7eb; word-break: break-word; overflow-wrap: anywhere; }
 .params-table th { background-color: #f9fafb; font-weight: bold; }
 
 pre {
@@ -694,6 +696,8 @@ code { font-family: 'Courier New', monospace; font-size: 13px; }
   padding: 2px 6px;
   border-radius: 4px;
   font-size: 12.5px;
+  word-break: break-word;
+  overflow-wrap: anywhere;
 }
 
 /* 响应式设计 */
@@ -708,8 +712,15 @@ code { font-family: 'Courier New', monospace; font-size: 13px; }
     max-height: 200px;
     position: static;
   }
-  .docs-main { padding-left: 0; padding-top: 20px; }
+  .docs-main { padding-left: 0; padding-top: 20px; min-width: 0; }
+  .doc-section { overflow-wrap: anywhere; word-break: break-word; }
   .doc-section h1 { font-size: 24px; }
+  /* 移动端端点行更紧凑，长路径/标签换行而非溢出 */
+  .endpoint { gap: 8px; padding: 10px; }
+  .path { font-size: 12px; word-break: break-all; }
+  /* 表格固定布局 + 单元格换行，避免长内容撑破视口 */
+  .params-table { table-layout: fixed; }
+  .params-table th, .params-table td { font-size: 12px; padding: 8px 6px; word-break: break-word; overflow-wrap: anywhere; }
 }
 
 /* 深色模式（跟随站点 data-theme="dark"） */

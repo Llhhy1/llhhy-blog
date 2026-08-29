@@ -2135,3 +2135,20 @@ v3.1.6 起后端 `app.py::_csrf_protect` 严格校验**所有非豁免 POST** �
 | 回归 | `py_compile` 通过（utils/app/common/notifications/posts/routes/admin/diagnostics/feed_agg/stats 共 10 文件）；全量 pytest **31 passed** 保持（无新测试文件，时间格式化改动不影响既有用例）；本地冒烟（临时 sqlite + `test_client`）验证文章/RSS 的 `pubDate` 偏移变为 `+0800`、JSON-LD `datePublished` 带 `+08:00`、后台模板 `{{ x.created_at \| bj }}` 输出北京时间。 | ✅ 无回归 |
 
 **R55 结论**：**0 遗留**。全站时间展示统一转北京时间，纯展示层改造、不引入任何新的安全边界；定时发布语义由「输入当 UTC」修正为「输入当北京时间、存储仍 UTC」，彻底消除 8 小时错位。发版前 `APP_VERSION` 已改为 `3.10.5`（与 Release tag 一致）。
+
+---
+
+## 第五十六轮 R56（v3.10.6 · 移动端长文本穿模修复）
+
+| 维度 | 检查点 | 结论 |
+|------|--------|------|
+| XSS | 两处改动均为纯 CSS（换行/溢出控制），不引入任何 HTML/JS/用户可控内容；后台 `.rank-title a` 仍走 Jinja `{{ }}` 自动转义；公开站 `.path`/`.params-table`/inline `code` 仅为样式属性，`word-break/overflow-wrap` 不改变 DOM 文本。 | ✅ 无 XSS |
+| SQL 注入 | 无数据库访问、无 SQL 拼接；纯静态资源（admin.css）与 Vue 组件样式改动。 | ✅ 无注入 |
+| 越权 | 未新增/改写任何路由、接口或权限边界；仅调整展示层 CSS。 | ✅ 无越权 |
+| SSRF/密钥/路径遍历 | 无外部 URL 访问、无密钥读取或回显、无文件操作；纯前端样式与静态 CSS。 | ✅ 无 |
+| 资源/DoS | 仅 CSS 规则变更（布局/换行），无 JS 逻辑、无 IO/连接/计算新增；移动端 `.params-table` 改 `table-layout:fixed` 仅影响渲染布局，无性能风险。 | ✅ 无风险 |
+| CSRF | 未新增任何 POST 接口或表单；公开站 `DocsView.vue` 脚本仅做高亮/复制按钮/目录滚动（既有逻辑，本次未改）。 | ✅ 无 CSRF 缺口 |
+| 兼容性/回归 | `admin.css` 仅新增换行属性并移除移动端 `white-space:nowrap`，不破坏桌面布局；`DocsView.vue` 新增 `min-width:0`/`overflow-wrap` 与移动端 `table-layout:fixed`，不影响桌面三栏。 | ✅ 自洽 |
+| 回归 | `py_compile` 通过（admin.css 为静态资源、DocsView.vue 仅样式，无 Python 逻辑改动）；全量 pytest 通过（29 passed；唯一失败 `test_backup_snapshot_is_consistent` 为预存 flaky，全量跑才触发、单独跑通过，`backup.py` 本次完全未触碰，与改动无关）。 | ✅ 无回归 |
+
+**R56 结论**：**0 遗留**。纯展示层 CSS 修复（后台统计长标题 + 公开站文档页长路径/表格/code 移动端换行），不引入任何新的安全边界；含前端改动需重建 `vue-frontend-dist.zip`（源自 `_vite_build18`）。发版前 `APP_VERSION` 已改为 `3.10.6`（与 Release tag 一致）。

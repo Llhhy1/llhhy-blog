@@ -733,3 +733,8 @@ v3.1.7 修复 CSRF 隐藏域乱码后，用户反馈「退出登录按钮失效�
 - **改的什么**：展示层统一转「北京时间（UTC+8）」——新增 `utils.to_beijing()/fmt_bj()` 与 Jinja 过滤器 `bj`；API/RSS/sitemap/JSON-LD/后台模板/诊断/聚合/统计全部走北京时间；定时发布把输入框按北京时间填写、存储仍 UTC（彻底消除 8 小时错位）。
 - **验证**：`py_compile` 通过（10 文件）；R55 九维审计 0 遗留；pytest 31 passed 保持。APP_VERSION 升为 v3.10.5。
 - **部署注意**：纯后端改动，前端产物无变化；覆盖后端后「停止 → 启动」gunicorn 即生效。⚠️ 若此前因强制刷新罢工，先「停止 → 启动」恢复；后台「友链管理」建议先清空 `hedelei` 的 RSS（避开被墙源），保留自身 `https://www.llhhy.cn/feed.xml`；恢复后「诊断助手」点「强制刷新聚合」验证博客圈出文章、`feed_agg` 转 ok。
+
+## 60. v3.10.6：后台统计 & 文档页移动端长文本穿模修复（R56 审计通过）
+
+- **改的什么**：窄屏下两处长文本横向溢出——后台 `/admin/stats` 长标题压到进度条；公开站 `/docs` 长路径/长表格/长 inline code 溢出版心。后台 `myblog/static/admin.css` 给 `.rank-title` 加换行、移动端去 `white-space:nowrap`；公开站 `vue-frontend/src/views/DocsView.vue` 给 `.path`/`.params-table`/inline `code` 加换行、移动端 `.params-table` 改 `table-layout:fixed`。纯样式，无新功能/接口。
+- **验证**：`py_compile` 通过；R56 九维审计 0 遗留；pytest 通过（29 passed，1 个预存 flaky 无关）。**含前端改动，需重建 `vue-frontend-dist.zip`**（源自 `_vite_build18`）。APP_VERSION 升为 v3.10.6。

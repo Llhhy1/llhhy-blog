@@ -379,6 +379,13 @@ supervisorctl status
 - **核心改动**：全站时间展示统一转「北京时间（UTC+8）」——API JSON、RSS（偏移 `+0000`→`+0800`）、sitemap、JSON-LD、后台模板、诊断/聚合/统计可见时间全部按北京时间；定时发布把编辑页 `datetime-local` 输入当北京时间、换算回 UTC 存储（输入框默认值也显示北京时间），彻底消除「填 20:00 实际次日凌晨 04:00 才发布」的 8 小时错位。
 - **部署验证**：后台左下角显示 `v3.10.5`；任意文章/评论时间显示与北京时间一致；RSS 阅读器订阅 `https://www.llhhy.cn/feed.xml` 看到的 `pubDate` 偏移为 `+0800`。存量「已排定未发布」的定时文章存储值不变，仅展示偏移 +8，发布时刻不受影响。
 
+### v3.10.6 升级注意（移动端长文本穿模修复）
+
+- **本版含前端改动**：公开站「文档页」`/docs` 修复长路径/长表格/长代码在手机端横向溢出（`.docs-main{min-width:0}`、`.path`/`.params-table`/`code` 长内容换行、移动端表格 `table-layout:fixed` + 端点紧凑）。必须重新覆盖 `vue-frontend-dist.zip` 并清缓存，否则线上仍穿模。
+- **后端**：覆盖 `myblog-backend.zip` 后**停止 → 启动** gunicorn（修复后台「统计」排行长标题在手机端穿模：`admin.css` 的 `.rank-title` 换行、移除移动端 `white-space:nowrap`）。打包已排除 `instance/` 防本地库泄漏。
+- **前端缓存**：SPA 由 Nginx 直接服务，覆盖 `index.html`+`assets/` 后请**硬刷新（Ctrl+F5）/无痕窗口**；可在宝塔「软件商店 → Nginx → 配置 → 重载」清 Nginx 缓存。
+- **验证**：后台左下角显示 `v3.10.6`；手机端打开 `/admin/stats` 与 `/docs`，长标题/长路径/长表格不再横向溢出。
+
 ### v3.8.8 升级注意（修复全站体检 500 + 文档页显示不全）
 
 - **必含前端构建产物**：本次修复文档页 `/docs` 显示不全（三栏布局被 `.site-frame` 的 `max-width:1100px` 限宽挤压、右侧「本页目录」被 `@media(max-width:1100px)` 隐藏、sticky 侧栏被 `overflow:hidden` 破坏）。必须重新覆盖 `vue-frontend-dist.zip` 并清缓存，否则线上仍是压窄的旧版。

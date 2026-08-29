@@ -299,7 +299,8 @@ body.admin {
 .rank-table td { padding: 8px 6px; border-bottom: 1px solid #f5f6f8; font-size: 14px; }
 .rank-table tr:last-child td { border-bottom: none; }
 .rank-no { width: 34px; color: #b8c0cc; font-weight: 700; }
-.rank-title a { color: #333; text-decoration: none; }
+.rank-title { overflow-wrap: anywhere; word-break: break-word; min-width: 0; }
+.rank-title a { color: #333; text-decoration: none; overflow-wrap: anywhere; word-break: break-word; }
 .rank-title a:hover { color: var(--accent, #1a73e8); }
 .rank-sub { display: block; font-size: 11px; color: #98a1ad; }
 .rank-count { text-align: right; color: #5a6472; font-weight: 600; }
@@ -309,8 +310,8 @@ body.admin {
 .bar-accent { background: linear-gradient(90deg, #ffb74d, #ff7043); }
 
 .search-tags { list-style: none; display: flex; flex-wrap: wrap; gap: 10px; }
-.search-tag { background: #f4f6f9; border: 1px solid #e8eaee; border-radius: 22px; padding: 6px 14px; font-size: 13px; }
-.search-tag a { color: #444; text-decoration: none; }
+.search-tag { background: #f4f6f9; border: 1px solid #e8eaee; border-radius: 22px; padding: 6px 14px; font-size: 13px; overflow-wrap: anywhere; word-break: break-word; }
+.search-tag a { color: #444; text-decoration: none; overflow-wrap: anywhere; word-break: break-word; }
 .search-tag a:hover { color: var(--accent, #1a73e8); }
 .search-count { color: #98a1ad; font-size: 12px; margin-left: 6px; }
 
@@ -716,7 +717,8 @@ body.admin {
 
 @media (max-width: 900px) {
   .stats-grid { grid-template-columns: 1fr; }
-  .rank-table { display: block; overflow-x: auto; white-space: nowrap; }
+  .rank-table { display: block; overflow-x: auto; }
+  .rank-table th, .rank-table td { white-space: normal; }
 }
 
 /* 手机（≤760）：小屏内容收紧（侧栏/抽屉/遮罩已被 ≤1100 完全覆盖，不再重复） */

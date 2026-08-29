@@ -15,7 +15,7 @@
 5. 数据备份（本地目录 / 保留天数 / 远端目标 / 最近备份文件）
 6. 搜索引擎 SEO（site_url / robots / sitemap / feed 路由存在性）
 7. 待处理事项（待审评论 / 待审友链申请 / 未读留言）
-8. 前端构建产物（_vite_build* 是否存在）
+8. 前端构建产物（SPA 入口 index.html 是否存在，部署态/本地构建均识别）
 9. 存储权限（数据目录可写）
 """
 import importlib
@@ -344,19 +344,31 @@ def check_pending():
 # 8. 前端构建产物
 # ---------------------------------------------------------------------------
 def check_frontend_build():
+    """前端构建产物体检（v3.10.0 修正：部署态误报修复）。
+
+    部署布局（见 deploy_guide）：vue-frontend-dist.zip 解压到站点根目录
+    /www/wwwroot/vue-frontend/，直接是 index.html + assets/（无 _vite_build* 子目录）。
+    本地构建则是 vue-frontend/_vite_buildN/index.html 或 vue-frontend/dist/index.html。
+    旧逻辑只查 vue-frontend/_vite_build*，在部署态永远查不到 → 误报「未构建」。
+    改为查 SPA 入口 index.html：部署态优先查 fe_dir/index.html，回退本地构建子目录。
+    """
     items, notes, status = [], [], "ok"
     fe_dir = os.path.join(REPO_ROOT, "vue-frontend")
-    builds = sorted(glob.glob(os.path.join(fe_dir, "_vite_build*")))
-    if builds:
-        idx = os.path.join(builds[-1], "index.html")
-        ok = os.path.exists(idx)
-        items.append({"label": "构建目录", "value": os.path.basename(builds[-1]) + ("（含 index.html）" if ok else "（缺失 index.html）"), "level": "ok" if ok else "warn"})
-        if not ok:
-            status = "warn"
-            notes.append("构建目录存在但缺少 index.html，重新 vite build。")
+
+    # 候选 SPA 入口（按优先级：部署态 > 本地构建）
+    candidates = []
+    candidates.append(("部署目录", os.path.join(fe_dir, "index.html")))
+    for b in sorted(glob.glob(os.path.join(fe_dir, "_vite_build*"))):
+        candidates.append(("构建目录 " + os.path.basename(b), os.path.join(b, "index.html")))
+    candidates.append(("本地 dist", os.path.join(fe_dir, "dist", "index.html")))
+
+    found = [(label, p) for label, p in candidates if os.path.isfile(p)]
+    if found:
+        label, _ = found[0]
+        items.append({"label": "构建产物", "value": "%s（含 index.html）" % label, "level": "ok"})
     else:
-        items.append({"label": "构建目录", "value": "未找到 _vite_build*", "level": "warn"})
-        notes.append("前端未构建（vue-frontend 下没有 _vite_build*）。部署前需 npm run build / vite build。")
+        items.append({"label": "构建产物", "value": "未找到前端 index.html", "level": "warn"})
+        notes.append("前端未构建或未部署：%s 下未发现 index.html（部署态应为站点根目录 vue-frontend/ 直接含 index.html + assets/；本地需先 npm run build）。" % fe_dir)
         status = "warn"
     return {"key": "frontend", "title": "前端构建产物", "status": status, "items": items, "notes": notes}
 

@@ -729,6 +729,11 @@ supervisorctl status
   ```
   保存后到 WorkBuddy 连接器管理页面对新出现的 `llhhy-blog-diag` 点「信任」才生效。之后直接问「博客现在健康吗」即可调用。
 - **⚠️ 安全红线**：端点只读、日志自动打码、路径不可遍历、未配 token 自动关闭——这四条是代码级约束并有测试兜底。请务必：token 定期轮换、站点强制 HTTPS、`/mcp` 尽量加 IP 白名单。
+
+### v3.10.1 升级注意（修复全站体检「前端构建产物」部署态误报 · R51 审计通过）
+
+- **改的什么（纯后端，仅 `myblog/diagnostics.py`）**：`check_frontend_build()` 原只查 `vue-frontend/_vite_build*`，在部署态（`vue-frontend-dist.zip` 平铺到站点根目录，直接是 `index.html + assets/`）永远查不到 → 误报「未构建」。改为查 SPA 入口 `index.html`（部署态优先 `fe_dir/index.html`，回退本地 `_vite_buildN` / `dist`），两种布局都能识别。友链 RSS 某源解析 0 条属对方源为空，非本博客 bug。
+- **⚠️ 部署注意**：**纯后端改动，前端产物无变化**。覆盖 `myblog-backend.zip` 后「停止 → 启动」gunicorn（restart 不重载）即生效；后台「🩺 全站体检 → 前端构建产物」在部署态应直接显示 `ok`（不再误报 warn）。APP_VERSION 升为 v3.10.1。
 - **验证**：pytest **31 passed**（新增 11 条 MCP 测试 + 重写 10 条插件框架测试）；R50 十二维审计 **0 遗留**。APP_VERSION 升为 v3.10.0。
 
 

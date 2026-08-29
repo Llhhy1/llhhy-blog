@@ -20,9 +20,9 @@ import urllib.error
 import urllib.parse
 
 REPO = "Llhhy1/llhhy-blog"
-TAG = "v3.10.0"
-TITLE = "llhhy-blog v3.10.0 - 只读诊断 MCP + 内置插件下线"
-NOTES_FILE = "_release_notes_v3.10.0.md"
+TAG = "v3.10.1"
+TITLE = "llhhy-blog v3.10.1 - 修复全站体检前端构建产物部署态误报"
+NOTES_FILE = "_release_notes_v3.10.1.md"
 ASSETS = ["myblog-backend.zip", "vue-frontend-dist.zip", "sha256.txt"]
 
 API = "https://api.github.com"

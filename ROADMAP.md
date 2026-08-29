@@ -704,3 +704,8 @@ v3.1.7 修复 CSRF 隐藏域乱码后，用户反馈「退出登录按钮失效�
 - **③ 内置插件全部下线**：移除 `contact_card`、`article_toc` 两个插件及 `static/plugins/` 下两个远程组件；**插件框架保留**（`plugins/__init__.py`、`signals.py`、后台「🧩 插件管理」页、前端 nav/sidebar/footer/html/remote_components 槽位），`ENABLED_PLUGINS` 默认置空。文章目录回退到核心 `PostView.vue` 的内联 TOC（文首、不随滚动高亮）。测试改为「临时插件驱动」（改写 `plugins` 包 `__path__` 指向 tmp 目录），不再依赖任何内置插件。
 - **验证**：pytest **31 passed**（新增 11 条 MCP 测试 + 重写 10 条插件框架测试）；发布包冒烟（MCP 握手/鉴权/Origin/5 工具/脱敏/错误码）全通过；R50 十二维审计 0 遗留。
 - **部署注意（必做）**：纯后端改动，前端产物无变化；① 生成 token 填宝塔环境变量 `MCP_AUTH_TOKEN`；② **Nginx 补 `location = /mcp` 反代**（否则被 Vue SPA 兜底成 index.html），站点强制 HTTPS；③ 建议 `/mcp` 再加 IP 白名单；④ 上线后 curl 核验（无 token 必须 401）。本机接入：`~/.workbuddy/mcp.json` 加 `type:"http"` + `headers.Authorization`，连接器管理页点「信任」。APP_VERSION 升为 v3.10.0。
+
+## 55. v3.10.1：修复全站体检「前端构建产物」部署态误报（R51 审计通过）
+
+- **改的什么**：纯后端修复 `diagnostics.py` 的 `check_frontend_build()`——判定依据从「`_vite_build*` 子目录是否存在」改为「SPA 入口 `index.html` 是否存在」，部署态（`/www/wwwroot/vue-frontend/` 平铺）与本地构建态（`_vite_buildN` / `dist`）均正确识别，消除部署态必现的 warn 误报。无新功能 / 新环境变量 / 新接口 / 目录结构变化。
+- **验证**：`py_compile` 通过 + 模拟布局验证；R51 九维审计 0 遗留；pytest 31 passed 保持。APP_VERSION 升为 v3.10.1。

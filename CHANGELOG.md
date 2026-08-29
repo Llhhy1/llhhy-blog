@@ -370,3 +370,9 @@
 - **③ 内置插件全部下线**：移除 `contact_card`、`article_toc` 两个插件及 `static/plugins/` 下两个远程组件；**插件框架保留**（加载器、事件总线、后台管理页、前端槽位），`ENABLED_PLUGINS` 默认值改为空。文章目录回退到核心 `PostView.vue` 的内联 TOC（文首显示、不随滚动高亮）。测试改为「临时插件驱动」（改写 plugins 包 `__path__` 指向 tmp 目录），不再依赖任何内置插件。
 - **验证**：pytest **31 passed**（新增 11 条 MCP 测试 + 重写 10 条插件框架测试）；发布包冒烟验证 MCP 握手/鉴权/Origin/5 工具/脱敏/错误码全通过；R50 十二维审计 **0 遗留**。
 - **⚠️ 部署注意（必做）**：**纯后端改动，前端产物无变化**。① 生成 token 填进宝塔环境变量 `MCP_AUTH_TOKEN`；② **Nginx 必须补 `location = /mcp` 反代**（否则被 Vue SPA 兜底成 index.html），站点强制 HTTPS；③ 建议对 `/mcp` 再加 IP 白名单；④ 上线后按 deploy_guide 的 curl 三步核验（无 token 必须 401）。本机接入：在 `~/.workbuddy/mcp.json` 加一条 `type: "http"` + `headers.Authorization`，再到连接器管理页点「信任」。APP_VERSION 升为 v3.10.0。
+
+### v3.10.1：修复全站体检「前端构建产物」部署态误报（R51 审计通过）
+
+- **改的什么（纯后端，仅 `myblog/diagnostics.py` 一处）**：全站体检的「前端构建产物」维度在**部署态**永远误报 warn（「未找到 `_vite_build*`」）。根因：旧逻辑只查 `vue-frontend/_vite_build*`，但部署布局是 `vue-frontend-dist.zip` 平铺到站点根目录 `/www/wwwroot/vue-frontend/`，直接是 `index.html + assets/`，无 `_vite_build*` 子目录。改为查 **SPA 入口 `index.html` 是否存在**——部署态优先查 `fe_dir/index.html`，回退本地 `_vite_buildN` / `dist` 构建目录，两种布局都能正确识别。友链 RSS 某源解析 0 条属对方源为空（非本博客 bug），不在本轮修复范围。
+- **验证**：`py_compile` 通过；用模拟服务器布局（部署态 `vue-frontend/index.html`）验证返回 `ok`、本地无构建返回 `warn`（符合预期）；全量 pytest 预期保持 **31 passed**（本轮未动测试文件）。R51 九维审计 **0 遗留**（详见 `myblog/SECURITY_AUDIT.md` R51 轮）。
+- **⚠️ 部署注意**：**纯后端改动，前端产物无变化**。覆盖 `myblog-backend.zip` 后「停止 → 启动」gunicorn（restart 不重载）即生效；体检「前端构建产物」维度在部署态应直接显示 `ok`。APP_VERSION 升为 v3.10.1。

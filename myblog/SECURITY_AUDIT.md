@@ -2038,3 +2038,23 @@ v3.1.6 起后端 `app.py::_csrf_protect` 严格校验**所有非豁免 POST** �
 2. 带上正确 `Authorization: Bearer <token>` 再试 → 应返回 JSON-RPC 响应；
 3. 故意用错误 token → 仍为 401；
 4. 确认 Nginx 访问日志中**不出现** token 明文（token 走请求头，不应被记录）。
+
+## R51 轮（v3.10.1 · 前端体检误报修复 · 2026-08-29）
+
+**背景**：v3.10.0 全站体检的「前端构建产物」维度在**部署态**永远误报 warn（「未找到 _vite_build*」）。根因：`check_frontend_build()` 旧逻辑只查 `vue-frontend/_vite_build*`，但部署布局是 `vue-frontend-dist.zip` 平铺到站点根目录 `/www/wwwroot/vue-frontend/`，直接是 `index.html + assets/`，没有 `_vite_build*` 子目录。本次把判定依据改为「SPA 入口 `index.html` 是否存在」，部署态与本地构建态都能正确识别；同时友链 RSS 某源解析 0 条属对方源为空（非本博客 bug），不在本轮修复范围。改动仅 `myblog/diagnostics.py` 一处函数 + 模块顶部维度说明一行。
+
+| 编号 | 维度 | 审计点 | 结论 |
+|---|---|---|---|
+| R51-1 | XSS | `check_frontend_build()` 只返回结构化 dict（`label`/`value`/`level`），由模板 `{{ }}` 文本插值渲染；`value` 中的 `fe_dir` 来自 `os.path` 常量与 `REPO_ROOT`，非用户可控、无可注入的 HTML/JS。 | ✅ 无 XSS |
+| R51-2 | SQL 注入 | 该函数无任何数据库访问，纯文件系统探测（`os.path.isfile` / `glob.glob`），无 SQL 拼接风险。 | ✅ 无注入 |
+| R51-3 | 越权 | 函数仍由 admin 专属诊断路由调用（`@admin_required` + 全局 `enforce_same_origin` 已覆盖），本轮未新增/改写任何路由，权限边界不变。 | ✅ 无越权 |
+| R51-4 | SSRF | 不访问任何外部 URL，`glob`/`isfile` 仅作用于本地仓库目录，无外部地址可注入。 | ✅ 无 SSRF |
+| R51-5 | CSRF | 未新增任何 POST 类请求，沿用既有 admin 路由的 CSRF 保护；误报修复只改了读函数逻辑。 | ✅ 无 CSRF 缺口 |
+| R51-6 | 密钥泄露 | 该函数不触碰任何凭据；`fe_dir`/`REPO_ROOT` 均为代码内路径常量，无密钥硬编码或回显。 | ✅ 无泄露 |
+| R51-7 | 资源泄漏 | 仅 `glob.glob` + `os.path.isfile`，无 `open`/subprocess/连接，无句柄泄漏。 | ✅ 无泄漏 |
+| R51-8 | 限流 / DoS | 纯只读诊断读函数，无新增写接口、无长连接、无外部遍历；`glob` 结果集有界（构建目录数量有限）。 | ✅ 无风险 |
+| R51-9 | 回归 | 改动为「判定依据从目录名改为入口文件」，逻辑更宽松且向后兼容：本地 `_vite_buildN` / `dist` 仍可识别，部署态 `index.html` 不再误报；`py_compile` 通过，并已用模拟服务器布局（部署态 `vue-frontend/index.html`）验证返回 `ok`、本地无构建返回 `warn`（符合预期）。全量 pytest 预期保持 31 passed（本轮未动测试文件）。 | ✅ 无回归 |
+
+**R51 结论**：**0 遗留**。纯诊断误报修复，不引入任何新的安全边界，所有维度均为既有权限/渲染/资源模型下的安全改造。发版前 `APP_VERSION` 已改为 `3.10.1`（与 Release tag 一致）。
+
+**部署注意**：本版仅后端 `diagnostics.py` 改动，**前端无需重新 vite build**；上传覆盖后端后「停止 → 启动」gunicorn 即生效，体检「前端构建产物」维度在部署态应直接显示 `ok`。

@@ -386,3 +386,9 @@
   - 两个新维度自动纳入 `run_all()`，后台「🩺 全站体检」与 MCP `health_overview` 同步可见，无需改 MCP 代码。
 - **验证**：`py_compile` 通过；全量 pytest **31 passed**（无回归）；R52 九维审计 **0 遗留**（详见 `myblog/SECURITY_AUDIT.md` R52 轮）。
 - **⚠️ 部署注意**：**纯后端改动，前端产物无变化**。覆盖 `myblog-backend.zip` 后「停止 → 启动」gunicorn（restart 不重载）即生效；体检维度由 9 增至 11。APP_VERSION 升为 v3.10.2。
+
+### v3.10.3：新增评论 RSS 订阅源 `/feed/comments`（R53 审计通过）
+
+- **改的什么**：用户访问 `/feed/comments/` 被 Nginx SPA 兜底返主界面——根因是该路由博客从未实现（只有文章 feed `/feed.xml`）。本次在 `routes.py` 新增 `comments_feed` 路由（`/feed/comments` + `/feed/comments/`），输出 RSS 2.0：取最近 50 条「`approved=True` 且所属文章已发布」的评论，每项含文章链接锚点 `#comment-<id>`、评论摘要、作者；评论内容/作者/文章标题全部 `escape` 转义防 XSS。同步：① `bot_guard._SKIP_PREFIXES` 加 `/feed/comments`，避免开启反爬后 RSS 阅读器被限流/封禁；② `diagnostics.check_seo` 路由存在性检查加 `/feed/comments`，防止未来 Nginx 反代漏配导致再次返主界面。
+- **验证**：`py_compile` 通过 + 本地冒烟测试（临时 sqlite + `test_client` 验证 `/feed/comments/` 与 `/feed/comments` 均返回 200 + `application/rss+xml`，`<item>` 存在、`<script>` 转义为 `&lt;script&gt;`、锚点正确）；R53 审计 **0 遗留**（详见 `myblog/SECURITY_AUDIT.md` R53 轮）；pytest **31 passed** 保持。
+- **⚠️ 部署注意**：**纯后端改动，前端产物无变化**。覆盖 `myblog-backend.zip` 后「停止 → 启动」gunicorn（restart 不重载）即生效；评论订阅源 `https://你的域名/feed/comments/` 即可被 RSS 阅读器订阅。APP_VERSION 升为 v3.10.3。

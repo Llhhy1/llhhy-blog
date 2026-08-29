@@ -21,7 +21,7 @@ from stats import client_ip
 # ⚠️ /mcp 也必须跳过（v3.10.0）：诊断端点自带 Bearer Token 鉴权 + 独立限流，
 # 且调用方 UA 多为程序客户端，开启反爬后会被误判为 bot 而封禁，导致远程诊断失效。
 _SKIP_PREFIXES = ("/static/", "/robots.txt", "/sitemap.xml", "/feed.xml",
-                  "/admin/", "/api/", "/mcp")
+                  "/feed/comments", "/admin/", "/api/", "/mcp")
 
 
 def guard_enabled():

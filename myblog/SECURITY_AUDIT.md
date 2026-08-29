@@ -2077,4 +2077,22 @@ v3.1.6 起后端 `app.py::_csrf_protect` 严格校验**所有非豁免 POST** �
 
 **R52 结论**：**0 遗留**。诊断助手增强为只读配置/DB 读取，不引入任何新的安全边界；SMTP 误报根因（字段名与发信模块不一致）已对齐。发版前 `APP_VERSION` 已改为 `3.10.2`（与 Release tag 一致）。
 
+---
+
+## 第五十三轮 R53（v3.10.3 · 评论 RSS 订阅源）
+
+**范围**：`routes.py`（新增 `comments_feed` 路由 `/feed/comments` + `/feed/comments/`）、`bot_guard.py`（`_SKIP_PREFIXES` 加 `/feed/comments`）、`diagnostics.py`（`check_seo` 路由存在性检查加 `/feed/comments`）。动因：用户访问 `/feed/comments/` 被 Nginx SPA 兜底返主界面——根因是该路由从未实现，本次补全并防御回归。
+
+| 编号 | 维度 | 结论 | 判定 |
+|------|------|------|------|
+| R53-1 | XSS | `comments_feed` 输出 RSS XML：评论内容 `c.content`、作者 `c.author`、文章标题 `post.title` 全部经 `markupsafe.escape` 转义后写入 `<description>`/`<dc:creator>`/`<title>`；`link` 由 `SITE_URL`+slug+`#comment-<id>` 拼接（slug 来自 DB、非用户可控、且 escape）。冒烟测试确认 `<script>alert(1)</script>` 被转义为 `&lt;script&gt;`。 | ✅ 无 XSS |
+| R53-2 | 越权 | `comments_feed` 为公开 GET 路由（与 `/feed.xml` 同语义，无需登录）；仅取 `approved=True` 且所属文章已发布的评论（`visible_posts_query().subquery()` join 过滤），不泄露草稿/隐私文章（`in_trash`/`is_private`）/待审核评论。 | ✅ 无越权 |
+| R53-3 | SQL 注入 | 全部走 SQLAlchemy ORM 参数化查询（join/subquery/filter/order_by/limit），无任何字符串拼接 SQL。 | ✅ 无注入 |
+| R53-4 | SSRF/密钥/路径遍历 | 无外部 URL 访问、无密钥读取或回显、无文件操作；纯 DB 读取 + XML 拼接输出。 | ✅ 无 |
+| R53-5 | 资源/DoS | `limit(50)` 上限；`db.session.query(Comment, Post).join(...)` 单次查询取 comment+post，无 N+1；公开只读，无写、无长连接。 | ✅ 无风险 |
+| R53-6 | 反爬误伤 | `/feed/comments` 已加入 `bot_guard._SKIP_PREFIXES`：RSS 阅读器 UA 多为 bot 类，开启反爬后不会被限流/封禁，订阅可用（与 `/feed.xml` 同理）。 | ✅ 已豁免 |
+| R53-7 | 回归 | `py_compile` 通过；全量 pytest **31 passed** 保持（无新测试文件，路由改动不影响既有用例）；本地冒烟测试（临时 sqlite + `test_client`）验证 `/feed/comments/` 与 `/feed/comments` 均返回 200 + `application/rss+xml`，`<item>` 存在、XSS 转义生效、锚点 `#comment-<id>` 正确；`diagnostics.check_seo` 新增 `/feed/comments` 路由存在性检查（`url_map` 校验）。 | ✅ 无回归 |
+
+**R53 结论**：**0 遗留**。新增评论 RSS 路由为只读公开订阅源，输出全程 escape 防 XSS，仅暴露「已审核 + 所属文章已发布」的评论；`bot_guard` 豁免避免反爬误伤 RSS 阅读器；诊断 SEO 维度同步覆盖该路由，防止未来 Nginx 反代漏配导致再次返主界面。发版前 `APP_VERSION` 已改为 `3.10.3`（与 Release tag 一致）。
+
 **部署注意**：本版仅后端 `diagnostics.py` 改动，**前端无需重新 vite build**；覆盖后端后「停止 → 启动」gunicorn 即生效。体检维度由 9 增至 11：「邮件 SMTP」改为查 `mail_host`（后台配的也能识别）、新增「安全配置概览」「渲染缓存命中率」。

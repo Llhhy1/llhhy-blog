@@ -312,7 +312,7 @@ def check_seo():
     # 路由存在性（代码内已知；这里只确认关键端点已注册）
     from flask import current_app as app
     routes = {str(r) for r in app.url_map.iter_rules()}
-    for path in ("/robots.txt", "/sitemap.xml", "/feed.xml"):
+    for path in ("/robots.txt", "/sitemap.xml", "/feed.xml", "/feed/comments"):
         has = any(path in r for r in routes)
         items.append({"label": f"路由 {path}", "value": "存在" if has else "缺失", "level": "ok" if has else "error"})
         if not has:

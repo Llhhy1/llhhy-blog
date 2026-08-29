@@ -742,6 +742,8 @@ supervisorctl status
   - ② 新增 2 个诊断维度（9 → 11）：**安全配置概览**（验证码/评论/强密码 `STRONG_PASSWORD`/安全响应头 `SECURITY_HEADERS`/接口限流 状态汇总，开着评论却关验证码或未开安全头时会 warn）+ **渲染缓存命中率**（`Post.content_html` 已缓存占比，全未缓存预警性能退化/写回失败）。
   - 新维度自动纳入 `run_all()`，后台「🩺 全站体检」与 MCP `health_overview` 同步可见，无需改 MCP 代码。
 - **⚠️ 部署注意**：**纯后端改动，前端产物无变化**。覆盖 `myblog-backend.zip` 后「停止 → 启动」gunicorn（restart 不重载）即生效；体检维度由 9 增至 11，「邮件 SMTP」维度后台配的也能显示 `ok`。APP_VERSION 升为 v3.10.2。
+
+- **v3.10.3 评论 RSS 订阅源**：新增 `/feed/comments`（含 `/feed/comments/`）评论 RSS 2.0 路由（`routes.py::comments_feed`），取最近 50 条「已审核 + 已发布文章」评论，`escape` 全程转义防 XSS。`bot_guard._SKIP_PREFIXES` 已加 `/feed/comments`（RSS 阅读器免被反爬误封）；`diagnostics.check_seo` 已加该路由存在性检查（防 Nginx 反代漏配再次返主界面）。部署：纯后端改动，覆盖 zip 后「停止 → 启动」gunicorn；评论订阅源 `https://你的域名/feed/comments/` 即可被订阅。APP_VERSION 升为 v3.10.3。
 - **验证**：pytest **31 passed**（新增 11 条 MCP 测试 + 重写 10 条插件框架测试）；R50 十二维审计 **0 遗留**。APP_VERSION 升为 v3.10.0。
 
 

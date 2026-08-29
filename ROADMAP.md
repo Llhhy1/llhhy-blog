@@ -715,3 +715,8 @@ v3.1.7 修复 CSRF 隐藏域乱码后，用户反馈「退出登录按钮失效�
 - **① 修复「邮件 SMTP」误报**：`check_config()` 原查 `smtp_host`（环境变量名），但后台「邮件设置」存库 key 实为 `mail_host`（`mail_notify.load_mail_config()` 读取 `mail_host`/`mail_username`/…），后台面板配的 SMTP 永远查不到 → 误报 warn。改为 `get_setting("mail_host") or os.environ.get("SMTP_HOST")`，与发信一致（仅显示服务器域名，不回显账号/密码）。
 - **② 新增 2 维度（9 → 11）**：**安全配置概览**（`check_security`：验证码/评论/强密码/安全头/限流状态汇总，暴露安全短板）+ **渲染缓存命中率**（`check_render_cache`：`Post.content_html` 缓存占比，全未缓存预警）。两者自动纳入 `run_all()`，后台体检页与 MCP `health_overview` 同步可见。
 - **验证**：`py_compile` 通过；R52 九维审计 0 遗留；pytest 31 passed 保持。APP_VERSION 升为 v3.10.2。
+
+## 57. v3.10.3：新增评论 RSS 订阅源 `/feed/comments`（R53 审计通过）
+
+- **改的什么**：补全评论 RSS 路由（用户访问 `/feed/comments/` 被 SPA 兜底返主界面，根因是该路由从未实现）。`routes.py` 新增 `comments_feed`（`/feed/comments` + `/feed/comments/`），RSS 2.0、最近 50 条「已审核 + 已发布文章」评论、输出全程 escape 防 XSS、锚点 `#comment-<id>`；`bot_guard` 加豁免；`diagnostics.check_seo` 加路由检查防回归。
+- **验证**：`py_compile` 通过 + 本地冒烟（两路径 200 + `application/rss+xml`、XSS 转义、锚点正确）；R53 审计 0 遗留；pytest 31 passed 保持。APP_VERSION 升为 v3.10.3。

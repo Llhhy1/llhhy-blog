@@ -523,6 +523,51 @@ def feed():
     return Response(xml, mimetype="application/rss+xml")
 
 
+@main_bp.route("/feed/comments")
+@main_bp.route("/feed/comments/")
+def comments_feed():
+    """评论 RSS 2.0 订阅源（v3.10.3）：最近 50 条「已通过审核 + 所属文章已发布」的评论。"""
+    visible = visible_posts_query().with_entities(Post.id).subquery()
+    rows = (db.session.query(Comment, Post)
+            .join(visible, Comment.post_id == visible.c.id)
+            .join(Post, Post.id == Comment.post_id)
+            .filter(Comment.approved == True)
+            .order_by(Comment.created_at.desc())
+            .limit(50).all())
+    base = _site_base()
+    site_title = current_app.config.get("SITE_TITLE", "我的博客")
+    items = []
+    for c, post in rows:
+        link = f"{base}/post/{post.slug}#comment-{c.id}"
+        pub = c.created_at.strftime("%a, %d %b %Y %H:%M:%S +0000")
+        author = (c.author or "").strip() or "匿名"
+        body = (c.content or "").strip()
+        items.append(
+            "    <item>\n"
+            f"      <title>评论：{escape(post.title)}</title>\n"
+            f"      <link>{escape(link)}</link>\n"
+            f"      <guid>{escape(link)}</guid>\n"
+            f"      <pubDate>{pub}</pubDate>\n"
+            f"      <dc:creator>{escape(author)}</dc:creator>\n"
+            f"      <description>{escape(body)}</description>\n"
+            "    </item>"
+        )
+    last = rows[0][0].created_at.strftime("%a, %d %b %Y %H:%M:%S +0000") if rows else ""
+    xml = (
+        '<?xml version="1.0" encoding="UTF-8"?>\n'
+        '<rss version="2.0" xmlns:dc="http://purl.org/dc/elements/1.1/">\n'
+        "  <channel>\n"
+        f"    <title>{escape(site_title)} · 评论</title>\n"
+        f"    <link>{escape(base + '/')}</link>\n"
+        f"    <description>{escape(site_title)} 的最新评论订阅</description>\n"
+        f"    <lastBuildDate>{last}</lastBuildDate>\n"
+        + "\n".join(items) + "\n"
+        "  </channel>\n"
+        "</rss>\n"
+    )
+    return Response(xml, mimetype="application/rss+xml")
+
+
 @main_bp.route("/sitemap.xml")
 def sitemap():
     """站点地图（v3.8.0 增强：lastmod / changefreq / priority / 封面图）。"""

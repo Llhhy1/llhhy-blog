@@ -36,7 +36,7 @@ BLOCKLIST_EXACT = (
 )
 
 # 文档同步检查：后端代码改动时，这些文档必须同时有改动
-DOCS = ("README.md", "myblog/README.md", "deploy_guide.md", "ROADMAP.md",
+DOCS = ("README.md", "myblog/README.md", "myblog/deploy_guide.md", "ROADMAP.md",
         "myblog/SECURITY_AUDIT.md")
 BACKEND_SRC = "myblog/"
 FRONTEND_SRC = "vue-frontend/src/"

@@ -77,6 +77,7 @@
    > - `CAPTCHA_ENABLED`：默认 `true`——注册/评论/留言启用图形验证码（服务器未装 Pillow 时自动降级关闭）。
    > - `SECURITY_HEADERS`：默认 `true`——追加 X-Frame-Options / CSP / X-Content-Type-Options / Referrer-Policy 安全响应头。
    > - `UPDATE_HMAC_KEY`：可选——为发布包生成 HMAC 签名并在 `update.sh` 校验（增强更新包完整性，见「一键更新」章节）。
+   > - `FEED_FETCH_TIMEOUT`：默认 `8`——友链 RSS 聚合抓取 socket 超时（秒）；不可达/超慢源超时只跳过、不卡死 worker（v3.10.4 新增）。
 
 4. 点 **「提交」**。等待依赖安装完成（首次约 1-3 分钟，面板会显示进度）。
 5. 项目状态变为 **运行中（绿色）** 即成功。若报错，点项目右侧 **「日志」** 查看原因。
@@ -352,6 +353,13 @@ supervisorctl status
 7. **环境变量**：只覆盖文件 + 重启，环境变量原样保留，无需重填；**若误删 Python 项目重建，必须重填 `SECRET_KEY` / `ADMIN_PASSWORD`**（缺失拒绝启动）。改 `SECRET_KEY` 会让已登录用户需要重新登录，属正常现象。
 
 ---
+
+### v3.10.4 升级注意（博客圈 RSS 卡死修复）
+
+- **纯后端改动，前端无需重新构建**：覆盖 `myblog-backend.zip` 后「停止 → 启动」gunicorn 即生效（restart 不重载）。
+- **核心修复**：友链 RSS 聚合（博客圈）抓不可达/超慢源时曾因无 socket 超时永久挂起 worker、拖垮整站（后台点「强制刷新聚合」即 502/罢工）。v3.10.4 起抓前设 8s socket 超时（`FEED_FETCH_TIMEOUT` 环境变量可改），坏源只跳过不卡死。
+- **部署前建议**：若站点曾因强制刷新罢工，先「停止 → 启动」恢复；后台「友链管理」先清空 `hedelei` 的 RSS（避开被墙源），保留自身 `https://www.llhhy.cn/feed.xml`（同服务器秒回）；恢复后「诊断助手」点「强制刷新聚合」验证博客圈出文章、`feed_agg` 转 `ok`。
+- **验证**：后台左下角显示 `v3.10.4`；体检「博客圈 RSS」维度 `ok`。
 
 ### v3.8.8 升级注意（修复全站体检 500 + 文档页显示不全）
 

@@ -720,3 +720,11 @@ v3.1.7 修复 CSRF 隐藏域乱码后，用户反馈「退出登录按钮失效�
 
 - **改的什么**：补全评论 RSS 路由（用户访问 `/feed/comments/` 被 SPA 兜底返主界面，根因是该路由从未实现）。`routes.py` 新增 `comments_feed`（`/feed/comments` + `/feed/comments/`），RSS 2.0、最近 50 条「已审核 + 已发布文章」评论、输出全程 escape 防 XSS、锚点 `#comment-<id>`；`bot_guard` 加豁免；`diagnostics.check_seo` 加路由检查防回归。
 - **验证**：`py_compile` 通过 + 本地冒烟（两路径 200 + `application/rss+xml`、XSS 转义、锚点正确）；R53 审计 0 遗留；pytest 31 passed 保持。APP_VERSION 升为 v3.10.3。
+
+---
+
+## 58. v3.10.4：博客圈 RSS 卡死修复（R54 审计通过）
+
+- **改的什么**：纯后端加固 `feed_agg.py`（抓友链 RSS 前 `socket.setdefaulttimeout(8)`，`FEED_FETCH_TIMEOUT` 环境变量可覆盖，`try/finally` 还原，坏源只 `skip` 不挂死 worker）、`diagnostics.py`（`check_feed_agg` 改实时读库，消除多 worker 快照滞后）、`admin.py`（`set_link_rss` 保存后软校验 RSS 可达性）、`config.py`（`APP_VERSION="3.10.4"` + 新增 `FEED_FETCH_TIMEOUT`）。无新功能 / 新接口 / 目录结构变化，**无需 vite build**。
+- **验证**：`py_compile` 通过（四文件）；R54 九维审计 0 遗留；pytest 31 passed 保持。APP_VERSION 升为 v3.10.4。
+- **部署注意**：纯后端改动，前端产物无变化；覆盖后端后「停止 → 启动」gunicorn 即生效。⚠️ 若此前因强制刷新罢工，先「停止 → 启动」恢复；后台「友链管理」建议先清空 `hedelei` 的 RSS（避开被墙源），保留自身 `https://www.llhhy.cn/feed.xml`；恢复后「诊断助手」点「强制刷新聚合」验证博客圈出文章、`feed_agg` 转 ok。

@@ -216,11 +216,26 @@ def check_config():
 # 4. 博客圈 RSS 聚合（复用 feed_agg 逐条诊断）
 # ---------------------------------------------------------------------------
 def check_feed_agg():
+    """博客圈 RSS 聚合诊断。
+
+    v3.10.4 起：「已填 RSS」改读实时库（FriendLink.rss_url 非空计数），
+    消除多 worker 下读 get_last_diag() 内存快照导致的滞后——
+    之前填了 RSS 也要等某进程新鲜聚合才刷新，诊断长时间误报「没有任何友链填写 RSS」。
+    抓取明细（成功/跳过/最近运行/逐条）仍取快照，仅在新鲜聚合时更新，属可接受。
+    """
     import feed_agg
+    try:
+        total_links = FriendLink.query.count()
+        links_with_rss = FriendLink.query.filter(
+            FriendLink.rss_url.isnot(None), FriendLink.rss_url != ""
+        ).count()
+    except Exception:
+        total_links = 0
+        links_with_rss = 0
     d = feed_agg.get_last_diag()
     items, notes = [], []
-    items.append({"label": "友链总数", "value": str(d.get("total_links", 0)), "level": "info"})
-    items.append({"label": "已填 RSS", "value": str(d.get("links_with_rss", 0)), "level": "info"})
+    items.append({"label": "友链总数", "value": str(total_links), "level": "info"})
+    items.append({"label": "已填 RSS（实时库）", "value": str(links_with_rss), "level": "info"})
     items.append({"label": "feedparser", "value": "已安装" if d.get("feedparser_ok") else "未安装", "level": "ok" if d.get("feedparser_ok") else "error"})
     items.append({"label": "成功抓取", "value": str(d.get("fetched", 0)), "level": "info"})
     items.append({"label": "跳过", "value": str(d.get("skipped", 0)), "level": "ok" if not d.get("skipped") else "warn"})
@@ -230,11 +245,11 @@ def check_feed_agg():
     if not d.get("feedparser_ok"):
         status = "error"
         notes.append("feedparser 未安装：pip install feedparser==6.0.11 后重启服务。")
-    if not d.get("links_with_rss"):
+    if not links_with_rss:
         status = "warn"
         notes.append("没有任何友链填写 RSS 地址，博客圈永远为空。后台「友链管理」补 RSS。")
-    if d.get("skipped"):
-        status = "warn" if status == "ok" else status
+    elif d.get("skipped"):
+        status = "warn"
     for rec in d.get("per_link", []) or []:
         if rec.get("status") == "empty":
             status = "warn" if status == "ok" else status
@@ -243,7 +258,7 @@ def check_feed_agg():
             status = "warn" if status == "ok" else status
     notes.extend(d.get("notes", []) or [])
     return {"key": "feed_agg", "title": "博客圈 RSS 聚合", "status": status,
-            "rows": items, "notes": notes, "per_link": d.get("per_link", []) or []}
+            "rows": items, "notes": notes[:5], "per_link": d.get("per_link", []) or []}
 
 
 # ---------------------------------------------------------------------------

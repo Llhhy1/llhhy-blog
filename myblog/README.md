@@ -2,7 +2,7 @@
 
 llhhy-blog 的后端：Flask + SQLite，服务端渲染前台 + `/api/*` JSON 接口 + Jinja2 管理后台。
 
-- 当前版本：**v3.10.0**
+- 当前版本：**v3.10.4**
 - 根目录 README / 历史版本见仓库根 [README.md](../README.md) 与 [CHANGELOG.md](../CHANGELOG.md)
 
 ## 目录结构
@@ -70,6 +70,7 @@ python app.py            # http://127.0.0.1:5000
 | `REDIS_URL` | — | 多 worker 全局限流 |
 | `SESSION_IDLE_MINUTES` | `60` | 会话闲置超时，`0` 关闭 |
 | `CAPTCHA_ENABLED` | `true` | 图形验证码 |
+| `FEED_FETCH_TIMEOUT` | `8` | 友链 RSS 抓取 socket 超时（秒）；坏源超时只跳过、不卡死 worker |
 | `UPDATE_HMAC_KEY` | — | 发布包 HMAC 签名 |
 
 **插件系统（v3.9.0 起；v3.10.0 起不再内置插件）**

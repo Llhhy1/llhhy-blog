@@ -2096,3 +2096,25 @@ v3.1.6 起后端 `app.py::_csrf_protect` 严格校验**所有非豁免 POST** �
 **R53 结论**：**0 遗留**。新增评论 RSS 路由为只读公开订阅源，输出全程 escape 防 XSS，仅暴露「已审核 + 所属文章已发布」的评论；`bot_guard` 豁免避免反爬误伤 RSS 阅读器；诊断 SEO 维度同步覆盖该路由，防止未来 Nginx 反代漏配导致再次返主界面。发版前 `APP_VERSION` 已改为 `3.10.3`（与 Release tag 一致）。
 
 **部署注意**：本版仅后端 `diagnostics.py` 改动，**前端无需重新 vite build**；覆盖后端后「停止 → 启动」gunicorn 即生效。体检维度由 9 增至 11：「邮件 SMTP」改为查 `mail_host`（后台配的也能识别）、新增「安全配置概览」「渲染缓存命中率」。
+
+---
+
+## 第五十四轮 R54（v3.10.4 · 博客圈 RSS 卡死修复）
+
+**背景**：用户后台点「强制刷新聚合」即触发站点 502/罢工。源码级根因：① `feed_agg.get_circle_feed` 抓友链 RSS 时 `feedparser.parse` 默认**无 socket 超时**，单个不可达/超慢源（如被墙的外站 hedelei）会让 worker 永久挂起，拖垮整站；② 诊断 `check_feed_agg` 读 `get_last_diag()` **内存快照**，多 gunicorn worker 下与实时库脱节，填了 RSS 仍长时间误报「没有任何友链填写 RSS」；③ 后台 `set_link_rss` 保存 RSS **无可达性校验**，用户把首页路径 `/feed/` 当 RSS 填入而毫无察觉（博客自身文章 RSS 正确路由是 `/feed.xml`）。本轮改动仅 `myblog/feed_agg.py`、`myblog/diagnostics.py`、`myblog/admin.py`、`myblog/config.py` 四处，纯后端、**无需 vite build**。
+
+| 编号 | 维度 | 审计点 | 结论 |
+|---|---|---|---|
+| R54-1 | XSS | `validate_feed_url` 仅返回 `(ok, reason)` 字符串，`reason` 来自异常类型/`_safe_url_fail_reason`（域名/IP，非用户注入内容），**不入库、不渲染**；`get_circle_feed` 输出摘要仍走既有 `clean_html` 白名单清洗。无新增用户可控 HTML 注入点。 | ✅ 无 XSS |
+| R54-2 | SQL 注入 | `check_feed_agg` 新增 `links_with_rss` 计数用 ORM 参数化 `FriendLink.query.filter(FriendLink.rss_url.isnot(None), FriendLink.rss_url != "")`；无字符串拼接 SQL。 | ✅ 无注入 |
+| R54-3 | 越权 | `set_link_rss` 维持 `@admin_required` + 全局同源/CSRF 保护；`validate_feed_url` 为只读辅助，不改变任何权限边界。 | ✅ 无越权 |
+| R54-4 | SSRF | `_safe_url`（v3.1.6 DNS 重绑定缓解：协议/内网词/DNS 解析内网 IP 三重拦截）**既有防护保留并仍生效**；socket 超时只在超时后抛异常，不改变 `_safe_url` 的判定结果。 | ✅ 无 SSRF |
+| R54-5 | CSRF | RSS 保存为既有 POST 路由，全局 CSRF 保护不变；未新增任何写接口或表单。 | ✅ 无 CSRF 缺口 |
+| R54-6 | 密钥泄露 | `FEED_FETCH_TIMEOUT` 为非敏感配置（默认 8 秒），可走环境变量 `FEED_FETCH_TIMEOUT`；不读取/回显任何密钥。 | ✅ 无泄露 |
+| R54-7 | 资源泄漏 | **核心修复**：抓取前 `socket.setdefaulttimeout(_timeout)`（默认 8s，取 `current_app.config["FEED_FETCH_TIMEOUT"]`），`try/finally` **确保还原**默认超时——不可达源超时被 `except Exception` 捕获标记 `skipped/error`，**绝不再无限挂起拖垮 worker**。 | ✅ 无泄漏 |
+| R54-8 | 限流 / DoS | 仅诊断/读取类改动，无新增写接口、无长连接；`validate_feed_url` 在请求上下文内同步执行但带超时，不会阻塞保存。 | ✅ 无风险 |
+| R54-9 | 回归 | `py_compile` 通过（feed_agg/diagnostics/admin/config 四文件）；`check_feed_agg` 改实时读库消除快照滞后（保留快照明细）；`set_link_rss` 软校验非阻塞（保存照常，仅 flash warning）。`get_circle_feed` 缓存命中路径不碰超时（直接 return），仅新鲜抓取整段套超时。 | ✅ 无回归 |
+
+**R54 结论**：**0 遗留**。SSRF 防护经复核未受影响；无新增鉴权/注入面；socket 超时确保 worker 不被外部抓取挂死。发版前 `APP_VERSION` 已改为 `3.10.4`（与 Release tag 一致）。
+
+**部署注意**：纯后端改动，**前端无需 vite build**；覆盖后端后「停止 → 启动」gunicorn 即生效。⚠️ 部署前若站点曾因强制刷新罢工，先「停止 → 启动」恢复；后台「友链管理」建议先清空 `hedelei` 的 RSS（避免重启后再次抓取被墙源），保留自身 `https://www.llhhy.cn/feed.xml`（同服务器秒回）；恢复后在「诊断助手」点「强制刷新聚合」验证博客圈出文章、`feed_agg` 转 ok。

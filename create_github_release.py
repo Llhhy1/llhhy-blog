@@ -20,9 +20,9 @@ import urllib.error
 import urllib.parse
 
 REPO = "Llhhy1/llhhy-blog"
-TAG = "v3.10.3"
-TITLE = "llhhy-blog v3.10.3 - 新增评论 RSS 订阅源 /feed/comments"
-NOTES_FILE = "_release_notes_v3.10.3.md"
+TAG = "v3.10.4"
+TITLE = "llhhy-blog v3.10.4 - 博客圈 RSS 卡死修复（FEED_FETCH_TIMEOUT 超时防卡死）"
+NOTES_FILE = "_release_notes_v3.10.4.md"
 ASSETS = ["myblog-backend.zip", "vue-frontend-dist.zip", "sha256.txt"]
 
 API = "https://api.github.com"

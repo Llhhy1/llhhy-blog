@@ -999,6 +999,16 @@ def set_link_rss(lid):
     link.rss_url = (request.form.get("rss_url") or "").strip()
     db.session.commit()
     flash("已保存 RSS 地址")
+    # v3.10.4：软校验 RSS 可达性（非阻塞，保存照常）。提前暴露「/feed/ 返回 HTML」
+    # 这类填错——之前用户填了首页路径当 RSS，博客圈悄无声息为空。
+    if link.rss_url:
+        try:
+            import feed_agg
+            ok, reason = feed_agg.validate_feed_url(link.rss_url)
+            if not ok:
+                flash("⚠️ 该 RSS 地址可能不可用（%s），博客圈将无法聚合此源。" % reason, "warning")
+        except Exception:
+            pass
     return redirect(url_for("admin.links"))
 
 

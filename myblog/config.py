@@ -12,7 +12,7 @@ os.makedirs(DATA_DIR, exist_ok=True)
 
 # 应用版本号：与 GitHub Release 标签保持一致（vX.Y.Z）。
 # 后台侧边栏左下角会显示该版本，用于确认服务器安装的代码是否为最新。
-APP_VERSION = "3.10.3"
+APP_VERSION = "3.10.4"
 
 
 class Config:
@@ -50,6 +50,11 @@ class Config:
 
     # 站点对外地址（RSS/sitemap 生成绝对链接用，留空则自动用请求域名）
     SITE_URL = os.environ.get("SITE_URL", "")
+
+    # ===== v3.10.4 新增：博客圈 RSS 抓取超时（秒）=====
+    # 防止不可达/超慢的 RSS 源（如被墙的外站）卡死整个聚合、甚至拖垮 gunicorn worker。
+    # 0 = 不限制（不推荐）。
+    FEED_FETCH_TIMEOUT = int(os.environ.get("FEED_FETCH_TIMEOUT", "8"))
 
     # 允许跨域访问的前端来源（前后端分离时，外部站点从这里调接口）。
     # 安全默认值：空字符串 = 不开启任何跨域（同源部署无需 CORS）。

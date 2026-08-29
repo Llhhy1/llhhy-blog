@@ -392,3 +392,9 @@
 - **改的什么**：用户访问 `/feed/comments/` 被 Nginx SPA 兜底返主界面——根因是该路由博客从未实现（只有文章 feed `/feed.xml`）。本次在 `routes.py` 新增 `comments_feed` 路由（`/feed/comments` + `/feed/comments/`），输出 RSS 2.0：取最近 50 条「`approved=True` 且所属文章已发布」的评论，每项含文章链接锚点 `#comment-<id>`、评论摘要、作者；评论内容/作者/文章标题全部 `escape` 转义防 XSS。同步：① `bot_guard._SKIP_PREFIXES` 加 `/feed/comments`，避免开启反爬后 RSS 阅读器被限流/封禁；② `diagnostics.check_seo` 路由存在性检查加 `/feed/comments`，防止未来 Nginx 反代漏配导致再次返主界面。
 - **验证**：`py_compile` 通过 + 本地冒烟测试（临时 sqlite + `test_client` 验证 `/feed/comments/` 与 `/feed/comments` 均返回 200 + `application/rss+xml`，`<item>` 存在、`<script>` 转义为 `&lt;script&gt;`、锚点正确）；R53 审计 **0 遗留**（详见 `myblog/SECURITY_AUDIT.md` R53 轮）；pytest **31 passed** 保持。
 - **⚠️ 部署注意**：**纯后端改动，前端产物无变化**。覆盖 `myblog-backend.zip` 后「停止 → 启动」gunicorn（restart 不重载）即生效；评论订阅源 `https://你的域名/feed/comments/` 即可被 RSS 阅读器订阅。APP_VERSION 升为 v3.10.3。
+
+### v3.10.4 修复：博客圈 RSS 卡死（R54 审计通过）
+
+- **修复**：后台点「强制刷新聚合」即触发 502/罢工。根因：`feed_agg.get_circle_feed` 抓友链 RSS 时 `feedparser.parse` 默认**无 socket 超时**，单个不可达源（如被墙的外站 hedelei）会让 worker 永久挂起、拖垮整站。改为抓取前 `socket.setdefaulttimeout(8)`（取 `current_app.config["FEED_FETCH_TIMEOUT"]`，环境变量 `FEED_FETCH_TIMEOUT` 可覆盖，`try/finally` 还原），坏源超时被 `except` 捕获标记 `skipped/error`、**不再无限挂起**。同时：① `diagnostics.check_feed_agg` 改**实时读库**计数，消除多 gunicorn worker 下内存快照滞后（填了 RSS 仍长时间误报「没有任何友链填写 RSS」）；② `admin.set_link_rss` 保存后**软校验** RSS 可达性（填错 `/feed/` 这类路径立即 warning，保存照常）。纯后端改动，**无需 vite build**。
+- **验证**：`py_compile` 通过（feed_agg/diagnostics/admin/config 四文件）；R54 九维审计 **0 遗留**（详见 `myblog/SECURITY_AUDIT.md` R54 轮）；pytest **31 passed** 保持。
+- **⚠️ 部署注意**：**纯后端改动，前端产物无变化**。覆盖 `myblog-backend.zip` 后「停止 → 启动」gunicorn（restart 不重载）即生效。若此前因强制刷新罢工，先「停止 → 启动」恢复；后台「友链管理」建议先清空 `hedelei` 的 RSS（避开被墙源），保留自身 `https://www.llhhy.cn/feed.xml`（同服务器秒回）；恢复后「诊断助手」点「强制刷新聚合」验证博客圈出文章、`feed_agg` 转 ok。APP_VERSION 升为 v3.10.4。

@@ -408,8 +408,13 @@ def create_app():
     # v3.11.0：登记 Flask-Migrate（可选）。仅登记，不改变建表主路径
     # （db.create_all() + _migrate_* 仍负责生产建表/升级）。未来改 model 后用
     # `flask db migrate` 生成迁移脚本，已有库一次性 `flask db stamp head` 即可。
+    # directory 显式指到本文件同级的 migrations/，使 `flask db` 在任意 cwd 下
+    # 都能定位（部署后该目录随后端包落到运行目录，与开发态一致）。
     if Migrate is not None:
-        Migrate(app, db)
+        _migrate_dir = os.path.join(
+            os.path.dirname(os.path.abspath(__file__)), "migrations"
+        )
+        Migrate(app, db, directory=_migrate_dir)
     app.register_blueprint(main_bp)
     app.register_blueprint(admin_bp)
     app.register_blueprint(api_bp)

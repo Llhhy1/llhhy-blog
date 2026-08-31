@@ -436,6 +436,59 @@ def compute_trend(days=30):
         return []
 
 
+def compute_dashboard_trend(days=30):
+    """驾驶舱趋势序列（v3.11.0 二期）：在 PV/UV 之上叠加每日新增评论量与新文量。
+
+    与 compute_trend 保持同样的「连续日期补齐」语义（缺失日期补 0），便于前端
+    画连续折线。评论量按 Comment.created_at 当日新增计数、新文量按
+    Post.created_at 当日发布计数，二者与 PV/UV 量级差异大，前端用独立刻度绘制。
+    """
+    try:
+        days = max(1, min(int(days), 90))
+        end = datetime.date.today()
+        start = end - datetime.timedelta(days=days - 1)
+
+        vrows = (db.session.query(VisitLog.date, VisitLog.ip)
+                 .filter(VisitLog.date >= start.isoformat(),
+                         VisitLog.date <= end.isoformat()).all())
+        pv = {}
+        uv = {}
+        for d, ip in vrows:
+            pv[d] = pv.get(d, 0) + 1
+            uv.setdefault(d, set()).add(ip)
+
+        crows = (db.session.query(db.func.date(Comment.created_at))
+                 .filter(db.func.date(Comment.created_at) >= start.isoformat(),
+                         db.func.date(Comment.created_at) <= end.isoformat()).all())
+        comments = {}
+        for (cd,) in crows:
+            comments[cd] = comments.get(cd, 0) + 1
+
+        prows = (db.session.query(db.func.date(Post.created_at))
+                 .filter(db.func.date(Post.created_at) >= start.isoformat(),
+                         db.func.date(Post.created_at) <= end.isoformat()).all())
+        posts = {}
+        for (pd,) in prows:
+            posts[pd] = posts.get(pd, 0) + 1
+
+        result = []
+        cur = start
+        while cur <= end:
+            ds = cur.isoformat()
+            result.append({
+                "date": ds,
+                "pv": pv.get(ds, 0),
+                "uv": len(uv.get(ds, set())),
+                "comments": comments.get(ds, 0),
+                "posts": posts.get(ds, 0),
+            })
+            cur += datetime.timedelta(days=1)
+        return result
+    except Exception as e:
+        print("compute_dashboard_trend 失败:", e)
+        return []
+
+
 def compute_summary():
     """统计汇总：供 /api/stats/summary 与后台统计页使用。"""
     return {
@@ -456,12 +509,15 @@ def compute_summary():
     }
 
 
-def compute_dashboard():
+def compute_dashboard(range_days=30):
     """运营驾驶舱聚合（UI清单 B · P0 运营驾驶舱）。
 
     在 compute_summary() 的只读聚合之上，追加核心运营指标与「环比」
     （vs 昨日 / vs 上周同日）。全部查询为只读，单指标失败静默降级为 0，
     不拖垮整个端点（沿用项目「降级范式」）。
+
+    range_days：趋势序列区间（7/30/90 天，默认 30），仅影响 trend，不影响
+    卡片指标（卡片永远是「今日」快照 + vs 昨日 / vs 上周同期环比）。
     """
     base = compute_summary()
     today = today_str()
@@ -538,8 +594,8 @@ def compute_dashboard():
         "hot_reads": (base.get("hot_posts") or [])[:5],
         "hot_searches": (base.get("hot_searches") or [])[:5],
         "active_regions": (base.get("regions_today") or [])[:5],
-        # 兼容既有统计页展示
-        "trend": base.get("trend", []),
+        # 驾驶舱趋势：按所选区间（7/30/90 天）叠加 PV/UV + 评论量 + 新文量
+        "trend": compute_dashboard_trend(range_days),
         "hourly": base.get("hourly", []),
         "regions_today": base.get("regions_today", []),
         "regions_all": base.get("regions_all", []),

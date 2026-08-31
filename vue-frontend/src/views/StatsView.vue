@@ -5,7 +5,7 @@
     <div v-if="!loaded" class="stats-loading">数据加载中…</div>
 
     <template v-else>
-      <!-- 概览卡片：核心指标 + 环比（vs 昨日） -->
+      <!-- 概览卡片：核心指标 + 环比（vs 昨日 / vs 上周同期） -->
       <div class="dash-cards">
         <div v-for="c in cards" :key="c.label" class="dash-card">
           <span class="dash-label">{{ c.label }}</span>
@@ -13,6 +13,10 @@
           <span v-if="c.delta === null" class="dash-delta new">新</span>
           <span v-else-if="c.delta !== undefined" class="dash-delta" :class="c.delta >= 0 ? 'up' : 'down'">
             {{ c.delta >= 0 ? '▲' : '▼' }} {{ Math.abs(c.delta) }}% <em>vs 昨日</em>
+          </span>
+          <span v-if="c.deltaWow === null" class="dash-delta new">新</span>
+          <span v-else-if="c.deltaWow !== undefined" class="dash-delta wow" :class="c.deltaWow >= 0 ? 'up' : 'down'">
+            {{ c.deltaWow >= 0 ? '▲' : '▼' }} {{ Math.abs(c.deltaWow) }}% <em>vs 上周</em>
           </span>
         </div>
       </div>
@@ -63,19 +67,44 @@
           </ul>
         </section>
 
-        <!-- 访客趋势图 -->
-        <section class="stats-card">
-          <h3>📈 近 30 天访客趋势</h3>
+        <!-- 访客趋势图（二期：区间切换 + 4 曲线 + 悬浮提示 + CSV 导出） -->
+        <section class="stats-card trend-card">
+          <div class="card-head">
+            <h3>📈 近 {{ range }} 天趋势</h3>
+            <div class="card-tools">
+              <div class="range-switch">
+                <button v-for="r in [7, 30, 90]" :key="r" :class="{ active: range === r }" @click="setRange(r)">
+                  {{ r }}天
+                </button>
+              </div>
+              <button class="export-btn" @click="exportCsv" :disabled="!trendData.length">导出 CSV</button>
+            </div>
+          </div>
           <p v-if="!s.trend || !s.trend.length" class="stats-empty">暂无趋势数据</p>
-          <svg v-else class="trend-chart" :viewBox="`0 0 ${trendW} ${trendH}`" preserveAspectRatio="none">
-            <polyline :points="pvPoints" fill="none" stroke="#1a73e8" stroke-width="2" />
-            <polyline :points="uvPoints" fill="none" stroke="#34a853" stroke-width="2" />
-            <text v-for="(d, i) in trendLabels" :key="i" :x="labelX(i)" :y="trendH - 4"
-                  font-size="9" fill="#999" text-anchor="middle">{{ d }}</text>
-          </svg>
-          <div class="trend-legend">
-            <span class="lg lg-pv">■ PV（总访问次数）</span>
-            <span class="lg lg-uv">■ UV（独立访客）</span>
+          <div v-else class="trend-wrap" ref="trendWrap">
+            <svg class="trend-chart" :viewBox="`0 0 ${trendW} ${trendH}`" preserveAspectRatio="none"
+                 @mousemove="onTrendMove" @mouseleave="hoverIdx = null">
+              <polyline :points="pvPoints" fill="none" stroke="#1a73e8" stroke-width="2" />
+              <polyline :points="uvPoints" fill="none" stroke="#34a853" stroke-width="2" />
+              <polyline :points="cmPoints" fill="none" stroke="#f4b400" stroke-width="2" stroke-dasharray="4 3" />
+              <polyline :points="psPoints" fill="none" stroke="#e8710a" stroke-width="2" stroke-dasharray="4 3" />
+              <line v-if="hoverIdx !== null" :x1="xAt(hoverIdx)" :x2="xAt(hoverIdx)" :y1="0" :y2="trendH" stroke="#bbb" stroke-width="1" />
+              <text v-for="(d, i) in trendLabels" :key="i" :x="labelX(i)" :y="trendH - 4"
+                    font-size="9" fill="#999" text-anchor="middle">{{ d }}</text>
+            </svg>
+            <div v-if="hoverIdx !== null && trendData[hoverIdx]" class="trend-tip" :style="tipStyle">
+              <div class="tip-date">{{ trendData[hoverIdx].date }}</div>
+              <div class="tip-row"><span class="dot pv"></span>PV：{{ fmt(trendData[hoverIdx].pv) }}</div>
+              <div class="tip-row"><span class="dot uv"></span>UV：{{ fmt(trendData[hoverIdx].uv) }}</div>
+              <div class="tip-row"><span class="dot cm"></span>评论：{{ fmt(trendData[hoverIdx].comments) }}</div>
+              <div class="tip-row"><span class="dot ps"></span>新文：{{ fmt(trendData[hoverIdx].posts) }}</div>
+            </div>
+            <div class="trend-legend">
+              <span class="lg lg-pv">■ PV（总访问）</span>
+              <span class="lg lg-uv">■ UV（独立访客）</span>
+              <span class="lg lg-cm">▨ 评论量（右轴）</span>
+              <span class="lg lg-ps">▨ 新文量（右轴）</span>
+            </div>
           </div>
         </section>
 
@@ -102,6 +131,9 @@ import { computed, onMounted, ref } from "vue";
 import { apiGet } from "../lib/api.js";
 
 const loaded = ref(false);
+const range = ref(30);
+const hoverIdx = ref(null);
+const trendWrap = ref(null);
 const s = ref({
   metrics: {}, deltas: {},
   hot_reads: [], hot_searches: [], active_regions: [],
@@ -112,11 +144,11 @@ const cards = computed(() => {
   const m = s.value.metrics || {};
   const d = s.value.deltas || {};
   return [
-    { label: "今日访问 PV", value: m.pv_today, delta: d.pv_dod },
-    { label: "今日访客 UV", value: m.uv_today, delta: d.uv_dod },
-    { label: "今日新增订阅", value: m.new_subs_today, delta: d.subs_dod },
-    { label: "今日新增评论", value: m.new_comments_today, delta: d.comments_dod },
-    { label: "今日新文", value: m.new_posts_today, delta: d.posts_dod },
+    { label: "今日访问 PV", value: m.pv_today, delta: d.pv_dod, deltaWow: d.pv_wow },
+    { label: "今日访客 UV", value: m.uv_today, delta: d.uv_dod, deltaWow: d.uv_wow },
+    { label: "今日新增订阅", value: m.new_subs_today, delta: d.subs_dod, deltaWow: d.subs_wow },
+    { label: "今日新增评论", value: m.new_comments_today, delta: d.comments_dod, deltaWow: d.comments_wow },
+    { label: "今日新文", value: m.new_posts_today, delta: d.posts_dod, deltaWow: d.posts_wow },
     { label: "订阅总数", value: m.subs_total },
     { label: "未读评论", value: m.comments_unread },
     { label: "文章总数", value: m.posts_total },
@@ -133,32 +165,132 @@ const trendH = 180;
 const trendPad = 8;
 const trendData = computed(() => s.value.trend || []);
 const trendMax = computed(() => Math.max(1, ...trendData.value.map(d => d.pv)));
-function _points(key) {
+// 评论量 / 新文量量级远小于 PV，用各自共享的最大值做独立刻度，避免被压成贴地线
+const cmPsMax = computed(() =>
+  Math.max(1, ...trendData.value.map(d => Math.max(d.comments || 0, d.posts || 0))));
+
+function _points(key, maxVal) {
   const n = trendData.value.length;
   if (!n) return "";
   return trendData.value.map((d, i) => {
     const x = (i / Math.max(1, n - 1)) * (trendW - trendPad * 2) + trendPad;
-    const y = trendH - trendPad - (d[key] / trendMax.value) * (trendH - trendPad * 2);
+    const y = trendH - trendPad - (d[key] / maxVal) * (trendH - trendPad * 2);
     return `${x.toFixed(1)},${y.toFixed(1)}`;
   }).join(" ");
 }
-const pvPoints = computed(() => _points("pv"));
-const uvPoints = computed(() => _points("uv"));
+const pvPoints = computed(() => _points("pv", trendMax.value));
+const uvPoints = computed(() => _points("uv", trendMax.value));
+const cmPoints = computed(() => _points("comments", cmPsMax.value));
+const psPoints = computed(() => _points("posts", cmPsMax.value));
 const trendLabels = computed(() => trendData.value.map((d, i) =>
   i % 5 === 0 ? d.date.slice(5) : ""));
 function labelX(i) {
   const n = trendData.value.length;
   return ((i / Math.max(1, n - 1)) * (trendW - trendPad * 2) + trendPad).toFixed(1);
 }
+function xAt(i) {
+  const n = trendData.value.length;
+  return (i / Math.max(1, n - 1)) * (trendW - trendPad * 2) + trendPad;
+}
+
+// 悬浮提示：把鼠标 x 映射回数据索引，tooltip 按百分比定位在容器上
+function onTrendMove(e) {
+  const n = trendData.value.length;
+  if (!n) return;
+  const rect = e.currentTarget.getBoundingClientRect();
+  const x = ((e.clientX - rect.left) / rect.width) * trendW;
+  const rel = (x - trendPad) / (trendW - trendPad * 2);
+  let idx = Math.round(rel * (n - 1));
+  idx = Math.max(0, Math.min(n - 1, idx));
+  hoverIdx.value = idx;
+}
+const tipStyle = computed(() => {
+  if (hoverIdx.value === null) return {};
+  return { left: (xAt(hoverIdx.value) / trendW) * 100 + "%" };
+});
+
+// CSV 导出：带 BOM 让 Excel 正确识别中文；列 = 日期/PV/UV/评论量/新文量
+function exportCsv() {
+  const rows = [["日期", "PV", "UV", "评论量", "新文量"]];
+  for (const d of trendData.value) {
+    rows.push([d.date, d.pv, d.uv, d.comments, d.posts]);
+  }
+  const csv = "﻿" + rows.map(r => r.join(",")).join("\r\n");
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `dashboard_trend_${range.value}days.csv`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
 
 function pct(v, max) { return Math.max(2, Math.round((v / max) * 100)); }
 function hourPct(b) { return pct(b.count, maxHour.value); }
 function fmt(n) { return Number(n || 0).toLocaleString(); }
 
-onMounted(async () => {
+async function load() {
   try {
-    s.value = await apiGet("/api/stats/dashboard");
+    s.value = await apiGet("/api/stats/dashboard?range=" + range.value);
   } catch (e) { console.warn("驾驶舱加载失败", e); }
   loaded.value = true;
-});
+}
+async function setRange(r) {
+  if (r === range.value) return;
+  range.value = r;
+  hoverIdx.value = null;
+  await load();
+}
+
+onMounted(load);
 </script>
+
+<style scoped>
+.card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+.card-head h3 { margin: 0; }
+.card-tools { display: flex; align-items: center; gap: 10px; }
+.range-switch { display: inline-flex; border: 1px solid var(--border, #e3e3e3); border-radius: 8px; overflow: hidden; }
+.range-switch button {
+  border: none; background: var(--card, #fff); color: var(--text, #333);
+  padding: 4px 10px; cursor: pointer; font-size: 12px;
+}
+.range-switch button.active { background: var(--accent, #1a73e8); color: #fff; }
+.export-btn {
+  border: 1px solid var(--border, #e3e3e3); background: var(--card, #fff);
+  color: var(--text, #333); border-radius: 8px; padding: 4px 10px;
+  cursor: pointer; font-size: 12px;
+}
+.export-btn:disabled { opacity: .5; cursor: not-allowed; }
+.trend-wrap { position: relative; }
+.trend-tip {
+  position: absolute; top: 6px; transform: translateX(-50%);
+  background: rgba(30, 30, 30, .92); color: #fff; border-radius: 8px;
+  padding: 8px 10px; font-size: 12px; line-height: 1.5; pointer-events: none;
+  white-space: nowrap; box-shadow: 0 4px 12px rgba(0, 0, 0, .25); z-index: 5;
+}
+.tip-date { font-weight: 600; margin-bottom: 2px; }
+.tip-row { display: flex; align-items: center; gap: 6px; }
+.tip-row .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+.dot.pv { background: #1a73e8; }
+.dot.uv { background: #34a853; }
+.dot.cm { background: #f4b400; }
+.dot.ps { background: #e8710a; }
+.trend-legend { margin-top: 8px; display: flex; gap: 14px; flex-wrap: wrap; font-size: 12px; color: #777; }
+.trend-legend .lg-pv { color: #1a73e8; }
+.trend-legend .lg-uv { color: #34a853; }
+.trend-legend .lg-cm { color: #f4b400; }
+.trend-legend .lg-ps { color: #e8710a; }
+
+/* 卡片环比：新增「vs 上周」次行 */
+.dash-delta.wow { font-size: 11px; opacity: .85; }
+.dash-delta.wow em { font-style: normal; opacity: .7; }
+</style>

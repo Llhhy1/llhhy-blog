@@ -59,11 +59,18 @@ def stats_summary():
 
 @api_bp.route("/stats/dashboard")
 def stats_dashboard():
-    """运营驾驶舱聚合（UI清单 B · P0）：核心指标 + 环比。只读聚合、加限流、异常降级。"""
+    """运营驾驶舱聚合（UI清单 B · P0）：核心指标 + 环比 + 区间趋势。只读、限流、降级。
+
+    支持 ?range= 查询参数（7 / 30 / 90 天，默认 30），仅改变趋势序列区间，
+    不影响卡片指标（卡片恒为「今日」快照 + vs 昨日 / vs 上周同期环比）。
+    """
     if not rate_limit(client_key("api_stats_dashboard"), limit=30, window=60):
         return jsonify({"error": "too_many_requests"}), 429
     try:
-        return jsonify(stats.compute_dashboard())
+        range_days = request.args.get("range", 30, type=int)
+        if range_days not in (7, 30, 90):
+            range_days = 30
+        return jsonify(stats.compute_dashboard(range_days=range_days))
     except Exception as e:
         return jsonify({"error": "dashboard_failed", "detail": str(e)}), 500
 

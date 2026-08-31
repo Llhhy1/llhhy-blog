@@ -738,3 +738,11 @@ v3.1.7 修复 CSRF 隐藏域乱码后，用户反馈「退出登录按钮失效�
 
 - **改的什么**：窄屏下两处长文本横向溢出——后台 `/admin/stats` 长标题压到进度条；公开站 `/docs` 长路径/长表格/长 inline code 溢出版心。后台 `myblog/static/admin.css` 给 `.rank-title` 加换行、移动端去 `white-space:nowrap`；公开站 `vue-frontend/src/views/DocsView.vue` 给 `.path`/`.params-table`/inline `code` 加换行、移动端 `.params-table` 改 `table-layout:fixed`。纯样式，无新功能/接口。
 - **验证**：`py_compile` 通过；R56 九维审计 0 遗留；pytest 通过（29 passed，1 个预存 flaky 无关）。**含前端改动，需重建 `vue-frontend-dist.zip`**（源自 `_vite_build18`）。APP_VERSION 升为 v3.10.6。
+
+## 61. v3.11.0：Flask-Migrate 基线 + 运营驾驶舱二期 + 发布流水线打磨（R57 审计通过）
+
+- **① Flask-Migrate 基线迁移（v3.11.0 准备）**：落地 `migrations/`（Alembic 脚手架 + 基线迁移 `f8f1f29b6ddf`，对齐 v3.10.6 线上 schema）。`upgrade()` 复用 `db.create_all()`（保证与现有自动迁移字节一致）+ `fts.ensure()` 建 FTS5 五张影子表；`downgrade()` 删表。`Migrate(app, db)` 已在 v3.10.x 接入。新库 `flask db upgrade`、存量库 `flask db stamp head` 即可对齐基线，后续模型变更可 `flask db migrate` 自动生成迁移，与 `db.create_all()` 自动迁移并存不冲突。
+- **② 运营驾驶舱二期（增量）**：后端 `/api/stats/dashboard?range=7|30|90`（默认 30，非法回退 30）下钻趋势区间；新增 `compute_dashboard_trend()` 在 PV/UV 之上叠加**每日评论量 + 新文量**两条曲线（连续日期补齐，缺失补 0）。前端 `StatsView.vue` 加**区间切换器**、趋势 **4 曲线**（PV/UV 实线 + 评论/新文虚线独立刻度）、**悬浮 tooltip**、**CSV 导出**（带 BOM 防 Excel 中文乱码）、卡片新增「**vs 上周同期**」次行；不推翻原卡片/排行结构。新增 `tests/test_dashboard_range.py`（3 例）。
+- **③ 发布流水线打磨**：`.github/workflows/ci.yml` 新增 `build` job（Node 22 + `npm install` + `npm run build`），push/PR 校验前端可构建；`ROADMAP.md` 修正 stale ✅——内置插件 `contact_card`/`article_toc` 已于 v3.10.0 全量下线（框架保留）；新增 `verify_package_checksums.py` 严格对齐 `package.py` 内容区口径（`data[:EOCD+20]`，连 comment_length 2 字节排除），验证双源互证 ①（整文件哈希 vs sha256.txt）与 ②（内容区哈希 vs 注释内嵌），含 `--self-test`。
+- **验证**：pytest **37 passed**（新增 3）、`py_compile` 全过、前端 `_vite_build19` 构建通过、`package.py` 双源互证三检 OK。R57 七维审计 **0 遗留**（详见 `myblog/SECURITY_AUDIT.md` 第五十七轮）。
+- **部署注意**：② 含前端改动，须重建 `vue-frontend-dist.zip` + 宝塔「停止 → 启动」gunicorn + 硬刷新清缓存；③ 仅 CI/脚本/文档，无 DB 迁移、无运行期行为变化。APP_VERSION 升为 v3.11.0。

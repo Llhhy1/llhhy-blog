@@ -2152,3 +2152,23 @@ v3.1.6 起后端 `app.py::_csrf_protect` 严格校验**所有非豁免 POST** �
 | 回归 | `py_compile` 通过（admin.css 为静态资源、DocsView.vue 仅样式，无 Python 逻辑改动）；全量 pytest 通过（29 passed；唯一失败 `test_backup_snapshot_is_consistent` 为预存 flaky，全量跑才触发、单独跑通过，`backup.py` 本次完全未触碰，与改动无关）。 | ✅ 无回归 |
 
 **R56 结论**：**0 遗留**。纯展示层 CSS 修复（后台统计长标题 + 公开站文档页长路径/表格/code 移动端换行），不引入任何新的安全边界；含前端改动需重建 `vue-frontend-dist.zip`（源自 `_vite_build18`）。发版前 `APP_VERSION` 已改为 `3.10.6`（与 Release tag 一致）。
+
+---
+
+## 第五十七轮 R57（v3.11.0 · Flask-Migrate 基线 + 运营驾驶舱二期 + 发布流水线打磨）
+
+> 本轮三轮增量，均无新增安全边界。审计覆盖 ③ Flask-Migrate 基线、② 运营驾驶舱二期、⑤ 发布流水线打磨。
+
+| 维度 | 检查点 | 结论 |
+|------|--------|------|
+| XSS | ② 前端 `StatsView.vue`：CSV 导出内容由服务端趋势数据（日期/整数）拼成，仅作文件下载（带 BOM），不注入 DOM；tooltip 走 Vue `{{ }}` 自动转义；无 `v-html` / `innerHTML` / 外部 HTML 拼接。`compute_dashboard_trend` 返回纯数值/日期字典，经 JSON 接口下发，模板不渲染用户可控内容。 | ✅ 无 XSS |
+| SQL 注入 | ② `compute_dashboard_trend(days)` 全参数化 ORM（`filter` / `db.func.date(...)`）；`days` 经 API 层白名单 `{7,30,90}` + `max(1,min(int(days),90))` 双钳制，无字符串拼接到 SQL。③ 基线迁移 `db.create_all()` + `fts.ensure()` 由 SQLAlchemy 生成 DDL；`downgrade` 的 `DROP TABLE IF EXISTS post_fts` 为字面常量、无变量。⑤ `verify_package_checksums.py` 只读哈希计算。 | ✅ 无注入 |
+| 越权 | ② `stats_dashboard` 鉴权姿态沿用既有（仅 `rate_limit`，未新增/放宽）；本轮未改任何路由权限边界、未引入新接口。③ 迁移仅在 `flask db` CLI 上下文执行，非路由。⑤ 均为 CI 配置 / 文档 / 只读脚本。 | ✅ 无越权 |
+| SSRF / 密钥 / 路径遍历 | 无外部 URL 访问；`verify_package_checksums.py` 只读取本地 `*.zip` / `sha256.txt`，无网络、无密钥、无路径遍历（路径固定为项目根 + 已知文件名）。⑤ `ci.yml` 仅公共 actions + `npm install`，无密钥注入。 | ✅ 无 |
+| 资源 / DoS | ② 趋势查询在 90 天窗口内、受 `rate_limit`（30/60s）保护；`compute_dashboard` 仍走既有「降级范式」（单指标失败静默为 0）。③ `db.create_all()` 一次性建表。⑤ `verify` 脚本 O(文件大小) 哈希、self-test 用临时文件即用即删。 | ✅ 无风险 |
+| CSRF | ② 新增「区间切换」「CSV 导出」均为前端 GET/客户端动作，无新增 POST 接口/表单；`/api/stats/dashboard` 是 GET。③ ⑤ 无新增 POST 面。全局 `_csrf_protect` 不受影响。 | ✅ 无 CSRF 缺口 |
+| 回归 | `py_compile` 通过（stats/api/config/vite.config）；全量 pytest **37 passed**（新增 `test_dashboard_range.py` 3 例覆盖 range 参数与趋势字段）；前端 `_vite_build19` 构建通过；`package.py` 双源互证三检 OK（内容区 == 注释内嵌、整文件 == sha256.txt）。 | ✅ 无回归 |
+
+**R57 结论**：**0 遗留**。三轮增量均不引入新的安全边界——② 仅扩展只读统计聚合与前端可视化（参数双钳制、无注入/XSS/CSRF 面）；③ 用 `db.create_all()` 复用既有自动迁移保证字节一致，零新增攻击面；⑤ 为 CI / 只读校验脚本 / 文档。发版前 `APP_VERSION` 已改为 `3.11.0`（与 Release tag 一致）。
+
+**部署注意**：② 含前端改动，须重建 `vue-frontend-dist.zip` + 宝塔「停止 → 启动」gunicorn + 硬刷新清缓存；③ 存量库升级后执行一次 `flask db stamp head` 对齐基线（幂等、不改表结构）；`verify_package_checksums.py` 供本地/CI 复核双源互证口径，不参与线上运行。

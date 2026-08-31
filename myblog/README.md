@@ -2,8 +2,8 @@
 
 llhhy-blog 的后端：Flask + SQLite，服务端渲染前台 + `/api/*` JSON 接口 + Jinja2 管理后台。
 
-- 当前版本：**v3.10.6**
-- 移动端适配（v3.10.6）：修复后台「统计」长标题与公开站「文档页」移动端长文本横向溢出穿模（窄屏统一换行而非挤压版心）。
+- 当前版本：**v3.11.0**
+- 移动端适配（v3.10.6）：修复后台「统计」长标题与公开站「文档页」移动端长文本横向溢出穿模（窄屏统一换行而非挤压版心）。v3.11.0：引入 Flask-Migrate 基线迁移、运营驾驶舱二期（趋势区间切换 + 评论/新文量曲线 + CSV 导出）、CI 增前端构建校验与双源互证校验脚本。
 - 时区：展示统一北京时间（UTC+8），存储仍为 UTC；配置见 `config.TIME_ZONE`（默认 `Asia/Shanghai`，固定不可经环境变量改，避免 UI 内部错位）。
 - 根目录 README / 历史版本见仓库根 [README.md](../README.md) 与 [CHANGELOG.md](../CHANGELOG.md)
 
@@ -26,6 +26,7 @@ myblog/
 ├── bot_guard.py    # 反爬限流（默认关闭）
 ├── security.py     # 安全响应头 / 图形验证码 / CSRF
 ├── config.py       # 配置（含 APP_VERSION）
+├── migrations/     # Flask-Migrate / Alembic 迁移（v3.11.0 起；基线对齐 v3.10.6）
 ├── API.md          # 全部 /api/* 端点文档
 ├── SECURITY_AUDIT.md  # 安全审计报告
 └── deploy_guide.md    # 宝塔部署手册

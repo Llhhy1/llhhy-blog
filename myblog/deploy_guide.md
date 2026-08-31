@@ -386,6 +386,14 @@ supervisorctl status
 - **前端缓存**：SPA 由 Nginx 直接服务，覆盖 `index.html`+`assets/` 后请**硬刷新（Ctrl+F5）/无痕窗口**；可在宝塔「软件商店 → Nginx → 配置 → 重载」清 Nginx 缓存。
 - **验证**：后台左下角显示 `v3.10.6`；手机端打开 `/admin/stats` 与 `/docs`，长标题/长路径/长表格不再横向溢出。
 
+### v3.11.0 升级注意（Flask-Migrate 基线 + 运营驾驶舱二期 + 发布流水线打磨）
+
+- **Flask-Migrate 基线（新机制，零破坏）**：v3.11.0 引入 Flask-Migrate / Alembic 基线迁移，与既有 `db.create_all()` 自动迁移**并存**。存量库（v3.10.6 及更早）升级后只需在后端目录执行一次 `flask db stamp head`（记录基线、不改变任何表结构）；全新库直接 `flask db upgrade` 即建好全部表 + FTS5 影子表。两者都不需要手动 SQL，原 `_migrate_*` 自动补列逻辑保留兜底。
+- **本版含前端改动（运营驾驶舱二期）**：`StatsView.vue` 新增区间切换 / 4 曲线趋势 / 悬浮提示 / CSV 导出。必须重新覆盖 `vue-frontend-dist.zip` 并清缓存，否则线上仍是旧驾驶舱。
+- **后端**：覆盖 `myblog-backend.zip` 后**停止 → 启动** gunicorn；启动后若需对齐迁移基线，可执行一次 `flask db stamp head`（无 MCP/不迁移也建议执行一次，幂等无害）。
+- **前端缓存**：SPA 由 Nginx 直接服务，覆盖 `index.html`+`assets/` 后请**硬刷新（Ctrl+F5）/无痕窗口**；可在宝塔「软件商店 → Nginx → 配置 → 重载」清 Nginx 缓存。
+- **验证**：后台左下角显示 `v3.11.0`；「📊 运营驾驶舱」可切换 7/30/90 天、趋势图叠加评论/新文曲线、点「导出 CSV」下载趋势表；`flask db heads` 显示基线 `f8f1f29b6ddf`。
+
 ### v3.8.8 升级注意（修复全站体检 500 + 文档页显示不全）
 
 - **必含前端构建产物**：本次修复文档页 `/docs` 显示不全（三栏布局被 `.site-frame` 的 `max-width:1100px` 限宽挤压、右侧「本页目录」被 `@media(max-width:1100px)` 隐藏、sticky 侧栏被 `overflow:hidden` 破坏）。必须重新覆盖 `vue-frontend-dist.zip` 并清缓存，否则线上仍是压窄的旧版。

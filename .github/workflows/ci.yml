@@ -27,3 +27,20 @@ jobs:
           ADMIN_PASSWORD: ci-admin-password
         run: |
           python -m pytest tests/ -q
+
+  build:
+    runs-on: ubuntu-latest
+    # 前端构建校验：保证每次 push/PR 都能 `npm run build` 通过（v3.11.0 起纳入 CI）
+    defaults:
+      run:
+        working-directory: vue-frontend
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Node 22
+        uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+      - name: Install dependencies
+        run: npm install
+      - name: Build frontend
+        run: npm run build

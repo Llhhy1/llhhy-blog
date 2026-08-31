@@ -55,7 +55,7 @@
 - **E2 事件总线**：blinker 5 信号（发布/评论/插件加载），订阅者异常被吞 ✅
 - **E3 前端结构化槽位**：nav/sidebar/footer `<a>` 槽位 + 同源远程组件（`<component :is>`，零改动核心）✅
 - **E4 后台插件管理页**：「🧩 插件管理」列出状态 + 运行时启用/停用/重载（写 disabled 标记 + 内存覆盖）✅
-- **E5 内置插件**：`contact_card`（联系卡片，默认启用）、`article_toc`（文章目录侧栏，默认启用）✅
+- **E5 内置插件（contact_card / article_toc）**：v3.9.0 上线（默认启用）；**v3.10.0 已全量下线**（`contact_card`、`article_toc` 两个插件及 `static/plugins/` 下远程组件均移除，文章目录回退核心 `PostView` 内联 TOC）。**插件框架 E1–E4 保留**，`ENABLED_PLUGINS` 默认置空。
 
 ### 模块 F：性能与稳定性（v3.9.1 落地）✅
 - **F1 正文渲染缓存**：`Post.content_html` + `content_hash`（指纹 `sha256(版本|正文|HTML)`），唯一出口 `render_post_html()`；命中即返回、正文一改自动失效、被改坏可自愈。长文 `87ms → 2.7ms` ✅
@@ -73,7 +73,7 @@
 | **Phase 2 · 社交核心** | A2 友链 RSS 聚合、A3 社交账号墙、A4 动态互动、C1 留言墙 | ✅ 已上线 |
 | **Phase 3 · 互动深化** | C2 评论嵌套+@、C3 邮件订阅、B4 文章系列 | ✅ 已上线 |
 | **Phase 4 · 运营分发** | D1 分享卡片、D2 推送、D3 自动部署、D4 公告、B5 搜索升级 | ✅ 已上线 |
-| **Phase 5 · 插件系统** | E1 加载框架、E2 事件总线、E3 前端槽位+远程组件、E4 后台管理页、E5 内置插件（contact_card/article_toc） | ✅ 已上线（v3.9.0） |
+| **Phase 5 · 插件系统** | E1 加载框架、E2 事件总线、E3 前端槽位+远程组件、E4 后台管理页、E5 内置插件（contact_card/article_toc，v3.10.0 已下线） | ✅ 已上线（v3.9.0，E5 于 v3.10.0 下线，框架保留） |
 | **Phase 6 · 性能与稳定性** | F1 正文渲染缓存、F2 SQLite WAL、F3 备份链路适配、F4 体检项可观测 | ✅ 已上线（v3.9.1） |
 
 ---

@@ -1,14 +1,49 @@
 #!/usr/bin/env bash
 # llhhy-blog L3 推送门禁（pre-push 钩子）
-# 提示性检查：不硬拦截（避免单飞开发者被卡死），但输出关键提醒。
+# 由 tools/review/install-hooks.sh 安装。
+# - 临时产物零入版：硬门禁（拦截推送）+ 未跟踪临时产物自动清理（用完即删）
+# - 其余为提示性检查（不硬拦截，避免单飞开发者被卡死）
 set -u
 
 ROOT="$(git rev-parse --show-toplevel 2>/dev/null)"
 [ -z "$ROOT" ] && exit 0
 
+# ============================================================
+# 1. 临时产物零入版（硬门禁）
+#    pre-commit(check-staged.py) 已拦 .zip/sha256.txt/data 等；
+#    此处补拦 pre-commit 未覆盖的临时脚本与构建目录，确保绝不进版本库/Release。
+#    规范清单见 skills/blog-release/scripts/clean_release_tmp.sh（单一事实源）。
+# ============================================================
+TRACKED_TEMP="$(git ls-files -- '_verify_*.py' '_make_release_*.py' '_vite_build*' 'dist*' '*.zip' 'sha256.txt' 2>/dev/null)"
+if [ -n "$TRACKED_TEMP" ]; then
+  echo "❌ pre-push 拦截：以下临时产物已被 git 跟踪，禁止推送（会泄漏进版本库/Release）：" >&2
+  echo "$TRACKED_TEMP" >&2
+  echo "   请删除这些文件并从暂存区移除后重试：rm <file> && git restore --staged <file>" >&2
+  exit 1
+fi
+
+# 未跟踪的临时脚本/构建目录：自动清理（用完即删）
+# 说明：smoke_*.py 项目惯例可能正常提交，故只警告不自动删；其余为明确临时产物，安全删。
+AUTO_TEMP="$(git ls-files --others --exclude-standard -- \
+  '_verify_*.py' '_make_release_*.py' '_vite_build*' 'dist*' 2>/dev/null)"
+SMOKE_TEMP="$(git ls-files --others --exclude-standard -- 'smoke_*.py' 2>/dev/null)"
+if [ -n "$AUTO_TEMP" ]; then
+  echo "🧹 pre-push：自动清理未跟踪临时产物（用完即删）：" >&2
+  echo "$AUTO_TEMP" >&2
+  printf '%s\n' "$AUTO_TEMP" | xargs -r rm -f 2>/dev/null
+  for d in _vite_build* dist*; do
+    [ -d "$d" ] && rm -rf "$d"
+  done
+  echo "✅ 已清理未跟踪临时产物。" >&2
+fi
+if [ -n "$SMOKE_TEMP" ]; then
+  echo "⚠️  pre-push：发现未跟踪 smoke_*.py（按需删除或提交，勿随发版泄漏）：" >&2
+  echo "$SMOKE_TEMP" >&2
+fi
+
 NOTES=""
 
-# 1. 未提交的 smoke/构建脚本（发版前应纳入提交或加黑名单）
+# 2. 未提交的 smoke/构建脚本（发版前应纳入提交或加黑名单）
 UNTRACKED="$(git ls-files --others --exclude-standard "$ROOT" | grep -E 'smoke_|_smoke|_build' || true)"
 if [ -n "$UNTRACKED" ]; then
   UNTRACKED_ONE="$(printf '%s' "$UNTRACKED" | head -1)"
@@ -17,7 +52,7 @@ if [ -n "$UNTRACKED" ]; then
     （发版前建议纳入提交，或加入 tools/review/check-staged.py 黑名单）"
 fi
 
-# 2. APP_VERSION 与最近 tag 一致性提示
+# 3. APP_VERSION 与最近 tag 一致性提示
 if [ -f "$ROOT/myblog/config.py" ]; then
   CUR="$(grep -E '^[[:space:]]*APP_VERSION' "$ROOT/myblog/config.py" | head -1 \
     | sed -E 's/.*[^0-9]([0-9]+\.[0-9]+\.[0-9]+).*/\1/')"

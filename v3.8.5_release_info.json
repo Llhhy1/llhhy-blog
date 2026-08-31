@@ -1,8 +1,0 @@
-{
-  "tag_name": "v3.8.5",
-  "name": "llhhy-blog v3.8.5 - 新增 API 文档页面",
-  "body": "## v3.8.5 新增 API 文档页面（懒方案）\n\n### 🎯 主要改动\n- **API 文档页面**：新增 `/docs` 路径，左侧导航 + 右侧内容 + 代码高亮（CDN highlight.js）\n- **路由新增**：`router.js` 添加 `/docs` 路由，无需额外框架\n- **版本升级**：APP_VERSION 升为 3.8.5，配套文档同步更新\n\n### 📁 文件改动\n- vue-frontend/src/router.js：新增 /docs 路由\n- vue-frontend/src/views/DocsView.vue：API 文档页面\n- myblog/config.py：APP_VERSION = \"3.8.5\"\n- README.md/myblog/README.md/ROADMAP.md：文档同步更新\n\n### 🔍 技术实现\n- **懒方案**：复用现有 Vue 前端，新增 DocsView.vue 页面\n- **无额外框架**：不使用 VitePress/Docusaurus，仅用 Vue + CDN highlight.js\n- **响应式设计**：移动端侧边栏自动折叠\n- **代码高亮**：CDN 加载 highlight.js，支持多语言语法高亮\n\n### 🧪 部署测试\n1. 宝塔「停止 → 启动」gunicorn（**必须停止再启动**）\n2. 访问 http://your-domain.com/docs 查看文档页\n3. Ctrl+F 可搜索接口文档内容\n\n### 🔗 链接\n- 在线预览：https://github.com/Llhhy1/llhhy-blog/releases/tag/v3.8.5\n- 项目主页：https://github.com/Llhhy1/llhhy-blog\n\n---\n\n> 🚀 发布时间：2026-08-26  \n> 📦 commit：0b6ba46  \n> ⚖️ 开源协议：MIT License  \n> 👤 作者：Llhhy1  \n",
-  "draft": false,
-  "prerelease": false,
-  "target_commitish": "main"
-}

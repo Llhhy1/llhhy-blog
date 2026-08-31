@@ -746,3 +746,10 @@ v3.1.7 修复 CSRF 隐藏域乱码后，用户反馈「退出登录按钮失效�
 - **③ 发布流水线打磨**：`.github/workflows/ci.yml` 新增 `build` job（Node 22 + `npm install` + `npm run build`），push/PR 校验前端可构建；`ROADMAP.md` 修正 stale ✅——内置插件 `contact_card`/`article_toc` 已于 v3.10.0 全量下线（框架保留）；新增 `verify_package_checksums.py` 严格对齐 `package.py` 内容区口径（`data[:EOCD+20]`，连 comment_length 2 字节排除），验证双源互证 ①（整文件哈希 vs sha256.txt）与 ②（内容区哈希 vs 注释内嵌），含 `--self-test`。
 - **验证**：pytest **37 passed**（新增 3）、`py_compile` 全过、前端 `_vite_build19` 构建通过、`package.py` 双源互证三检 OK。R57 七维审计 **0 遗留**（详见 `myblog/SECURITY_AUDIT.md` 第五十七轮）。
 - **部署注意**：② 含前端改动，须重建 `vue-frontend-dist.zip` + 宝塔「停止 → 启动」gunicorn + 硬刷新清缓存；③ 仅 CI/脚本/文档，无 DB 迁移、无运行期行为变化。APP_VERSION 升为 v3.11.0。
+
+## 62. v3.11.1：后台版本号注入回归修复 + 运营驾驶舱视觉升级（R58 审计通过）
+
+- **① 后台版本号注入回归修复**：v3.11.0 的 admin.py 拆分（提交 `79351fd`）丢失了 `inject_notification_counts` 上的 `@admin_bp.context_processor` 装饰器，导致 `app_version` / `pending_comments` / `pending_guestbook` 三个模板变量不再注入——后台左下角版本号显示成裸「v」、导航角标永不出现。修复：在 `myblog/admin/_helpers.py` 的 `inject_notification_counts` 上恢复该装饰器（与拆分前一致）。已用脚本验证「函数已注册到 admin 蓝图」且调用返回 `app_version='3.11.1'`；pytest 37 passed 无回归。
+- **② 运营驾驶舱视觉升级（纯前端，不推翻结构）**：`StatsView.vue` 重做——概览指标卡补图标 + 大号数字 + 「vs 昨日 / vs 上周」环比胶囊（原 `.dash-cards`/`.dash-card` 因类名与全局样式不匹配而完全无样式，已修复）；趋势图加 PV/UV 渐变面积填充、横向网格线、`vector-effect:non-scaling-stroke` 抗拉伸、悬浮竖线 + 高亮点 + x 轴日期刻度（原 `preserveAspectRatio="none"` 把描边拉变形、无填充无网格）；趋势卡与时段卡全宽。无新接口 / 无逻辑变更。
+- **验证**：pytest **37 passed**；前端 `_vite_build20` 构建通过；`package.py` 双源互证三检 OK。R58 审计 **0 遗留**（详见 `myblog/SECURITY_AUDIT.md` 第五十八轮）。
+- **部署注意**：② 含前端改动，须重建 `vue-frontend-dist.zip` + 宝塔「停止 → 启动」gunicorn + 硬刷新清缓存；① 仅后端一行装饰器，覆盖 `myblog-backend.zip` 后「停止 → 启动」gunicorn 即生效。APP_VERSION 升为 v3.11.1。

@@ -394,6 +394,14 @@ supervisorctl status
 - **前端缓存**：SPA 由 Nginx 直接服务，覆盖 `index.html`+`assets/` 后请**硬刷新（Ctrl+F5）/无痕窗口**；可在宝塔「软件商店 → Nginx → 配置 → 重载」清 Nginx 缓存。
 - **验证**：后台左下角显示 `v3.11.0`；「📊 运营驾驶舱」可切换 7/30/90 天、趋势图叠加评论/新文曲线、点「导出 CSV」下载趋势表；`flask db heads` 显示基线 `f8f1f29b6ddf`。
 
+### v3.11.1 升级注意（后台版本号注入回归修复 + 运营驾驶舱视觉升级）
+
+- **后台版本号裸「v」修复**：v3.11.0 的 admin 拆分丢失了 `inject_notification_counts` 的 `@admin_bp.context_processor` 装饰器，导致后台左下角版本号显示成裸「v」、导航角标不出现。v3.11.1 已恢复该装饰器。
+- **运营驾驶舱视觉升级**：`StatsView.vue` 重做概览指标卡（图标 + 大号数字 + 环比胶囊）与趋势图（面积填充 + 网格 + 抗拉伸描边 + 悬浮高亮），纯样式无逻辑变更。
+- **后端**：覆盖 `myblog-backend.zip` 后**停止 → 启动** gunicorn（仅一行装饰器，无 DB 迁移）。
+- **前端缓存**：本版含前端改动，须重新覆盖 `vue-frontend-dist.zip` + 宝塔「停止 → 启动」gunicorn + 硬刷新（Ctrl+F5）/ 无痕窗口；可在宝塔「软件商店 → Nginx → 配置 → 重载」清 Nginx 缓存。
+- **验证**：后台左下角显示 `v3.11.1`；「📊 运营驾驶舱」指标卡有图标与环比、趋势图有面积填充与网格、悬浮显示当日 PV/UV/评论/新文；`flask db heads` 仍显示基线 `f8f1f29b6ddf`。
+
 ### v3.8.8 升级注意（修复全站体检 500 + 文档页显示不全）
 
 - **必含前端构建产物**：本次修复文档页 `/docs` 显示不全（三栏布局被 `.site-frame` 的 `max-width:1100px` 限宽挤压、右侧「本页目录」被 `@media(max-width:1100px)` 隐藏、sticky 侧栏被 `overflow:hidden` 破坏）。必须重新覆盖 `vue-frontend-dist.zip` 并清缓存，否则线上仍是压窄的旧版。

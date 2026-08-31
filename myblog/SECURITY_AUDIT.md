@@ -2172,3 +2172,23 @@ v3.1.6 起后端 `app.py::_csrf_protect` 严格校验**所有非豁免 POST** �
 **R57 结论**：**0 遗留**。三轮增量均不引入新的安全边界——② 仅扩展只读统计聚合与前端可视化（参数双钳制、无注入/XSS/CSRF 面）；③ 用 `db.create_all()` 复用既有自动迁移保证字节一致，零新增攻击面；⑤ 为 CI / 只读校验脚本 / 文档。发版前 `APP_VERSION` 已改为 `3.11.0`（与 Release tag 一致）。
 
 **部署注意**：② 含前端改动，须重建 `vue-frontend-dist.zip` + 宝塔「停止 → 启动」gunicorn + 硬刷新清缓存；③ 存量库升级后执行一次 `flask db stamp head` 对齐基线（幂等、不改表结构）；`verify_package_checksums.py` 供本地/CI 复核双源互证口径，不参与线上运行。
+
+---
+
+## 第五十八轮 R58（v3.11.1 · 后台版本号注入回归修复 + 运营驾驶舱视觉升级）
+
+> 本轮两处变更：① 后端恢复一个上下文处理器装饰器（一行）；② 前端 `StatsView.vue` 纯视觉重做。均无新增安全边界。
+
+| 维度 | 检查点 | 结论 |
+|------|--------|------|
+| XSS | ② 仅改 CSS + SVG 结构（面积/网格/描边），无 `v-html` / `innerHTML` / 外部 HTML 拼接；CSV 导出沿用既有（服务端趋势数据带 BOM 下载，不注入 DOM）；tooltip 走 Vue `{{ }}` 自动转义。① 无模板渲染变更。 | ✅ 无 XSS |
+| SQL 注入 | ① 仅恢复 Flask 上下文处理器装饰器，无 SQL；② 无查询变更。 | ✅ 无注入 |
+| 越权 | ① 上下文处理器仅向模板注入展示变量（`app_version` / `pending_comments` / `pending_guestbook`），无新接口/路由/权限边界变化。② 无路由变更。 | ✅ 无越权 |
+| SSRF / 密钥 / 路径遍历 | 无外部 URL 访问；无密钥读写；无路径遍历。 | ✅ 无 |
+| 资源 / DoS | ① 上下文处理器在每次后台模板渲染时多两次 COUNT 查询（已带 try/except 兜底为 0），开销可忽略；② 纯前端渲染，无服务端负担。 | ✅ 无风险 |
+| CSRF | ① 无新增 POST 面；② 区间切换/CSV 导出均为前端 GET/客户端动作，无新 POST 接口。全局 `_csrf_protect` 不受影响。 | ✅ 无 CSRF 缺口 |
+| 回归 | `py_compile` 通过；全量 pytest **37 passed**（验证脚本确认 `inject_notification_counts` 已注册到 admin 蓝图且返回 `app_version='3.11.1'`）；前端 `_vite_build20` 构建通过；`package.py` 双源互证三检 OK。 | ✅ 无回归 |
+
+**R58 结论**：**0 遗留**。① 为单行装饰器恢复（修复 v3.11.0 admin 拆分引入的回归）；② 为纯前端视觉重做（指标卡 + 趋势图），不引入任何安全边界。发版前 `APP_VERSION` 已改为 `3.11.1`（与 Release tag 一致）。
+
+**部署注意**：② 含前端改动，须重建 `vue-frontend-dist.zip` + 宝塔「停止 → 启动」gunicorn + 硬刷新清缓存；① 仅一行装饰器，覆盖 `myblog-backend.zip` 后「停止 → 启动」gunicorn 即生效，无 DB 迁移、无运行期行为变化。

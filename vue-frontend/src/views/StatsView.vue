@@ -8,16 +8,19 @@
       <!-- 概览卡片：核心指标 + 环比（vs 昨日 / vs 上周同期） -->
       <div class="dash-cards">
         <div v-for="c in cards" :key="c.label" class="dash-card">
+          <span class="dash-icon">{{ c.icon }}</span>
           <span class="dash-label">{{ c.label }}</span>
           <span class="dash-num">{{ fmt(c.value) }}</span>
-          <span v-if="c.delta === null" class="dash-delta new">新</span>
-          <span v-else-if="c.delta !== undefined" class="dash-delta" :class="c.delta >= 0 ? 'up' : 'down'">
-            {{ c.delta >= 0 ? '▲' : '▼' }} {{ Math.abs(c.delta) }}% <em>vs 昨日</em>
-          </span>
-          <span v-if="c.deltaWow === null" class="dash-delta new">新</span>
-          <span v-else-if="c.deltaWow !== undefined" class="dash-delta wow" :class="c.deltaWow >= 0 ? 'up' : 'down'">
-            {{ c.deltaWow >= 0 ? '▲' : '▼' }} {{ Math.abs(c.deltaWow) }}% <em>vs 上周</em>
-          </span>
+          <div class="dash-foot">
+            <span v-if="c.delta === null" class="dash-delta new">新</span>
+            <span v-else-if="c.delta !== undefined" class="dash-delta" :class="c.delta >= 0 ? 'up' : 'down'">
+              {{ c.delta >= 0 ? '▲' : '▼' }} {{ Math.abs(c.delta) }}% <em>vs 昨日</em>
+            </span>
+            <span v-if="c.deltaWow === null" class="dash-delta new">新</span>
+            <span v-else-if="c.deltaWow !== undefined" class="dash-delta wow" :class="c.deltaWow >= 0 ? 'up' : 'down'">
+              {{ c.deltaWow >= 0 ? '▲' : '▼' }} {{ Math.abs(c.deltaWow) }}% <em>vs 上周</em>
+            </span>
+          </div>
         </div>
       </div>
 
@@ -67,7 +70,7 @@
           </ul>
         </section>
 
-        <!-- 访客趋势图（二期：区间切换 + 4 曲线 + 悬浮提示 + CSV 导出） -->
+        <!-- 访客趋势图（二期：区间切换 + 4 曲线 + 悬浮提示 + CSV 导出；视觉升级：面积填充 + 网格 + 悬浮高亮） -->
         <section class="stats-card trend-card">
           <div class="card-head">
             <h3>📈 近 {{ range }} 天趋势</h3>
@@ -80,18 +83,40 @@
               <button class="export-btn" @click="exportCsv" :disabled="!trendData.length">导出 CSV</button>
             </div>
           </div>
-          <p v-if="!s.trend || !s.trend.length" class="stats-empty">暂无趋势数据</p>
+          <p v-if="!trendData.length" class="stats-empty">暂无趋势数据</p>
           <div v-else class="trend-wrap" ref="trendWrap">
-            <svg class="trend-chart" :viewBox="`0 0 ${trendW} ${trendH}`" preserveAspectRatio="none"
+            <svg class="trend-svg" :viewBox="`0 0 ${trendW} ${trendH}`" preserveAspectRatio="none"
                  @mousemove="onTrendMove" @mouseleave="hoverIdx = null">
-              <polyline :points="pvPoints" fill="none" stroke="#1a73e8" stroke-width="2" />
-              <polyline :points="uvPoints" fill="none" stroke="#34a853" stroke-width="2" />
-              <polyline :points="cmPoints" fill="none" stroke="#f4b400" stroke-width="2" stroke-dasharray="4 3" />
-              <polyline :points="psPoints" fill="none" stroke="#e8710a" stroke-width="2" stroke-dasharray="4 3" />
-              <line v-if="hoverIdx !== null" :x1="xAt(hoverIdx)" :x2="xAt(hoverIdx)" :y1="0" :y2="trendH" stroke="#bbb" stroke-width="1" />
-              <text v-for="(d, i) in trendLabels" :key="i" :x="labelX(i)" :y="trendH - 4"
-                    font-size="9" fill="#999" text-anchor="middle">{{ d }}</text>
+              <defs>
+                <linearGradient id="pvGrad" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stop-color="#1a73e8" stop-opacity="0.26" />
+                  <stop offset="100%" stop-color="#1a73e8" stop-opacity="0" />
+                </linearGradient>
+                <linearGradient id="uvGrad" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stop-color="#34a853" stop-opacity="0.18" />
+                  <stop offset="100%" stop-color="#34a853" stop-opacity="0" />
+                </linearGradient>
+              </defs>
+              <!-- 横向网格线 -->
+              <line v-for="(y, i) in gridLines" :key="'g' + i" :x1="padX" :x2="trendW - padX" :y1="y" :y2="y" class="grid-line" />
+              <!-- 面积填充（PV / UV 左轴） -->
+              <polygon :points="pvArea" fill="url(#pvGrad)" />
+              <polygon :points="uvArea" fill="url(#uvGrad)" />
+              <!-- 曲线：评论/新文（右轴）虚线在底层，PV/UV（左轴）实线在上层 -->
+              <polyline :points="cmLine" class="ln-cm" fill="none" />
+              <polyline :points="psLine" class="ln-ps" fill="none" />
+              <polyline :points="uvLine" class="ln-uv" fill="none" />
+              <polyline :points="pvLine" class="ln-pv" fill="none" />
+              <!-- 悬浮竖线 + 高亮点 -->
+              <line v-if="hoverIdx !== null" :x1="xAt(hoverIdx)" :x2="xAt(hoverIdx)" :y1="padTop" :y2="padTop + plotH" class="hover-line" />
+              <circle v-if="hoverIdx !== null && trendData[hoverIdx]" :cx="xAt(hoverIdx)" :cy="yAt(trendData[hoverIdx].pv, trendMax)" r="3.6" class="hover-dot pv" />
+              <circle v-if="hoverIdx !== null && trendData[hoverIdx]" :cx="xAt(hoverIdx)" :cy="yAt(trendData[hoverIdx].uv, trendMax)" r="3.6" class="hover-dot uv" />
             </svg>
+            <!-- x 轴日期刻度（HTML 叠加，避免 SVG 缩放拉伸文字） -->
+            <div class="trend-axis">
+              <span v-for="t in xAxisTicks" :key="t.label" class="axis-tick" :class="{ first: t.first, last: t.last }"
+                    :style="{ left: t.pct + '%' }">{{ t.label }}</span>
+            </div>
             <div v-if="hoverIdx !== null && trendData[hoverIdx]" class="trend-tip" :style="tipStyle">
               <div class="tip-date">{{ trendData[hoverIdx].date }}</div>
               <div class="tip-row"><span class="dot pv"></span>PV：{{ fmt(trendData[hoverIdx].pv) }}</div>
@@ -109,7 +134,7 @@
         </section>
 
         <!-- 阅读时段分布 -->
-        <section class="stats-card">
+        <section class="stats-card hour-card">
           <h3>🕐 访客阅读时段分布</h3>
           <p v-if="!s.total_visits" class="stats-empty">暂无访问数据</p>
           <div v-else class="hour-chart">
@@ -144,14 +169,14 @@ const cards = computed(() => {
   const m = s.value.metrics || {};
   const d = s.value.deltas || {};
   return [
-    { label: "今日访问 PV", value: m.pv_today, delta: d.pv_dod, deltaWow: d.pv_wow },
-    { label: "今日访客 UV", value: m.uv_today, delta: d.uv_dod, deltaWow: d.uv_wow },
-    { label: "今日新增订阅", value: m.new_subs_today, delta: d.subs_dod, deltaWow: d.subs_wow },
-    { label: "今日新增评论", value: m.new_comments_today, delta: d.comments_dod, deltaWow: d.comments_wow },
-    { label: "今日新文", value: m.new_posts_today, delta: d.posts_dod, deltaWow: d.posts_wow },
-    { label: "订阅总数", value: m.subs_total },
-    { label: "未读评论", value: m.comments_unread },
-    { label: "文章总数", value: m.posts_total },
+    { icon: "👁", label: "今日访问 PV", value: m.pv_today, delta: d.pv_dod, deltaWow: d.pv_wow },
+    { icon: "🧭", label: "今日访客 UV", value: m.uv_today, delta: d.uv_dod, deltaWow: d.uv_wow },
+    { icon: "🔔", label: "今日新增订阅", value: m.new_subs_today, delta: d.subs_dod, deltaWow: d.subs_wow },
+    { icon: "💬", label: "今日新增评论", value: m.new_comments_today, delta: d.comments_dod, deltaWow: d.comments_wow },
+    { icon: "✍️", label: "今日新文", value: m.new_posts_today, delta: d.posts_dod, deltaWow: d.posts_wow },
+    { icon: "📨", label: "订阅总数", value: m.subs_total },
+    { icon: "📬", label: "未读评论", value: m.comments_unread },
+    { icon: "📚", label: "文章总数", value: m.posts_total },
   ];
 });
 
@@ -159,39 +184,62 @@ const maxReads = computed(() => Math.max(1, ...(s.value.hot_reads || []).map(p =
 const maxRegion = computed(() => Math.max(1, ...(s.value.active_regions || []).map(r => r.count)));
 const maxHour = computed(() => Math.max(1, ...(s.value.hourly || []).map(b => b.count)));
 
-// 访客趋势图：把趋势数据映射成 SVG 折线坐标
-const trendW = 660;
-const trendH = 180;
-const trendPad = 8;
+// ---------- 访客趋势图（SVG 坐标映射） ----------
+const trendW = 720;
+const trendH = 240;
+const padX = 14;
+const padTop = 18;
+const padBottom = 26;
+const plotH = computed(() => trendH - padTop - padBottom);
+
 const trendData = computed(() => s.value.trend || []);
 const trendMax = computed(() => Math.max(1, ...trendData.value.map(d => d.pv)));
 // 评论量 / 新文量量级远小于 PV，用各自共享的最大值做独立刻度，避免被压成贴地线
 const cmPsMax = computed(() =>
   Math.max(1, ...trendData.value.map(d => Math.max(d.comments || 0, d.posts || 0))));
 
-function _points(key, maxVal) {
-  const n = trendData.value.length;
-  if (!n) return "";
-  return trendData.value.map((d, i) => {
-    const x = (i / Math.max(1, n - 1)) * (trendW - trendPad * 2) + trendPad;
-    const y = trendH - trendPad - (d[key] / maxVal) * (trendH - trendPad * 2);
-    return `${x.toFixed(1)},${y.toFixed(1)}`;
-  }).join(" ");
-}
-const pvPoints = computed(() => _points("pv", trendMax.value));
-const uvPoints = computed(() => _points("uv", trendMax.value));
-const cmPoints = computed(() => _points("comments", cmPsMax.value));
-const psPoints = computed(() => _points("posts", cmPsMax.value));
-const trendLabels = computed(() => trendData.value.map((d, i) =>
-  i % 5 === 0 ? d.date.slice(5) : ""));
-function labelX(i) {
-  const n = trendData.value.length;
-  return ((i / Math.max(1, n - 1)) * (trendW - trendPad * 2) + trendPad).toFixed(1);
-}
 function xAt(i) {
   const n = trendData.value.length;
-  return (i / Math.max(1, n - 1)) * (trendW - trendPad * 2) + trendPad;
+  return padX + (i / Math.max(1, n - 1)) * (trendW - 2 * padX);
 }
+function yAt(v, max) {
+  return padTop + (1 - v / max) * plotH.value;
+}
+function linePts(key, max) {
+  const n = trendData.value.length;
+  if (!n) return "";
+  return trendData.value.map((d, i) => `${xAt(i).toFixed(1)},${yAt(d[key], max).toFixed(1)}`).join(" ");
+}
+function areaPts(key, max) {
+  const n = trendData.value.length;
+  if (!n) return "";
+  const baseY = (padTop + plotH.value).toFixed(1);
+  return `${padX},${baseY} ${linePts(key, max)} ${(xAt(n - 1)).toFixed(1)},${baseY}`;
+}
+const pvLine = computed(() => linePts("pv", trendMax.value));
+const uvLine = computed(() => linePts("uv", trendMax.value));
+const cmLine = computed(() => linePts("comments", cmPsMax.value));
+const psLine = computed(() => linePts("posts", cmPsMax.value));
+const pvArea = computed(() => areaPts("pv", trendMax.value));
+const uvArea = computed(() => areaPts("uv", trendMax.value));
+// 4 条横向网格线
+const gridLines = computed(() => {
+  const arr = [];
+  for (let k = 0; k <= 4; k++) arr.push((padTop + (k / 4) * plotH.value).toFixed(1));
+  return arr;
+});
+// x 轴刻度：首 / 1/3 / 2/3 / 尾
+const xAxisTicks = computed(() => {
+  const n = trendData.value.length;
+  if (!n) return [];
+  const idxs = n <= 1 ? [0] : [0, Math.floor((n - 1) / 3), Math.floor(2 * (n - 1) / 3), n - 1];
+  return idxs.map((i, k) => ({
+    pct: (xAt(i) / trendW * 100).toFixed(1),
+    label: trendData.value[i].date.slice(5),
+    first: k === 0,
+    last: k === idxs.length - 1,
+  }));
+});
 
 // 悬浮提示：把鼠标 x 映射回数据索引，tooltip 按百分比定位在容器上
 function onTrendMove(e) {
@@ -199,7 +247,7 @@ function onTrendMove(e) {
   if (!n) return;
   const rect = e.currentTarget.getBoundingClientRect();
   const x = ((e.clientX - rect.left) / rect.width) * trendW;
-  const rel = (x - trendPad) / (trendW - trendPad * 2);
+  const rel = (x - padX) / (trendW - 2 * padX);
   let idx = Math.round(rel * (n - 1));
   idx = Math.max(0, Math.min(n - 1, idx));
   hoverIdx.value = idx;
@@ -248,6 +296,100 @@ onMounted(load);
 </script>
 
 <style scoped>
+/* ===== 概览指标卡片 ===== */
+.dash-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 14px;
+  margin-bottom: 18px;
+}
+.dash-card {
+  position: relative;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  background: var(--surface, #fff);
+  border: 1px solid var(--border-strong, #ececf0);
+  border-radius: var(--theme-radius, 14px);
+  padding: 16px 16px 14px;
+  box-shadow: 0 1px 3px rgba(20, 30, 50, 0.05);
+  transition: transform .18s ease, box-shadow .18s ease;
+}
+.dash-card:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 10px 24px rgba(20, 30, 50, 0.12);
+}
+.dash-card::after {
+  content: "";
+  position: absolute;
+  right: -22px;
+  top: -22px;
+  width: 72px;
+  height: 72px;
+  border-radius: 50%;
+  background: radial-gradient(circle at center,
+    color-mix(in srgb, var(--accent, #1a73e8) 14%, transparent), transparent 70%);
+}
+.dash-icon {
+  font-size: 17px;
+  line-height: 1;
+  margin-bottom: 9px;
+  width: 34px;
+  height: 34px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: color-mix(in srgb, var(--accent, #1a73e8) 10%, transparent);
+  border-radius: 10px;
+}
+.dash-label {
+  font-size: 13px;
+  color: var(--text-soft, #8a8f98);
+  margin-bottom: 3px;
+}
+.dash-num {
+  font-size: 28px;
+  font-weight: 800;
+  color: var(--accent, #1a73e8);
+  line-height: 1.1;
+  letter-spacing: -.5px;
+}
+.dash-foot {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+}
+.dash-delta {
+  font-size: 12px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.dash-delta.up { color: #1a9d54; background: rgba(26, 157, 84, .10); }
+.dash-delta.down { color: #e0533d; background: rgba(224, 83, 61, .10); }
+.dash-delta.new { color: #b07400; background: rgba(244, 180, 0, .14); }
+.dash-delta em { font-style: normal; opacity: .65; font-weight: 500; }
+.dash-delta.wow { font-size: 11px; opacity: .9; }
+
+/* ===== 网格布局：三列小卡 + 趋势/时段全宽 ===== */
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 18px;
+}
+.trend-card,
+.hour-card { grid-column: 1 / -1; }
+@media (max-width: 980px) {
+  .stats-grid { grid-template-columns: 1fr; }
+}
+
+/* ===== 趋势图 ===== */
 .card-head {
   display: flex;
   align-items: center;
@@ -270,12 +412,43 @@ onMounted(load);
   cursor: pointer; font-size: 12px;
 }
 .export-btn:disabled { opacity: .5; cursor: not-allowed; }
+
 .trend-wrap { position: relative; }
+.trend-svg { width: 100%; height: 240px; display: block; }
+.grid-line { stroke: var(--border-strong, #ececec); stroke-width: 1; vector-effect: non-scaling-stroke; }
+.ln-pv { stroke: #1a73e8; stroke-width: 2.4; vector-effect: non-scaling-stroke; stroke-linejoin: round; stroke-linecap: round; }
+.ln-uv { stroke: #34a853; stroke-width: 2.4; vector-effect: non-scaling-stroke; stroke-linejoin: round; stroke-linecap: round; }
+.ln-cm { stroke: #f4b400; stroke-width: 2; stroke-dasharray: 5 4; vector-effect: non-scaling-stroke; }
+.ln-ps { stroke: #e8710a; stroke-width: 2; stroke-dasharray: 5 4; vector-effect: non-scaling-stroke; }
+.hover-line { stroke: #c2c6cc; stroke-width: 1; vector-effect: non-scaling-stroke; }
+.hover-dot.pv { fill: #1a73e8; stroke: #fff; stroke-width: 1.5; }
+.hover-dot.uv { fill: #34a853; stroke: #fff; stroke-width: 1.5; }
+
+.trend-axis { position: relative; height: 16px; margin-top: 2px; }
+.axis-tick {
+  position: absolute;
+  transform: translateX(-50%);
+  font-size: 10px;
+  color: #9aa0a6;
+  white-space: nowrap;
+}
+.axis-tick.first { transform: translateX(0); }
+.axis-tick.last { transform: translateX(-100%); }
+
 .trend-tip {
-  position: absolute; top: 6px; transform: translateX(-50%);
-  background: rgba(30, 30, 30, .92); color: #fff; border-radius: 8px;
-  padding: 8px 10px; font-size: 12px; line-height: 1.5; pointer-events: none;
-  white-space: nowrap; box-shadow: 0 4px 12px rgba(0, 0, 0, .25); z-index: 5;
+  position: absolute;
+  top: 6px;
+  transform: translateX(-50%);
+  background: rgba(30, 30, 30, .92);
+  color: #fff;
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-size: 12px;
+  line-height: 1.5;
+  pointer-events: none;
+  white-space: nowrap;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, .25);
+  z-index: 5;
 }
 .tip-date { font-weight: 600; margin-bottom: 2px; }
 .tip-row { display: flex; align-items: center; gap: 6px; }
@@ -289,8 +462,4 @@ onMounted(load);
 .trend-legend .lg-uv { color: #34a853; }
 .trend-legend .lg-cm { color: #f4b400; }
 .trend-legend .lg-ps { color: #e8710a; }
-
-/* 卡片环比：新增「vs 上周」次行 */
-.dash-delta.wow { font-size: 11px; opacity: .85; }
-.dash-delta.wow em { font-style: normal; opacity: .7; }
 </style>

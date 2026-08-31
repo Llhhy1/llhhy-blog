@@ -215,6 +215,7 @@ def unique_slug(base, post_id=None):
         i += 1
     return slug
 
+@admin_bp.context_processor
 def inject_notification_counts():
     """向所有后台模板注入未读评论/未读留言数量，用于导航角标和仪表盘提醒。"""
     try:

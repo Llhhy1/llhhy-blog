@@ -12,8 +12,10 @@ Pillow>=10.0.0
 # v3.4.0 备份密钥加密存储（Fernet / AES-128-CBC + HMAC）：后台「备份配置」保存 OSS/WebDAV/SCP 密钥必需。
 # 服务器升级后需 pip install cryptography 并重启，否则加密保存会报错（读取/解密已有密文也需此库）。
 cryptography>=41.0.0
-# v3.11.0：Flask-Migrate（可选依赖）—— 数据库迁移工具，便于未来 schema 演进，取代手写 _migrate_*。
-# 接入方式：保留既有 db.create_all() + _migrate_* 作为主路径（生产零风险），仅额外在 app.py 内
-# 用 Migrate(app, db) 登记。已存在库只需一次性 `flask db stamp head` 注册基线，无需改表。
+# v3.11.0：Flask-Migrate —— 数据库迁移工具，schema 演进改用迁移脚本（不再仅靠手写 _migrate_* 自愈）。
+# 已落地：migrations/ 环境 + 基线迁移 f8f1f29b6ddf_baseline_v3_10_6.py（复用 db.create_all() 产出，与现状逐字节一致）。
+# 生产主路径仍为 db.create_all() + _migrate_*（启动自愈，零风险）；迁移作为「额外登记的迁移工具」。
+# 既有库（如服务器 blog.db）升级后只需一次性 `flask db stamp head` 注册基线（不改任何表）；
+#   之后改 model 后用 `flask db migrate` 生成迁移、`flask db upgrade` 应用。新库可直接 `flask db upgrade` 建表。
 # 未安装时 app.py 静默跳过（降级范式：绝不因缺依赖导致应用无法启动）。
 Flask-Migrate==4.0.7

@@ -12,6 +12,8 @@ __pycache__/
 *.pyc
 venv/
 .env
+# Flask 实例目录（本地运行时的运行时数据，自动生成，不入版本库）
+instance/
 
 # Node
 node_modules/

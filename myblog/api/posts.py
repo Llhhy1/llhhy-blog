@@ -276,6 +276,43 @@ def comment(slug):
     return jsonify({"ok": True, "comment": _comment(c),
                     "pending": require_approval}), 201
 
+
+@api_bp.route("/post/<slug>/comments")
+def post_comments(slug):
+    """评论分页（UI清单 10.1）：顶层评论分页 + 各自回复，扁平返回，与旧 comments 数组同构。
+
+    前端 CommentForm 用「加载更多」逐页追加；items 同时含顶层与其回复，
+    故既有的 topComments / repliesOf 嵌套渲染逻辑无需改动。
+    """
+    p = visible_posts_query().filter_by(slug=slug).first_or_404()
+    per_page = request.args.get("per_page", 20, type=int)
+    if per_page <= 0 or per_page > 50:
+        per_page = 20
+    page = request.args.get("page", 1, type=int)
+    if page < 1:
+        page = 1
+    if not rate_limit(client_key("api_post_comments"), limit=60, window=60):
+        return jsonify({"error": "请求过于频繁，请稍后再试"}), 429
+    total = Comment.query.filter_by(post_id=p.id, approved=True).count()
+    tops = (Comment.query.filter_by(post_id=p.id, approved=True, parent_id=None)
+            .order_by(Comment.created_at.asc())
+            .paginate(page=page, per_page=per_page, error_out=False))
+    items = []
+    for t in tops.items:
+        items.append(_comment(t))
+        for r in (Comment.query.filter_by(post_id=p.id, approved=True, parent_id=t.id)
+                  .order_by(Comment.created_at.asc()).all()):
+            items.append(_comment(r))
+    return jsonify({
+        "items": items,
+        "page": tops.page,
+        "per_page": tops.per_page,
+        "total": total,
+        "pages": tops.pages,
+        "has_more": tops.has_next,
+    })
+
+
 # ---------- 相关文章推荐（按标签重合度 + 同分类，纯算法零依赖，B1）----------
 @api_bp.route("/post/<slug>/related")
 def related_posts(slug):

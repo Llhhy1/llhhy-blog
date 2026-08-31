@@ -64,7 +64,7 @@
         </div>
 
         <LikeButton :slug="post.slug" :count="post.likes || 0" />
-        <CommentForm :slug="post.slug" :comments="comments" />
+        <CommentForm :slug="post.slug" />
       </article>
     </main>
     <Sidebar />
@@ -102,7 +102,6 @@ import CommentForm from "../components/CommentForm.vue";
 
 const route = useRoute();
 const post = ref(null);
-const comments = ref([]);
 const notFound = ref(false);
 const bodyEl = ref(null);
 const tocItems = ref([]);
@@ -118,7 +117,6 @@ async function load() {
   try {
     const data = await apiGet(`/api/post/${encodeURIComponent(slug)}`);
     post.value = data;
-    comments.value = data.comments || [];
     related.value = [];
     rewardQrDefault.value = state.site.reward_qr_default || "";
     await nextTick();

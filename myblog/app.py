@@ -20,6 +20,13 @@ from admin import admin_bp
 from api import api_bp
 from mcp_diag import mcp_bp  # v3.10.0：只读诊断 MCP（端点 /mcp）
 
+# v3.11.0：Flask-Migrate（可选依赖）—— 数据库迁移工具，便于未来 schema 演进。
+# 未安装时静默跳过（降级范式：绝不因缺依赖导致应用无法启动）。
+try:
+    from flask_migrate import Migrate
+except Exception:
+    Migrate = None
+
 
 _PRAGMAS_INSTALLED = False
 
@@ -398,6 +405,11 @@ def create_app():
     # v3.9.1：SQLite WAL + busy_timeout（必须在建连/建表之前装好监听）
     _install_sqlite_pragmas()
     db.init_app(app)
+    # v3.11.0：登记 Flask-Migrate（可选）。仅登记，不改变建表主路径
+    # （db.create_all() + _migrate_* 仍负责生产建表/升级）。未来改 model 后用
+    # `flask db migrate` 生成迁移脚本，已有库一次性 `flask db stamp head` 即可。
+    if Migrate is not None:
+        Migrate(app, db)
     app.register_blueprint(main_bp)
     app.register_blueprint(admin_bp)
     app.register_blueprint(api_bp)

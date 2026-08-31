@@ -32,6 +32,11 @@
       </div>
     </div>
 
+    <!-- 评论分页（UI清单 10.1）：加载更多 -->
+    <p v-if="slug && loadingMore" class="comment-loading">评论加载中…</p>
+    <button v-else-if="slug && hasMore" type="button" class="load-more" @click="loadMore">加载更多评论 ↓</button>
+    <p v-if="slug && moreError" class="comment-error">{{ moreError }}</p>
+
     <!-- 发表 / 回复表单 -->
     <form class="comment-form" autocomplete="off" @submit.prevent="submit">
       <p v-if="replyingTo" class="replying-tip">
@@ -54,11 +59,11 @@
 </template>
 
 <script setup>
-import { ref, computed } from "vue";
+import { ref, computed, onMounted } from "vue";
 import { apiGet, apiPost } from "../lib/api.js";
 import { state } from "../store.js";
 
-const props = defineProps({ slug: String, comments: Array });
+const props = defineProps({ slug: String, comments: { type: Array, default: () => [] } });
 const author = ref("");
 const content = ref("");
 const status = ref("");
@@ -67,6 +72,14 @@ const replyingTo = ref(null);
 const captcha = ref("");
 const captchaEnabled = ref(true);
 const captchaUrl = ref("");
+// 评论分页（UI清单 10.1）：slug 存在时自取首屏 + 「加载更多」；否则沿用传入的 comments
+const loaded = ref(props.comments ? [...props.comments] : []);
+const total = ref((props.comments || []).length);
+const page = ref(1);
+const perPage = 20;
+const hasMore = ref(false);
+const loadingMore = ref(false);
+const moreError = ref("");
 
 // v3.1.6 可选增强：评论验证码（CAPTCHA_ENABLED；后端/PIL 不可用时会返回降级关闭）
 function refreshCaptcha() {
@@ -89,11 +102,32 @@ async function initCaptcha() {
 }
 initCaptcha();
 
-const topComments = computed(() => (props.comments || []).filter((c) => !c.parent_id));
+const topComments = computed(() => loaded.value.filter((c) => !c.parent_id));
 function repliesOf(id) {
-  return (props.comments || []).filter((c) => c.parent_id === id);
+  return loaded.value.filter((c) => c.parent_id === id);
 }
-const allCount = computed(() => (props.comments || []).length);
+const allCount = computed(() => total.value || loaded.value.length);
+
+async function loadPage(p) {
+  if (!props.slug) return;
+  loadingMore.value = true;
+  moreError.value = "";
+  try {
+    const d = await apiGet(`/api/post/${encodeURIComponent(props.slug)}/comments?page=${p}&per_page=${perPage}`);
+    loaded.value.push(...(d.items || []));
+    total.value = d.total || loaded.value.length;
+    hasMore.value = !!d.has_more;
+    page.value = p;
+  } catch (e) {
+    moreError.value = "评论加载失败";
+  } finally {
+    loadingMore.value = false;
+  }
+}
+function loadMore() { loadPage(page.value + 1); }
+onMounted(() => {
+  if (props.slug) { loaded.value = []; total.value = 0; page.value = 1; loadPage(1); }
+});
 
 function startReply(c) {
   replyingTo.value = { id: c.id, author: c.author };

@@ -13,7 +13,7 @@ import time
 import urllib.parse
 import urllib.request
 
-from models import db, Post, VisitLog, ReadLog, SearchLog, IpRegion, Comment
+from models import db, Post, VisitLog, ReadLog, SearchLog, IpRegion, Comment, Subscriber
 from flask import request
 from utils import detect_bot, fmt_bj, to_beijing, BEIJING_TZ
 
@@ -454,3 +454,108 @@ def compute_summary():
         "bot_breakdown": _bot_breakdown(),
         "updated_at": fmt_bj(datetime.datetime.utcnow(), "%Y-%m-%d %H:%M:%S"),
     }
+
+
+def compute_dashboard():
+    """运营驾驶舱聚合（UI清单 B · P0 运营驾驶舱）。
+
+    在 compute_summary() 的只读聚合之上，追加核心运营指标与「环比」
+    （vs 昨日 / vs 上周同日）。全部查询为只读，单指标失败静默降级为 0，
+    不拖垮整个端点（沿用项目「降级范式」）。
+    """
+    base = compute_summary()
+    today = today_str()
+    yesterday = (datetime.date.today() - datetime.timedelta(days=1)).isoformat()
+    last_week = (datetime.date.today() - datetime.timedelta(days=7)).isoformat()
+
+    def _since(model, day):
+        try:
+            return model.query.filter(db.func.date(model.created_at) == day).count()
+        except Exception:
+            return 0
+
+    def _deltapct(cur, prev):
+        if prev is None or prev == 0:
+            return None  # 无基数：前端展示「新」而不是百分比
+        return round((cur - prev) / prev * 100, 1)
+
+    # —— 访问 PV / UV（UV=去重 IP，排除 Bot）——
+    try:
+        today_uv = db.session.query(
+            db.func.count(db.func.distinct(VisitLog.ip))
+        ).filter(VisitLog.date == today, VisitLog.is_bot == False).scalar() or 0
+        yest_uv = db.session.query(
+            db.func.count(db.func.distinct(VisitLog.ip))
+        ).filter(VisitLog.date == yesterday, VisitLog.is_bot == False).scalar() or 0
+        lw_uv = db.session.query(
+            db.func.count(db.func.distinct(VisitLog.ip))
+        ).filter(VisitLog.date == last_week, VisitLog.is_bot == False).scalar() or 0
+    except Exception:
+        today_uv = yest_uv = lw_uv = 0
+    today_pv = base.get("today_visits", 0)
+    yest_pv = _safe_count(VisitLog, date=yesterday)
+    lw_pv = _safe_count(VisitLog, date=last_week)
+
+    # —— 订阅 ——
+    subs_total = _safe_count(Subscriber)
+    new_subs_today = _since(Subscriber, today)
+    new_subs_week = _since(Subscriber, last_week)
+
+    # —— 评论（未读=待审核 approved=False）——
+    comments_total = _safe_count(Comment)
+    comments_unread = _safe_count(Comment, approved=False)
+    new_comments_today = _since(Comment, today)
+    new_comments_week = _since(Comment, last_week)
+
+    # —— 文章 ——
+    posts_total = _safe_count(Post)
+    new_posts_today = _since(Post, today)
+    new_posts_week = _since(Post, last_week)
+
+    metrics = {
+        "pv_today": today_pv, "uv_today": today_uv,
+        "subs_total": subs_total, "comments_total": comments_total,
+        "comments_unread": comments_unread,
+        "posts_total": posts_total,
+        "new_subs_today": new_subs_today, "new_subs_week": new_subs_week,
+        "new_comments_today": new_comments_today, "new_comments_week": new_comments_week,
+        "new_posts_today": new_posts_today, "new_posts_week": new_posts_week,
+    }
+    deltas = {
+        "pv_dod": _deltapct(today_pv, yest_pv), "pv_wow": _deltapct(today_pv, lw_pv),
+        "uv_dod": _deltapct(today_uv, yest_uv), "uv_wow": _deltapct(today_uv, lw_uv),
+        "subs_dod": _deltapct(new_subs_today, _since(Subscriber, yesterday)),
+        "subs_wow": _deltapct(new_subs_today, new_subs_week),
+        "comments_dod": _deltapct(new_comments_today, _since(Comment, yesterday)),
+        "comments_wow": _deltapct(new_comments_today, new_comments_week),
+        "posts_dod": _deltapct(new_posts_today, _since(Post, yesterday)),
+        "posts_wow": _deltapct(new_posts_today, new_posts_week),
+    }
+    return {
+        "generated_at": fmt_bj(datetime.datetime.utcnow(), "%Y-%m-%d %H:%M:%S"),
+        "metrics": metrics,
+        "deltas": deltas,
+        "hot_reads": (base.get("hot_posts") or [])[:5],
+        "hot_searches": (base.get("hot_searches") or [])[:5],
+        "active_regions": (base.get("regions_today") or [])[:5],
+        # 兼容既有统计页展示
+        "trend": base.get("trend", []),
+        "hourly": base.get("hourly", []),
+        "regions_today": base.get("regions_today", []),
+        "regions_all": base.get("regions_all", []),
+        "total_visits": base.get("total_visits", 0),
+        "today_visits": today_pv,
+        "today_date": today,
+    }
+
+
+def _safe_count(model, **filters):
+    """安全计数：任一过滤条件抛错都返回 0（降级范式）。"""
+    try:
+        q = model.query
+        for k, v in filters.items():
+            q = q.filter(getattr(model, k) == v)
+        return q.count()
+    except Exception:
+        return 0
+

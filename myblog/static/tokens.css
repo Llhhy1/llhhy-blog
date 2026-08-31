@@ -1,0 +1,75 @@
+/* tokens.css —— 设计系统单一真相源（后端 / 后台 admin）
+ *
+ * 与 vue-frontend/src/styles/tokens.css 内容完全一致，作为唯一 token 定义源。
+ * 值取自 myblog/static/admin.css 当前实际散点色，保证 Phase 1 替换时像素级一致。
+ *
+ * 后台 admin.css 将在 Phase 1 时 @import 本文件，并把裸色改为 var(--xxx)。
+ * 当前 Phase 0 仅落地文件，不改任何组件样式。
+ */
+:root {
+  --accent: #1a73e8;
+  --accent-hover: #1765cc;
+  --accent-soft: rgba(26, 115, 232, .10);
+  --on-accent: #ffffff;
+
+  --bg: #f7f8fa;
+  --surface: #ffffff;
+  --surface-2: #f4f6f8;
+  --surface-3: #e9ecef;
+
+  --text: #2c2c2c;
+  --text-muted: #6b7280;
+  --text-faint: #9aa0a6;
+
+  --border: #ececec;
+  --border-strong: #d9dde3;
+
+  --success: #188038;
+  --warning: #e8a33d;
+  --danger:  #e5484d;
+  --info:    #1a73e8;
+
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 20px;
+  --radius-pill: 999px;
+
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, .03);
+  --shadow-md: 0 6px 18px rgba(20, 30, 50, .08);
+  --shadow-lg: 0 16px 48px rgba(0, 0, 0, .20);
+
+  --space-1: 4px;  --space-2: 8px;  --space-3: 12px;
+  --space-4: 16px; --space-5: 24px; --space-6: 32px; --space-8: 48px;
+
+  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  --font-size-base: 15px;
+  --line-height-base: 1.7;
+
+  --nav-bg: #ffffff;
+  --nav-fg: #555555;
+  --nav-border: #ececec;
+
+  --transition: 160ms ease;
+}
+
+[data-theme="dark"] {
+  --bg: #15171a;
+  --surface: #1d2025;
+  --surface-2: #23272e;
+  --surface-3: #2a2e35;
+  --text: #d7d9dc;
+  --text-muted: #9aa0a6;
+  --text-faint: #6b7280;
+  --border: #2a2e35;
+  --border-strong: #333a44;
+  --success: #7bc47f;
+  --warning: #e8a33d;
+  --danger: #f28b82;
+  --info: #8ab4ff;
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, .40);
+  --shadow-md: 0 6px 18px rgba(0, 0, 0, .35);
+  --shadow-lg: 0 16px 48px rgba(0, 0, 0, .50);
+  --nav-bg: #1d2025;
+  --nav-fg: #d7d9dc;
+  --nav-border: #2a2e35;
+}

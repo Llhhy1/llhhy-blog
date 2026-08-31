@@ -1,0 +1,88 @@
+/* tokens.css —— 设计系统单一真相源（前端）
+ *
+ * 值取自 vue-frontend/src/styles/global.css 当前实际散点色，
+ * 保证 Phase 1（铲除裸色→改 token）替换时像素级一致。
+ *
+ * 运行时可配项说明：
+ *   --accent        默认值；运行时由后台 accent_color 注入覆盖
+ *   --theme-radius  / --theme-font-size / --nav-*  由后台「主题美化」注入覆盖
+ * 此处给出与现有一致的默认值，实际以 global.css :root + 后台注入为准。
+ */
+:root {
+  /* 品牌色（默认值；运行时由后台 accent_color 覆盖） */
+  --accent: #1a73e8;
+  --accent-hover: #1765cc;
+  --accent-soft: rgba(26, 115, 232, .10);
+  --on-accent: #ffffff;
+
+  /* 表面层级（亮色） */
+  --bg: #f7f8fa;
+  --surface: #ffffff;
+  --surface-2: #f4f6f8;
+  --surface-3: #e9ecef;
+
+  /* 文本 */
+  --text: #2c2c2c;
+  --text-muted: #6b7280;
+  --text-faint: #9aa0a6;
+
+  /* 边框 / 分隔 */
+  --border: #ececec;
+  --border-strong: #d9dde3;
+
+  /* 状态色 */
+  --success: #188038;
+  --warning: #e8a33d;
+  --danger:  #e5484d;
+  --info:    #1a73e8;
+
+  /* 形状（--radius-md 运行时由后台 theme_radius 覆盖） */
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 20px;
+  --radius-pill: 999px;
+
+  /* 阴影 */
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, .03);
+  --shadow-md: 0 6px 18px rgba(20, 30, 50, .08);
+  --shadow-lg: 0 16px 48px rgba(0, 0, 0, .20);
+
+  /* 间距节奏 */
+  --space-1: 4px;  --space-2: 8px;  --space-3: 12px;
+  --space-4: 16px; --space-5: 24px; --space-6: 32px; --space-8: 48px;
+
+  /* 字体 */
+  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  --font-size-base: 15px;
+  --line-height-base: 1.7;
+
+  /* 导航（运行时由后台 nav_style 覆盖） */
+  --nav-bg: #ffffff;
+  --nav-fg: #555555;
+  --nav-border: #ececec;
+
+  --transition: 160ms ease;
+}
+
+/* 暗色：只重写 token 取值，不碰具体组件 */
+[data-theme="dark"] {
+  --bg: #15171a;
+  --surface: #1d2025;
+  --surface-2: #23272e;
+  --surface-3: #2a2e35;
+  --text: #d7d9dc;
+  --text-muted: #9aa0a6;
+  --text-faint: #6b7280;
+  --border: #2a2e35;
+  --border-strong: #333a44;
+  --success: #7bc47f;
+  --warning: #e8a33d;
+  --danger: #f28b82;
+  --info: #8ab4ff;
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, .40);
+  --shadow-md: 0 6px 18px rgba(0, 0, 0, .35);
+  --shadow-lg: 0 16px 48px rgba(0, 0, 0, .50);
+  --nav-bg: #1d2025;
+  --nav-fg: #d7d9dc;
+  --nav-border: #2a2e35;
+}

@@ -57,6 +57,17 @@ def stats_summary():
     return jsonify(stats.compute_summary())
 
 
+@api_bp.route("/stats/dashboard")
+def stats_dashboard():
+    """运营驾驶舱聚合（UI清单 B · P0）：核心指标 + 环比。只读聚合、加限流、异常降级。"""
+    if not rate_limit(client_key("api_stats_dashboard"), limit=30, window=60):
+        return jsonify({"error": "too_many_requests"}), 429
+    try:
+        return jsonify(stats.compute_dashboard())
+    except Exception as e:
+        return jsonify({"error": "dashboard_failed", "detail": str(e)}), 500
+
+
 @api_bp.route("/stats/trend")
 def stats_trend():
     """访客趋势（v3.0.0 功能9）：最近 N 天 PV/UV，供访客趋势图使用。"""

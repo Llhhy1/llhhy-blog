@@ -10,4 +10,5 @@ from . import stats
 from . import media
 from . import friends
 from . import misc
+from . import moments   # v3.12.0：微动态（广场/个人动态）后台管理
 

@@ -753,3 +753,18 @@ v3.1.7 修复 CSRF 隐藏域乱码后，用户反馈「退出登录按钮失效�
 - **② 运营驾驶舱视觉升级（纯前端，不推翻结构）**：`StatsView.vue` 重做——概览指标卡补图标 + 大号数字 + 「vs 昨日 / vs 上周」环比胶囊（原 `.dash-cards`/`.dash-card` 因类名与全局样式不匹配而完全无样式，已修复）；趋势图加 PV/UV 渐变面积填充、横向网格线、`vector-effect:non-scaling-stroke` 抗拉伸、悬浮竖线 + 高亮点 + x 轴日期刻度（原 `preserveAspectRatio="none"` 把描边拉变形、无填充无网格）；趋势卡与时段卡全宽。无新接口 / 无逻辑变更。
 - **验证**：pytest **37 passed**；前端 `_vite_build20` 构建通过；`package.py` 双源互证三检 OK。R58 审计 **0 遗留**（详见 `myblog/SECURITY_AUDIT.md` 第五十八轮）。
 - **部署注意**：② 含前端改动，须重建 `vue-frontend-dist.zip` + 宝塔「停止 → 启动」gunicorn + 硬刷新清缓存；① 仅后端一行装饰器，覆盖 `myblog-backend.zip` 后「停止 → 启动」gunicorn 即生效。APP_VERSION 升为 v3.11.1。
+
+## 63. v3.12.0：微动态后台管理（R59 审计通过）
+
+- **痛点**：广场 / 个人动态（模型 `Moment`）此前只有发布 / 点赞 / 评论三个前台接口（`/api/moment*`），**一旦发布就没有编辑入口、没有删除入口**——想改只能直接动数据库，想删更是无从下手。
+- **改的什么**：新增 `myblog/admin/moments.py`（admin 包第 10 个子模块，5 条路由）+ 两个后台模板（`moments.html` / `moment_edit.html`）+ 侧边栏「💭 微动态」入口 + `admin/__init__.py` 注册。
+  - 列表 `/admin/moments`：关键词搜索 + 按作者筛选 + 分页（20/页），评论数用一条 `group_by` 批量取回（避免 N+1），支持勾选批量删除。
+  - 编辑 `/admin/moment/<mid>/edit`：500 字上限（与前台 `post_moment` 同口径），同页列出全部评论并支持逐条删除。
+  - 删除 `POST /admin/moment/<mid>/delete`：**级联删除其下评论**（复用 `Moment.comments` 的 `cascade="all, delete-orphan"`）。
+  - 删评论 `POST /admin/moment/<mid>/comment/<cid>/delete`：`cid` 必须与 `mid` 匹配，不匹配 404（防改 id 越权删别家评论）。
+  - 批量删除 `POST /admin/moments/batch-delete`。
+  - 编辑 / 删除 / 批量删除均写 `log_audit`，可在「🧾 操作日志」追溯。
+- **设计决策**：**不新增数据库列、不改表结构**——编辑痕迹走审计日志而非加 `edited_at`，避免 Alembic 基线 `f8f1f29b6ddf` 漂移与线上迁移风险；作者 / 发布时间 / 点赞数保持不变。
+- **顺带修**：`admin.css` 补 `.pagination`（后台分页此前完全无样式，只有前台 `style.css` 有定义）与 `.auth-box textarea`（明暗双主题）。
+- **验证**：`py_compile` 通过；新增 `tests/test_moments_admin.py` 5 例常驻回归（编辑生效 + 审计日志、空内容/超 500 字被拒、删除级联评论、跨动态删评论 404、普通用户被拦）；全量 pytest **42 passed**（37 基线 + 5 新增）；隔离临时库冒烟 44 项全通过；admin 端点 77 = 基线 72 + 新增 5，零回归。
+- **部署注意**：**纯后端改动，前端产物无变化**（`vue-frontend/` 未动，沿用 v3.11.1 的 `vue-frontend-dist.zip`）。覆盖 `myblog-backend.zip` 后「停止 → 启动」gunicorn（restart 不重载）；**无 DB 迁移**，无需执行任何 `flask db` 命令。APP_VERSION 升为 v3.12.0。

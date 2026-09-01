@@ -17,6 +17,22 @@
   2. 「发布出问题立即回滚、不硬扛」的决断力是对的，保持；
   3. FastAPI 迁移评估结论不变（SQLite 上 async 比 sync 慢 1.25–1.27x，维持 Flask 栈）。
 
+## v3.12.0（2026-09-01 · 微动态后台管理）
+
+- **背景**：广场 / 个人动态（模型 `Moment`）此前只有发布 / 点赞 / 评论接口（`/api/moment*`），一旦发布在前后台都**无法编辑、无法删除**，只能直接改数据库。
+- **新增 `myblog/admin/moments.py`**（admin 包新子模块，5 条后台路由）：
+  - `GET /admin/moments` —— 列表：关键词搜索 + 按作者筛选 + 分页（20/页），顶部显示动态总数与评论总数，每条显示作者 / 内容摘要 / 点赞数 / 评论数 / 发布时间；支持勾选批量删除。
+  - `GET,POST /admin/moment/<mid>/edit` —— 编辑正文（500 字上限，与前台 `post_moment` 口径一致），同页列出该动态的全部评论并支持逐条删除。
+  - `POST /admin/moment/<mid>/delete` —— 删除动态，**级联删除其下评论**（复用 `Moment.comments` 的 `cascade="all, delete-orphan"`，不留孤儿行）。
+  - `POST /admin/moment/<mid>/comment/<cid>/delete` —— 删单条评论；`cid` 必须与 `mid` 匹配，不匹配返回 404（防改 id 越权删别家评论）。
+  - `POST /admin/moments/batch-delete` —— 批量删除。
+  - 编辑 / 删除 / 批量删除均调用 `log_audit` 写入「🧾 操作日志」。
+- **后台导航**：侧边栏「内容管理」组「🌐 社交账号」之后新增「💭 微动态」入口。
+- **样式**：`admin.css` 补 `.pagination`（后台分页此前无样式，仅前台 `style.css` 有）与 `.auth-box textarea`（明暗双主题）。
+- **设计决策**：**不新增数据库列、不改表结构** —— 编辑痕迹走 `log_audit` 而非加 `edited_at`，避免 Alembic 基线 `f8f1f29b6ddf` 漂移与线上迁移风险；作者 / 发布时间 / 点赞数保持不变。
+- **验证**：`py_compile` 通过；全量 pytest **42 passed**（新增 `tests/test_moments_admin.py` 5 例：编辑生效 + 审计日志、空内容/超 500 字被拒、删除级联评论、跨动态删评论 404、普通用户被拦）；隔离临时库冒烟 **44 项全通过**；admin 端点数 77 = 基线 72 + 新增 5，零回归。
+- **⚠️ 部署注意**：**纯后端改动，前端产物无变化**（微动态前台展示逻辑未动）。覆盖 `myblog-backend.zip` 后「停止 → 启动」gunicorn（restart 不重载）即生效；无 DB 迁移、无需 `flask db` 操作。R59 七维审计 **0 遗留**（详见 `myblog/SECURITY_AUDIT.md` 第五十九轮）。APP_VERSION 升为 v3.12.0。
+
 ### v3.0.0 新增（14 项功能）
 
 - **系列目录页 + 阅读进度增强**：系列详情页新增带编号的章节目录（系列 TOC）；前台全局阅读进度条（App.vue）持续可用。

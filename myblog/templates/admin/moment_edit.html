@@ -1,0 +1,65 @@
+{% extends "admin/base.html" %}
+{% block title %}编辑微动态 #{{ m.id }}{% endblock %}
+{% block content %}
+  <div class="admin-actions">
+    <h1 class="page-title" style="margin:0;">💭 编辑微动态 #{{ m.id }}</h1>
+    <a class="btn small ghost" href="{{ url_for('admin.moments') }}">← 返回动态列表</a>
+  </div>
+
+  <div class="auth-box" style="max-width: 680px; margin: 14px 0 0;">
+    <p class="stats-tip" style="margin:0 0 4px;">
+      作者：<strong>{{ m.author.username if m.author else '（账号已注销）' }}</strong> ·
+      发布于 {{ m.created_at | bj('%Y-%m-%d %H:%M') }} ·
+      ❤️ {{ m.likes or 0 }} 赞 · 💬 {{ comments|length }} 条评论
+    </p>
+    <form method="post" action="{{ url_for('admin.edit_moment', mid=m.id) }}">
+      {{ csrf_input() }}
+      <label for="moment-content">动态内容（最多 {{ max_len }} 字）</label>
+      <textarea id="moment-content" name="content" rows="7" maxlength="{{ max_len }}" required>{{ m.content or '' }}</textarea>
+      <div style="display:flex; align-items:center; gap:12px; flex-wrap:wrap;">
+        <button type="submit">保存修改</button>
+        <span class="stats-tip" style="margin:0;">已输入 <b id="moment-count">{{ (m.content or '')|length }}</b> / {{ max_len }} 字</span>
+      </div>
+    </form>
+    <p class="stats-tip" style="margin:10px 0 0;">保存后会立即在广场生效。作者、发布时间与点赞数保持不变；编辑行为会写入「操作日志」。</p>
+  </div>
+
+  <h2 style="font-size:17px; margin:26px 0 8px;">评论（{{ comments|length }}）</h2>
+  <table class="admin-table">
+    <thead><tr><th style="width:120px;">昵称</th><th>内容</th><th style="width:150px;">来源</th><th style="width:130px;">时间</th><th style="width:80px;">操作</th></tr></thead>
+    <tbody>
+      {% for c in comments %}
+        <tr>
+          <td>{{ c.author }}</td>
+          <td>{{ c.content }}</td>
+          <td><code style="font-size:12px;">{{ c.region or c.ip or '—' }}</code></td>
+          <td>{{ c.created_at | bj('%Y-%m-%d %H:%M') }}</td>
+          <td>
+            <form method="post" action="{{ url_for('admin.delete_moment_comment', mid=m.id, cid=c.id) }}" class="inline-form"
+                  onsubmit="return confirm('确定删除这条评论？');">
+              {{ csrf_input() }}
+              <button type="submit" class="link-danger">删除</button>
+            </form>
+          </td>
+        </tr>
+      {% else %}
+        <tr><td colspan="5">这条动态还没有评论。</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  <form method="post" action="{{ url_for('admin.delete_moment', mid=m.id) }}" style="margin-top:24px;"
+        onsubmit="return confirm('确定删除这条动态？其下 {{ comments|length }} 条评论会一并删除，且不可恢复。');">
+    {{ csrf_input() }}
+    <button type="submit" class="link-danger" style="font-size:14px;">🗑️ 删除这条动态</button>
+  </form>
+
+  <script>
+  (function () {
+    var ta = document.getElementById('moment-content');
+    var out = document.getElementById('moment-count');
+    if (!ta || !out) return;
+    ta.addEventListener('input', function () { out.textContent = ta.value.length; });
+  })();
+  </script>
+{% endblock %}

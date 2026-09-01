@@ -438,6 +438,11 @@ body.admin {
  outline: none; border-color: var(--accent, var(--accent)); box-shadow: 0 0 0 3px rgba(26,115,232,0.12); }
 .auth-box .btn {
  margin-top: 16px; margin-right: 8px; }
+.auth-box textarea {
+ width: 100%; padding: 9px 12px; border: 1px solid #dfe3ea; border-radius: var(--theme-radius, 8px);
+ font-size: 14px; line-height: 1.7; resize: vertical; font-family: inherit; box-sizing: border-box; }
+.auth-box textarea:focus {
+ outline: none; border-color: var(--accent, var(--accent)); box-shadow: 0 0 0 3px rgba(26,115,232,0.12); }
 .auth-tip {
  font-size: 13px; color: #888; margin-top: 12px; line-height: 1.6; }
 .auth-tip a {
@@ -483,6 +488,8 @@ body.admin {
 }
 [data-theme="dark"] .btn.ghost {
  background: #1d2025; color: #cfd3d8; border-color: #333842; }
+[data-theme="dark"] .auth-box textarea {
+ background: #15171a; color: #e6e8eb; border-color: #333842; }
 [data-theme="dark"] .rank-table th {
  color: #9aa0a8; border-color: #2a2e35; }
 [data-theme="dark"] .search-tag {
@@ -1035,3 +1042,20 @@ body.drawer-open {
  background: #2a2418; }
 .row-check, #select-all-head {
  width: 16px; height: 16px; }
+/* ===== v3.12.0：后台分页导航（原仅 style.css 前台有，后台分页缺样式） ===== */
+.pagination {
+ display: flex; align-items: center; gap: 8px; margin: 16px 0 4px; font-size: 13px; }
+.pagination a {
+ color: var(--accent, #1a73e8); text-decoration: none; padding: 4px 10px;
+ border: 1px solid var(--border-color, #e3e6ea); border-radius: 8px; background: var(--card-bg, #fff); }
+.pagination a:hover {
+ border-color: var(--accent, #1a73e8); }
+.pagination .current {
+ color: var(--text-secondary, #6b7280); padding: 4px 8px; }
+.pagination .disabled {
+ color: var(--text-muted, #b6bcc5); padding: 4px 10px; border: 1px dashed var(--border-color, #e3e6ea);
+ border-radius: 8px; cursor: not-allowed; }
+:root[data-theme="dark"] .pagination a {
+ background: #1c1f24; border-color: #2a2e35; color: #7fb0ff; }
+:root[data-theme="dark"] .pagination .disabled {
+ border-color: #2a2e35; color: #5b616b; }

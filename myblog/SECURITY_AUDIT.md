@@ -2192,3 +2192,42 @@ v3.1.6 起后端 `app.py::_csrf_protect` 严格校验**所有非豁免 POST** �
 **R58 结论**：**0 遗留**。① 为单行装饰器恢复（修复 v3.11.0 admin 拆分引入的回归）；② 为纯前端视觉重做（指标卡 + 趋势图），不引入任何安全边界。发版前 `APP_VERSION` 已改为 `3.11.1`（与 Release tag 一致）。
 
 **部署注意**：② 含前端改动，须重建 `vue-frontend-dist.zip` + 宝塔「停止 → 启动」gunicorn + 硬刷新清缓存；① 仅一行装饰器，覆盖 `myblog-backend.zip` 后「停止 → 启动」gunicorn 即生效，无 DB 迁移、无运行期行为变化。
+
+---
+
+## 第五十九轮 R59（v3.12.0 · 微动态后台管理）
+
+> 本轮新增一个后台管理模块（`myblog/admin/moments.py`，5 条路由 + 2 个 Jinja 模板 + 1 处导航 + `admin.css` 补两条样式）。**新增了 4 个 POST 面**，是本轮唯一需要重点核查的攻击面。
+
+### 新增接口与权限
+
+| 路由 | 方法 | 装饰器 | 说明 |
+|------|------|--------|------|
+| `/admin/moments` | GET | `@admin_required` | 列表（搜索 / 作者筛选 / 分页） |
+| `/admin/moment/<mid>/edit` | GET, POST | `@admin_required` | 编辑正文（500 字上限） |
+| `/admin/moment/<mid>/delete` | POST | `@admin_required` | 删除动态（级联删评论） |
+| `/admin/moment/<mid>/comment/<cid>/delete` | POST | `@admin_required` | 删单条评论（cid 须属 mid） |
+| `/admin/moments/batch-delete` | POST | `@admin_required` | 批量删除 |
+
+### 七维审计
+
+| 维度 | 检查点 | 结论 |
+|------|--------|------|
+| XSS | 两个模板全部走 Jinja 自动转义：`{{ m.content }}` / `{{ c.content }}` / `{{ c.author }}` 无一处 `\|safe`；`title="{{ m.content }}"` 属性同样转义。列表摘要用 `txt[:60]` 切片 + 溢出省略号，不改原文。编辑页 `<textarea>{{ m.content or '' }}</textarea>` 走表单转义，闭合标签攻击无效。`confirm()` 里插值的 `comment_counts[m.id]` 与 `comments\|length` 均为整数，非用户可控字符串。 | ✅ 无 XSS |
+| SQL 注入 | 全部走 SQLAlchemy ORM：搜索 `Moment.content.like("%" + kw + "%")` 为**参数化绑定**（SQLAlchemy 会把 `%kw%` 整体作为参数，`%` 不参与 SQL 拼接，通配符注入只影响匹配范围不影响语义）；筛选 `filter(Moment.author_id == author_id)` 且 `author_id` 经 `request.args.get(..., type=int)` 强转（非数字 → None，不查询）；分页 `paginate(error_out=False)` 越界返回空页不报错。无 `text()` / 原生 SQL / 字符串拼接。 | ✅ 无注入 |
+| 越权 | ① 全部 5 条路由均 `@admin_required`（普通用户 `role=user` 302 引导走，冒烟已验）。② 删评论用 `MomentComment.query.filter_by(id=cid, moment_id=mid).first_or_404()` —— **双条件绑定**，改 `cid` 去删别家动态的评论直接 404（冒烟 `[6]` 已验，评论未被删）。③ 新增路由全部在 `/admin` 前缀下，未放宽任何既有权限边界；前台 `/api/moment*` 未改动。④ 未引入「作者本人可删自己动态」的前台能力，权限模型不变（仍只有管理员能管）。 | ✅ 无越权 |
+| SSRF / 密钥 / 路径遍历 | 无外部 URL 访问、无密钥读写、无文件上传/路径拼接。新增文件仅 `.py` 与 `.html`，无网络出口。 | ✅ 无 |
+| 资源 / DoS | ① 列表 `per_page=20` 硬分页，评论数用**一条** `group_by` 批量取回（避免每行的 N+1 `count()`）。② 搜索为 `LIKE '%kw%'` 全表扫描，但仅在管理员后台、数据量为个人博客量级，且需管理员已登录，不构成放大面（与既有后台评论/留言搜索同一姿态）。③ 批量删除按 id 逐个 ORM 删除后单次 commit，无 unbounded 全表操作（须显式勾选 ids）。④ 编辑有 500 字上限，防超长内容灌库。 | ✅ 无风险 |
+| CSRF | 4 个新增 POST 面（edit / delete / delete_comment / batch_delete）**模板侧全部带 `{{ csrf_input() }}`**，沿用全局 `_csrf_protect` before_request 校验（既有评论/留言删除同款写法）。冒烟已验证：无 token / 失效 token 的 POST 被拒（返回 403，数据未变更）。无 GET 侧写操作（列表页搜索/分页均为 GET 读）。 | ✅ 无 CSRF 缺口 |
+| 回归 | `py_compile` 通过（`moments.py` / `admin/__init__.py` / `_helpers.py`）；新增 `tests/test_moments_admin.py` 5 例常驻回归；全量 pytest **42 passed**（37 基线 + 5 新增，零失败零退化）；隔离临时库（`DATABASE_URL` 指向 temp）冒烟 **44 项全通过**；admin 端点数 **77 = 基线 72 + 新增 5**，与基线逐条一致无改名/丢路由。 | ✅ 无回归 |
+
+### 附带变更的安全评估
+
+- **`admin.css` 补 `.pagination` 与 `.auth-box textarea`**：纯静态 CSS，无动态内容、无用户输入、无接口变更，不引入攻击面。
+- **`admin/__init__.py` 追加 `from . import moments`**：仅注册蓝图子模块，不改变既有 9 个子模块的加载顺序与行为。
+- **`base.html` 导航新增一条 `<a>`**：目标端点 `admin.moments` 存在（否则 `url_for` 构建期即报错，已由冒烟渲染验证通过）。
+- **`_helpers.py` models 导入补 `Moment, MomentComment`**：仅扩充导入清单，无行为变更。
+
+**R59 结论**：**0 遗留**。新增的 4 个 POST 面全部在 `@admin_required` + 全局 CSRF 保护之下，删评论做了「mid + cid 双条件绑定」防越权，搜索与分页参数化/强类型无注入面，模板全量自动转义无 XSS，评论数查询做了批量化避免 N+1。发版前 `APP_VERSION` 已改为 `3.12.0`（与 Release tag 一致）。
+
+**部署注意**：**纯后端改动，前端产物无变化**（`vue-frontend/` 未动，沿用 v3.11.1 的 `vue-frontend-dist.zip`）。覆盖 `myblog-backend.zip` 后「停止 → 启动」gunicorn（restart 不重载）；**无 DB 迁移**，无需执行任何 `flask db` 命令，Alembic 基线仍为 `f8f1f29b6ddf`。

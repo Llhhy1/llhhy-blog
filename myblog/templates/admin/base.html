@@ -42,6 +42,7 @@
         <a href="{{ url_for('admin.comments') }}" class="{{ 'active' if ep == 'admin.comments' }}"><span class="nav-emoji">💬</span>评论管理{% if pending_comments %} <span class="nav-badge">{{ pending_comments }}</span>{% endif %}</a>
         <a href="{{ url_for('admin.links') }}" class="{{ 'active' if ep == 'admin.links' }}"><span class="nav-emoji">🔗</span>友链管理</a>
         <a href="{{ url_for('admin.social') }}" class="{{ 'active' if ep == 'admin.social' }}"><span class="nav-emoji">🌐</span>社交账号</a>
+        <a href="{{ url_for('admin.moments') }}" class="{{ 'active' if ep in ('admin.moments', 'admin.edit_moment') }}"><span class="nav-emoji">💭</span>微动态</a>
         <a href="{{ url_for('admin.manage_series') }}" class="{{ 'active' if ep == 'admin.manage_series' }}"><span class="nav-emoji">📚</span>系列管理</a>
         <a href="{{ url_for('admin.manage_announcements') }}" class="{{ 'active' if ep == 'admin.manage_announcements' }}"><span class="nav-emoji">📢</span>公告管理</a>
         <a href="{{ url_for('admin.manage_guestbook') }}" class="{{ 'active' if ep == 'admin.manage_guestbook' }}"><span class="nav-emoji">📝</span>留言墙{% if pending_guestbook %} <span class="nav-badge">{{ pending_guestbook }}</span>{% endif %}</a>

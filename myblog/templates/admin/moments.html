@@ -1,0 +1,88 @@
+{% extends "admin/base.html" %}
+{% block title %}微动态管理{% endblock %}
+{% block content %}
+  <div class="admin-actions">
+    <h1 class="page-title" style="margin:0;">💭 微动态管理</h1>
+    <span class="stats-tip" style="margin:0;">共 {{ total_moments }} 条动态 · {{ total_comments }} 条评论</span>
+  </div>
+  <p class="stats-tip">广场 / 个人动态的统一管理入口：可修改正文、删除动态（其下评论一并删除）、逐条清理评论。所有操作写入「操作日志」。</p>
+
+  <form method="get" class="inline-form" style="margin:12px 0;">
+    <input type="text" name="q" value="{{ kw or '' }}" placeholder="搜索动态内容…" style="min-width:220px;">
+    <select name="author_id">
+      <option value="">全部作者</option>
+      {% for a in authors %}
+      <option value="{{ a.id }}" {{ 'selected' if author_id == a.id }}>{{ a.username }}</option>
+      {% endfor %}
+    </select>
+    <button type="submit" class="btn small">筛选</button>
+    {% if kw or author_id %}<a class="btn small ghost" href="{{ url_for('admin.moments') }}">清除筛选</a>{% endif %}
+  </form>
+
+  <table class="admin-table">
+    <thead>
+      <tr>
+        <th style="width:36px;"><input type="checkbox" id="select-all-head" title="全选本页"></th>
+        <th style="width:110px;">作者</th>
+        <th>内容</th>
+        <th style="width:70px;">点赞</th>
+        <th style="width:70px;">评论</th>
+        <th style="width:130px;">发布时间</th>
+        <th style="width:140px;">操作</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for m in rows %}
+        <tr>
+          <td><input type="checkbox" name="ids" value="{{ m.id }}" form="moment-batch" class="row-check"></td>
+          <td>{{ m.author.username if m.author else '（账号已注销）' }}</td>
+          <td title="{{ m.content }}">
+            {% set txt = m.content.replace('\n', ' ') %}
+            {{ txt[:60] }}{% if txt|length > 60 %}…{% endif %}
+          </td>
+          <td>❤️ {{ m.likes or 0 }}</td>
+          <td>💬 {{ comment_counts[m.id] or 0 }}</td>
+          <td>{{ m.created_at | bj('%Y-%m-%d %H:%M') }}</td>
+          <td>
+            <a class="link-btn" href="{{ url_for('admin.edit_moment', mid=m.id) }}">编辑</a>
+            <form method="post" action="{{ url_for('admin.delete_moment', mid=m.id) }}" class="inline-form"
+                  onsubmit="return confirm('确定删除这条动态？其下 {{ comment_counts[m.id] or 0 }} 条评论会一并删除，且不可恢复。');">
+              {{ csrf_input() }}
+              <button type="submit" class="link-danger">删除</button>
+            </form>
+          </td>
+        </tr>
+      {% else %}
+        <tr><td colspan="7">暂无动态{% if kw or author_id %}（当前筛选条件下无记录）{% endif %}</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  <form method="post" action="{{ url_for('admin.batch_delete_moments') }}" id="moment-batch" class="inline-form" style="margin-top:10px;"
+        onsubmit="return confirm('确定删除选中的动态？其下评论会一并删除，且不可恢复。');">
+    {{ csrf_input() }}
+    <button type="submit" class="btn small ghost">🗑️ 批量删除所选</button>
+  </form>
+
+  {% if pagination and pagination.pages > 1 %}
+  <nav class="pagination">
+    {% if pagination.page > 1 %}
+      <a href="{{ url_for('admin.moments', page=pagination.page-1, q=kw or '', author_id=author_id or '') }}">← 上一页</a>
+    {% else %}<span class="disabled">← 上一页</span>{% endif %}
+    <span class="current">{{ pagination.page }} / {{ pagination.pages }}</span>
+    {% if pagination.page < pagination.pages %}
+      <a href="{{ url_for('admin.moments', page=pagination.page+1, q=kw or '', author_id=author_id or '') }}">下一页 →</a>
+    {% else %}<span class="disabled">下一页 →</span>{% endif %}
+  </nav>
+  {% endif %}
+
+  <script>
+  (function () {
+    var all = document.getElementById('select-all-head');
+    if (!all) return;
+    all.addEventListener('change', function () {
+      document.querySelectorAll('.row-check').forEach(function (c) { c.checked = all.checked; });
+    });
+  })();
+  </script>
+{% endblock %}

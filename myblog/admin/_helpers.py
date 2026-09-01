@@ -11,7 +11,8 @@ from werkzeug.utils import secure_filename
 from models import (db, Post, Category, Tag, Comment, FriendLink, Setting,
                     User, ROLE_SUPER, ROLE_ADMIN, ROLE_USER, SocialAccount,
                     Series, Announcement, Guestbook, Subscriber,
-                    AuditLog, RecycleBin, LinkApplication, PostHistory)
+                    AuditLog, RecycleBin, LinkApplication, PostHistory,
+                    Moment, MomentComment)
 from utils import make_slug, count_words, validate_password, apply_slug_template, fmt_bj, BEIJING_TZ
 from config import APP_VERSION
 import stats as stats_mod

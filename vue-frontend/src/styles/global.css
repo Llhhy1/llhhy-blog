@@ -3,12 +3,12 @@
  box-sizing: border-box; margin: 0; padding: 0; }
 :root {
 
-  --accent: #1a73e8;
+  --accent: var(--accent);
   --theme-radius: 12px;   /* 后台「主题美化」可调 */
   --theme-font-size: 15px;
-  --nav-bg: #ffffff;
-  --nav-fg: #555555;
-  --nav-border: #ececec;
+  --nav-bg: var(--surface);
+  --nav-fg: var(--nav-fg);
+  --nav-border: var(--border);
 }
 body {
 
@@ -74,9 +74,9 @@ body {
 .notif-empty {
  padding: 24px; text-align: center; color: #aaa; font-size: 13px; }
 [data-theme="dark"] .notif-panel {
- background: #1d2025; border-color: #2a2e35; box-shadow: 0 8px 28px rgba(0,0,0,.4); }
+ background: var(--surface); border-color: var(--border); box-shadow: 0 8px 28px rgba(0,0,0,.4); }
 [data-theme="dark"] .notif-item {
- border-color: #23272e; color: #c7ccd1; }
+ border-color: var(--surface-2); color: #c7ccd1; }
 [data-theme="dark"] .notif-item.unread {
  background: #1a2433; }
 [data-theme="dark"] .notif-time {
@@ -125,15 +125,15 @@ body {
 [data-theme="dark"] .site-frame {
 
   background: #1b1e23;
-  border-color: #333a44;
+  border-color: var(--border-strong);
 }
 [data-theme="dark"] .site-frame-inner {
  /* 暗色下内容区透明，由外框统一底色 */ }
 [data-theme="dark"] .site-footer {
 
   background: transparent;
-  border-color: #333a44;
-  color: #9aa0a6;
+  border-color: var(--border-strong);
+  color: var(--text-muted);
 }
 /* 布局 */.layout {
  display: flex; gap: 32px; padding-top: 32px; padding-bottom: 40px; align-items: flex-start; }
@@ -302,9 +302,9 @@ input[type=text]:focus, input[type=password]:focus, input[type=email]:focus, inp
 .hot-tag-count {
  font-size: 12px; font-weight: 400; color: #999; background: #f4f6f9; border-radius: 999px; padding: 1px 8px; }
 [data-theme="dark"] .hot-tag:hover {
- border-color: #8ab4ff; box-shadow: 0 4px 14px rgba(0,0,0,.35); }
+ border-color: var(--info); box-shadow: 0 4px 14px rgba(0,0,0,.35); }
 [data-theme="dark"] .hot-tag-count {
- background: #2a3140; color: #9aa0a6; }
+ background: #2a3140; color: var(--text-muted); }
 /* 通用提示（v3.4.1：留言墙/登录页等复用） */.hint {
  color: #8a8f99; font-size: 12px; margin: 4px 0 0; line-height: 1.6; }
 .hint a {
@@ -362,7 +362,7 @@ button, .btn {
 button:hover, .btn:hover {
  background: color-mix(in srgb, var(--accent), #000 15%); filter: brightness(1.05); }
 /* v3.4.1 ghost 按钮（与后台 btn.ghost 同款：浅底描边） */.btn.ghost, button.ghost {
- background: var(--surface); color: #555; border: 1px solid #e0e4ea; }
+ background: var(--surface); color: var(--nav-fg); border: 1px solid #e0e4ea; }
 .btn.ghost:hover, button.ghost:hover {
  border-color: var(--accent, var(--accent)); color: var(--accent, var(--accent)); background: var(--surface); filter: none; }
 .btn.danger, button.danger {
@@ -370,7 +370,7 @@ button:hover, .btn:hover {
 .btn.small, button.small {
  padding: 5px 12px; font-size: 13px; }
 [data-theme="dark"] .btn.ghost, [data-theme="dark"] button.ghost {
- background: #23272e; color: #c7ccd1; border-color: #3a3f47; }
+ background: var(--surface-2); color: #c7ccd1; border-color: #3a3f47; }
 /* 友链 / 关于 */.friend-links {
  list-style: none; background: var(--surface); border: 1px solid #eee; border-radius: var(--theme-radius, 12px); padding: 8px 22px; }
 .friend-links li {
@@ -398,7 +398,7 @@ button:hover, .btn:hover {
 /* 页脚（基础链接色，外框/底色由 .site-frame 体系控制，见上方大框架段） */.site-footer a {
  color: #8a8a8a; text-decoration: underline; }
 .site-footer a:hover {
- color: #555; }
+ color: var(--nav-fg); }
 /* 响应式 */@media (max-width: 820px) {
 .layout {
  flex-direction: column; }
@@ -483,14 +483,14 @@ button:hover, .btn:hover {
  width: 100%; }
 }
 /* 主题切换 */.theme-toggle {
- background: none !important; border: 1px solid #ddd; border-radius: 6px; padding: 4px 9px; font-size: 16px; line-height: 1; margin-left: 16px; color: #555; }
+ background: none !important; border: 1px solid #ddd; border-radius: 6px; padding: 4px 9px; font-size: 16px; line-height: 1; margin-left: 16px; color: var(--nav-fg); }
 .theme-toggle:hover {
  background: #f0f0f0 !important; }
 /* 暗色模式 */[data-theme="dark"] {
 
-  --nav-bg: #1d2025;
-  --nav-fg: #d7d9dc;
-  --nav-border: #2a2e35;
+  --nav-bg: var(--surface);
+  --nav-fg: var(--nav-fg);
+  --nav-border: var(--border);
 }
 [data-theme="dark"] .logo,
 [data-theme="dark"] .site-header nav a {
@@ -529,7 +529,7 @@ button:hover, .btn:hover {
 [data-theme="dark"] .list-clean a:hover {
  color: #7cb0ff; }
 [data-theme="dark"] .tag-cloud .tag {
- background: #2a3140; color: #8ab4ff; }
+ background: #2a3140; color: var(--info); }
 [data-theme="dark"] .sub-box input[type=email] {
  background: #262a30; border-color: #3a3f47; color: #e6e8eb; }
 [data-theme="dark"] .post-body h2,
@@ -541,7 +541,7 @@ button:hover, .btn:hover {
 [data-theme="dark"] .post-body td {
  border-color: #333842; }
 [data-theme="dark"] input, [data-theme="dark"] textarea, [data-theme="dark"] select {
- background: #15171a; color: #e6e8eb; border-color: #333842; }
+ background: var(--bg); color: #e6e8eb; border-color: #333842; }
 /* 阅读进度条 */.reading-progress {
  position: fixed; top: 0; left: 0; height: 3px; width: 0; background: var(--accent); z-index: 50; transition: width 0.1s linear; }
 /* 回到顶部 */#back-to-top {
@@ -549,7 +549,7 @@ button:hover, .btn:hover {
 /* TOC（v3.4.1：目录项 hover 左移 + 高亮） */.toc {
  background: #fafbfc; border: 1px solid #eee; border-radius: var(--theme-radius, 12px); padding: 14px 18px; margin: 16px 0; }
 .toc-title {
- font-size: 14px; font-weight: 600; color: #555; margin-bottom: 8px; }
+ font-size: 14px; font-weight: 600; color: var(--nav-fg); margin-bottom: 8px; }
 .toc a {
  transition: padding-left .15s; }
 .toc li:hover a {
@@ -559,7 +559,7 @@ button:hover, .btn:hover {
 .toc li {
  padding: 3px 0; }
 .toc a {
- color: #555; text-decoration: none; font-size: 14px; }
+ color: var(--nav-fg); text-decoration: none; font-size: 14px; }
 .toc a:hover {
  color: var(--accent); }
 .toc-sub {
@@ -581,7 +581,7 @@ button:hover, .btn:hover {
 /* 文章打赏（v3.0.0 功能14） */.reward-box {
  margin-top: 28px; padding: 22px; text-align: center; background: #fafbfc; border: 1px dashed #d8dee9; border-radius: var(--theme-radius, 12px); }
 .reward-title {
- font-size: 15px; color: #555; margin-bottom: 12px; }
+ font-size: 15px; color: var(--nav-fg); margin-bottom: 12px; }
 .reward-qr {
  width: 160px; height: 160px; object-fit: contain; border-radius: 8px; background: var(--surface); padding: 8px; }
 .reward-hint {
@@ -601,7 +601,7 @@ button:hover, .btn:hover {
 .weather-widget .w-actions {
  display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
 .weather-widget .w-btn {
- padding: 5px 12px; border: 1px solid #ddd; background: none; color: #555; border-radius: 6px; cursor: pointer; font-size: 13px; transition: all .15s; }
+ padding: 5px 12px; border: 1px solid #ddd; background: none; color: var(--nav-fg); border-radius: 6px; cursor: pointer; font-size: 13px; transition: all .15s; }
 .weather-widget .w-btn:hover {
  border-color: var(--accent); color: var(--accent); }
 .weather-widget .w-btn.primary {
@@ -613,7 +613,7 @@ button:hover, .btn:hover {
 [data-theme="dark"] .weather-widget .w-btn {
  border-color: #3a3f47; color: #c7ccd1; }
 [data-theme="dark"] .weather-widget .w-input {
- background: #23272e; border-color: #3a3f47; color: #e6e8eb; }
+ background: var(--surface-2); border-color: #3a3f47; color: #e6e8eb; }
 /* 归档时间线 */.timeline {
  position: relative; margin: 10px 0 0 8px; padding-left: 22px; }
 .timeline::before {
@@ -625,9 +625,9 @@ button:hover, .btn:hover {
 .tl-item {
  position: relative; padding: 5px 0; }
 .tl-item::before {
- content: ""; position: absolute; left: -22px; top: 13px; width: 9px; height: 9px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 3px #fff; }
+ content: ""; position: absolute; left: -22px; top: 13px; width: 9px; height: 9px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 3px var(--surface); }
 [data-theme="dark"] .tl-item::before {
- box-shadow: 0 0 0 3px #1d2025; }
+ box-shadow: 0 0 0 3px var(--surface); }
 .tl-item a {
  color: #333; text-decoration: none; font-size: 15px; }
 .tl-item a:hover {
@@ -688,7 +688,7 @@ button:hover, .btn:hover {
 .stats-card h3 {
  font-size: 15px; margin-bottom: 12px; color: #333; }
 .stats-card h3.sub-title {
- margin-top: 18px; padding-top: 14px; border-top: 1px dashed #ececec; }
+ margin-top: 18px; padding-top: 14px; border-top: 1px dashed var(--border); }
 [data-theme="dark"] .stats-card h3 {
  color: #eef0f2; }
 .stats-loading, .stats-empty {
@@ -737,7 +737,7 @@ button:hover, .btn:hover {
 .search-count {
  color: #aaa; font-size: 12px; margin-left: 6px; }
 [data-theme="dark"] .search-tag {
- background: #23272e; border-color: #333842; color: #c7ccd1; }
+ background: var(--surface-2); border-color: #333842; color: #c7ccd1; }
 [data-theme="dark"] .search-tag.hot {
  background: #3a2d1a; border-color: #8a6d1a; color: #ffcc80; }
 .hour-chart {
@@ -864,13 +864,13 @@ button:hover, .btn:hover {
 .replying-tip {
  font-size: 13px; color: #666; background: #f5f7fa; border-radius: 6px; padding: 6px 10px; }
 [data-theme="dark"] .replying-tip {
- background: #23272e; color: #c7ccd1; }
+ background: var(--surface-2); color: #c7ccd1; }
 .reply-cancel {
  background: none; border: none; color: var(--accent); font-size: 12px; cursor: pointer; margin-left: 8px; padding: 0; }
 /* ===== 系列导航 / 相关文章 / 分享（B1/B4/D1） ===== */.series-nav {
  margin-top: 18px; padding: 14px 16px; background: #f7f9fc; border: 1px solid #eef1f6; border-radius: var(--theme-radius, 12px); }
 .series-name {
- font-size: 14px; color: #555; }
+ font-size: 14px; color: var(--nav-fg); }
 [data-theme="dark"] .series-name {
  color: #c7ccd1; }
 .series-prev-next {
@@ -984,7 +984,7 @@ button:hover, .btn:hover {
 .series-toc {
  list-style: none; counter-reset: ch; background: #fafbfc; border: 1px solid #eee; border-radius: var(--theme-radius, 12px); padding: 14px 18px; margin: 14px 0 22px; }
 .series-toc li {
- display: flex; align-items: center; gap: 10px; padding: 7px 0; border-bottom: 1px dashed #ececec; }
+ display: flex; align-items: center; gap: 10px; padding: 7px 0; border-bottom: 1px dashed var(--border); }
 .series-toc li:last-child {
  border-bottom: 0; }
 .series-toc .chapter-no {
@@ -1022,7 +1022,7 @@ button:hover, .btn:hover {
 .apply-msg.err {
  color: #c0392b; }
 [data-theme="dark"] .link-apply-form input {
- background: #23272e; border-color: #333; color: #e3e6e9; }
+ background: var(--surface-2); border-color: #333; color: #e3e6e9; }
 /* 修复：菜单抽屉深色模式。
    注意 v3.5.0 已将抽屉改为半透明毛玻璃（rgba + backdrop-filter），
    此处只保留文字颜色的兜底写死，避免 store.applyThemeVars 的内联
@@ -1047,4 +1047,4 @@ button:hover, .btn:hover {
 .captcha-img {
  height: 40px; width: 110px; border-radius: 6px; border: 1px solid #ddd; cursor: pointer; object-fit: cover; background: #f5f6f8; }
 [data-theme="dark"] .captcha-img {
- border-color: #333; background: #23272e; }
+ border-color: #333; background: var(--surface-2); }

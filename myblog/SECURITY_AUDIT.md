@@ -2231,3 +2231,43 @@ v3.1.6 起后端 `app.py::_csrf_protect` 严格校验**所有非豁免 POST** �
 **R59 结论**：**0 遗留**。新增的 4 个 POST 面全部在 `@admin_required` + 全局 CSRF 保护之下，删评论做了「mid + cid 双条件绑定」防越权，搜索与分页参数化/强类型无注入面，模板全量自动转义无 XSS，评论数查询做了批量化避免 N+1。发版前 `APP_VERSION` 已改为 `3.12.0`（与 Release tag 一致）。
 
 **部署注意**：**纯后端改动，前端产物无变化**（`vue-frontend/` 未动，沿用 v3.11.1 的 `vue-frontend-dist.zip`）。覆盖 `myblog-backend.zip` 后「停止 → 启动」gunicorn（restart 不重载）；**无 DB 迁移**，无需执行任何 `flask db` 命令，Alembic 基线仍为 `f8f1f29b6ddf`。
+
+---
+
+## 第六十轮 R60（v3.12.1 · UI 设计系统 token 纯度 Phase 1「铲除散点暗色」）
+
+> 本轮为**纯 CSS 重构**：把两套活 CSS 里的散点硬编码色改为引用 `tokens.css` 语义变量。
+> **零新增接口、零新增依赖、零表结构变更、零后端逻辑改动**——攻击面未扩大，审计重点在
+> 「样式改动本身是否引入风险」与「前端产物是否真的带上了改动」。
+
+### 变更范围
+
+| 文件 | 改动 | 交付方式 |
+|------|------|----------|
+| `myblog/static/admin.css` | 硬编码色 → `var(--token)`（后台活 CSS，Jinja 模板在用） | 后端包 `myblog-backend.zip` |
+| `vue-frontend/src/styles/global.css` | 剩余硬编码色 → `var(--token)`（**源码**，须重新构建） | 前端包 `vue-frontend-dist.zip` |
+
+git diff 计 **70 增 / 70 删**，`tokens.css` 定义**未被改动**。
+
+### 七维审计
+
+| 维度 | 检查点 | 结论 |
+|------|--------|------|
+| XSS | 纯样式表，无 HTML / JS 注入点；CSS 内的 `content:` 与字体族声明未改动。对提交 `3055430` 全量 diff 扫描 `javascript:` / `expression()` / `behavior` → **0 命中**。 | ✅ 无 XSS |
+| SQL 注入 | 无后端代码改动，无查询、无参数。 | ✅ N/A |
+| 越权 | 无路由 / 无权限模型改动，未放宽任何既有边界。 | ✅ N/A |
+| SSRF / 密钥 / 路径遍历 | 对 diff 扫描 `url()` / `http(s)://` → **0 命中**，即本次未引入任何外部资源引用或远端 `@import`（`admin.css` 顶部既有的 `@import url("tokens.css")` 为**相对同目录**本地文件，非远端）。无密钥读写、无路径拼接。 | ✅ 无 |
+| 资源 / DoS | 变量替换不增加规则数与选择器复杂度；`@import` 为同目录本地文件，不产生额外跨域请求。构建产物体积无显著变化。 | ✅ 无风险 |
+| CSRF | 无新增 POST 面，无表单 / 无状态变更端点。 | ✅ N/A |
+| 回归 | ① 计算色比对脚本：两文件全部规则（admin **399** 条 + global **846** 条）在 light/dark 上下文分别把原始 hex 与替换后 `var(--token)` 解析为计算色逐条比对 → **0 处色差**，明暗外观像素级不变；幂等（二次替换 = 0）。② 全量 pytest **42 passed**。③ 构建产物核验：主样式 `assets/index-BPG3UaU6.css` 含 **206 处 `var(--`**，确认源码改动已进入交付产物。 | ✅ 无回归 |
+
+### 关于产物中残留的硬编码色
+
+核验时发现构建产物仍含少量 hex（如 `#9aa0a6` ×2、`#2a2e35` ×3、`#1d2025` ×3、`#23272e` ×1、`#555555` ×1）。经核对属**刻意保留**，非遗漏：
+
+- 无对应语义 token 的自定义灰 / 状态徽标色（`#eee` / `#fafbfc` / `#fdeaea` / `#6aa9ff` 等）——本轮纪律明确不改 `tokens.css` 定义，故保留；
+- 「随主题变化的 token，但该选择器下**不存在同优先级暗色覆盖规则**」的项（如 `.admin-sidebar` 边框 `#ececec`、`.pagination .current` 回退色 `#6b7280`）——替换会导致暗色外观被改，按「外观零变化」原则保留。
+
+**R60 结论**：**0 遗留**。本轮不引入任何新攻击面，样式改动经计算色比对证明外观零变化，且已核验改动进入前端构建产物。发版前 `APP_VERSION` 已改为 `3.12.1`（与 Release tag `v3.12.1` 一致）。
+
+**部署注意**：本次**含前端源码改动**，与 v3.12.0「纯后端」不同——`vue-frontend-dist.zip` **必须一并覆盖**（`/www/wwwroot/vue-frontend`），否则前台样式不生效；`myblog-backend.zip` 覆盖 `/www/wwwroot/myblog` 后 gunicorn「停止 → 启动」（restart 不重载）。**无 DB 迁移**，无需 `flask db`，Alembic 基线仍为 `f8f1f29b6ddf`。

@@ -33,6 +33,16 @@
 - **验证**：`py_compile` 通过；全量 pytest **42 passed**（新增 `tests/test_moments_admin.py` 5 例：编辑生效 + 审计日志、空内容/超 500 字被拒、删除级联评论、跨动态删评论 404、普通用户被拦）；隔离临时库冒烟 **44 项全通过**；admin 端点数 77 = 基线 72 + 新增 5，零回归。
 - **⚠️ 部署注意**：**纯后端改动，前端产物无变化**（微动态前台展示逻辑未动）。覆盖 `myblog-backend.zip` 后「停止 → 启动」gunicorn（restart 不重载）即生效；无 DB 迁移、无需 `flask db` 操作。R59 七维审计 **0 遗留**（详见 `myblog/SECURITY_AUDIT.md` 第五十九轮）。APP_VERSION 升为 v3.12.0。
 
+## v3.12.1（2026-09-04 · UI 设计系统 token 纯度 Phase 1「铲除散点暗色」）
+
+- **目标**：铲除两套**活** CSS 里的散点硬编码色，统一改为引用 `tokens.css` 语义变量，为后续换肤 / 主题扩展打底。
+- **改动**（2 个文件，git diff 计 **70 增 / 70 删**）：
+  - `myblog/static/admin.css` —— 后台活 CSS（Jinja 模板在用），顶部已 `@import url("tokens.css");`，硬编码色 → `var(--...)`。
+  - `vue-frontend/src/styles/global.css` —— 前台全局样式，剩余硬编码色 → `var(--...)`。
+- **替换策略（外观零变化的前提）**：仅当某颜色在对应主题上下文里 token 取值与原始值**完全相等**时才替换——主题无关 token（`--accent` / `--on-accent` / `--accent-soft` 等）直接换；随主题变化的 token（`--border` / `--surface` / `--text` 等）仅在存在同选择器暗色覆盖规则时才转换。无对应 token 的自定义灰 / 状态徽标色（`#eee` / `#fafbfc` / `#fdeaea` / `#6aa9ff` 等）按纪律**保留原样**，本次不动 `tokens.css` 定义。
+- **验证**：写校验脚本对两文件全部规则（admin 399 条 + global 846 条）在 light/dark 上下文下，分别把原始 hex 与替换后的 `var(--token)` 解析为计算色并逐条比对 → **0 处色差**，明暗外观像素级不变；幂等（二次替换 = 0）。全量 pytest **42 passed**。
+- **⚠️ 部署注意（与 v3.12.0 不同）**：本次**含前端源码改动**，`vue-frontend/src/styles/global.css` 必须**重新构建**并随 `vue-frontend-dist.zip` 一并覆盖才会生效；`myblog/static/admin.css` 随后端包走。覆盖后 gunicorn「停止 → 启动」（restart 不重载）。无 DB 迁移、无需 `flask db`。**R60 审计 0 遗留**（详见 `myblog/SECURITY_AUDIT.md` 第六十轮）。APP_VERSION 升为 v3.12.1。
+
 ### v3.0.0 新增（14 项功能）
 
 - **系列目录页 + 阅读进度增强**：系列详情页新增带编号的章节目录（系列 TOC）；前台全局阅读进度条（App.vue）持续可用。

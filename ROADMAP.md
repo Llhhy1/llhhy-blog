@@ -768,3 +768,13 @@ v3.1.7 修复 CSRF 隐藏域乱码后，用户反馈「退出登录按钮失效�
 - **顺带修**：`admin.css` 补 `.pagination`（后台分页此前完全无样式，只有前台 `style.css` 有定义）与 `.auth-box textarea`（明暗双主题）。
 - **验证**：`py_compile` 通过；新增 `tests/test_moments_admin.py` 5 例常驻回归（编辑生效 + 审计日志、空内容/超 500 字被拒、删除级联评论、跨动态删评论 404、普通用户被拦）；全量 pytest **42 passed**（37 基线 + 5 新增）；隔离临时库冒烟 44 项全通过；admin 端点 77 = 基线 72 + 新增 5，零回归。
 - **部署注意**：**纯后端改动，前端产物无变化**（`vue-frontend/` 未动，沿用 v3.11.1 的 `vue-frontend-dist.zip`）。覆盖 `myblog-backend.zip` 后「停止 → 启动」gunicorn（restart 不重载）；**无 DB 迁移**，无需执行任何 `flask db` 命令。APP_VERSION 升为 v3.12.0。
+
+## 64. v3.12.1：UI 设计系统 token 纯度 Phase 1「铲除散点暗色」（R60 审计通过）
+
+- **痛点**：后台 `myblog/static/admin.css` 与前台 `vue-frontend/src/styles/global.css` 里残留一批散点硬编码色（hex/rgb），与 `tokens.css` 语义 token 体系不统一，明暗主题切换时偶发游离暗块、难以一处改全。
+- **改的什么**：把两文件里能用 token 表达的散点硬编码色全部替换为 `tokens.css` 语义 token（`--color-bg-*` / `--color-text-*` / `--color-border-*` / `--color-accent-*` 等）。`tokens.css` 定义**未改动**——只消费已有 token；对「无对应 token 的自定义灰 / 状态色」按发版纪律刻意保留硬编码（非遗漏）。
+  - `myblog/static/admin.css`：38 处散点色替换（含后台分页 `.pagination`、`.auth-box textarea` 等）。
+  - `vue-frontend/src/styles/global.css`：35 处散点色替换。
+  - 合计 73 处（gp-7 超集，覆盖 gp-4 的 68 处）。
+- **验证**：对 `3055430` diff 扫描 `javascript:` / `expression()` / `behavior` / `url()` / `http(s)://` → **0 命中**；明暗主题外观**像素级零色差**（0 color diff）。前端 `_vite_build20` 重建，`index-*.css` 含 **206+ 处 `var(--token)`**，确认 token 化进入产物。全量 pytest **42 passed** 零回归。R60 七维审计 **0 遗留**（详见 `myblog/SECURITY_AUDIT.md` 第六十轮）。
+- **部署注意（与 v3.12.0 不同）**：本次**含前端源码改动**，`global.css` 必须随 `vue-frontend-dist.zip` 重新构建覆盖才会生效；`admin.css` 随后端包走。覆盖后 gunicorn「停止 → 启动」（restart 不重载）+ 硬刷新清缓存。无 DB 迁移、无需 `flask db`。APP_VERSION 升为 v3.12.1。

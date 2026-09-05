@@ -225,9 +225,14 @@ body {
  width: 100%; max-height: 340px; object-fit: cover; border-radius: var(--theme-radius, 12px); margin: 0 0 14px; display: block; }
 .post-body {
  margin-top: 18px;
- /* v3.12.2 移动端溢出修复：长 URL / 长英文词默认不折行会撑破视口，
+ /* 移动端溢出修复（v3.12.2）：长 URL / 长英文词默认不折行会撑破视口，
     被 .site-frame 的 overflow:hidden 裁掉导致「无法完整展示」。
-    允许在任意字符间断行（不影响中文正常换行）。 */overflow-wrap: break-word; word-break: break-word; }
+    overflow-wrap:anywhere 允许在任意字符间断行（不影响中文正常换行）；
+    较 break-word 更激进，也会让容器可收缩到内容宽度，彻底消除横向溢出。 */overflow-wrap: anywhere; word-break: break-word; }
+/* 链接 / 行内 code 内的长 token（URL、base64 等）同样需要可断；
+   注意 .post-body pre code 特异性更高，仍保持整行不折行 + 横向滚动。 */.post-body a,
+.post-body code {
+ word-break: break-word; overflow-wrap: anywhere; }
 .post-body h2 {
  font-size: 21px; margin: 22px 0 10px; }
 .post-body h3 {

@@ -43,7 +43,7 @@
 - **验证**：写校验脚本对两文件全部规则（admin 399 条 + global 846 条）在 light/dark 上下文下，分别把原始 hex 与替换后的 `var(--token)` 解析为计算色并逐条比对 → **0 处色差**，明暗外观像素级不变；幂等（二次替换 = 0）。全量 pytest **42 passed**。
 - **⚠️ 部署注意（与 v3.12.0 不同）**：本次**含前端源码改动**，`vue-frontend/src/styles/global.css` 必须**重新构建**并随 `vue-frontend-dist.zip` 一并覆盖才会生效；`myblog/static/admin.css` 随后端包走。覆盖后 gunicorn「停止 → 启动」（restart 不重载）。无 DB 迁移、无需 `flask db`。**R60 审计 0 遗留**（详见 `myblog/SECURITY_AUDIT.md` 第六十轮）。APP_VERSION 升为 v3.12.1。
 
-## v3.12.2（2026-09-05 · 写能力 MCP `/mcp-write`）
+## v3.12.2（2026-09-05 · 写能力 MCP `/mcp-write` ＋ 移动端文章页溢出修复）
 
 - **背景**：只读诊断 MCP（`/mcp`，v3.10.0）让 AI 能「读」博客健康状态；本版补齐「写」——让 AI 助手在授权下远程创建文章（自动发文），与只读端点**完全隔离**（独立端点 / 独立 token / 独立配置 / 默认不发布）。
 - **新增 `myblog/mcp_write.py`**（Blueprint `mcp_write_bp`，无 url_prefix，端点 `/mcp-write`）：沿用只读 MCP 的 Streamable HTTP 最小子集（仅 POST、JSON-RPC `initialize`/`tools/list`/`tools/call`、非 POST 405）。提供两工具：`create_post`（建文，默认草稿）、`list_recent_posts`（查重，不含正文）。
@@ -52,8 +52,8 @@
 - **硬性安全闸门（逐条实现，缺一不可）**：① 独立 token 缺失即 404；② 默认草稿；③ 强制草稿开关（`DEFAULT_PUBLISH!=1` 时即便传 `publish=true` 也转草稿并在 `warnings` 注明）；④ 禁止提权字段（`is_pinned/is_private/reward_*/author_id/views/likes` 一律不收，仅 `ALLOW_SUPER_FIELDS=1` 才接受前四个且校验目标用户）；⑤ 群发默认关闭（仅 `ALLOW_NOTIFY=1` 且显式 `notify_subscribers=true` 才触发）；⑥ 幂等（同 `idempotency_key` 或同标题+当日 24h 内重复调用返回已存在文章，不新建，`deduplicated=true`）；⑦ slug 冲突不覆盖（append `-2/-3`）；⑧ 每次调用写一条 `AuditLog`（action=`mcp_create_post`、username=`mcp`、记 token 前 8 位与来源 IP、成败均记）；⑨ 正文超 200000 字符拒绝不落库；⑩ 正文渲染走既有管线，不自己拼 HTML。
 - **`myblog/app.py`**：顶部 `from mcp_write import mcp_write_bp`；注册 blueprint（注释「未配置 MCP_WRITE_TOKEN 时自动关闭」）；CSRF 豁免元组加入 `/mcp-write`。复用 `mcp_diag` 的 `_token_ok`/`_origin_ok`/限流写法（限流 `rate_limit(client_key("mcp_write"), limit=10, window=60)`，比只读更严，异常时放行）。
 - **验证**：全量 pytest **59 passed**（新增 `tests/test_mcp_write.py` 17 例：404/401/默认草稿/强制草稿+warning/提权忽略与接受/群发默认关闭与允许/幂等/slug 冲突不覆盖/每次审计/空标题与超长拒绝/list_recent 不含正文/握手/tools-list/GET 405/Origin 校验）。未改动数据库表结构（审计复用现成 `AuditLog`）。
-- **前端移动端溢出修复（`vue-frontend/src/styles/global.css` · 同版追加）**：`/post/*` 详情页在手机端横向溢出、内容被 `.site-frame` 的 `overflow:hidden` 裁掉「无法完整展示」。根因：正文 `.post-body` 缺 `overflow-wrap`/`word-break`，长 URL / 长英文词（如一周 AI 观察里的外链原文）默认不折行撑破视口。修复：`.post-body` 加 `overflow-wrap:break-word; word-break:break-word`（不影响中文正常换行）；`<pre>` 代码块保持 `white-space:pre` + `overflow-x:auto` 整行横向滚动不折行。纯 CSS，无逻辑/安全面变化；已 `vite build` 验证产物正常。
-- **⚠️ 部署注意**：纯后端改动，前端产物无变化；覆盖 `myblog-backend.zip` 后 gunicorn「停止 → 启动」即生效，无 DB 迁移。服务器 Nginx 需**照 `deploy_guide.md` 里的 `location = /mcp` 复制一条 `location = /mcp-write`**（否则被 Vue SPA 兜底成 index.html）；并填 `MCP_WRITE_TOKEN` 等环境变量（token 由你自己生成，须与 `MCP_AUTH_TOKEN` 不同值）。发布时 APP_VERSION 升为 v3.12.2。
+- **前端移动端溢出修复（`vue-frontend/src/styles/global.css` · 同版追加并真正构建部署）**：`/post/*` 详情页在手机端横向溢出、内容被 `.site-frame` 的 `overflow:hidden` 裁掉「无法完整展示」。根因（已线上复现 `/post/post-5`）：正文 `.post-body` 缺失断词规则，长 URL / 长英文词（post-5 正文含多条 90–127 字符无空格外链，如 cnbctv18 116 字符链接）默认不折行撑破视口——此前源码虽写过 `break-word` 版但**从未 build 部署**，故线上旧 `assets/index-*.css` 里 `.post-body` 仍无断词规则。修复：`.post-body` 改用 `overflow-wrap:anywhere; word-break:break-word`（较旧 `break-word` 更激进，令容器可收缩到内容宽度，彻底消除横向溢出），并新增 `.post-body a, .post-body code` 断词规则覆盖链接 / 行内 code 内的长 token；`<pre>` 代码块仍保持 `white-space:pre` + `overflow-x:auto` 整行横向滚动不折行（`.post-body pre code` 特异性更高不受影响）。纯 CSS，无逻辑 / 安全面变化；已 `vite build` 验证产物含新规则（`.post-body{...overflow-wrap:anywhere;word-break:break-word}`）。
+- **⚠️ 部署注意**：本次**既有后端（写 MCP）也有前端（溢出修复）改动**。后端：覆盖 `myblog-backend.zip` 后 gunicorn「停止 → 启动」即生效，无 DB 迁移；服务器 Nginx 需照 `deploy_guide.md` 里的 `location = /mcp` 复制一条 `location = /mcp-write`（否则被 Vue SPA 兜底成 index.html）；并填 `MCP_WRITE_TOKEN` 等环境变量（token 由你自己生成，须与 `MCP_AUTH_TOKEN` 不同值）。前端：覆盖 `vue-frontend-dist.zip` 到 `/www/wwwroot/vue-frontend`（更新 index.html + assets/），并**强刷浏览器 / 清 Nginx 缓存**（否则旧 `assets/index-*.css` 仍被缓存，溢出依旧）。发布时 APP_VERSION 升为 v3.12.2。
 
 ### v3.0.0 新增（14 项功能）
 

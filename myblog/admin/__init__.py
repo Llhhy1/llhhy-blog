@@ -11,4 +11,5 @@ from . import media
 from . import friends
 from . import misc
 from . import moments   # v3.12.0：微动态（广场/个人动态）后台管理
+from . import mcp_services  # v3.13.0：MCP 服务管理面板（内置启停/外部登记/AI 接入指令）
 

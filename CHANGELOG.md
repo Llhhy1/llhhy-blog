@@ -17,6 +17,19 @@
   2. 「发布出问题立即回滚、不硬扛」的决断力是对的，保持；
   3. FastAPI 迁移评估结论不变（SQLite 上 async 比 sync 慢 1.25–1.27x，维持 Flask 栈）。
 
+## 未发布（Unreleased）
+
+### v3.13.0（待发布 · 后台 MCP 服务管理面板 + AI 脱敏接入指令）
+
+- **新增 `myblog/admin/mcp_services.py`**（admin 包新子模块，超管专属 `super_required`，全部写操作 `log_audit`）：
+  - `GET /admin/mcp-services` —— 面板：内置服务状态（运行 / 停止 + token 掩码一览）、外部服务列表、指令对外域名配置（留空 = 自动用当前访问域名）。
+  - `POST /admin/mcp-services/toggle/<diag|write>` —— 内置端点**运行时启停**：存 Setting 键 `mcp_diag_disabled` / `mcp_write_disabled`，「停止」= 端点对外 **404**（不暴露端点存在）；`get_setting` 无缓存即时生效，**无需重启站点**。
+  - `POST /admin/mcp-services/add` / `update/<sid>` / `delete/<sid>` —— 外部 MCP 服务登记 / 更新 / 启停 / 删除：存 Setting 表 JSON（`mcp_external_services`，**不建新表**）；token 用 `backup_settings.encrypt_secret`（Fernet，密钥源自 SECRET_KEY）加密单独存键 `mcp_service_token_<id>`，**库中不落明文**，页面只回显掩码；URL 强校验 http(s)（杜绝 javascript: 注入面）、名称作 mcp.json 键做字符白名单；删除联动清 token 键；上限 20 条。
+  - `GET /admin/mcp-services/instruction/<kind>`（kind = `diag` / `write` / 外部服务 id）—— **AI 接入指令页**：生成「脱敏版」（token 占位符，可放心转发给 AI）与「完整版」（`?full=1`，含真实 token，AI 拿到即可直接写 mcp.json / 执行安装）；**完整版每次查看写审计**（action=`mcp_full`）；指令含 curl 探活命令与 mcp.json 片段，与 `deploy_guide.md` 手工口径逐字一致。
+- **`mcp_diag.py` / `mcp_write.py`**：端点最前新增面板总开关检查（停止 → 404；开关读取异常时按未设置处理，不影响端点自身可用性）。
+- **后台导航**：侧边栏「系统设置」组「🧩 插件管理」后新增「🔌 MCP 服务」入口。
+- **测试**：新增 `tests/test_mcp_services_admin.py`（5 例）：超管权限（未登录 / 普通管理员一律 403）、内置启停对端点即时生效（404↔200 实测）、外部服务 CRUD + Fernet 密文落库（库中无明文、可解回原值）、脱敏版不含真实 token / 完整版含且记审计、URL 非法 scheme 拒绝、`?edit=` 编辑态渲染。全量 pytest 64 passed。
+
 ## v3.12.0（2026-09-01 · 微动态后台管理）
 
 - **背景**：广场 / 个人动态（模型 `Moment`）此前只有发布 / 点赞 / 评论接口（`/api/moment*`），一旦发布在前后台都**无法编辑、无法删除**，只能直接改数据库。

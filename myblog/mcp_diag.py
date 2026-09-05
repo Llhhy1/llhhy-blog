@@ -293,6 +293,13 @@ def _error(rid, code, message):
 
 @mcp_bp.route("/mcp", methods=["POST"])
 def mcp_endpoint():
+    # ⓪ 后台「MCP 服务」面板总开关：停止 → 对外 404（不暴露端点存在），即时生效
+    try:
+        from utils import get_setting
+        if (get_setting("mcp_diag_disabled") or "").strip().lower() == "true":
+            return jsonify({"error": "not found"}), 404
+    except Exception:
+        pass  # 开关读取失败按未设置处理（默认开启），不影响端点自身可用性
     # ① Origin 校验（MCP 规范强制，防 DNS 重绑定）
     if not _origin_ok():
         return jsonify({"error": "Origin 不被允许"}), 403

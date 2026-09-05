@@ -1,0 +1,130 @@
+{% extends "admin/base.html" %}
+{% block title %}MCP 服务管理{% endblock %}
+{% block content %}
+  <h1 class="page-title">🔌 MCP 服务管理</h1>
+  <p class="stats-tip">后台统一的 MCP 服务入口：内置端点（只读诊断 / 写能力）一键启停；第三方 MCP 服务登记、启停；每个服务都能生成「AI 脱敏接入指令」——发给 AI 后即可按步骤直接完成连接配置。所有操作写入「操作日志」。</p>
+
+  {# ============ 内置服务 ============ #}
+  <div class="settings-section">
+    <h2 style="margin:0 0 12px;">📦 内置服务</h2>
+    <table class="admin-table">
+      <thead>
+        <tr><th>服务</th><th>端点</th><th>状态</th><th>Token（环境变量）</th><th style="width:200px;">操作</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><b>只读诊断</b><br><span class="stats-tip" style="margin:0;">健康查询 / 日志脱敏 / 版本一致性</span></td>
+          <td><code>POST /mcp</code></td>
+          <td>{{ '🟢 运行中' if diag_enabled else '🔴 已停止（对外 404）' }}</td>
+          <td>
+            {% if diag_token_ok %}<code>{{ diag_token_masked }}</code>{% else %}<span style="color:#c0392b;">未配置 → 端点关闭</span>{% endif %}
+            <br><span class="stats-tip" style="margin:0;">MCP_AUTH_TOKEN</span>
+          </td>
+          <td>
+            <a class="link-btn" href="{{ url_for('admin.mcp_instruction', kind='diag') }}">AI 接入指令</a>
+            <form method="post" action="{{ url_for('admin.mcp_services_toggle', which='diag') }}" class="inline-form"
+                  onsubmit="return confirm('{{ '确定停止只读诊断服务？停止后 /mcp 对外返回 404，所有 AI 连接立即失效。' if diag_enabled else '确定开启只读诊断服务？' }}');">
+              {{ csrf_input() }}
+              <input type="hidden" name="enable" value="{{ '0' if diag_enabled else '1' }}">
+              <button type="submit" class="{{ 'link-danger' if diag_enabled else 'link-btn' }}">{{ '⏹ 停止' if diag_enabled else '▶️ 开启' }}</button>
+            </form>
+          </td>
+        </tr>
+        <tr>
+          <td><b>写能力</b><br><span class="stats-tip" style="margin:0;">AI 远程发文（默认草稿）</span></td>
+          <td><code>POST /mcp-write</code></td>
+          <td>{{ '🟢 运行中' if write_enabled else '🔴 已停止（对外 404）' }}</td>
+          <td>
+            {% if write_token_ok %}<code>{{ write_token_masked }}</code>{% else %}<span style="color:#c0392b;">未配置 → 端点关闭</span>{% endif %}
+            <br><span class="stats-tip" style="margin:0;">MCP_WRITE_TOKEN</span>
+          </td>
+          <td>
+            <a class="link-btn" href="{{ url_for('admin.mcp_instruction', kind='write') }}">AI 接入指令</a>
+            <form method="post" action="{{ url_for('admin.mcp_services_toggle', which='write') }}" class="inline-form"
+                  onsubmit="return confirm('{{ '确定停止写能力服务？停止后 /mcp-write 对外返回 404，所有 AI 连接立即失效。' if write_enabled else '确定开启写能力服务？' }}');">
+              {{ csrf_input() }}
+              <input type="hidden" name="enable" value="{{ '0' if write_enabled else '1' }}">
+              <button type="submit" class="{{ 'link-danger' if write_enabled else 'link-btn' }}">{{ '⏹ 停止' if write_enabled else '▶️ 开启' }}</button>
+            </form>
+          </td>
+        </tr>
+      </tbody>
+    </table>
+    <p class="stats-tip" style="margin:10px 0 0;">启停即时生效（无需重启站点）；「停止」= 端点对外 404，不暴露存在。Token 本体在宝塔环境变量，本页只显示掩码。</p>
+  </div>
+
+  {# ============ 指令域名 ============ #}
+  <div class="settings-section">
+    <h2 style="margin:0 0 12px;">🌐 指令对外域名</h2>
+    <form method="post" action="{{ url_for('admin.mcp_services_base') }}" class="edit-form" style="max-width:560px;">
+      {{ csrf_input() }}
+      <label>生成接入指令时使用的站点域名（留空 = 自动用当前访问域名）</label>
+      <input type="text" name="base_url" value="{{ base_url_setting }}" placeholder="https://blog.example.com">
+      <button type="submit" class="btn small">保存域名</button>
+    </form>
+  </div>
+
+  {# ============ 外部服务 ============ #}
+  <div class="settings-section">
+    <h2 style="margin:0 0 12px;">🧩 外部 MCP 服务（{{ ext_rows | length }}）</h2>
+    <table class="admin-table">
+      <thead>
+        <tr><th>名称</th><th>URL</th><th>Token</th><th>状态</th><th style="width:250px;">操作</th></tr>
+      </thead>
+      <tbody>
+        {% for r in ext_rows %}
+        <tr>
+          <td><b>{{ r.name }}</b>{% if r.desc %}<br><span class="stats-tip" style="margin:0;">{{ r.desc }}</span>{% endif %}</td>
+          <td style="max-width:280px;word-break:break-all;"><code>{{ r.url }}</code><br><span class="stats-tip" style="margin:0;">Header: {{ r.header }}</span></td>
+          <td>{% if r.token_masked %}<code>{{ r.token_masked }}</code>{% else %}<span class="stats-tip">未登记</span>{% endif %}</td>
+          <td>{{ '🟢 启用' if r.enabled else '⚫ 已停用' }}</td>
+          <td>
+            <a class="link-btn" href="{{ url_for('admin.mcp_instruction', kind=r.id) }}">指令</a>
+            <form method="post" action="{{ url_for('admin.mcp_services_update', sid=r.id) }}" class="inline-form">
+              {{ csrf_input() }}
+              <input type="hidden" name="enable" value="{{ '0' if r.enabled else '1' }}">
+              <button type="submit" class="link-btn">{{ '⏹ 停用' if r.enabled else '▶️ 启用' }}</button>
+            </form>
+            <a class="link-btn" href="{{ url_for('admin.mcp_services', edit=r.id) }}">编辑</a>
+            <form method="post" action="{{ url_for('admin.mcp_services_delete', sid=r.id) }}" class="inline-form"
+                  onsubmit="return confirm('确定删除外部服务「{{ r.name }}」？其登记的密文 token 将一并清除，且不可恢复。');">
+              {{ csrf_input() }}
+              <button type="submit" class="link-danger">删除</button>
+            </form>
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="5">暂未登记外部 MCP 服务。第三方服务（如其他站点 / 工具的 MCP 端点）可在下方登记，统一管理并生成 AI 接入指令。</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  {# ============ 登记 / 编辑表单（?edit=<sid> 时预填，复用为编辑） ============ #}
+  {% set editing = ext_rows | selectattr('id', 'equalto', request.args.get('edit', '')) | list %}
+  {% set edit_row = editing[0] if editing else None %}
+  <div class="settings-section">
+    <h2 style="margin:0 0 12px;">➕ {{ '编辑外部服务「' + edit_row.name + '」' if edit_row else '登记外部 MCP 服务' }}</h2>
+    {% if edit_row %}<p class="stats-tip">Token 留空 = 保持原值不变。</p>{% endif %}
+    <form method="post" class="edit-form" style="max-width:640px;"
+          action="{{ url_for('admin.mcp_services_update', sid=edit_row.id) if edit_row else url_for('admin.mcp_services_add') }}">
+      {{ csrf_input() }}
+      <label>服务名称 *（作为 mcp.json 里的 server 键，≤ 40 字，不含空白/引号）</label>
+      <input type="text" name="name" required maxlength="40" value="{{ edit_row.name if edit_row else '' }}" placeholder="my-other-blog-mcp">
+      <label>服务 URL *（http(s):// 完整地址）</label>
+      <input type="text" name="url" required maxlength="300" value="{{ edit_row.url if edit_row else '' }}" placeholder="https://example.com/mcp">
+      <label>认证 Header 名（默认 Authorization，值自动加 Bearer 前缀）</label>
+      <input type="text" name="header" maxlength="60" value="{{ edit_row.header if edit_row else 'Authorization' }}" placeholder="Authorization">
+      <label>Token / 密钥（Fernet 加密落库，页面只显示掩码{% if edit_row %}；留空不变{% endif %}）</label>
+      <input type="text" name="token" maxlength="200" value="" placeholder="{{ '留空 = 不修改' if edit_row else '留空 = 暂不填，可后补' }}" autocomplete="off">
+      <label>用途说明（≤ 120 字，会写进 AI 接入指令，让 AI 知道这个服务是干嘛的）</label>
+      <input type="text" name="desc" maxlength="120" value="{{ edit_row.desc if edit_row else '' }}" placeholder="例：另一个站点的只读诊断端点">
+      <button type="submit" class="btn small">{{ '保存修改' if edit_row else '登记服务' }}</button>
+      {% if edit_row %}<a class="btn small ghost" href="{{ url_for('admin.mcp_services') }}">取消编辑</a>{% endif %}
+    </form>
+  </div>
+
+  <div class="settings-section">
+    <p class="stats-tip" style="margin:0;">💡 「AI 脱敏接入指令」说明：<b>脱敏版</b>含完整连接步骤但 token 用占位符（可放心发给 AI，由它引导你填 token）；<b>完整版</b>含真实 token（AI 拿到即可直接写好 mcp.json / 完成安装），仅超管可见且每次查看都记「操作日志」。</p>
+  </div>
+{% endblock %}

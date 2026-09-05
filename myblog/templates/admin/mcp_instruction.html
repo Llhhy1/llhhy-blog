@@ -1,0 +1,58 @@
+{% extends "admin/base.html" %}
+{% block title %}AI 接入指令 · {{ label }}{% endblock %}
+{% block content %}
+  <h1 class="page-title">🤖 AI 接入指令 · {{ label }}</h1>
+  <p class="stats-tip">
+    把下面的指令整段复制发给 AI 助手，AI 即可按步骤完成连接与安装。
+    {% if full %}
+      当前是<b style="color:#c0392b;">完整版（含真实 token）</b>——请只发给完全可信的 AI 会话；本次查看已记入「操作日志」。
+    {% else %}
+      当前是<b>脱敏版</b>（token 用占位符，可放心转发）；AI 引导你填 token 时，到<a class="link-btn" href="{{ url_for('admin.mcp_instruction', kind=kind, full=1) }}">显示完整指令</a>查看真实值。
+    {% endif %}
+  </p>
+
+  <div class="settings-section">
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:10px;">
+      <h2 style="margin:0;">📋 接入指令（{{ '完整版' if full else '脱敏版' }}）</h2>
+      {% if full %}
+        <a class="btn small ghost" href="{{ url_for('admin.mcp_instruction', kind=kind) }}">切换为脱敏版</a>
+      {% else %}
+        <a class="btn small ghost" href="{{ url_for('admin.mcp_instruction', kind=kind, full=1) }}">显示完整指令（含真实 token）</a>
+      {% endif %}
+      <button type="button" class="btn small" id="copy-all">一键复制全部</button>
+    </div>
+    <pre id="instr-text" style="white-space:pre-wrap;word-break:break-all;background:var(--code-bg, rgba(127,127,127,.08));padding:14px;border-radius:8px;font-size:13px;line-height:1.7;margin:0;">{{ text }}</pre>
+  </div>
+
+  <div class="settings-section">
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:10px;">
+      <h2 style="margin:0;">🧾 mcp.json 片段</h2>
+      <button type="button" class="btn small" id="copy-json">复制片段</button>
+    </div>
+    <pre id="instr-json" style="white-space:pre-wrap;word-break:break-all;background:var(--code-bg, rgba(127,127,127,.08));padding:14px;border-radius:8px;font-size:13px;line-height:1.6;margin:0;">{{ mcp_json }}</pre>
+    <p class="stats-tip" style="margin:10px 0 0;">保存到 AI 客户端的 mcp.json（如 <code>~/.workbuddy/mcp.json</code>）后，到连接器管理页对对应 server 点一次「信任」即可生效。</p>
+  </div>
+
+  <p><a class="btn small ghost" href="{{ url_for('admin.mcp_services') }}">← 返回 MCP 服务管理</a></p>
+
+  <script>
+    function _copyText(txt, btn) {
+      function done() { var t = btn.textContent; btn.textContent = '✅ 已复制'; setTimeout(function(){ btn.textContent = t; }, 1500); }
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(txt).then(done, function(){ _fallback(txt, done); });
+      } else { _fallback(txt, done); }
+    }
+    function _fallback(txt, done) {
+      var ta = document.createElement('textarea');
+      ta.value = txt; document.body.appendChild(ta); ta.select();
+      try { document.execCommand('copy'); done(); } catch (e) {}
+      document.body.removeChild(ta);
+    }
+    document.getElementById('copy-all').addEventListener('click', function(){
+      _copyText(document.getElementById('instr-text').textContent, this);
+    });
+    document.getElementById('copy-json').addEventListener('click', function(){
+      _copyText(document.getElementById('instr-json').textContent, this);
+    });
+  </script>
+{% endblock %}

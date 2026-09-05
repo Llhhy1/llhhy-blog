@@ -70,8 +70,12 @@ def _unregister_blueprints(app, slug=None):
     names = []
     if slug is None:
         for s, bs in list(SLUG_BLUEPRINTS.items()):
+            if s == "__sys__":
+                continue  # v3.13.1：系统蓝图常驻，整体重载不卸载（否则运行时无法安全补回）
             names.extend(bs)
-        names.append(SYS_BP_NAME)
+        # v3.13.1：整体重载不再卸载系统蓝图（plugins_bp 常驻，承载 /api/plugins 自身）。
+        # 运行时（应用已处理请求）Flask 禁止重新 register_blueprint，卸掉后无法安全补回，
+        # 会导致插件 API 在重启前 404。系统蓝图本就无路由级热更需求，留着即可。
     elif slug in SLUG_BLUEPRINTS:
         names.extend(SLUG_BLUEPRINTS[slug])
     for name in set(names):
@@ -137,7 +141,18 @@ def load_plugins(app, cfg):
                 loaded += 1
         else:
             print(f"[插件] 已跳过（禁用清单/标记文件/运行时禁用）：{slug}")
-    app.register_blueprint(plugins_bp)
+    # v3.13.1：幂等 + 崩溃安全注册。create_app 启动时已注册过一次；
+    # 后台「插件重载」按钮（reload_plugins → load_plugins）会在运行时再次走到这里，
+    # 若应用已处理过请求，Flask 禁止 register_blueprint（抛 AssertionError → 该接口直接 500）。
+    # 故仅在缺失时补注册；即便缺失且处于运行时，也吞掉断言跳过（路由级变更本就需重启 gunicorn，
+    # 符合「不热加载」架构红线），避免一次重载把整个接口打挂。
+    if SYS_BP_NAME not in app.blueprints:
+        try:
+            app.register_blueprint(plugins_bp)
+        except AssertionError:
+            app.logger.warning(
+                "跳过 plugins 系统蓝图运行时注册（应用已处理请求，路由级变更需重启 gunicorn 生效）"
+            )
     SLUG_BLUEPRINTS.setdefault("__sys__", set()).add(SYS_BP_NAME)
     print(f"[插件] 加载完成，共 {loaded} 个启用")
 

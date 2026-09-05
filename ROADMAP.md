@@ -778,3 +778,15 @@ v3.1.7 修复 CSRF 隐藏域乱码后，用户反馈「退出登录按钮失效�
   - 合计 73 处（gp-7 超集，覆盖 gp-4 的 68 处）。
 - **验证**：对 `3055430` diff 扫描 `javascript:` / `expression()` / `behavior` / `url()` / `http(s)://` → **0 命中**；明暗主题外观**像素级零色差**（0 color diff）。前端 `_vite_build20` 重建，`index-*.css` 含 **206+ 处 `var(--token)`**，确认 token 化进入产物。全量 pytest **42 passed** 零回归。R60 七维审计 **0 遗留**（详见 `myblog/SECURITY_AUDIT.md` 第六十轮）。
 - **部署注意（与 v3.12.0 不同）**：本次**含前端源码改动**，`global.css` 必须随 `vue-frontend-dist.zip` 重新构建覆盖才会生效；`admin.css` 随后端包走。覆盖后 gunicorn「停止 → 启动」（restart 不重载）+ 硬刷新清缓存。无 DB 迁移、无需 `flask db`。APP_VERSION 升为 v3.12.1。
+
+## 65. v3.13.0：后台 MCP 服务管理面板 + AI 脱敏接入指令（R62 审计通过）
+
+- **背景**：MCP 能力（只读 `/mcp` v3.10.0、写能力 `/mcp-write` v3.12.2）此前只能靠环境变量 + 手工 Nginx 配置管理，缺少后台统一入口；AI 接入配置（mcp.json / curl 验证 / token 交接）也要人工拼装。新增后台「🔌 MCP 服务」面板把这三件事全部收口。
+- **新增 `myblog/admin/mcp_services.py`**（超管专属 `super_required`，全部写操作 `log_audit`）：
+  - **内置服务启停**：`POST /admin/mcp-services/toggle/<diag|write>`——Setting 键 `mcp_diag_disabled` / `mcp_write_disabled`，「停止」= 端点对外 **404**（不暴露存在），`get_setting` 无缓存即时生效，**无需重启站点**；面板显示运行状态与 token 掩码（本体仍在环境变量）。
+  - **外部服务 CRUD**：`add` / `update/<sid>` / `delete/<sid>`——第三方 MCP 服务登记（名称/URL/Header/Token），存 Setting 表 JSON（`mcp_external_services`，**不建新表**）；token 用 `encrypt_secret`（Fernet）加密单独存键 `mcp_service_token_<id>`，**库中零明文**、页面只回显掩码；URL 强校验 http(s)、名称字符白名单；上限 20 条；删除联动清 token 键。
+  - **AI 接入指令页**：`GET /admin/mcp-services/instruction/<kind>`（diag / write / 外部服务 id）——生成「**脱敏版**」（token 占位符，可放心转发给 AI，由它引导用户填）与「**完整版**」（`?full=1`，含真实 token，AI 拿到即可直接写 mcp.json / 执行安装）；**完整版每次查看写审计**（action=`mcp_full`）；指令含 curl 探活命令与 mcp.json 片段，与 deploy_guide 手工口径逐字一致；指令对外域名可配（留空自动用当前访问域名）。
+- **`mcp_diag.py` / `mcp_write.py`**：端点最前加总开关检查（默认不影响既有行为；开关读取异常按未设置处理）。
+- **设计决策**：**零新表、零新环境变量、零新外部请求**——全部数据走既有 Setting 表；token 加密复用 v3.4.0 的 `encrypt_secret`（Fernet）。
+- **验证**：新增 `tests/test_mcp_services_admin.py` 5 例常驻回归（超管权限 403、启停对端点实测 404↔200、CRUD + 密文落库可解回、脱敏版不含真实 token / 完整版含且记审计、URL 非法 scheme 拒绝 + `?edit=` 编辑态渲染）；全量 pytest **64 passed**（59 基线 + 5 新增）。R62 九维审计 **0 遗留**（详见 `myblog/SECURITY_AUDIT.md` 第六十二轮）。
+- **部署注意**：**纯后端改动，前端产物无变化**（`vue-frontend/` 未动）。覆盖 `myblog-backend.zip` 后「停止 → 启动」gunicorn；**无 DB 迁移**，无需任何 `flask db` 命令；无新增环境变量。上线后后台即见「🔌 MCP 服务」入口，开箱即用。APP_VERSION 升为 v3.13.0。

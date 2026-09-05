@@ -2305,3 +2305,37 @@ git diff 计 **70 增 / 70 删**，`tokens.css` 定义**未被改动**。
 **R61 结论**：**0 遗留**。写能力 MCP 与只读 `/mcp` 完全隔离、fail-closed、默认草稿、禁提权、群发默认关、幂等、审计全开；正文走既有清洗管线无 XSS 新增面；移动端修复为纯 CSS 无安全面变化。发版前 `APP_VERSION` 已改为 `3.12.2`（与 Release tag 一致）。
 
 **部署注意**：**后端 + 前端双改动**——`myblog-backend.zip` 覆盖后 gunicorn「停止 → 启动」即生效，无 DB 迁移；Nginx 须复制 `location = /mcp-write`；`vue-frontend-dist.zip` **必须一并覆盖**（`/www/wwwroot/vue-frontend`）并**硬刷新 / 清 Nginx 缓存**，否则前台移动端修复不生效。MCP_WRITE_TOKEN 等环境变量按需填（不配则 `/mcp-write` 404 关闭）。
+
+---
+
+## 第六十二轮 R62（v3.13.0 · 后台 MCP 服务管理面板 + AI 脱敏接入指令）
+
+**背景**：新增后台「🔌 MCP 服务」面板（`myblog/admin/mcp_services.py`）：内置端点（/mcp、/mcp-write）运行时启停、外部 MCP 服务登记 CRUD、AI 接入指令生成（脱敏版 / 完整版）。数据走 Setting 表（**不建新表**），token 用既有 `encrypt_secret`（Fernet）加密。`mcp_diag.py` / `mcp_write.py` 端点最前各加一个总开关检查。
+
+### 变更范围
+
+| 文件 | 改动 | 交付方式 |
+|------|------|----------|
+| `myblog/admin/mcp_services.py` | 新增面板（7 路由，全 `super_required` + 写操作 `log_audit`） | 后端包 |
+| `myblog/mcp_diag.py` / `myblog/mcp_write.py` | 端点最前加 Setting 总开关（停止 → 404） | 后端包 |
+| `myblog/templates/admin/mcp_services.html` / `mcp_instruction.html` / `base.html` | 面板页 / 指令页 / 侧栏入口 | 后端包 |
+| `myblog/admin/__init__.py` | 注册 `mcp_services` 模块 | 后端包 |
+| `tests/test_mcp_services_admin.py` | 5 例回归 | 后端包（tests 随仓） |
+
+### 九维审计
+
+| 编号 | 维度 | 审计点 | 结论 |
+|------|------|--------|------|
+| R62-1 | XSS | 面板/指令页全部 `{{ }}` 自动转义渲染（无 `|safe`）；指令文本与 mcp.json 片段经 `<pre>{{ }}</pre>` 转义；外部服务 name/url/desc 用户可控输入均转义；页内 JS 仅 `textContent` 读取 + `execCommand/clipboard` 复制，无 innerHTML。名称作 mcp.json 键做了字符白名单（禁空白/引号/反斜杠/花括号），URL 强校验 `urlsplit` scheme ∈ (http, https) 且 netloc 非空（杜绝 `javascript:` 写入指令）。 | ✅ 无 XSS |
+| R62-2 | SQL 注入 | 全部 ORM（`Setting.query.filter_by` / `db.session.add` / `db.session.delete`），无字符串拼接 SQL。 | ✅ 无注入 |
+| R62-3 | 越权 | 7 条路由全部 `@super_required`（普通管理员 403，测试锁定）；update/delete/instruction 对未知 sid 返回 404；启停写 Setting 键为固定白名单值（diag/write），无注入面。 | ✅ 无越权 |
+| R62-4 | SSRF | 面板不发起任何服务端外部请求（只登记 URL 供指令展示）；无 `requests`/`urlopen`。 | ✅ 无 SSRF |
+| R62-5 | CSRF | 全部 POST 走全局 `_csrf_protect` + 模板 `csrf_input()`（测试验证缺失/伪造 token 被拒——回归里 CRUD 全部携带有效 token 才通过）。 | ✅ 无 CSRF 缺口 |
+| R62-6 | 密钥泄露 | 外部 token 经 `encrypt_secret`（Fernet，密钥源自 SECRET_KEY）加密落库，**库中无明文**（测试断言密文不含原值）；页面/列表只回显 `_mask_token` 掩码；真实 token 仅完整指令页（`?full=1`）显式查看且**每次写审计**（action=`mcp_full`）；审计 detail 只记服务名与动作、绝不含 token 本体；`mcp_diag`/`mcp_write` 新增开关不回显任何配置。无硬编码密钥。 | ✅ 无泄露 |
+| R62-7 | 资源泄漏 | 无文件句柄 / subprocess / 长连接；JSON 解析 try/except 兜底，异常不外抛。 | ✅ 无泄漏 |
+| R62-8 | 限流 / DoS | 面板为超管后台路由（登录 + CSRF + super 三重闸门，与其他 admin 路由同口径）；外部服务上限 20 条防滥用；两 MCP 端点既有 IP 限流（60/10 每分）不变，新增开关读取为单行 `get_setting`（每请求一次轻量查询，与全站 Setting 消费同量级）。 | ✅ 无风险 |
+| R62-9 | 回归 | `py_compile` 通过；全量 pytest **64 passed**（59 基线 + 5 新增，含启停对端点实测 404↔200、密文可解回、脱敏版不含真实 token）；开关默认态（无 Setting）端点行为与旧版逐字节一致；`/mcp`、`/mcp-write` 既有 17+11 例测试全过。`backend/`(v4) 与 `v5/` 未触碰。 | ✅ 无回归 |
+
+**R62 结论**：**0 遗留**。面板零新表、零新外部请求、零明文凭据；新增攻击面仅超管后台 CRUD（三重闸门 + 全量审计）；两 MCP 端点行为仅新增「面板停止 → 404」一种状态，默认态与 v3.12.2 完全一致。发版前 `APP_VERSION` 已改为 `3.13.0`（与 Release tag 一致）。
+
+**部署注意**：**纯后端改动，前端产物无变化**（`vue-frontend/` 未动）。覆盖 `myblog-backend.zip` 后 gunicorn「停止 → 启动」即生效；**无 DB 迁移**（数据全部走既有 Setting 表），无需任何 `flask db` 命令；无新增环境变量。上线后：后台 →「🔌 MCP 服务」即可看到两个内置端点状态，无需其他配置。

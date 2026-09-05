@@ -16,10 +16,11 @@ myblog/
 │                   #   Post.content_html/content_hash = 正文渲染缓存（v3.9.1）
 ├── routes.py       # 前台页面 / 登录注册 / 评论 / 天气 / RSS
 ├── admin/          # 后台管理包（v3.11.0 由 admin.py 拆出）：_helpers/auth/comments/
-│                   #   posts/settings/users/stats/media/friends/misc/moments
-│                   #   moments.py = 微动态管理（v3.12.0，编辑/删除/级联清评论）
+│                   #   posts/settings/users/stats/media/friends/misc/moments/mcp_services
+│                   #   moments.py = 微动态管理（v3.12.0）；mcp_services.py = MCP 服务面板（v3.13.0）
 ├── api/            # JSON 接口（/api/*，按功能拆分，见 API.md）
 ├── mcp_diag.py     # 只读诊断 MCP 端点 /mcp（v3.10.0，见文末说明）
+├── mcp_write.py    # 写能力 MCP 端点 /mcp-write（v3.12.2，默认草稿、fail-closed）
 ├── plugins/        # 插件系统 v3.9.0（<slug>/ 目录 + signals.py 事件总线）
 │                   #   v3.10.0 起仓库不再内置插件，放目录 + 填 ENABLED_PLUGINS 即启用
 ├── fts.py          # SQLite FTS5 全文搜索（不可用时降级 LIKE）
@@ -93,6 +94,8 @@ python app.py            # http://127.0.0.1:5000
 | `MCP_AUTH_TOKEN` | 空 | 认证令牌。**留空 = `/mcp` 整体关闭（401）**，不会裸奔 |
 | `MCP_LOG_FILES` | 空 | 允许被读取的日志文件绝对路径，逗号分隔；留空则「最近错误日志」不可用 |
 | `MCP_ALLOWED_ORIGINS` | 空 | 额外的合法 Origin 白名单（防 DNS 重绑定），一般留空 |
+
+**MCP 服务管理面板（v3.13.0）**：后台「🔌 MCP 服务」（超管专属）——两个内置端点一键启停（停止 = 对外 404，即时生效无需重启）、外部 MCP 服务登记（token Fernet 加密落库、页面只显掩码）、每个服务一键生成「AI 脱敏接入指令」（脱敏版 / 完整版，完整版查看记审计）。**无新增环境变量**，数据走 Setting 表，开箱即用；手工配置口径见 [deploy_guide.md](deploy_guide.md)。
 
 其他备份（`BACKUP_*`）、推送（`TELEGRAM_*` / `WECOM_WEBHOOK_URL`）、Webhook（`WH_DEPLOY_SECRET`）等变量见 [deploy_guide.md](deploy_guide.md)。密钥一律走环境变量，绝不落库。
 

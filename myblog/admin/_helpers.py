@@ -280,6 +280,66 @@ def _save_post_history(post, author=""):
     except Exception:
         pass
 
+
+def create_post_core(*, title, content, summary="", cover="", category_id=None,
+                     tags="", series_id=None, seo_description="", seo_keywords="",
+                     published=False, scheduled_at=None, author_id=None,
+                     is_pinned=False, is_private=False,
+                     reward_enabled=False, reward_qr="",
+                     notify_subscribers=False):
+    """发文唯一入口：后台表单与写能力 MCP（/mcp-write）共用，返回新建的 Post。
+
+    调用顺序严格沿用 admin/posts.py::new_post()（v3.12.2 抽出，防两套逻辑漂移）：
+      count_words → Post(...) → add → flush → apply_slug_template → _sync_tags
+      → _save_post_history → commit → fts.sync_post → (发布时) 通知/群发
+
+    注意：本函数对传入的「提权字段」(is_pinned/is_private/reward_*/author_id) 一律按
+    调用方已校验后的值使用，自身不做权限分层——权限分层由 new_post（读会话角色）与
+    mcp_write（读 MCP_WRITE_ALLOW_SUPER_FIELDS 配置）各自在调用前完成。
+    """
+    # 定时发布：填了未来时间则先存为未发布（与 new_post 行为一致）
+    if scheduled_at is not None and scheduled_at > datetime.datetime.utcnow():
+        published = False
+
+    # 字数统计 + 阅读时长（v3.0.0 功能12）
+    wc, rm = count_words(content)
+    post = Post(
+        title=title, slug=title, summary=summary, content=content,
+        cover=cover, category_id=category_id, published=published,
+        scheduled_at=scheduled_at, is_pinned=is_pinned,
+        seo_description=seo_description, seo_keywords=seo_keywords,
+        series_id=int(series_id) if series_id else None,
+        author_id=author_id,
+        word_count=wc, reading_minutes=rm,
+        is_private=is_private, reward_enabled=reward_enabled, reward_qr=reward_qr,
+    )
+    db.session.add(post)
+    db.session.flush()  # 先把文章放进会话，避免标签关联警告
+    # flush 后 post.id / post.category 可用：按全局模板生成最终 slug（用户无法手工干预）
+    post.slug = apply_slug_template(post, title)
+    _sync_tags(post, tags)
+    # v3.0.0 功能5：保存首个版本历史（新建即 v1）；作者名取自 author_id
+    author_user = db.session.get(User, author_id) if author_id else None
+    _save_post_history(post, author_user.username if author_user else "")
+    db.session.commit()
+    try:
+        fts.sync_post(post)
+    except Exception:
+        pass
+    if published:
+        try:
+            notify.notify_new_post(post, current_app.config.get("SITE_URL", ""))
+        except Exception:
+            pass
+        # C3 邮件群发：新文章发布时异步通知所有订阅者（未配置 SMTP 自动跳过）
+        if notify_subscribers:
+            try:
+                mail_notify.notify_subscribers_async(post)
+            except Exception:
+                pass
+    return post
+
+
 # 让 from ._helpers import *（各业务子模块与包 __init__）也导出下划线辅助函数
 # （Python 默认 star-import 跳过下划线命名，会导致 edit_post 等视图调用的
 #  _can_edit_post / _save_post_history 等私有 helper 在子模块内 NameError）。

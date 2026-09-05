@@ -19,6 +19,7 @@ from routes import main_bp
 from admin import admin_bp
 from api import api_bp
 from mcp_diag import mcp_bp  # v3.10.0：只读诊断 MCP（端点 /mcp）
+from mcp_write import mcp_write_bp  # v3.12.2：写能力 MCP（端点 /mcp-write，未配置 MCP_WRITE_TOKEN 时自动关闭）
 
 # v3.11.0：Flask-Migrate（可选依赖）—— 数据库迁移工具，便于未来 schema 演进。
 # 未安装时静默跳过（降级范式：绝不因缺依赖导致应用无法启动）。
@@ -419,6 +420,7 @@ def create_app():
     app.register_blueprint(admin_bp)
     app.register_blueprint(api_bp)
     app.register_blueprint(mcp_bp)  # v3.10.0：/mcp（只读诊断，未配置 MCP_AUTH_TOKEN 时自动关闭）
+    app.register_blueprint(mcp_write_bp)  # v3.12.2：/mcp-write（写能力，未配置 MCP_WRITE_TOKEN 时自动关闭）
 
     # v3.10.5：北京时间 Jinja 过滤器（后台模板用 {{ dt | bj('fmt') }} 显示北京时间）
     from utils import fmt_bj

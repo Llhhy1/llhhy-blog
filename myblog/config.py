@@ -173,6 +173,18 @@ class Config:
     MCP_LOG_FILES = os.environ.get("MCP_LOG_FILES", "")
     MCP_ALLOWED_ORIGINS = os.environ.get("MCP_ALLOWED_ORIGINS", "")
 
+    # ===== 写能力 MCP（/mcp-write，v3.12.2 新增）=====
+    # 与只读 /mcp 完全隔离：独立 token、独立开关、独立配置。设计原则见 myblog/mcp_write.py 顶部注释。
+    #   MCP_WRITE_TOKEN            ：写令牌，缺失则 /mcp-write 整体 404（fail-closed，绝不暴露端点存在）。
+    #                                必须与 MCP_AUTH_TOKEN 取不同值，缩小泄露影响面。
+    #   MCP_WRITE_DEFAULT_PUBLISH  ："1" 才允许「不显式传 publish 时默认发布」。默认 "0" = 默认存草稿。
+    #   MCP_WRITE_ALLOW_NOTIFY     ："1" 才允许触发订阅者邮件群发。默认 "0" = 永不群发（防 AI 循环失控反复骚扰）。
+    #   MCP_WRITE_ALLOW_SUPER_FIELDS："1" 才接受 is_pinned/is_private/reward_* 。默认 "0" = 一律忽略（防提权）。
+    MCP_WRITE_TOKEN = os.environ.get("MCP_WRITE_TOKEN", "")
+    MCP_WRITE_DEFAULT_PUBLISH = os.environ.get("MCP_WRITE_DEFAULT_PUBLISH", "0")
+    MCP_WRITE_ALLOW_NOTIFY = os.environ.get("MCP_WRITE_ALLOW_NOTIFY", "0")
+    MCP_WRITE_ALLOW_SUPER_FIELDS = os.environ.get("MCP_WRITE_ALLOW_SUPER_FIELDS", "0")
+
     # ===== 可信代理（X-Forwarded-For 收口，安全相关）=====
     # 仅在请求确实由「可信代理」转发（TCP 直连地址 remote_addr 命中此处，或默认的内部地址）
     # 时，才采纳 X-Forwarded-For 以获取真实客户端 IP；否则一律以不可伪造的 remote_addr

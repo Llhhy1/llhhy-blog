@@ -122,9 +122,6 @@ def new_post():
             category_id = int(category_id)
         published = request.form.get("published") == "on"
         scheduled_at = _parse_scheduled(request.form.get("scheduled_at"))
-        # 定时发布：填了未来时间则先存为未发布，后台线程到点自动翻 published
-        if scheduled_at is not None and scheduled_at > datetime.datetime.utcnow():
-            published = False
         # 置顶权限分层（v2.8.1）：仅管理员/超管可直接置顶；普通用户表单里的 is_pinned 一律忽略（防绕过）
         user = db.session.get(User, session.get("user_id"))
         is_pinned = (request.form.get("is_pinned") == "on") and bool(user and user.is_admin_role)
@@ -135,48 +132,22 @@ def new_post():
         is_private = (request.form.get("is_private") == "on") and bool(user and user.is_super)
         reward_enabled = (request.form.get("reward_enabled") == "on") and bool(user and user.is_super)
         reward_qr = (request.form.get("reward_qr") or "").strip() if reward_enabled else ""
-        # v3.7.0：链接后缀（slug）强制由后台全局设置（slug_mode/slug_template）决定，不再允许单篇覆盖。
-        # 构造时先用标题占位（保证 nullable），flush 拿到 id/category 后统一按全局模板生成最终 slug。
-        # v3.0.0 功能12：字数统计 + 阅读时长
-        wc, rm = count_words(content)
-        post = Post(
-            title=title, slug=title, summary=summary, content=content,
-            cover=cover, category_id=category_id, published=published,
-            scheduled_at=scheduled_at, is_pinned=is_pinned,
-            seo_description=seo_description, seo_keywords=seo_keywords,
-            series_id=int(series_id) if series_id else None,
-            author_id=session.get("user_id"),  # 记录作者：普通用户发表的文章归属自己
-            word_count=wc, reading_minutes=rm,
-            is_private=is_private, reward_enabled=reward_enabled, reward_qr=reward_qr,
+        # v3.12.2：复用发文唯一入口 create_post_core（与 /mcp-write 同源，行为一致）
+        post = create_post_core(
+            title=title, content=content, summary=summary, cover=cover,
+            category_id=category_id, tags=request.form.get("tags", ""),
+            series_id=series_id, seo_description=seo_description, seo_keywords=seo_keywords,
+            published=published, scheduled_at=scheduled_at,
+            author_id=session.get("user_id"),
+            is_pinned=is_pinned, is_private=is_private,
+            reward_enabled=reward_enabled, reward_qr=reward_qr,
         )
-        db.session.add(post)
-        db.session.flush()  # 先把文章放进会话，避免标签关联警告
-        # flush 后 post.id / post.category 可用：按全局模板生成最终 slug（用户无法手工干预）
-        post.slug = apply_slug_template(post, title)
-        _sync_tags(post, request.form.get("tags", ""))
-        # v3.0.0 功能5：保存首个版本历史（新建即 v1）
-        _save_post_history(post, user.username if user else "")
-        db.session.commit()
-        try:
-            fts.sync_post(post)
-        except Exception:
-            pass
-        if published:
-            try:
-                notify.notify_new_post(post, current_app.config.get("SITE_URL", ""))
-            except Exception:
-                pass
-            # C3 邮件群发：新文章发布时异步通知所有订阅者（未配置 SMTP 自动跳过）
-            try:
-                mail_notify.notify_subscribers_async(post)
-            except Exception:
-                pass
-        if scheduled_at is not None and not published:
-            flash("已设为定时发布，到点自动公开")
-        else:
-            flash("文章已发布" if published else "草稿已保存")
         # 普通用户发布后回到「我的文章」，管理员回仪表盘
         user = db.session.get(User, session.get("user_id"))
+        if post.scheduled_at is not None and not post.published:
+            flash("已设为定时发布，到点自动公开")
+        else:
+            flash("文章已发布" if post.published else "草稿已保存")
         return redirect(url_for("admin.my_posts") if user and not user.is_admin_role
                         else url_for("admin.dashboard"))
     cats = Category.query.order_by(Category.id).all()

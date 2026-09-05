@@ -43,6 +43,17 @@
 - **验证**：写校验脚本对两文件全部规则（admin 399 条 + global 846 条）在 light/dark 上下文下，分别把原始 hex 与替换后的 `var(--token)` 解析为计算色并逐条比对 → **0 处色差**，明暗外观像素级不变；幂等（二次替换 = 0）。全量 pytest **42 passed**。
 - **⚠️ 部署注意（与 v3.12.0 不同）**：本次**含前端源码改动**，`vue-frontend/src/styles/global.css` 必须**重新构建**并随 `vue-frontend-dist.zip` 一并覆盖才会生效；`myblog/static/admin.css` 随后端包走。覆盖后 gunicorn「停止 → 启动」（restart 不重载）。无 DB 迁移、无需 `flask db`。**R60 审计 0 遗留**（详见 `myblog/SECURITY_AUDIT.md` 第六十轮）。APP_VERSION 升为 v3.12.1。
 
+## v3.12.2（2026-09-05 · 写能力 MCP `/mcp-write`）
+
+- **背景**：只读诊断 MCP（`/mcp`，v3.10.0）让 AI 能「读」博客健康状态；本版补齐「写」——让 AI 助手在授权下远程创建文章（自动发文），与只读端点**完全隔离**（独立端点 / 独立 token / 独立配置 / 默认不发布）。
+- **新增 `myblog/mcp_write.py`**（Blueprint `mcp_write_bp`，无 url_prefix，端点 `/mcp-write`）：沿用只读 MCP 的 Streamable HTTP 最小子集（仅 POST、JSON-RPC `initialize`/`tools/list`/`tools/call`、非 POST 405）。提供两工具：`create_post`（建文，默认草稿）、`list_recent_posts`（查重，不含正文）。
+- **抽出 `myblog/admin/_helpers.py::create_post_core`**：把 `admin/posts.py::new_post()` 的 141-173 行发文逻辑抽成后台表单与 MCP 共用的唯一入口（调用顺序不变：count_words → Post → add → flush → apply_slug_template → _sync_tags → _save_post_history → commit → fts.sync_post → 发布时通知/群发）；`new_post()` 改为调用它，对外行为完全不变（全量 pytest 零回归验证）。
+- **`myblog/config.py` 新增 4 项配置**（紧跟 `MCP_AUTH_TOKEN` 块）：`MCP_WRITE_TOKEN`（缺失整体 404，fail-closed，须与 `MCP_AUTH_TOKEN` 不同值）、`MCP_WRITE_DEFAULT_PUBLISH`、`MCP_WRITE_ALLOW_NOTIFY`、`MCP_WRITE_ALLOW_SUPER_FIELDS`。
+- **硬性安全闸门（逐条实现，缺一不可）**：① 独立 token 缺失即 404；② 默认草稿；③ 强制草稿开关（`DEFAULT_PUBLISH!=1` 时即便传 `publish=true` 也转草稿并在 `warnings` 注明）；④ 禁止提权字段（`is_pinned/is_private/reward_*/author_id/views/likes` 一律不收，仅 `ALLOW_SUPER_FIELDS=1` 才接受前四个且校验目标用户）；⑤ 群发默认关闭（仅 `ALLOW_NOTIFY=1` 且显式 `notify_subscribers=true` 才触发）；⑥ 幂等（同 `idempotency_key` 或同标题+当日 24h 内重复调用返回已存在文章，不新建，`deduplicated=true`）；⑦ slug 冲突不覆盖（append `-2/-3`）；⑧ 每次调用写一条 `AuditLog`（action=`mcp_create_post`、username=`mcp`、记 token 前 8 位与来源 IP、成败均记）；⑨ 正文超 200000 字符拒绝不落库；⑩ 正文渲染走既有管线，不自己拼 HTML。
+- **`myblog/app.py`**：顶部 `from mcp_write import mcp_write_bp`；注册 blueprint（注释「未配置 MCP_WRITE_TOKEN 时自动关闭」）；CSRF 豁免元组加入 `/mcp-write`。复用 `mcp_diag` 的 `_token_ok`/`_origin_ok`/限流写法（限流 `rate_limit(client_key("mcp_write"), limit=10, window=60)`，比只读更严，异常时放行）。
+- **验证**：全量 pytest **59 passed**（新增 `tests/test_mcp_write.py` 17 例：404/401/默认草稿/强制草稿+warning/提权忽略与接受/群发默认关闭与允许/幂等/slug 冲突不覆盖/每次审计/空标题与超长拒绝/list_recent 不含正文/握手/tools-list/GET 405/Origin 校验）。未改动数据库表结构（审计复用现成 `AuditLog`）。
+- **⚠️ 部署注意**：纯后端改动，前端产物无变化；覆盖 `myblog-backend.zip` 后 gunicorn「停止 → 启动」即生效，无 DB 迁移。服务器 Nginx 需**照 `deploy_guide.md` 里的 `location = /mcp` 复制一条 `location = /mcp-write`**（否则被 Vue SPA 兜底成 index.html）；并填 `MCP_WRITE_TOKEN` 等环境变量（token 由你自己生成，须与 `MCP_AUTH_TOKEN` 不同值）。发布时 APP_VERSION 升为 v3.12.2。
+
 ### v3.0.0 新增（14 项功能）
 
 - **系列目录页 + 阅读进度增强**：系列详情页新增带编号的章节目录（系列 TOC）；前台全局阅读进度条（App.vue）持续可用。

@@ -804,6 +804,34 @@ supervisorctl status
 - **v3.10.3 评论 RSS 订阅源**：新增 `/feed/comments`（含 `/feed/comments/`）评论 RSS 2.0 路由（`routes.py::comments_feed`），取最近 50 条「已审核 + 已发布文章」评论，`escape` 全程转义防 XSS。`bot_guard._SKIP_PREFIXES` 已加 `/feed/comments`（RSS 阅读器免被反爬误封）；`diagnostics.check_seo` 已加该路由存在性检查（防 Nginx 反代漏配再次返主界面）。部署：纯后端改动，覆盖 zip 后「停止 → 启动」gunicorn；评论订阅源 `https://你的域名/feed/comments/` 即可被订阅。APP_VERSION 升为 v3.10.3。
 - **验证**：pytest **31 passed**（新增 11 条 MCP 测试 + 重写 10 条插件框架测试）；R50 十二维审计 **0 遗留**。APP_VERSION 升为 v3.10.0。
 
+### v3.12.2 升级注意（写能力 MCP `/mcp-write` + 移动端溢出修复 · R60 审计通过）
+
+- **写能力 MCP（后端 · `myblog/mcp_write.py`）**：在只读 `/mcp`（v3.10.0）之外新增**写**端点 `/mcp-write`，让 AI 助手在授权下远程建文（自动发文）。与只读端点**完全隔离**（独立 token / 独立配置 / 默认不发布）。
+  - **🔑 新增环境变量（全部可选，不配则 `/mcp-write` 整体 404 关闭，不会裸奔）**：
+
+    | 变量 | 默认 | 说明 |
+    |---|---|---|
+    | `MCP_WRITE_TOKEN` | 空 | **认证令牌。留空 = `/mcp-write` 整体关闭（404）**。须与 `MCP_AUTH_TOKEN` **取不同值**（建议 `secrets.token_hex(32)` 生成），**不要填进代码、不要提交 git**，填到宝塔「Python 项目 → 环境变量」。 |
+    | `MCP_WRITE_DEFAULT_PUBLISH` | `0` | 非 `1` 时无论请求传什么都**强制转草稿**（fail-closed）。 |
+    | `MCP_WRITE_ALLOW_NOTIFY` | `0` | 非 `1` 时**忽略**群发订阅者通知（`create_post` 的 `notify_subscribers` 不生效）。 |
+    | `MCP_WRITE_ALLOW_SUPER_FIELDS` | `0` | 非 `1` 时**忽略**提权字段（`is_pinned`/`is_private`/`reward_*`/`author_id`）。 |
+
+  - **部署（后端）**：覆盖 `myblog-backend.zip` 后 gunicorn「**停止 → 启动**」（restart 不重载）即生效；**无 DB 迁移**（`flask db stamp head` 幂等无害）。服务器 Nginx 需**照下面复制一条 `location = /mcp-write`**（否则被 Vue SPA 兜底成 index.html）：
+
+    ```nginx
+    location = /mcp-write {
+        proxy_pass http://127.0.0.1:你的后端端口/mcp-write;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+    ```
+  - **安全闸门（fail-closed）**：token 缺失 404；默认草稿；强制草稿开关；禁止提权字段；群发默认关闭；幂等去重；slug 冲突不覆盖；每次调用写 `AuditLog`；正文超 20 万字符拒绝。详见 `CHANGELOG.md` v3.12.2 与 `tests/test_mcp_write.py`。
+- **移动端溢出修复（前端 · `vue-frontend/src/styles/global.css`）**：`/post/*` 详情页手机端横向溢出、内容被 `.site-frame` 裁掉「无法完整展示」。根因 `.post-body` 缺 `overflow-wrap`/`word-break`，长 URL/长英文词（如一周 AI 观察外链原文）不折行撑破视口。修复：`.post-body` 加 `overflow-wrap:break-word; word-break:break-word`（不影响中文换行），`<pre>` 代码块保持整行横向滚动不折行。
+  - **⚠️ 部署（前端）**：本次**含前端源码改动，必须重新 `vite build`** 并覆盖 `vue-frontend-dist.zip`（Nginx 托管）；覆盖后**硬刷新 / 清 Nginx 缓存**才生效。详见 `CHANGELOG.md` v3.12.2。
+- **验证**：全量 pytest **59 passed**（新增 17 例写 MCP 测试）；`vite build` 产物正常；R61 审计 **0 遗留**。APP_VERSION 升为 v3.12.2。
+
 
 ## 邮件设置（新文章通知订阅者 · 后台配置）
 

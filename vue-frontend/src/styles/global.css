@@ -224,7 +224,10 @@ body {
 .post-cover-hero {
  width: 100%; max-height: 340px; object-fit: cover; border-radius: var(--theme-radius, 12px); margin: 0 0 14px; display: block; }
 .post-body {
- margin-top: 18px; }
+ margin-top: 18px;
+ /* v3.12.2 移动端溢出修复：长 URL / 长英文词默认不折行会撑破视口，
+    被 .site-frame 的 overflow:hidden 裁掉导致「无法完整展示」。
+    允许在任意字符间断行（不影响中文正常换行）。 */overflow-wrap: break-word; word-break: break-word; }
 .post-body h2 {
  font-size: 21px; margin: 22px 0 10px; }
 .post-body h3 {
@@ -234,7 +237,8 @@ body {
 .post-body code {
  background: #f0f0f0; padding: 2px 6px; border-radius: 4px; font-size: 14px; }
 .post-body pre {
- background: #2d2d2d; color: #f5f5f5; padding: 14px; border-radius: 8px; overflow-x: auto; margin: 14px 0; }
+ background: #2d2d2d; color: #f5f5f5; padding: 14px; border-radius: 8px; overflow-x: auto; margin: 14px 0;
+ /* 代码块保持整行不折行，靠横向滚动查看（不被上面的 break-word 影响） */white-space: pre; word-break: normal; overflow-wrap: normal; }
 .post-body pre code {
  background: none; padding: 0; }
 .post-body blockquote {

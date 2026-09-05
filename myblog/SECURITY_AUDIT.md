@@ -2271,3 +2271,37 @@ git diff 计 **70 增 / 70 删**，`tokens.css` 定义**未被改动**。
 **R60 结论**：**0 遗留**。本轮不引入任何新攻击面，样式改动经计算色比对证明外观零变化，且已核验改动进入前端构建产物。发版前 `APP_VERSION` 已改为 `3.12.1`（与 Release tag `v3.12.1` 一致）。
 
 **部署注意**：本次**含前端源码改动**，与 v3.12.0「纯后端」不同——`vue-frontend-dist.zip` **必须一并覆盖**（`/www/wwwroot/vue-frontend`），否则前台样式不生效；`myblog-backend.zip` 覆盖 `/www/wwwroot/myblog` 后 gunicorn「停止 → 启动」（restart 不重载）。**无 DB 迁移**，无需 `flask db`，Alembic 基线仍为 `f8f1f29b6ddf`。
+
+---
+
+## 第六十一轮 R61（v3.12.2 · 写能力 MCP `/mcp-write` + 移动端溢出修复）
+
+> 本轮两部分：① 新增写能力 MCP 端点 `/mcp-write`（`myblog/mcp_write.py` + `create_post_core` 抽出），让授权 AI 助手远程建文；② 前端 `/post/*` 移动端溢出修复（纯 CSS）。
+> ① 是唯一新增攻击面，重点核查；② 纯样式、无接口/逻辑变化。
+
+### 变更范围
+
+| 文件 | 改动 | 交付方式 |
+|------|------|----------|
+| `myblog/mcp_write.py` | 新增写能力 MCP 端点 `/mcp-write`（Blueprint `mcp_write_bp`） | 后端包 |
+| `myblog/admin/_helpers.py` | 抽出 `create_post_core()` 发文唯一入口 | 后端包 |
+| `myblog/admin/posts.py` | `new_post()` 改调 `create_post_core()`（行为不变） | 后端包 |
+| `myblog/config.py` | 新增 `MCP_WRITE_*` 4 项配置 | 后端包 |
+| `myblog/app.py` | 注册蓝图 + CSRF 豁免 `/mcp-write` | 后端包 |
+| `vue-frontend/src/styles/global.css` | `.post-body` 加 `overflow-wrap/word-break`、`<pre>` 保持不折行 | 前端包（须重建） |
+
+### 七维审计
+
+| 维度 | 检查点 | 结论 |
+|------|--------|------|
+| XSS | `mcp_write.tool_create_post` 仅接收 `title/content` 等字段并调用既有 `create_post_core()`，**正文渲染/清洗走与后台 `new_post()` 完全相同的既有管线**（Markdown → `clean_html`/bleach 白名单），不在端点内自行拼 HTML；`content` 不回显、不进日志。前台 `PostView` 的 `innerHTML` 渲染属 v3.12.0 前既有行为，本轮未改。 | ✅ 无 XSS |
+| SQL 注入 | `create_post_core` 全部走 SQLAlchemy ORM（`Post(...)` / `add` / `flush` / `filter_by`），无 `text()` / 字符串拼接；幂等去重用 `filter_by(title=..., created_at>=...)` 参数化。 | ✅ 无注入 |
+| 越权 | `/mcp-write` 不参与后台会话权限体系，独立 bearer token（`MCP_WRITE_TOKEN`）校验，缺失即 404（fail-closed）；提权字段（`is_pinned`/`is_private`/`reward_*`/`author_id`/`views`/`likes`）默认一律忽略，仅 `MCP_WRITE_ALLOW_SUPER_FIELDS=1` 才接受前四个且校验 `author_id` 存在；`views`/`likes` 永不接受。不暴露任何后台管理能力。 | ✅ 无越权 |
+| SSRF / 密钥 / 路径遍历 | 端点无任何外部 URL 访问；`MCP_WRITE_TOKEN` 仅从环境变量读取、不回显、不入库、不进 git；无文件操作/路径拼接。 | ✅ 无 |
+| CSRF | `/mcp-write` 为 bearer-token JSON-RPC 端点（非 Cookie 会话端点），已加入 `app.py` CSRF 豁免元组——与只读 `/mcp` 同款处理，豁免正确（认证由 token 而非会话承担）。无新增浏览器会话型 POST 面。 | ✅ 无 CSRF 缺口 |
+| 资源 / DoS | 写接口接入 `rate_limit(client_key("mcp_write"), limit=10, window=60)`（比只读更严，异常时放行）；正文超 200000 字符拒绝不落库；幂等去重抑制重复建文放大。 | ✅ 无风险 |
+| 回归 | ① `py_compile` 通过（6 文件）；② 全量 pytest **59 passed**（42 基线 + 17 新增写 MCP 测试全过，含 404/401/默认草稿/强制草稿/提权/群发/幂等/slug 冲突/审计/超长拒绝/405/Origin）；③ 前端 `vite build` 产物正常，`PostView-*.css` 含 `.post-body{...break-word...}`；④ `git diff` 确认仅改上述 6 文件 + CHANGELOG/deploy_guide/SECURITY_AUDIT，`backend/`(v4) 与 `v5/` 未触碰。 | ✅ 无回归 |
+
+**R61 结论**：**0 遗留**。写能力 MCP 与只读 `/mcp` 完全隔离、fail-closed、默认草稿、禁提权、群发默认关、幂等、审计全开；正文走既有清洗管线无 XSS 新增面；移动端修复为纯 CSS 无安全面变化。发版前 `APP_VERSION` 已改为 `3.12.2`（与 Release tag 一致）。
+
+**部署注意**：**后端 + 前端双改动**——`myblog-backend.zip` 覆盖后 gunicorn「停止 → 启动」即生效，无 DB 迁移；Nginx 须复制 `location = /mcp-write`；`vue-frontend-dist.zip` **必须一并覆盖**（`/www/wwwroot/vue-frontend`）并**硬刷新 / 清 Nginx 缓存**，否则前台移动端修复不生效。MCP_WRITE_TOKEN 等环境变量按需填（不配则 `/mcp-write` 404 关闭）。

@@ -788,6 +788,8 @@ supervisorctl status
   保存后到 WorkBuddy 连接器管理页面对新出现的 `llhhy-blog-diag` 点「信任」才生效。之后直接问「博客现在健康吗」即可调用。
 - **⚠️ 安全红线**：端点只读、日志自动打码、路径不可遍历、未配 token 自动关闭——这四条是代码级约束并有测试兜底。请务必：token 定期轮换、站点强制 HTTPS、`/mcp` 尽量加 IP 白名单。
 
+> 🔧 完整配置操作（token 生成 / 环境变量 / Nginx / curl 核验 / AI 接入）已统一收拢到下文「**MCP 配置指南**」章节，可一次配完两个端点。
+
 ### v3.10.1 升级注意（修复全站体检「前端构建产物」部署态误报 · R51 审计通过）
 
 - **改的什么（纯后端，仅 `myblog/diagnostics.py`）**：`check_frontend_build()` 原只查 `vue-frontend/_vite_build*`，在部署态（`vue-frontend-dist.zip` 平铺到站点根目录，直接是 `index.html + assets/`）永远查不到 → 误报「未构建」。改为查 SPA 入口 `index.html`（部署态优先 `fe_dir/index.html`，回退本地 `_vite_buildN` / `dist`），两种布局都能识别。友链 RSS 某源解析 0 条属对方源为空，非本博客 bug。
@@ -832,6 +834,116 @@ supervisorctl status
   - **⚠️ 部署（前端）**：本次**含前端源码改动，必须重新 `vite build`** 并覆盖 `vue-frontend-dist.zip`（Nginx 托管）；覆盖后**硬刷新 / 清 Nginx 缓存**才生效。详见 `CHANGELOG.md` v3.12.2。
 - **验证**：全量 pytest **59 passed**（新增 17 例写 MCP 测试）；`vite build` 产物正常；R61 审计 **0 遗留**。APP_VERSION 升为 v3.12.2。
 
+> 🔧 两个 MCP 的统一配置操作（token / 环境变量 / Nginx / curl 核验 / AI 接入）见下文「**MCP 配置指南**」章节。
+
+
+## MCP 配置指南（两个端点一次配好：只读 `/mcp` ＋ 写能力 `/mcp-write`）
+
+> 本节是**统一操作手册**（v3.12.2 起提供）；两端各自的来龙去脉见上文「版本升级」中 v3.10.0 / v3.12.2 两节。
+> 两个端点**完全独立**（各自 token / 各自开关 / 互不影响），但环境变量、Nginx、AI 助手接入可以**一次配完**。
+
+### 两个端点速览
+
+| | 只读诊断 `/mcp` | 写能力 `/mcp-write` |
+|---|---|---|
+| 用途 | AI 远程读健康状态（全站体检、DB 状态、版本一致性、错误日志、内容统计） | AI 远程建文（`create_post` 默认草稿；`list_recent_posts` 查重） |
+| token 变量 | `MCP_AUTH_TOKEN` | `MCP_WRITE_TOKEN`（**必须与前者取不同值**） |
+| 未配 token 时 | 整体关闭（401） | 整体关闭（**404**，连端点存在都不暴露） |
+| 限流 | 60 次/分钟/IP | 10 次/分钟/IP（更严） |
+| 审计 | — | 每次调用写「🧾 操作日志」（后台可查，username=`mcp`，记 token 前 8 位与来源 IP） |
+
+### 第 1 步：生成两个不同的 token
+
+```bash
+python3 -c "import secrets;print(secrets.token_hex(32))"   # 跑两次，分别得到两个不同值
+```
+第 1 次输出 → `MCP_AUTH_TOKEN`；第 2 次输出 → `MCP_WRITE_TOKEN`。**不要填进代码、不要提交 git**。
+
+### 第 2 步：宝塔填环境变量（Python 项目 → 设置 → 环境变量）
+
+| 变量 | 必填？ | 说明 |
+|---|---|---|
+| `MCP_AUTH_TOKEN` | 用 `/mcp` 就必填 | 留空 = `/mcp` 关闭（401），不会裸奔 |
+| `MCP_LOG_FILES` | 可选 | `/mcp`「最近错误日志」工具可读的日志绝对路径，逗号分隔；留空该工具不可用 |
+| `MCP_ALLOWED_ORIGINS` | 可选 | 额外合法 Origin 白名单（防 DNS 重绑定），两端共用，一般留空 |
+| `MCP_WRITE_TOKEN` | 用 `/mcp-write` 就必填 | 留空 = `/mcp-write` 关闭（404）；**须与 `MCP_AUTH_TOKEN` 不同值** |
+| `MCP_WRITE_DEFAULT_PUBLISH` | 可选 | 默认 `0` = 无论请求传什么都**强制转草稿**；改 `1` 才允许 MCP 直接发布 |
+| `MCP_WRITE_ALLOW_NOTIFY` | 可选 | 默认 `0` = 不群发；改 `1` 且请求显式 `notify_subscribers=true` 才通知订阅者 |
+| `MCP_WRITE_ALLOW_SUPER_FIELDS` | 可选 | 默认 `0` = 忽略提权字段（`is_pinned`/`is_private`/`reward_*`/`author_id`） |
+
+填完「保存」，然后宝塔对 Python 项目「**停止 → 启动**」（restart 不重载环境变量）。
+
+### 第 3 步：Nginx 补两段反代（一次复制两段）
+
+> 放在 `server { }` 里 `location / { ... }` 之前（精确匹配优先于前缀匹配，不加会被 Vue SPA 兜底成 index.html）。
+> `8686` 改成你 Python 项目的实际监听端口。加完点「重载配置」。**站点必须 HTTPS**（token 走请求头）。
+
+```nginx
+location = /mcp {
+    proxy_pass http://127.0.0.1:8686;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+}
+location = /mcp-write {
+    proxy_pass http://127.0.0.1:8686;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+}
+```
+
+（可选，推荐）两段各加 IP 白名单，只放行你常用的出口 IP：
+```nginx
+    allow 你的公网IP;
+    deny all;
+```
+
+### 第 4 步：上线核验（curl 四连，服务器或本机执行）
+
+```bash
+# ① /mcp 不带 token → 必须 401（若返回 HTML 说明反代没生效）
+curl -i -X POST https://你的域名/mcp -H 'Content-Type: application/json' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}'
+# ② /mcp 带对 token → 返回工具列表 JSON
+curl -s -X POST https://你的域名/mcp -H 'Content-Type: application/json' \
+  -H 'Accept: application/json, text/event-stream' -H "Authorization: Bearer 只读TOKEN" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}'
+# ③ /mcp-write 不带 token → 必须 404（已配 token 而没带对则是 401）
+curl -i -X POST https://你的域名/mcp-write -H 'Content-Type: application/json' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}'
+# ④ /mcp-write 带对 token → initialize 握手 JSON（server 名 llhhy-blog-write）
+curl -s -X POST https://你的域名/mcp-write -H 'Content-Type: application/json' \
+  -H "Authorization: Bearer 写TOKEN" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"curl","version":"1.0"}}}'
+```
+
+### 第 5 步：AI 助手接入（本机 `~/.workbuddy/mcp.json`，两个 server 一起配）
+
+```json
+{
+  "mcpServers": {
+    "llhhy-blog-diag": {
+      "type": "http",
+      "url": "https://你的域名/mcp",
+      "headers": { "Authorization": "Bearer 只读TOKEN" }
+    },
+    "llhhy-blog-write": {
+      "type": "http",
+      "url": "https://你的域名/mcp-write",
+      "headers": { "Authorization": "Bearer 写TOKEN" }
+    }
+  }
+}
+```
+
+保存后到 WorkBuddy 连接器管理页，对 `llhhy-blog-diag`、`llhhy-blog-write` 各点一次「**信任**」才生效。之后可直接说「博客现在健康吗」（走只读）或「帮我建一篇草稿，标题是…正文是…」（走写端点，默认落草稿，后台审核后发布）。
+
+### 安全红线（两端通用）
+
+站点强制 HTTPS；token 定期轮换（两端分开轮换）；`/mcp` 尽量加 IP 白名单；写端点建议**保持 `MCP_WRITE_DEFAULT_PUBLISH=0`**（AI 只落草稿、人工后台把关发布），发布动作全部可在「🧾 操作日志」回溯。
 
 ## 邮件设置（新文章通知订阅者 · 后台配置）
 

@@ -222,3 +222,29 @@ def test_reload_plugins(app, tmp_plugin):
     assert res["ok"] is True
     assert tmp_plugin in PLUGIN_REGISTRY
     assert isinstance(tempfile.tempdir, str) or tempfile.tempdir is None
+
+
+def test_reload_after_first_request_does_not_crash(client, app):
+    """v3.13.1 回归：应用已处理过请求（_got_first_request=True）后，后台「插件重载」
+    按钮调用 reload_plugins 不得抛 register_blueprint AssertionError（修复前会 500）。
+
+    触发条件：插件系统蓝图在 create_app 启动时已注册一次；应用服务过任意请求后，
+    Flask 禁止再次 register_blueprint。修复前 reload_plugins → load_plugins 会无条件
+    重注册 plugins_sys 蓝图 → 报错。修复后：缺失才补注册，运行时缺失则吞掉断言跳过，
+    且整体重载不再卸载系统蓝图，使其常驻。
+    """
+    # 真实服务一个请求，使 _got_first_request 置 True
+    r0 = client.get("/api/plugins")
+    assert r0.status_code == 200
+    assert app._got_first_request is True
+
+    from plugins import reload_plugins, load_plugins
+    res = reload_plugins(app, app.config)          # 修复前此处抛 AssertionError
+    assert res["ok"] is True
+    # 系统蓝图常驻：重载后 /api/plugins 自身仍可访问，不 404
+    assert "plugins_sys" in app.blueprints
+    assert client.get("/api/plugins").status_code == 200
+
+    # 极端：重复 load_plugins 也应安全，系统蓝图仍在
+    load_plugins(app, app.config)
+    assert "plugins_sys" in app.blueprints

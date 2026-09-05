@@ -790,3 +790,10 @@ v3.1.7 修复 CSRF 隐藏域乱码后，用户反馈「退出登录按钮失效�
 - **设计决策**：**零新表、零新环境变量、零新外部请求**——全部数据走既有 Setting 表；token 加密复用 v3.4.0 的 `encrypt_secret`（Fernet）。
 - **验证**：新增 `tests/test_mcp_services_admin.py` 5 例常驻回归（超管权限 403、启停对端点实测 404↔200、CRUD + 密文落库可解回、脱敏版不含真实 token / 完整版含且记审计、URL 非法 scheme 拒绝 + `?edit=` 编辑态渲染）；全量 pytest **64 passed**（59 基线 + 5 新增）。R62 九维审计 **0 遗留**（详见 `myblog/SECURITY_AUDIT.md` 第六十二轮）。
 - **部署注意**：**纯后端改动，前端产物无变化**（`vue-frontend/` 未动）。覆盖 `myblog-backend.zip` 后「停止 → 启动」gunicorn；**无 DB 迁移**，无需任何 `flask db` 命令；无新增环境变量。上线后后台即见「🔌 MCP 服务」入口，开箱即用。APP_VERSION 升为 v3.13.0。
+
+## 66. v3.13.1：插件重载崩溃修复（R63 审计通过）
+
+- **背景**：v3.13.0 及之前，后台「🧩 插件管理 → 重载」按钮在**应用已处理过请求后**点击会抛 `AssertionError: register_blueprint can no longer be called...already handled its first request` → 该接口直接 500。根因：`load_plugins` 对 `plugins_sys` 系统蓝图做无条件重注册；`reload_plugins` 先调 `_unregister_blueprints(app, None)` 把系统蓝图（登记在 `SLUG_BLUEPRINTS["__sys__"]`）一并卸掉，随后 `load_plugins` 在运行时再次 `register_blueprint`，被 Flask 禁止。
+- **修复**（`myblog/plugins/__init__.py`）：`load_plugins` 的 `plugins_sys` 注册改**幂等 + 崩溃安全**（仅在 `app.blueprints` 缺失时补注册；即便运行时缺失也吞掉 `AssertionError` 跳过，路由级变更本就需重启 gunicorn，符合「不热加载」红线）；`_unregister_blueprints(slug=None)` 整体重载**跳过 `"__sys__"` 键**，系统蓝图常驻，`/api/plugins` 自身不 404。
+- **验证**：新增 `tests/test_plugin_system.py::test_reload_after_first_request_does_not_crash`（模拟 `_got_first_request=True` 后 `reload_plugins` / 重复 `load_plugins` 均不崩溃、系统蓝图常驻、`/api/plugins` 仍可访问）；全量 pytest **65 passed**（64 + 1）。R63 九维审计 **0 遗留**（详见 `myblog/SECURITY_AUDIT.md` 第六十三轮）。
+- **部署注意**：**纯后端改动，前端产物无变化**（`vue-frontend/` 未动）。覆盖 `myblog-backend.zip` 后「停止 → 启动」gunicorn；**无 DB 迁移**，无需任何 `flask db` 命令；无新增环境变量。APP_VERSION 升为 v3.13.1。

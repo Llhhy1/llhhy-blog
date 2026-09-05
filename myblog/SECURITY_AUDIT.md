@@ -2339,3 +2339,32 @@ git diff 计 **70 增 / 70 删**，`tokens.css` 定义**未被改动**。
 **R62 结论**：**0 遗留**。面板零新表、零新外部请求、零明文凭据；新增攻击面仅超管后台 CRUD（三重闸门 + 全量审计）；两 MCP 端点行为仅新增「面板停止 → 404」一种状态，默认态与 v3.12.2 完全一致。发版前 `APP_VERSION` 已改为 `3.13.0`（与 Release tag 一致）。
 
 **部署注意**：**纯后端改动，前端产物无变化**（`vue-frontend/` 未动）。覆盖 `myblog-backend.zip` 后 gunicorn「停止 → 启动」即生效；**无 DB 迁移**（数据全部走既有 Setting 表），无需任何 `flask db` 命令；无新增环境变量。上线后：后台 →「🔌 MCP 服务」即可看到两个内置端点状态，无需其他配置。
+
+## 第六十三轮 R63（v3.13.1 · 插件重载崩溃修复）
+
+**背景**：修复后台「🧩 插件管理 → 重载」按钮（`POST /api/plugins/reload`）在应用已处理过请求后触发 `register_blueprint` AssertionError → 500 的问题。改动仅限 `myblog/plugins/__init__.py` 的蓝图注册逻辑，无新功能、无新环境变量、无新外部请求。
+
+### 变更范围
+
+| 文件 | 改动 | 交付方式 |
+|------|------|----------|
+| `myblog/plugins/__init__.py` | `load_plugins` 的 `plugins_sys` 注册改幂等+崩溃安全；`_unregister_blueprints(slug=None)` 整体重载跳过 `"__sys__"` 键 | 后端包 |
+| `tests/test_plugin_system.py` | 新增回归 `test_reload_after_first_request_does_not_crash` | 后端包（tests 随仓） |
+
+### 九维审计
+
+| 编号 | 维度 | 审查结论 | 状态 |
+|------|------|----------|------|
+| R63-1 | XSS | 无 HTML/JS 注入面变化；蓝图注册逻辑不涉及任何用户可控内容渲染。 | ✅ 无新增 |
+| R63-2 | SQL 注入 | 无 SQL 变化；`load_plugins` / `_unregister_blueprints` 仍只操作内存 `app.blueprints` / `url_map`，不碰 DB。 | ✅ 无注入 |
+| R63-3 | 越权 | 无路由增减；`/api/plugins/reload` 仍由 `_require_admin` 守卫（未登录 401 / 非管理员 403）；修复仅改变其「已处理请求后」的执行路径，不改变鉴权结果。 | ✅ 无越权 |
+| R63-4 | SSRF | 无外部请求变化；插件系统不主动发起服务端请求。 | ✅ 无 SSRF |
+| R63-5 | CSRF | 无 CSRF 口径变化；`reload` 属 POST，仍受全局 `_csrf_protect` 覆盖。 | ✅ 无缺口 |
+| R63-6 | 密钥泄露 | 无密钥/凭据读取或落库变化；`SLUG_BLUEPRINTS` / `app.blueprints` 均为内存结构，不涉敏感数据。 | ✅ 无泄露 |
+| R63-7 | 资源泄漏 | 修复后 `_unregister_blueprints(slug=None)` 在「跳过系统蓝图」分支不再遍历并重建 `url_map._rules`（仅显式卸载具体插件时才做）；整条路径无句柄/连接操作。 | ✅ 无泄漏 |
+| R63-8 | 限流 / DoS | 修复消除了一类「后台重载即 500」的可用性故障（此前任何已服务请求的实例都会被打挂）；属健壮性提升，无新增请求面；`/api/plugins` 既有 admin 鉴权不变。 | ✅ 无风险（正向加固） |
+| R63-9 | 回归 | `py_compile` 通过；全量 pytest **65 passed**（64 基线 + 1 新增回归，覆盖 `_got_first_request=True` 后 `reload_plugins` / 重复 `load_plugins` 不崩溃、系统蓝图常驻、`/api/plugins` 不 404）；`backend/`(v4) 与 `v5/` 未触碰。 | ✅ 无回归 |
+
+**R63 结论**：**0 遗留**。本轮为纯健壮性修复，消除「应用运行后后台插件重载必 500」的故障；无任何新攻击面、无新环境变量、无 DB 变更。发版前 `APP_VERSION` 已改为 `3.13.1`（与 Release tag 一致）。
+
+**部署注意**：**纯后端改动，前端产物无变化**（`vue-frontend/` 未动）。覆盖 `myblog-backend.zip` 后 gunicorn「停止 → 启动」即生效；**无 DB 迁移**，无需任何 `flask db` 命令；无新增环境变量。

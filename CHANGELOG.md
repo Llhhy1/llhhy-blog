@@ -17,6 +17,16 @@
   2. 「发布出问题立即回滚、不硬扛」的决断力是对的，保持；
   3. FastAPI 迁移评估结论不变（SQLite 上 async 比 sync 慢 1.25–1.27x，维持 Flask 栈）。
 
+## v3.13.1（2026-09-06 · 插件重载崩溃修复）
+
+- **修复**：后台「🧩 插件管理 → 重载」按钮（`POST /api/plugins/reload`）在**应用已处理过至少一个请求后**点击，会抛 `AssertionError: The setup method 'register_blueprint' can no longer be called on the application. It has already handled its first request`，导致该接口直接 500（v3.13.0 及之前均存在）。
+- **根因**：`myblog/plugins/__init__.py` 的 `load_plugins` 对 `plugins_sys` 系统蓝图做**无条件重注册**；而 `reload_plugins` 先调 `_unregister_blueprints(app, None)` 把系统蓝图（登记在 `SLUG_BLUEPRINTS["__sys__"]`）也一并卸掉，随后 `load_plugins` 在运行时再次 `register_blueprint`——Flask 在 `_got_first_request=True` 后禁止该操作，遂崩溃。
+- **修复点**（`myblog/plugins/__init__.py`）：
+  - `load_plugins` 的 `plugins_sys` 注册改为**幂等 + 崩溃安全**：仅在 `app.blueprints` 缺失时补注册；即便运行时缺失也吞掉 `AssertionError` 跳过（路由级变更本就需重启 gunicorn，符合「不热加载」架构红线），避免一次重载把整个接口打挂。
+  - `_unregister_blueprints(slug=None)` 整体重载时**跳过 `"__sys__"` 键**，系统蓝图常驻，使 `/api/plugins` 自身在运行时重载后不 404。
+- **测试**：新增 `tests/test_plugin_system.py::test_reload_after_first_request_does_not_crash`（模拟 `_got_first_request=True` 后 `reload_plugins` / 重复 `load_plugins` 均不崩溃、系统蓝图常驻、`/api/plugins` 仍可访问）；全量 pytest **65 passed**（64 + 1）。R63 九维审计 **0 遗留**（详见 `myblog/SECURITY_AUDIT.md` 第六十三轮）。
+- **部署注意**：**纯后端改动，前端产物无变化**（`vue-frontend/` 未动）。覆盖 `myblog-backend.zip` 后「停止 → 启动」gunicorn；**无 DB 迁移**，无需任何 `flask db` 命令；无新增环境变量。APP_VERSION 升为 v3.13.1。
+
 ## v3.13.0（2026-09-06 · 后台 MCP 服务管理面板 + AI 脱敏接入指令）
 
 - **新增 `myblog/admin/mcp_services.py`**（admin 包新子模块，超管专属 `super_required`，全部写操作 `log_audit`）：

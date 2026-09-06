@@ -171,6 +171,7 @@ bindUpload("upload-btn", "image-input", (url, name) => {
   ta.value = ta.value.slice(0, start) + tag + ta.value.slice(end);
   ta.focus();
   ta.selectionStart = ta.selectionEnd = start + tag.length;
+  ta.dispatchEvent(new Event("input", { bubbles: true }));
   if (status) status.textContent = "已插入 ✓";
 });
 

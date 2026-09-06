@@ -1,15 +1,18 @@
 {% extends "admin/base.html" %}
-{% block title %}我的文章{% endblock %}
+{% block title %}文章管理{% endblock %}
 {% block content %}
-  <h1 class="page-title">📄 我的文章（{{ posts | length }}）</h1>
+  <h1 class="page-title">📄 {{ '文章管理' if is_admin_view else '我的文章' }}（{{ pagination.total }}）</h1>
 
   <div class="admin-actions">
     <a class="btn" href="{{ url_for('admin.new_post') }}">✏️ 写新文章</a>
+    {% if is_admin_view %}
+    <a class="btn ghost" href="{{ url_for('admin.recycle_bin') }}">🗑️ 回收站</a>
+    {% endif %}
     <a class="btn ghost" href="{{ url_for('main.index') }}" target="_blank">🌐 查看前台</a>
   </div>
 
   <div class="panel">
-    <!-- 筛选表单（v2.8.0） -->
+    <!-- 筛选（v3.14.0：+分类 / 系列 / 排序） -->
     <form method="get" class="filter-form">
       <span class="ff-field">
         <span class="ff-icon">🔍</span>
@@ -22,73 +25,185 @@
         <option value="scheduled" {% if filter_status=='scheduled' %}selected{% endif %}>定时</option>
         <option value="pinned" {% if filter_status=='pinned' %}selected{% endif %}>置顶</option>
       </select>
+      <select name="category_id">
+        <option value="">全部分类</option>
+        {% for c in cats %}
+          <option value="{{ c.id }}" {% if filter_category == c.id %}selected{% endif %}>{{ c.name }}</option>
+        {% endfor %}
+      </select>
+      <select name="series_id">
+        <option value="">全部分区</option>
+        {% for s in series %}
+          <option value="{{ s.id }}" {% if filter_series == s.id %}selected{% endif %}>{{ s.name }}</option>
+        {% endfor %}
+      </select>
+      <select name="sort">
+        <option value="created" {% if sort=='created' %}selected{% endif %}>按创建时间</option>
+        <option value="updated" {% if sort=='updated' %}selected{% endif %}>按更新时间</option>
+        <option value="views" {% if sort=='views' %}selected{% endif %}>按阅读量</option>
+        <option value="words" {% if sort=='words' %}selected{% endif %}>按字数</option>
+        <option value="title" {% if sort=='title' %}selected{% endif %}>按标题</option>
+      </select>
+      <select name="order">
+        <option value="desc" {% if order=='desc' %}selected{% endif %}>倒序</option>
+        <option value="asc" {% if order=='asc' %}selected{% endif %}>正序</option>
+      </select>
       <button type="submit" class="btn">筛选</button>
-      {% if filter_q or filter_status %}
+      {% if filter_q or filter_status or filter_category or filter_series %}
         <a class="btn ghost" href="{{ url_for('admin.my_posts') }}">清除</a>
       {% endif %}
     </form>
+
+    <!-- 批量操作条（v3.14.0） -->
+    <form method="post" action="{{ url_for('admin.bulk_posts') }}" class="bulk-bar" id="bulk-form">
+          {{ csrf_input() }}
+      <span class="bulk-tip">批量：</span>
+      <select name="action" id="bulk-action">
+        <option value="">选择操作…</option>
+        <option value="publish">发布选中</option>
+        <option value="unpublish">转为草稿</option>
+        <option value="category">移入分类…</option>
+        <option value="series">移入分区…</option>
+        <option value="delete">移入回收站</option>
+      </select>
+      <span class="bulk-value" id="bulk-category" style="display:none;">
+        <select name="value"><option value="">选择分类</option>{% for c in cats %}<option value="{{ c.id }}">{{ c.name }}</option>{% endfor %}</select>
+      </span>
+      <span class="bulk-value" id="bulk-series" style="display:none;">
+        <select name="value"><option value="">选择分区</option>{% for s in series %}<option value="{{ s.id }}">{{ s.name }}</option>{% endfor %}</select>
+      </span>
+      <button type="submit" class="btn" id="bulk-go">执行</button>
+      <span class="bulk-count" id="bulk-count"></span>
+      <span class="bulk-hint">批量发布不触发订阅推送；已发布文章选「转为草稿」即下架。</span>
+    </form>
+
     <table class="admin-table">
       <thead>
-        <tr><th>标题</th><th>状态</th><th>阅读</th><th>发布时间</th><th>操作</th></tr>
+        <tr>
+          <th style="width:28px;"><input type="checkbox" id="check-all" title="全选本页"></th>
+          <th>标题 / 分类</th>
+          <th>状态</th>
+          <th>字数</th>
+          <th>阅读</th>
+          <th>更新时间</th>
+          <th>操作</th>
+        </tr>
       </thead>
       <tbody>
         {% for p in posts %}
           <tr>
-            <td><a href="{{ url_for('admin.edit_post', post_id=p.id) }}">{{ p.title }}</a></td>
+            <td><input type="checkbox" name="ids" value="{{ p.id }}" class="row-check"></td>
+            <td>
+              <a href="{{ url_for('admin.edit_post', post_id=p.id) }}">{{ p.title }}</a>
+              {% if p.category %}<span class="post-tag">{{ p.category.name }}</span>{% endif %}
+              {% if p.series %}<span class="post-tag post-tag-series">{{ p.series.name }}</span>{% endif %}
+              {% if is_admin_view and p.author %}
+                <br><span class="muted">作者：{{ p.author.username }}</span>
+              {% endif %}
+            </td>
             <td>
               {% if p.scheduled_at and not p.published %}
-                <span class="status-scheduled">⏰ 定时 {{ p.scheduled_at | bj('%m-%d %H:%M') }}</span>
+                <span class="status-tag status-scheduled">⏰ {{ p.scheduled_at | bj('%m-%d %H:%M') }}</span>
+              {% elif p.published %}
+                <span class="status-tag status-live">已发布</span>
+              {% else %}
+                <span class="status-tag status-draft">草稿</span>
+              {% endif %}
+              {% if p.is_pinned %}<span class="status-tag status-pinned">📌 置顶</span>{% endif %}
+              {% if p.pin_requested and not p.is_pinned %}<span class="status-tag status-requested">🔔 待审批</span>{% endif %}
+              {% if p.is_private %}<span class="status-tag status-private">🔒 私密</span>{% endif %}
+            </td>
+            <td>{{ p.word_count or 0 }}</td>
+            <td>{{ p.views }}</td>
+            <td>{{ p.updated_at | bj('%m-%d %H:%M') }}</td>
+            <td class="row-ops">
+              <a href="{{ url_for('admin.edit_post', post_id=p.id) }}">编辑</a>
+              {% if not p.published %}
                 <form method="post" action="{{ url_for('admin.publish_now', post_id=p.id) }}" class="inline-form">
                       {{ csrf_input() }}
                   <input type="hidden" name="back" value="admin.my_posts">
-                  <button type="submit" class="link-btn">立即发布</button>
+                  <button type="submit" class="link-btn">{{ '立即发布' if p.scheduled_at else '发布' }}</button>
                 </form>
-              {% elif p.published %}
-                已发布
-              {% else %}
-                草稿
               {% endif %}
-              {% if p.is_pinned %}<span class="status-pinned">📌 置顶</span>{% endif %}
-              {% if p.pin_requested and not p.is_pinned %}<span class="status-requested">🔔 待审批</span>{% endif %}
-            </td>
-            <td>{{ p.views }}</td>
-            <td>{{ p.created_at | bj('%Y-%m-%d %H:%M') }}</td>
-            <td>
-              <a href="{{ url_for('admin.edit_post', post_id=p.id) }}">编辑</a>
-              {% if not p.is_pinned and p.published %}
-                {% if p.pin_requested %}
-                  <form method="post" action="{{ url_for('admin.cancel_pin_request', post_id=p.id) }}" class="inline-form">
-                        {{ csrf_input() }}
-                    <button type="submit" class="link-btn">撤回申请</button>
-                  </form>
-                {% else %}
-                  <form method="post" action="{{ url_for('admin.request_pin', post_id=p.id) }}" class="inline-form">
-                        {{ csrf_input() }}
-                    <button type="submit" class="link-btn">申请置顶</button>
-                  </form>
+              {% if not is_admin_view %}
+                {% if not p.is_pinned and p.published %}
+                  {% if p.pin_requested %}
+                    <form method="post" action="{{ url_for('admin.cancel_pin_request', post_id=p.id) }}" class="inline-form">
+                          {{ csrf_input() }}
+                      <button type="submit" class="link-btn">撤回置顶申请</button>
+                    </form>
+                  {% else %}
+                    <form method="post" action="{{ url_for('admin.request_pin', post_id=p.id) }}" class="inline-form">
+                          {{ csrf_input() }}
+                      <button type="submit" class="link-btn">申请置顶</button>
+                    </form>
+                  {% endif %}
                 {% endif %}
               {% endif %}
-              <form method="post" action="{{ url_for('admin.delete_post', post_id=p.id) }}" class="inline-form" onsubmit="return confirm('确定删除？');">
+              <form method="post" action="{{ url_for('admin.delete_post', post_id=p.id) }}" class="inline-form" onsubmit="return confirm('移入回收站？可随时还原。');">
                     {{ csrf_input() }}
+                <input type="hidden" name="back" value="admin.my_posts">
                 <button type="submit" class="link-danger">删除</button>
               </form>
             </td>
           </tr>
         {% else %}
-          <tr><td colspan="5">还没有符合条件的文章</td></tr>
+          <tr><td colspan="7">还没有符合条件的文章，点右上角「写新文章」开始创作吧。</td></tr>
         {% endfor %}
       </tbody>
     </table>
     {% if pagination and pagination.pages > 1 %}
     <nav class="pagination">
       {% if pagination.page > 1 %}
-        <a href="{{ url_for('admin.my_posts', page=pagination.page-1, q=filter_q, status=filter_status) }}">← 上一页</a>
+        <a href="{{ url_for('admin.my_posts', page=pagination.page-1, q=filter_q, status=filter_status, category_id=filter_category or '', series_id=filter_series or '', sort=sort, order=order) }}">← 上一页</a>
       {% else %}<span class="disabled">← 上一页</span>{% endif %}
       <span class="current">{{ pagination.page }} / {{ pagination.pages }}</span>
       {% if pagination.page < pagination.pages %}
-        <a href="{{ url_for('admin.my_posts', page=pagination.page+1, q=filter_q, status=filter_status) }}">下一页 →</a>
+        <a href="{{ url_for('admin.my_posts', page=pagination.page+1, q=filter_q, status=filter_status, category_id=filter_category or '', series_id=filter_series or '', sort=sort, order=order) }}">下一页 →</a>
       {% else %}<span class="disabled">下一页 →</span>{% endif %}
     </nav>
     {% endif %}
   </div>
+
+  <script>
+  (function () {
+    var form = document.getElementById('bulk-form');
+    var all = document.getElementById('check-all');
+    var act = document.getElementById('bulk-action');
+    var count = document.getElementById('bulk-count');
+    if (!form) return;
+
+    function refresh() {
+      var checks = form.querySelectorAll('.row-check:checked');
+      if (count) count.textContent = checks.length ? '已选 ' + checks.length + ' 篇' : '';
+      ['bulk-category', 'bulk-series'].forEach(function (id) {
+        var el = document.getElementById(id);
+        if (el) el.style.display = 'none';
+      });
+      if (act.value === 'category') document.getElementById('bulk-category').style.display = '';
+      if (act.value === 'series') document.getElementById('bulk-series').style.display = '';
+    }
+    if (all) all.addEventListener('change', function () {
+      form.querySelectorAll('.row-check').forEach(function (c) { c.checked = all.checked; });
+      refresh();
+    });
+    form.querySelectorAll('.row-check').forEach(function (c) {
+      c.addEventListener('change', function () {
+        if (all) all.checked = form.querySelectorAll('.row-check:checked').length === form.querySelectorAll('.row-check').length;
+        refresh();
+      });
+    });
+    if (act) act.addEventListener('change', refresh);
+    form.addEventListener('submit', function (e) {
+      var n = form.querySelectorAll('.row-check:checked').length;
+      if (!n) { e.preventDefault(); alert('请先勾选要操作的文章'); return; }
+      if (!act.value) { e.preventDefault(); alert('请选择批量操作'); return; }
+      if (act.value === 'category' || act.value === 'series') {
+        var v = form.querySelector('#bulk-' + act.value + ' select');
+        if (!v || !v.value) { e.preventDefault(); alert('请选择目标分类/分区'); return; }
+      }
+      if (act.value === 'delete' && !confirm('确定把选中的 ' + n + ' 篇移入回收站？可随时还原。')) { e.preventDefault(); return; }
+    });
+  })();
+  </script>
 {% endblock %}

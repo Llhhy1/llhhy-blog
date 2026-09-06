@@ -7,24 +7,69 @@
     <input type="text" name="name" placeholder="新分类名称" required>
     <button type="submit" class="btn">添加</button>
   </form>
-  <table class="admin-table">
-    <thead><tr><th>名称</th><th>slug</th><th>操作</th></tr></thead>
+  <p class="hint">改名后 URL（slug）会自动重算并保持唯一；删除时可以把文章先转移到其它分类，避免文章变「无分类」。</p>
+  <table class="admin-table" id="cat-table">
+    <thead><tr><th>名称</th><th>文章数</th><th>操作</th></tr></thead>
     <tbody>
       {% for c in cats %}
-        <tr>
-          <td>{{ c.name }}</td>
-          <td>{{ c.slug }}</td>
-          <td>
-            <form method="post" action="{{ url_for('admin.delete_category', cid=c.id) }}" class="inline-form" onsubmit="return confirm('确定删除？该分类下文章会变无分类');">
+        <tr class="cat-row">
+          <td><b>{{ c.name }}</b><br><span class="muted">/{{ c.slug }}</span></td>
+          <td>{{ c.posts.filter_by(in_trash=False).count() }}</td>
+          <td class="row-ops">
+            <button type="button" class="link-btn" data-edit-row="edit-{{ c.id }}">✏️ 编辑</button>
+            <form method="post" action="{{ url_for('admin.delete_category', cid=c.id) }}" class="inline-form del-form" onsubmit="return confirm('直接删除该分类？其下文章会变成「无分类」。');">
                   {{ csrf_input() }}
               <button type="submit" class="link-danger">删除</button>
             </form>
           </td>
         </tr>
+        <tr class="editor-row" id="edit-{{ c.id }}" style="display:none;">
+          <td colspan="3" class="row-editor-cell">
+            <form method="post" action="{{ url_for('admin.rename_category', cid=c.id) }}" class="editor-form">
+                  {{ csrf_input() }}
+              <span class="qc-label">改名（slug 自动重算）</span>
+              <input type="text" name="name" value="{{ c.name }}" required>
+              <button type="submit" class="btn small">保存改名</button>
+            </form>
+            <form method="post" action="{{ url_for('admin.delete_category', cid=c.id) }}" class="editor-form merge-form">
+                  {{ csrf_input() }}
+              <span class="qc-label">删除并转移文章到</span>
+              <select name="move_to">
+                <option value="">— 不转移（其下文章变无分类）—</option>
+                {% for other in cats if other.id != c.id %}
+                  <option value="{{ other.id }}">{{ other.name }}</option>
+                {% endfor %}
+              </select>
+              <button type="submit" class="btn small danger">删除分类</button>
+            </form>
+          </td>
+        </tr>
       {% else %}
-        <tr><td colspan="3">暂无分类</td></tr>
+        <tr><td colspan="3">暂无分类，先在上方添加一个吧。</td></tr>
       {% endfor %}
     </tbody>
   </table>
   <a class="btn" href="{{ url_for('admin.dashboard') }}">返回仪表盘</a>
+
+  <script>
+  (function () {
+    document.querySelectorAll("[data-edit-row]").forEach(function (b) {
+      b.addEventListener("click", function () {
+        var r = document.getElementById(b.getAttribute("data-edit-row"));
+        if (!r) return;
+        r.style.display = r.style.display === "none" ? "" : "none";
+      });
+    });
+    document.querySelectorAll(".merge-form").forEach(function (f) {
+      f.addEventListener("submit", function (e) {
+        var sel = f.querySelector('select[name="move_to"]');
+        var target = sel && sel.value ? sel.options[sel.selectedIndex].text : "";
+        var msg = target
+          ? '删除该分类，并把其下文章转移到「' + target + '」？'
+          : '直接删除该分类？其下文章会变成「无分类」。';
+        if (!confirm(msg)) e.preventDefault();
+      });
+    });
+  })();
+  </script>
 {% endblock %}

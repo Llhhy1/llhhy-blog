@@ -36,9 +36,11 @@
         {% if current_user and current_user.is_admin_role %}
         <p class="side-group">内容管理</p>
         <a href="{{ url_for('admin.dashboard') }}" class="{{ 'active' if ep == 'admin.dashboard' }}"><span class="nav-emoji">📊</span>仪表盘</a>
+        <a href="{{ url_for('admin.my_posts') }}" class="{{ 'active' if ep == 'admin.my_posts' }}"><span class="nav-emoji">📄</span>文章管理</a>
         <a href="{{ url_for('admin.new_post') }}" class="{{ 'active' if ep in ('admin.new_post', 'admin.edit_post') }}"><span class="nav-emoji">✏️</span>写新文章</a>
         <a href="{{ url_for('admin.categories') }}" class="{{ 'active' if ep == 'admin.categories' }}"><span class="nav-emoji">🗂️</span>分类管理</a>
         <a href="{{ url_for('admin.tags') }}" class="{{ 'active' if ep == 'admin.tags' }}"><span class="nav-emoji">🏷️</span>标签管理</a>
+        <a href="{{ url_for('admin.media_lib') }}" class="{{ 'active' if ep == 'admin.media_lib' }}"><span class="nav-emoji">🖼️</span>媒体库</a>
         <a href="{{ url_for('admin.comments') }}" class="{{ 'active' if ep == 'admin.comments' }}"><span class="nav-emoji">💬</span>评论管理{% if pending_comments %} <span class="nav-badge">{{ pending_comments }}</span>{% endif %}</a>
         <a href="{{ url_for('admin.links') }}" class="{{ 'active' if ep == 'admin.links' }}"><span class="nav-emoji">🔗</span>友链管理</a>
         <a href="{{ url_for('admin.social') }}" class="{{ 'active' if ep == 'admin.social' }}"><span class="nav-emoji">🌐</span>社交账号</a>
@@ -136,7 +138,7 @@
     document.addEventListener('keydown', function (e) { if (e.key === 'Escape') close(); });
   })();
   </script>
-  <script src="{{ url_for('static', filename='script.js') }}"></script>
+  <script src="{{ url_for('static', filename='script.js') }}?v={{ admin_css_v }}"></script>
   {% if current_user and current_user.is_admin_role %}
   <!-- 后台在线更新（v2.5.1）：检测新版本 → 确认 → 静默更新 → 完成提醒 -->
   <div id="update-banner" style="display:none;position:fixed;left:0;right:0;bottom:0;z-index:9999;background:linear-gradient(90deg,#1a73e8,#5b8def);color:#fff;padding:12px 20px;font-size:14px;box-shadow:0 -4px 20px rgba(0,0,0,.15);">

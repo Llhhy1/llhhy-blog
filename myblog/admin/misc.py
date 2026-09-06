@@ -9,12 +9,37 @@ def categories():
     if request.method == "POST":
         name = (request.form.get("name") or "").strip()
         if name:
-            db.session.add(Category(name=name, slug=make_slug(name)))
-            db.session.commit()
-            flash("分类已添加")
+            if Category.query.filter_by(name=name).first():
+                flash(f"已存在同名分类「{name}」，请勿重复添加")
+            else:
+                db.session.add(Category(name=name, slug=unique_model_slug(Category, name, max_len=80)))
+                db.session.commit()
+                flash("分类已添加")
         return redirect(url_for("admin.categories"))
     cats = Category.query.order_by(Category.id).all()
     return render_template("admin/categories.html", cats=cats)
+
+@admin_bp.route("/category/<int:cid>/rename", methods=["POST"])
+@admin_required
+def rename_category(cid):
+    """分类编辑（v3.14.0）：改名（slug 自动重算并保持唯一）。
+
+    Category.name 唯一：撞名不覆盖；需要合并的请用「删除并转移文章到…」。
+    """
+    cat = Category.query.get_or_404(cid)
+    name = (request.form.get("name") or "").strip()
+    if not name:
+        flash("分类名称不能为空")
+        return redirect(url_for("admin.categories"))
+    dup = Category.query.filter(Category.name == name, Category.id != cid).first()
+    if dup:
+        flash(f"已存在同名分类「{name}」，未修改（如需合并：删除本分类并把文章转移到目标分类）")
+        return redirect(url_for("admin.categories"))
+    cat.name = name
+    cat.slug = unique_model_slug(Category, name, exclude_id=cid, max_len=80)
+    db.session.commit()
+    flash(f"分类已更新：{name}")
+    return redirect(url_for("admin.categories"))
 
 @admin_bp.route("/social", methods=["GET", "POST"])
 @admin_required

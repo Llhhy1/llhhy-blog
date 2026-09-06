@@ -235,6 +235,16 @@ def inject_notification_counts():
 def allowed_file(filename):
     return "." in filename and filename.rsplit(".", 1)[1].lower() in current_app.config["ALLOWED_EXTENSIONS"]
 
+# v3.1.6 图片魔数表：文件头前缀 -> (类型名, 期望后缀)。webp 只记 RIFF 前缀，
+# 具体 WEBP 标识由 _detect_image_magic 里的 12 字节精验负责。
+_MAGIC_PATTERNS = {
+    b"\x89PNG\r\n\x1a\n": ("png", "png"),
+    b"\xff\xd8\xff": ("jpeg", "jpg"),
+    b"GIF87a": ("gif", "gif"),
+    b"GIF89a": ("gif", "gif"),
+    b"RIFF": ("webp", "webp"),
+}
+
 def _detect_image_magic(header, ext):
     """根据文件头魔数 + 期望后缀判断是否匹配。返回 False 拒绝，True 通过。
     对 webp 追加 RIFF 后的 'WEBP' 四个字节精验；其余按魔数前缀匹配。
@@ -338,6 +348,29 @@ def create_post_core(*, title, content, summary="", cover="", category_id=None,
             except Exception:
                 pass
     return post
+
+
+def unique_model_slug(model, base, exclude_id=None, max_len=80):
+    """通用 slug 唯一化（Category / Series / Tag 等 Post 以外的表，v3.14.0）。
+
+    与 post 的 unique_slug 同思路：基础 slug 冲突（可排除自身）时追加 -2/-3。
+    额外做长度截断：这些表的 slug 列是 String(90/110)，中文短名一般没问题，
+    但超长输入会超出列宽（SQLite 不强制、Postgres 会报错），截断到 max_len 以内最稳。
+    """
+    b = make_slug(base)
+    if len(b) > max_len:
+        b = b[:max_len]
+    slug = b or "item"
+    i = 2
+    while True:
+        q = model.query.filter_by(slug=slug)
+        if exclude_id is not None:
+            q = q.filter(model.id != exclude_id)
+        if not q.first():
+            return slug
+        suffix = f"-{i}"
+        slug = (b[:max_len - len(suffix)] + suffix) if len(b) > max_len - len(suffix) else f"{b}-{i}"
+        i += 1
 
 
 # 让 from ._helpers import *（各业务子模块与包 __init__）也导出下划线辅助函数

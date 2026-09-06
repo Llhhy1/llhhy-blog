@@ -2,34 +2,60 @@
 {% block title %}{% if post %}编辑文章{% else %}写新文章{% endif %}{% endblock %}
 {% block content %}
   <h1 class="page-title">{% if post %}编辑文章{% else %}写新文章{% endif %}</h1>
-  <form method="post" action="" class="edit-form">
+  <form method="post" action="" class="edit-form" id="post-form">
         {{ csrf_input() }}
     <label>标题 *</label>
-    <input type="text" name="title" value="{{ post.title if post else '' }}" required>
+    <input type="text" name="title" id="f-title" value="{{ post.title if post else '' }}" required>
 
     <p class="hint">🔗 链接后缀（slug）由后台「链接后缀规则」全局设置自动生成，此处不可手动修改，保证全站 URL 规范统一。</p>
 
     <label>摘要（可选）</label>
-    <input type="text" name="summary" value="{{ post.summary if post else '' }}">
+    <input type="text" name="summary" id="f-summary" value="{{ post.summary if post else '' }}">
 
-    <label>分类</label>
-    <select name="category_id">
-      <option value="">— 无 —</option>
-      {% for c in cats %}
-        <option value="{{ c.id }}" {% if post and post.category_id == c.id %}selected{% endif %}>{{ c.name }}</option>
-      {% endfor %}
-    </select>
+    <div class="meta-grid">
+      <div class="meta-cell">
+        <label>分类</label>
+        <div class="sel-new-wrap">
+          <select name="category_id" id="sel-category">
+            <option value="">— 无 —</option>
+            {% for c in cats %}
+              <option value="{{ c.id }}" {% if post and post.category_id == c.id %}selected{% endif %}>{{ c.name }}</option>
+            {% endfor %}
+            <option value="__new__">＋ 新建分类…</option>
+          </select>
+        </div>
+      </div>
+      <div class="meta-cell">
+        <label>所属系列 / 专栏（可选）</label>
+        <div class="sel-new-wrap">
+          <select name="series_id" id="sel-series">
+            <option value="">— 无 —</option>
+            {% for s in series %}
+              <option value="{{ s.id }}" {% if post and post.series_id == s.id %}selected{% endif %}>{{ s.name }}</option>
+            {% endfor %}
+            <option value="__new__">＋ 新建系列…</option>
+          </select>
+        </div>
+      </div>
+      <div class="meta-cell meta-tags-cell">
+        <label>标签（逗号分隔，如：生活, 技术）</label>
+        <input type="text" name="tags" id="f-tags" value="{{ tag_names if tag_names else '' }}">
+      </div>
+    </div>
 
-    <label>所属系列 / 专栏（可选）</label>
-    <select name="series_id">
-      <option value="">— 无 —</option>
-      {% for s in series %}
-        <option value="{{ s.id }}" {% if post and post.series_id == s.id %}selected{% endif %}>{{ s.name }}</option>
-      {% endfor %}
-    </select>
-
-    <label>标签（逗号分隔，如：生活, 技术）</label>
-    <input type="text" name="tags" value="{{ tag_names if tag_names else '' }}">
+    <!-- 就地新建（v3.14.0）：选择「＋新建」后展开 -->
+    <div class="quick-create" id="qc-category" style="display:none;">
+      <span class="qc-label">新分类名称</span>
+      <input type="text" name="new_category_name" id="new-category-name" placeholder="输入后保存即创建并关联（同名自动复用）">
+      <button type="button" class="btn ghost small" data-cancel="qc-category">取消</button>
+      <span class="qc-hint">也可先在「分类管理」里建好</span>
+    </div>
+    <div class="quick-create" id="qc-series" style="display:none;">
+      <span class="qc-label">新系列名称</span>
+      <input type="text" name="new_series_name" id="new-series-name" placeholder="输入后保存即创建并关联（同名自动复用）">
+      <button type="button" class="btn ghost small" data-cancel="qc-series">取消</button>
+      <span class="qc-hint">简介/封面建好后可在「系列管理」补充</span>
+    </div>
 
     <label>SEO 描述（可选，留空则自动用摘要；用于搜索引擎摘要）</label>
     <textarea name="seo_description" rows="2" placeholder="独立页面描述，建议 50-120 字">{{ post.seo_description if post and post.seo_description else '' }}</textarea>
@@ -45,25 +71,66 @@
     </div>
     {% if post and post.cover %}<img id="cover-preview" class="cover-preview" src="{{ post.cover }}" alt="封面预览">{% else %}<img id="cover-preview" class="cover-preview" alt="" style="display:none">{% endif %}
 
-    <label>正文（支持 Markdown）</label>
-    <div class="upload-row">
+    <label>正文（Markdown，支持工具栏与实时预览）</label>
+    <div class="md-stage view-split" id="md-stage">
+      <div class="md-toolbar" id="md-toolbar">
+        <button type="button" class="md-tb" data-cmd="bold" title="粗体（Ctrl+B）"><b>B</b></button>
+        <button type="button" class="md-tb" data-cmd="italic" title="斜体"><i>I</i></button>
+        <span class="md-tb-sep"></span>
+        <button type="button" class="md-tb" data-cmd="h2" title="二级标题">H2</button>
+        <button type="button" class="md-tb" data-cmd="h3" title="三级标题">H3</button>
+        <span class="md-tb-sep"></span>
+        <button type="button" class="md-tb" data-cmd="quote" title="引用">❝</button>
+        <button type="button" class="md-tb" data-cmd="ul" title="无序列表">• 列表</button>
+        <button type="button" class="md-tb" data-cmd="ol" title="有序列表">1. 列表</button>
+        <button type="button" class="md-tb" data-cmd="code" title="代码块">代码</button>
+        <button type="button" class="md-tb" data-cmd="table" title="插入表格">表格</button>
+        <span class="md-tb-sep"></span>
+        <button type="button" class="md-tb" data-cmd="link" title="链接（Ctrl+K）">链接</button>
+        <button type="button" class="md-tb" data-cmd="img" title="插入图片">图片</button>
+        <span class="md-view-switch" id="md-view-switch">
+          <button type="button" class="md-vw active" data-view="split">分栏</button>
+          <button type="button" class="md-vw" data-view="edit">仅编辑</button>
+          <button type="button" class="md-vw" data-view="preview">仅预览</button>
+        </span>
+      </div>
+      <div class="md-body">
+        <div class="md-pane md-pane-edit">
+          <textarea name="content" id="content" rows="26" spellcheck="false" placeholder="在这里写 Markdown…">{{ post.content if post else '' }}</textarea>
+        </div>
+        <div class="md-pane md-pane-preview">
+          <div class="md-preview" id="md-preview"><p class="muted" style="padding:8px;">开始输入后，这里实时显示渲染效果…</p></div>
+        </div>
+      </div>
+    </div>
+    <div class="upload-row" style="margin-top:8px;">
       <button type="button" class="btn" id="upload-btn">📷 插入图片</button>
       <span id="upload-status" class="upload-status"></span>
       <input type="file" id="image-input" accept="image/*" hidden>
     </div>
-    <textarea name="content" id="content" rows="18">{{ post.content if post else '' }}</textarea>
 
-    <label class="checkbox">
-      <input type="checkbox" name="published" id="published-chk" {% if not post or post.published %}checked{% endif %}> 立即发布
-    </label>
-
-    {% if current_user and current_user.is_admin_role %}
-    <label class="checkbox">
-      <input type="checkbox" name="is_pinned" id="pinned-chk" {% if post and post.is_pinned %}checked{% endif %}> 📌 置顶（首页与列表优先展示）
-    </label>
-    {% else %}
-    <p class="hint">置顶为管理权限功能：普通用户如需置顶，请在「我的文章」中提交<b>置顶申请</b>，由超级管理员审批。</p>
-    {% endif %}
+    <div class="publish-grid">
+      <div>
+        <label class="checkbox">
+          <input type="checkbox" name="published" id="published-chk" {% if not post or post.published %}checked{% endif %}> 立即发布
+        </label>
+        {% if current_user and current_user.is_admin_role %}
+        <label class="checkbox">
+          <input type="checkbox" name="is_pinned" id="pinned-chk" {% if post and post.is_pinned %}checked{% endif %}> 📌 置顶（首页与列表优先展示）
+        </label>
+        {% else %}
+        <p class="hint">置顶为管理权限功能：普通用户如需置顶，请在「我的文章」中提交<b>置顶申请</b>，由超级管理员审批。</p>
+        {% endif %}
+      </div>
+      <div>
+        <label>定时发布（可选，留空则按上方「立即发布」处理）</label>
+        <input type="datetime-local" name="scheduled_at" id="scheduled-at"
+               value="{{ scheduled_local if scheduled_local else '' }}"
+               min="{{ now_local if now_local else '' }}"
+               placeholder="选择未来时间，到点自动公开">
+        <p class="hint">填写未来时间并保存，文章先存「待发布」，到点自动公开并推送通知；与「立即发布」互斥。</p>
+      </div>
+    </div>
 
     {# v3.0.0 功能13/14：隐私空间 + 打赏，仅超级管理员可设置 #}
     {% if current_user and current_user.is_super %}
@@ -77,120 +144,322 @@
     <input type="text" name="reward_qr" value="{{ post.reward_qr if post and post.reward_qr else '' }}" placeholder="https://…/reward.png">
     {% endif %}
 
-    <label>定时发布（可选，留空则按上方「立即发布」处理）</label>
-    <input type="datetime-local" name="scheduled_at" id="scheduled-at"
-           value="{{ scheduled_local if scheduled_local else '' }}"
-           min="{{ now_local if now_local else '' }}"
-           placeholder="选择未来时间，到点自动公开">
-    <p class="hint">填写一个未来时间并保存，文章会先存为「待发布」，后台到点自动公开并推送通知；若同时勾选「立即发布」则以立即发布为准。</p>
-
-    {# v3.0.0 功能12：字数统计 + 阅读时长（实时预览） #}
-    <div class="reading-info" id="reading-info">
-      📖 预计阅读 <b id="reading-min">{{ (post.reading_minutes if post and post.reading_minutes else 1) }}</b> 分钟 ·
-      约 <b id="word-count">{{ post.word_count if post and post.word_count else 0 }}</b> 字
+    <div class="editor-footer">
+      <span class="reading-info" id="reading-info">
+        📖 预计阅读 <b id="reading-min">{{ (post.reading_minutes if post and post.reading_minutes else 1) }}</b> 分钟 ·
+        约 <b id="word-count">{{ post.word_count if post and post.word_count else 0 }}</b> 字
+      </span>
+      <span class="autosave-state" id="autosave-state"></span>
     </div>
 
     {% if post %}
     <p style="margin-top:8px;">
-      <a class="btn ghost small" href="{{ url_for('admin.post_history', post_id=post.id) }}">🕓 查看版本历史 / 回滚</a>
+      {% if preview_token %}<button type="button" class="btn ghost small" id="preview-link-btn">🔗 复制未发布预览链接</button>{% endif %}
+      <a class="btn ghost small" href="{{ url_for('admin.post_history', post_id=post.id) }}">🕓 版本历史 / 对比</a>
     </p>
     {% endif %}
 
-    <button type="submit" class="btn">保存</button>
-    <a class="btn" href="{{ url_for('admin.dashboard') }}">返回</a>
+    <div class="form-actions">
+      <button type="submit" class="btn" id="save-btn">保存</button>
+      <a class="btn ghost" href="{{ url_for('admin.my_posts') }}">返回文章管理</a>
+    </div>
   </form>
 
   <script>
-    // 立即发布 与 定时发布 互斥联动（v2.7.0）
-    (function () {
-      var chk = document.getElementById("published-chk");
-      var dt = document.getElementById("scheduled-at");
-      if (!chk || !dt) return;
-      chk.addEventListener("change", function () {
-        if (chk.checked) dt.value = "";  // 勾选立即发布则清空定时
-      });
-      dt.addEventListener("change", function () {
-        if (dt.value) chk.checked = false;  // 填了定时则取消立即发布
-      });
+  (function () {
+    "use strict";
+    var form = document.getElementById("post-form");
+    var ta = document.getElementById("content");
+    var postId = {{ post.id if post else 0 }};
+    var csrf = (function () {
+      var el = form.querySelector('input[name="csrf_token"]');
+      return el ? el.value : "";
     })();
+    var AUTO_URL = "{{ url_for('admin.autosave_post', post_id=post.id) if post else '' }}";
 
-    // v3.0.0 功能12：字数统计 + 阅读时长实时预览（纯前端估算，与后端保存值一致：中文字+英文词，300 字/分）
-    (function () {
-      var content = document.getElementById("content");
-      var wcEl = document.getElementById("word-count");
-      var rmEl = document.getElementById("reading-min");
-      if (!content || !wcEl || !rmEl) return;
-      function count() {
-        var text = content.value || "";
-        var cjk = (text.match(/[一-鿿]/g) || []).length;
-        var words = (text.match(/[A-Za-z0-9]+/g) || []).length;
-        var total = cjk + words;
-        wcEl.textContent = total;
-        rmEl.textContent = Math.max(1, Math.round(total / 300));
+    /* ---------- 字数统计（复用后端口径：中文字 + 英文词，300 字/分） ---------- */
+    var wcEl = document.getElementById("word-count");
+    var rmEl = document.getElementById("reading-min");
+    function count() {
+      var t = ta.value || "";
+      var cjk = (t.match(/[\u4e00-\u9fff]/g) || []).length;
+      var words = (t.match(/[A-Za-z0-9]+/g) || []).length;
+      var total = cjk + words;
+      if (wcEl) wcEl.textContent = total;
+      if (rmEl) rmEl.textContent = Math.max(1, Math.round(total / 300));
+    }
+
+    /* ---------- 实时预览（防抖 400ms，走后端同一渲染管线） ---------- */
+    var previewPane = document.getElementById("md-preview");
+    var pvTimer = null;
+    function doPreview() {
+      if (previewPane.getAttribute("data-state") === "busy") { schedulePreview(); return; }
+      previewPane.setAttribute("data-state", "busy");
+      var body = new URLSearchParams();
+      body.append("content", ta.value || "");
+      fetch("{{ url_for('admin.md_preview') }}", {
+        method: "POST",
+        headers: { "X-CSRF-Token": csrf, "Content-Type": "application/x-www-form-urlencoded" },
+        body: body.toString()
+      }).then(function (r) { return r.text(); }).then(function (html) {
+        previewPane.innerHTML = html;
+        previewPane.setAttribute("data-state", "done");
+        if (window.applyHighlightTheme) window.applyHighlightTheme();
+      }).catch(function () {
+        previewPane.setAttribute("data-state", "done");
+      });
+    }
+    function schedulePreview() {
+      if (pvTimer) clearTimeout(pvTimer);
+      pvTimer = setTimeout(doPreview, 400);
+    }
+
+    /* ---------- 云端自动保存（仅已保存过的文章；新建文章首次点「保存」后生效） ---------- */
+    var autoState = document.getElementById("autosave-state");
+    var autoTimer = null;
+    var pendingAuto = false;
+    function formObj() {
+      var o = {};
+      new FormData(form).forEach(function (v, k) { o[k] = v; });
+      var cat = document.getElementById("sel-category");
+      var ser = document.getElementById("sel-series");
+      if (cat && cat.value === "__new__") {
+        o.category_id = "";
+        o.new_category_name = (document.getElementById("new-category-name").value || "").trim();
       }
-      content.addEventListener("input", count);
+      if (ser && ser.value === "__new__") {
+        o.series_id = "";
+        o.new_series_name = (document.getElementById("new-series-name").value || "").trim();
+      }
+      return o;
+    }
+    function setAuto(msg) {
+      if (autoState) autoState.textContent = msg || "";
+    }
+    function doAuto() {
+      if (postId <= 0 || !AUTO_URL) { pendingAuto = false; return; }
+      pendingAuto = false;
+      fetch(AUTO_URL, {
+        method: "POST",
+        headers: { "X-CSRF-Token": csrf, "Content-Type": "application/json" },
+        body: JSON.stringify(formObj())
+      }).then(function (r) { return r.json(); }).then(function (d) {
+        setAuto(d.ok ? ("☁️ 已自动保存 " + (d.saved_at || "")) : ("⚠️ " + (d.error || "保存失败")));
+        if (!d.ok) pendingAuto = true;
+      }).catch(function () { setAuto("⚠️ 自动保存失败，恢复输入后将重试"); pendingAuto = true; });
+    }
+    function scheduleAuto() {
+      if (autoTimer) clearTimeout(autoTimer);
+      autoTimer = setTimeout(function () {
+        if (pendingAuto) return;
+        setAuto("⏳ 正在自动保存…");
+        doAuto();
+      }, 4000);
+    }
+    function onContentChange() {
       count();
-    })();
+      schedulePreview();
+      scheduleAuto();
+    }
+    ta.addEventListener("input", onContentChange);
+    form.addEventListener("change", function () { scheduleAuto(); });
 
-    // 草稿自动保存（v2.8.0）：每 5 秒把当前编辑内容存到 localStorage，
-    // 下次进入同篇（或新建）编辑页时自动回填并提示「已恢复未保存草稿」。
-    // 仅在用户真正输入后才保存；点「保存」提交成功后清除草稿，避免陈旧恢复。
-    (function () {
-      var form = document.querySelector(".edit-form");
-      if (!form) return;
-      var postId = {{ post.id if post else 0 }};
-      var key = "draft:llhhy:" + (postId || "new");
-      var fields = ["title", "summary", "content", "cover", "tags", "seo_description", "seo_keywords"];
-      var restored = false;
+    /* ---------- 工具栏 ---------- */
+    function mdWrap(before, after, ph) {
+      var s = ta.selectionStart, e = ta.selectionEnd, v = ta.value;
+      var sel = v.slice(s, e) || ph || "";
+      ta.value = v.slice(0, s) + before + sel + after + v.slice(e);
+      ta.focus();
+      var ns = s + before.length;
+      ta.setSelectionRange(ns, ns + sel.length);
+      ta.dispatchEvent(new Event("input", { bubbles: true }));
+    }
+    function mdLine(prefix) {
+      var s = ta.selectionStart;
+      var v = ta.value;
+      var lineStart = v.lastIndexOf("\n", s - 1) + 1;
+      var lineEnd = v.indexOf("\n", s);
+      if (lineEnd < 0) lineEnd = v.length;
+      var line = v.slice(lineStart, lineEnd);
+      var nl = prefix + line.replace(/^(#{1,6}\s|\*\s|\d+\.\s|>\s)+/, "");
+      ta.value = v.slice(0, lineStart) + nl + v.slice(lineEnd);
+      ta.focus();
+      ta.setSelectionRange(lineStart + nl.length, lineStart + nl.length);
+      ta.dispatchEvent(new Event("input", { bubbles: true }));
+    }
+    var CMD = {
+      bold: function () { mdWrap("**", "**", "加粗文字"); },
+      italic: function () { mdWrap("*", "*", "斜体文字"); },
+      h2: function () { mdLine("## "); },
+      h3: function () { mdLine("### "); },
+      quote: function () { mdLine("> "); },
+      ul: function () { mdLine("- "); },
+      ol: function () { mdLine("1. "); },
+      code: function () { mdWrap("```\n", "\n```", "代码"); },
+      link: function () { mdWrap("[", "](https://)", "链接文字"); },
+      table: function () {
+        mdWrap("\n| 列1 | 列2 |\n| --- | --- |\n| 内容 | 内容 |\n", "", "表格");
+      },
+      img: function () { var b = document.getElementById("upload-btn"); if (b) b.click(); }
+    };
+    form.querySelectorAll("[data-cmd]").forEach(function (b) {
+      b.addEventListener("click", function () { var f = CMD[b.getAttribute("data-cmd")]; if (f) f(); });
+    });
 
-      function snapshot() {
-        var d = {};
-        fields.forEach(function (f) {
-          var el = form.querySelector('[name="' + f + '"]');
-          if (el) d[f] = el.value;
+    /* ---------- 分栏 / 仅编辑 / 仅预览 ---------- */
+    var stage = document.getElementById("md-stage");
+    document.getElementById("md-view-switch").querySelectorAll("button").forEach(function (b) {
+      b.addEventListener("click", function () {
+        var v = b.getAttribute("data-view");
+        stage.className = "md-stage view-" + v;
+        document.querySelectorAll("#md-view-switch button").forEach(function (x) {
+          x.classList.toggle("active", x === b);
         });
-        var cat = form.querySelector('[name="category_id"]');
-        var ser = form.querySelector('[name="series_id"]');
-        if (cat) d.category_id = cat.value;
-        if (ser) d.series_id = ser.value;
-        return d;
+        if (v !== "edit" && previewPane && previewPane.getAttribute("data-state") !== "done" && !ta.value) { }
+        if (v !== "edit") doPreview();
+      });
+    });
+
+    /* ---------- 快捷键：Ctrl+S 保存 / Ctrl+B 粗体 / Ctrl+K 链接 ---------- */
+    document.addEventListener("keydown", function (e) {
+      if (!(e.ctrlKey || e.metaKey)) return;
+      var k = e.key.toLowerCase();
+      if (k === "s") {
+        e.preventDefault();
+        if (ta.value.trim() && !(document.getElementById("f-title").value || "").trim()) {
+          alert("请先填写标题");
+          document.getElementById("f-title").focus();
+          return;
+        }
+        clearAutoTimers();
+        form.submit();
+      } else if (k === "b") {
+        e.preventDefault(); CMD.bold();
+      } else if (k === "k") {
+        e.preventDefault(); CMD.link();
       }
-      function restore() {
-        try {
-          var raw = localStorage.getItem(key);
-          if (!raw) return;
-          var d = JSON.parse(raw);
-          if (!d || !d.title) return;
-          fields.forEach(function (f) {
-            var el = form.querySelector('[name="' + f + '"]');
-            if (el && d[f] != null) el.value = d[f];
-          });
-          if (d.category_id) { var c = form.querySelector('[name="category_id"]'); if (c) c.value = d.category_id; }
-          if (d.series_id) { var s = form.querySelector('[name="series_id"]'); if (s) s.value = d.series_id; }
-          restored = true;
-          var bar = document.createElement("div");
-          bar.className = "draft-tip";
-          bar.style.cssText = "background:#fff8e6;color:#8a6d1a;border:1px solid #f3e2b8;padding:8px 12px;border-radius:8px;margin-bottom:14px;font-size:13px;";
-          bar.textContent = "📝 已恢复上次未保存的草稿，继续编辑或重新保存即可覆盖。";
-          form.insertBefore(bar, form.firstChild);
-        } catch (e) {}
-      }
-      function clearDraft() { try { localStorage.removeItem(key); } catch (e) {} }
+    });
 
-      // 进入页面先尝试恢复
-      restore();
+    /* ---------- 就地新建展开/收起 ---------- */
+    var catSel = document.getElementById("sel-category");
+    var serSel = document.getElementById("sel-series");
+    function clearNewFields() {
+      // 未处于「新建」态时，清空就地新建输入框，避免残留值被后端误建分类
+      var c = document.getElementById("new-category-name");
+      var s = document.getElementById("new-series-name");
+      if (catSel && catSel.value !== "__new__" && c) c.value = "";
+      if (serSel && serSel.value !== "__new__" && s) s.value = "";
+    }
+    function qcToggle(selId, qcId, inputId) {
+      var sel = document.getElementById(selId);
+      var qc = document.getElementById(qcId);
+      var inp = document.getElementById(inputId);
+      if (!sel || !qc || !inp) return;
+      sel.addEventListener("change", function () {
+        qc.style.display = sel.value === "__new__" ? "" : "none";
+        if (sel.value === "__new__") inp.focus();
+      });
+      document.querySelectorAll('[data-cancel="' + qcId + '"]').forEach(function (b) {
+        b.addEventListener("click", function () {
+          qc.style.display = "none";
+          sel.value = "";
+          inp.value = "";
+          sel.dispatchEvent(new Event("change", { bubbles: true }));
+        });
+      });
+    }
+    qcToggle("sel-category", "qc-category", "new-category-name");
+    qcToggle("sel-series", "qc-series", "new-series-name");
 
-      // 定时快照
-      var timer = setInterval(function () {
-        try {
-          var d = snapshot();
-          // 只有在有标题内容（用户真的写了东西）时才存
-          if (d.title && d.title.trim()) localStorage.setItem(key, JSON.stringify(d));
-        } catch (e) {}
-      }, 5000);
+    /* ---------- 立即发布 / 定时互斥 ---------- */
+    var chkP = document.getElementById("published-chk");
+    var dtS = document.getElementById("scheduled-at");
+    if (chkP && dtS) {
+      chkP.addEventListener("change", function () { if (chkP.checked) dtS.value = ""; });
+      dtS.addEventListener("change", function () { if (dtS.value) chkP.checked = false; });
+    }
 
-      // 提交成功即清除草稿（form 提交时拦截判断）
-      form.addEventListener("submit", function () { clearDraft(); if (timer) clearInterval(timer); });
-    })();
+    /* ---------- 新建文章：localStorage 本地草稿兜底（云端自动保存仅对已有文章） ---------- */
+    var locKey = "draft:llhhy:" + (postId || "new");
+    var savedLocally = false;
+    function snapLocal() {
+      if (postId > 0) return;      // 已有文章走云端，不再写本地
+      var t = (document.getElementById("f-title").value || "").trim();
+      if (!t) return;
+      var d = {
+        title: document.getElementById("f-title").value,
+        summary: document.getElementById("f-summary").value,
+        content: ta.value,
+        tags: document.getElementById("f-tags").value,
+        cover: document.getElementById("cover").value
+      };
+      try { localStorage.setItem(locKey, JSON.stringify(d)); savedLocally = true; } catch (e) {}
+    }
+    function restoreLocal() {
+      if (postId > 0) return;
+      var raw = null;
+      try { raw = localStorage.getItem(locKey); } catch (e) {}
+      if (!raw) return;
+      var d = JSON.parse(raw);
+      if (!d || !d.title) return;
+      document.getElementById("f-title").value = d.title || "";
+      document.getElementById("f-summary").value = d.summary || "";
+      ta.value = d.content || "";
+      document.getElementById("f-tags").value = d.tags || "";
+      document.getElementById("cover").value = d.cover || "";
+      var bar = document.createElement("div");
+      bar.className = "draft-tip";
+      bar.style.cssText = "background:#fff8e6;color:#8a6d1a;border:1px solid #f3e2b8;padding:8px 12px;border-radius:8px;margin-bottom:14px;font-size:13px;";
+      bar.textContent = "📝 已恢复上次未保存的新稿（本地草稿），可继续编辑或直接保存。";
+      form.insertBefore(bar, form.firstChild);
+      count(); doPreview();
+    }
+    function clearLocal() { try { localStorage.removeItem(locKey); } catch (e) {} }
+    var locTimer = null;
+    function scheduleLocal() {
+      if (postId > 0) return;
+      if (locTimer) clearTimeout(locTimer);
+      locTimer = setTimeout(snapLocal, 2500);
+    }
+    ta.addEventListener("input", scheduleLocal);
+    document.getElementById("f-title").addEventListener("input", scheduleLocal);
+
+    function clearAutoTimers() {
+      if (pvTimer) clearTimeout(pvTimer);
+      if (autoTimer) clearTimeout(autoTimer);
+      if (locTimer) clearTimeout(locTimer);
+      clearLocal();
+    }
+    window.addEventListener("beforeunload", function () { if (postId > 0) doAuto(); else snapLocal(); });
+
+    /* ---------- 预览链接复制 ---------- */
+    var pvBtn = document.getElementById("preview-link-btn");
+    if (pvBtn) {
+      var pvUrl = location.origin + "{{ url_for('admin.preview_post', token=preview_token) if preview_token else '' }}";
+      pvBtn.addEventListener("click", function () {
+        var done = function () { pvBtn.textContent = "✅ 已复制，24 小时内可分享"; setTimeout(function () { pvBtn.textContent = "🔗 复制未发布预览链接"; }, 2500); };
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(pvUrl).then(done, function () { fallbackCopy(); });
+        } else { fallbackCopy(); }
+        function fallbackCopy() {
+          var i = document.createElement("input");
+          i.value = pvUrl; document.body.appendChild(i);
+          i.select(); try { document.execCommand("copy"); done(); } catch (e) { prompt("复制预览链接：", pvUrl); }
+          document.body.removeChild(i);
+        }
+      });
+    }
+
+    /* ---------- 提交：清空本地草稿与挂起计时器 ---------- */
+    form.addEventListener("submit", function () {
+      clearNewFields();
+      clearAutoTimers();
+    });
+
+    restoreLocal();
+    count();
+    if (previewPane && ta.value.trim()) schedulePreview();
+    if (postId <= 0 && savedLocally === false) setAuto("新建文章：点「保存」一次后开启云端自动保存");
+  })();
   </script>
 {% endblock %}

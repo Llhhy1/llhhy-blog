@@ -1,0 +1,97 @@
+{% extends "admin/base.html" %}
+{% block title %}媒体库{% endblock %}
+{% block content %}
+  <h1 class="page-title">🖼️ 媒体库（{{ items | length }}）</h1>
+  <div class="admin-actions">
+    <button type="button" class="btn" id="media-upload-btn">📤 上传图片</button>
+    <input type="file" id="media-file-input" accept="image/*" hidden>
+    <span class="hint" style="align-self:center;">上传成功自动刷新列表；图片用于正文/封面。</span>
+  </div>
+
+  <div class="panel">
+    {% if items %}
+    <div class="media-grid">
+      {% for it in items %}
+        <div class="media-card" data-name="{{ it.name }}">
+          <div class="media-thumb">
+            <img src="{{ it.url }}" alt="{{ it.name }}" loading="lazy">
+          </div>
+          <div class="media-info">
+            <div class="media-name" title="{{ it.name }}">{{ it.name }}</div>
+            <div class="media-meta">
+              {% if it.time_str %}{{ it.time_str }} · {% endif %}{{ (it.size / 1024) | round(1) }} KB
+            </div>
+            {% if it.refs %}
+              <div class="media-refs">
+                {% for r in it.refs %}
+                  <a href="{{ url_for('admin.edit_post', post_id=r.id) }}" title="{{ r.title }}">{{ '封面' if r.kind == '封面' else '正文' }}</a>{% if not loop.last %}, {% endif %}
+                {% endfor %}
+                {% if it.ref_total > it.refs | length %}等 {{ it.ref_total }} 处{% endif %}
+              </div>
+            {% endif %}
+          </div>
+          <div class="media-actions">
+            <button type="button" class="link-btn copy-url">复制 URL</button>
+            <form method="post" action="{{ url_for('admin.delete_media') }}" class="inline-form del-media" style="display:inline;">
+                  {{ csrf_input() }}
+              <input type="hidden" name="name" value="{{ it.name }}">
+              <button type="submit" class="link-danger">删除</button>
+            </form>
+          </div>
+        </div>
+      {% endfor %}
+    </div>
+    {% else %}
+      <p class="muted">还没有图片。点右上角「上传图片」，或在写文章时用「📷 插入图片」。</p>
+    {% endif %}
+  </div>
+
+  <script>
+  (function () {
+    var btn = document.getElementById("media-upload-btn");
+    var input = document.getElementById("media-file-input");
+    if (btn && input) {
+      btn.addEventListener("click", function () { input.click(); });
+      input.addEventListener("change", async function () {
+        var file = input.files[0];
+        if (!file) return;
+        var fd = new FormData();
+        fd.append("file", file);
+        var tok = (document.querySelector('input[name="csrf_token"]') || {}).value || '{{ csrf_token }}' || "";
+        if (!tok) {
+          try { var tr = await fetch("/api/csrf"); tok = ((await tr.json()) || {}).csrf_token || ""; } catch (e) {}
+        }
+        if (tok) fd.append("csrf_token", tok);
+        try {
+          var resp = await fetch("/admin/upload", { method: "POST", body: fd });
+          var d = await resp.json();
+          if (d.error) { alert(d.error); return; }
+          location.reload();
+        } catch (e) { alert("上传失败，请重试"); }
+      });
+    }
+    document.querySelectorAll(".copy-url").forEach(function (b) {
+      b.addEventListener("click", function () {
+        var name = b.closest(".media-card").getAttribute("data-name");
+        var url = location.origin + "/static/uploads/" + encodeURIComponent(name);
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(url).then(function () {
+            b.textContent = "已复制 ✓";
+            setTimeout(function () { b.textContent = "复制 URL"; }, 1800);
+          });
+        } else {
+          var i = document.createElement("input"); i.value = url; document.body.appendChild(i);
+          i.select(); document.execCommand("copy"); document.body.removeChild(i);
+          b.textContent = "已复制 ✓"; setTimeout(function () { b.textContent = "复制 URL"; }, 1800);
+        }
+      });
+    });
+    document.querySelectorAll(".del-media").forEach(function (f) {
+      f.addEventListener("submit", function (e) {
+        var name = f.querySelector('input[name="name"]').value;
+        if (!confirm("确定删除文件 " + name + " ？删除后引用它的图片将无法显示。")) e.preventDefault();
+      });
+    });
+  })();
+  </script>
+{% endblock %}

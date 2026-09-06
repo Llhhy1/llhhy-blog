@@ -2,7 +2,7 @@
 {% block title %}系列管理{% endblock %}
 {% block content %}
   <h1 class="page-title">系列 / 专栏管理</h1>
-  <p class="hint">把多篇文章归到一个系列，前台会显示专栏页与上下篇导航。</p>
+  <p class="hint">把多篇文章归到一个系列，前台会显示专栏页与上下篇导航。改名后 URL（slug）自动重算并保持唯一。</p>
   <form method="post" action="{{ url_for('admin.manage_series') }}" class="link-form">
         {{ csrf_input() }}
     <input type="text" name="name" placeholder="系列名称" required>
@@ -15,14 +15,31 @@
     <thead><tr><th>名称</th><th>简介</th><th>文章数</th><th>操作</th></tr></thead>
     <tbody>
       {% for s in series %}
-        <tr>
-          <td>{{ s.name }}</td>
+        <tr class="series-row">
+          <td><b>{{ s.name }}</b><br><span class="muted">/{{ s.slug }}</span></td>
           <td>{{ s.description or '' }}</td>
-          <td>{{ s.posts.filter_by(published=True).count() }}</td>
-          <td>
+          <td>{{ s.posts.filter_by(in_trash=False).count() }}</td>
+          <td class="row-ops">
+            <button type="button" class="link-btn" data-edit-row="edit-{{ s.id }}">✏️ 编辑</button>
             <form method="post" action="{{ url_for('admin.delete_series', sid=s.id) }}" class="inline-form" onsubmit="return confirm('确定删除该系列？其下文章不会删除，仅解除关联。');">
                   {{ csrf_input() }}
               <button type="submit" class="link-danger">删除</button>
+            </form>
+          </td>
+        </tr>
+        <tr class="editor-row" id="edit-{{ s.id }}" style="display:none;">
+          <td colspan="4" class="row-editor-cell">
+            <form method="post" action="{{ url_for('admin.rename_series', sid=s.id) }}" class="editor-form editor-form-grid">
+                  {{ csrf_input() }}
+              <span class="qc-label">名称（slug 自动重算）</span>
+              <input type="text" name="name" value="{{ s.name }}" required>
+              <span class="qc-label">简介</span>
+              <input type="text" name="description" value="{{ s.description or '' }}">
+              <span class="qc-label">封面 URL</span>
+              <input type="text" name="cover" value="{{ s.cover or '' }}" placeholder="https://…">
+              <span class="qc-label">排序</span>
+              <input type="number" name="sort" value="{{ s.sort or 0 }}" title="越小越靠前">
+              <button type="submit" class="btn small">保存</button>
             </form>
           </td>
         </tr>
@@ -31,4 +48,16 @@
       {% endfor %}
     </tbody>
   </table>
+
+  <script>
+  (function () {
+    document.querySelectorAll("[data-edit-row]").forEach(function (b) {
+      b.addEventListener("click", function () {
+        var r = document.getElementById(b.getAttribute("data-edit-row"));
+        if (!r) return;
+        r.style.display = r.style.display === "none" ? "" : "none";
+      });
+    });
+  })();
+  </script>
 {% endblock %}

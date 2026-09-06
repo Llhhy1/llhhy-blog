@@ -1,0 +1,42 @@
+{% extends "admin/base.html" %}
+{% block title %}版本对比{% endblock %}
+{% block content %}
+  <h1 class="page-title">版本对比：{{ post.title }}</h1>
+  <p class="stats-tip">
+    左侧「{{ base_ver.created_at | bj('%Y-%m-%d %H:%M') }}」的历史版本 vs 右侧当前内容。
+    红色为删除行、绿色为新增行，等值行只保留少量上下文。
+  </p>
+  <form method="get" action="{{ url_for('admin.post_diff', post_id=post.id) }}" class="filter-form" style="margin-bottom:14px;">
+    <label style="align-self:center;">对比版本</label>
+    <select name="a">
+      {% for v in versions %}
+        <option value="{{ v.id }}" {% if v.id == selected_a %}selected{% endif %}>{{ v.created_at | bj('%Y-%m-%d %H:%M') }}（{{ v.author or '—' }}）</option>
+      {% endfor %}
+    </select>
+    <button type="submit" class="btn">对比</button>
+    <a class="btn ghost" href="{{ url_for('admin.post_history', post_id=post.id) }}">← 返回版本列表</a>
+  </form>
+
+  {% if rows %}
+  <div class="diff-wrap">
+    {% for kind, old_line, new_line in rows %}
+      {% if kind == 'skip' %}
+        <div class="diff-skip">⋯ 中间内容相同，已省略 ⋯</div>
+      {% else %}
+        {% if kind == 'add' %}
+          <div class="diff-line diff-add"><span class="diff-mark">+</span><span>{{ new_line }}</span></div>
+        {% elif kind == 'del' %}
+          <div class="diff-line diff-del"><span class="diff-mark">−</span><span>{{ old_line }}</span></div>
+        {% else %}
+          <div class="diff-line diff-ctx"><span class="diff-mark"> </span><span>{{ old_line }}</span></div>
+        {% endif %}
+      {% endif %}
+    {% endfor %}
+  </div>
+  {% else %}
+    <p class="muted">两版内容一致，没有差异。</p>
+  {% endif %}
+  <p style="margin-top:14px;">
+    <a class="btn ghost small" href="{{ url_for('admin.edit_post', post_id=post.id) }}">← 返回编辑</a>
+  </p>
+{% endblock %}

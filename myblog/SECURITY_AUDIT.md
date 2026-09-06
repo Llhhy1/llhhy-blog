@@ -2368,3 +2368,38 @@ git diff 计 **70 增 / 70 删**，`tokens.css` 定义**未被改动**。
 **R63 结论**：**0 遗留**。本轮为纯健壮性修复，消除「应用运行后后台插件重载必 500」的故障；无任何新攻击面、无新环境变量、无 DB 变更。发版前 `APP_VERSION` 已改为 `3.13.1`（与 Release tag 一致）。
 
 **部署注意**：**纯后端改动，前端产物无变化**（`vue-frontend/` 未动）。覆盖 `myblog-backend.zip` 后 gunicorn「停止 → 启动」即生效；**无 DB 迁移**，无需任何 `flask db` 命令；无新增环境变量。
+
+---
+
+## 第六十四轮 R64（v3.14.0 · 写作面板升级 + 文章管理强化 + 媒体库/版本对比/草稿预览）
+
+**背景**：写作面板全面升级 + 后台文章管理独立成页 + 就地新建分类/系列 + 媒体库 + 版本逐行对比 + 未发布稿免登录预览。同时修复一处 **stock bug**：`admin/_helpers.py` 自 v3.11.0 切片后遗失 `_MAGIC_PATTERNS`（图片魔数表），导致后台任何图片上传（`/admin/upload`）都 500。本轮 16 文件全部位于 `myblog/` 包内，**`vue-frontend/` 未动**（纯后端交付）。
+
+### 变更范围
+
+| 文件 | 改动 | 交付方式 |
+|------|------|----------|
+| `myblog/admin/posts.py` | `new_post`/`edit_post` 支持就地建分类/系列（`_ensure_category_by_name`/`_ensure_series_by_name`）；`my_posts` 升级为全站文章管理（管理员看全站、筛选/排序/分页）；新增 `/posts/bulk`、`/post/<id>/autosave`、`/md-preview`、`/post/<id>/history/diff`、`/preview/<token>`、`rename_series`；`delete_category` 支持 `move_to` 先转移后删 | 后端包 |
+| `myblog/admin/misc.py` | `categories` POST slug 用 `unique_model_slug` + 同名拦截；新增 `rename_category` | 后端包 |
+| `myblog/admin/media.py` | 新增 `GET /admin/media`（媒体库）+ `POST /admin/media/delete`（路径穿越防护）；`/upload` 引用的魔数表随 `_helpers.py` 修复恢复可用 | 后端包 |
+| `myblog/admin/_helpers.py` | **补回 `_MAGIC_PATTERNS`**（png/jpg/gif/webp 魔数表）；新增 `unique_model_slug`（通用 slug 唯一化，Category/Series/Tag 用） | 后端包 |
+| `myblog/config.py` | `APP_VERSION = "3.14.0"` | 后端包 |
+| `myblog/templates/admin/*`（7 个）+ `admin.css` + `script.js` + `base.html` | 写作面板（工具栏/分屏预览/快捷键/就地新建）、文章管理（筛选/批量）、媒体库页、版本对比页、草稿预览页（noindex）、导航加「文章管理/媒体库」 | 后端包（模板/静态随包） |
+
+### 九维审计
+
+| 编号 | 维度 | 审计点 | 结论 |
+|------|------|--------|------|
+| R64-1 | XSS | 新增三处「HTML 输出」逐一核对：① `/admin/md-preview` 只返回 `utils.render_markdown`（markdown → bleach `clean_html` 白名单）清洗结果，前端 `previewPane.innerHTML = html` 仅接收该产物（编辑者本人输入、同权限、不落库）；② `/preview/<token>` 正文经 `render_post_html`（同一清洗管线 + content_hash 缓存），`{{ content_html\|safe }}` 只套服务端清洗后 HTML，`title`/`summary` 等用户字段仍走 `{{ }}` 自动转义，页面带 `noindex,nofollow`；③ 版本对比 `post_diff.html` 把正文原文行放 `<span>{{ line }}</span>` 自动转义、无 `|safe`。全部新模板无 `|safe` 用户内容、无 `eval`/`new Function`/`javascript:` 链接；媒体库复制 URL 用 `encodeURIComponent(name)`；JS 一律 `textContent`/`value` 赋值。 | ✅ 无 XSS |
+| R64-2 | SQL 注入 | 新查询全部 ORM 参数化：`filter_by` / `ilike(绑定 %q%)` / `Post.id.in_(ids)`（ids 先 `isdigit()` 过滤再 int）；排序列走 `col_map` 白名单（未命中回落 `created_at`）+ 方向三元；批量转移目标 `value` 必须 `isdigit`；无 `text()` / 字符串拼接 SQL。 | ✅ 无注入 |
+| R64-3 | 越权 | 文章系新端点（`autosave`/`bulk`/`diff`/`history`）沿用 `_can_edit_post`（管理员全站、普通用户仅本人）；`bulk_posts` 对非管理员在查询后逐个回查 `author_id`；分类/系列 rename/delete、媒体库 GET+delete 均 `@admin_required`；`delete_media` 参数 `os.path.basename` + `abspath` 前缀双重防路径穿越；`preview/<token>` 免登录但 HMAC 签名（SECRET_KEY）+ 24h 过期 + 仅「未发布且非私密且非回收站」签发、已发布/私密/回收站一律 404，token 不可伪造、不可枚举。 | ✅ 无越权 |
+| R64-4 | SSRF | 本轮无任何服务端出站请求：预览/上传/媒体库仅处理本地文本与本站静态 URL。 | ✅ 无 SSRF |
+| R64-5 | CSRF | 新端点均为浏览器会话型 POST，落在全局 `enforce_same_origin`（Origin 同源）+ `_csrf_protect`（Token 双重）覆盖内，豁免清单（webhook/captcha/匿名统计信标/mcp）**未新增任何条目**；`autosave`/`md-preview` 的 fetch 均带 `X-CSRF-Token` 头（取隐藏 `csrf_token`），批量/删除/改名等表单均含 `csrf_input()`。 | ✅ 无缺口 |
+| R64-6 | 密钥泄露 | 预览签名密钥取自 `SECRET_KEY`（HMAC-SHA256，摘要截 20 hex 控制 token 长度），签名不入库、不写日志；预览链接仅回显给作者本人的编辑页；无新环境变量、无硬编码凭据。 | ✅ 无泄露 |
+| R64-7 | 资源泄漏 | `upload` 修复路径 `stream.read(16)` + `seek(0)` 后 `file.save`（句柄归 Flask 管）；`media_lib` 的 `os.listdir`/`os.stat` 异常 `continue` 兜底；`delete_media` 的 `os.remove` 异常捕获后 flash；无新增 subprocess/长连接。 | ✅ 无泄漏 |
+| R64-8 | 限流 / DoS | 新写接口均登录 + CSRF 闸门，与既有 admin POST 同口径（`autosave` 仅对已具编辑权限的本人文章，等价于手动保存，无放大）；`md_preview` 渲染纯本地文本（与公开站正文渲染同量级）；`media_lib` 引用扫描为 O(文件数 × 文章数) 子串统计——仅管理员页面级触发、无外部触发面，量级可控；预览校验 O(1)（HMAC 不符即 404）。 | ✅ 无风险 |
+| R64-9 | 回归 | `py_compile` 通过；隔离临时库全量 pytest **65 passed**（`tests/` 限定，2026-09-07 复核）；开发期 13 项端到端冒烟场景全绿（含上传魔数、就地建分类/系列 slug 唯一、批量发布、预览令牌过期/404、diff 边界，脚本已按纪律零删除）；`backend/`(v4) 与 `v5/` 未触碰。 | ✅ 无回归 |
+
+**R64 结论**：**0 遗留**。新增面全部收在「登录 + CSRF + 角色/归属校验」既有闸门内；免登录预览是唯一新暴露点，由 HMAC + 24h + 状态白名单三重约束，且输出走既有 bleach 清洗管线；顺带修复的 `/admin/upload` 500 属功能故障（v3.11.0 切片遗留），修复本身恢复 v3.1.6 的魔数校验原貌，无安全面变化。发版前 `APP_VERSION` 已改为 `3.14.0`（与 Release tag 一致）。
+
+**部署注意**：**纯后端改动，前端产物无变化**（`vue-frontend/` 未动）——本轮全部代码在 `myblog/` 包内（视图 / 后台模板 / `admin.css` / `script.js`）。覆盖 `myblog-backend.zip` 后 gunicorn「停止 → 启动」即生效；**无 DB 迁移**，无需任何 `flask db` 命令；无新增环境变量、无新 Nginx 配置。验证：后台左下角版本号 = v3.14.0；左侧出现「📄 文章管理」（原「我的文章」升级为全站管理）与「🖼️ 媒体库」；「写新文章」可见工具栏与分屏预览；编辑未发布草稿可「🔗 复制未发布预览链接」。后台静态资源已带版本参数（`admin_css_v` / `script.js?v=`）自动破缓存，必要时硬刷新一次。

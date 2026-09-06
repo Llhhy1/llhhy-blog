@@ -17,6 +17,23 @@
   2. 「发布出问题立即回滚、不硬扛」的决断力是对的，保持；
   3. FastAPI 迁移评估结论不变（SQLite 上 async 比 sync 慢 1.25–1.27x，维持 Flask 栈）。
 
+## v3.14.0（2026-09-07 · 写作面板升级 + 文章管理独立页 + 媒体库 + 版本对比 + 草稿预览）
+
+- **写作面板重做（`edit_post.html` 全量重写 + `admin/posts.py`）**：
+  - Markdown 工具栏（加粗 / 斜体 / H2 / H3 / 引用 / 无序·有序列表 / 代码块 / 表格 / 链接 / 插图），插入走 `textarea` 选区操作不破坏手写内容；
+  - 视图切换「编辑 / 分屏 / 预览」三态；实时预览 400ms 防抖走后端 `/admin/md-preview`——与前台**同一渲染管线**（`utils.render_markdown` → bleach 白名单），所见即所得；
+  - 快捷键 `Ctrl+S` 保存 / `Ctrl+B` 加粗 / `Ctrl+K` 插链接；
+  - **云端自动保存**：`POST /admin/post/<id>/autosave`（4s 防抖，仅内容类字段：标题/正文/摘要/封面/分类/系列/标签/SEO——不记版本历史、不触发发布与推送，避免悄悄执行用户没勾选的动作）；
+  - 未发布稿一键「🔗 复制免登录预览链接」：`/admin/preview/<token>`，HMAC（SECRET_KEY）签名 + 24h 过期，仅对「未发布 + 非私密 + 非回收站」签发，其余 404，页面 `noindex,nofollow`。
+- **「📄 文章管理」独立成页（`my_posts` 重写）**：管理员看全站（普通用户仅自己的）；关键词 / 状态 / 分类 / 系列四维筛选 + 创建·更新·阅读·字数·标题多列排序 + 分页；**批量操作** `/admin/posts/bulk`（发布 / 转草稿 / 移入分类 / 移入系列 / 移回收站，权限沿用单篇规则；批量发布刻意不触发订阅推送，避免一次几十封打扰）。
+- **就地新建分类 / 系列**：写作页下拉选「＋新建…」即出现输入框，随保存/自动保存一起提交（`_ensure_category_by_name` / `_ensure_series_by_name`，同名自动复用、slug 走 `unique_model_slug` 全局唯一），**不需要退出编辑页**。
+- **「🖼️ 媒体库」（`admin/media.py`）**：`GET /admin/media` 浏览 `static/uploads`（时间倒序、标注大小 / 上传时间 / 疑似引用的文章，删前提醒）；`POST /admin/media/delete` 删除（`basename` + `abspath` 前缀防路径穿越，仅管理员）。
+- **版本历史逐行对比**：`/admin/post/<id>/history/diff? a=<版本id>`，difflib 生成增删行 + 少量上下文，避免长文整页刷屏。
+- **分类 / 系列管理增强**：`rename_category` / `rename_series`（改名 slug 自动重算并保持唯一，分类撞名拦截并提示「用删除转移做合并」）；分类删除支持「把文章转移到另一分类」后再删（`move_to`，转移循环后 `flush()` 防 SQLAlchemy 把子外键置 NULL）。
+- **修复 stock bug（图片上传必 500）**：`admin/_helpers.py` 自 v3.11.0 由单文件 `admin.py` 切片后**遗失 `_MAGIC_PATTERNS`（图片魔数表）**，`_detect_image_magic` 引用未定义名 → 后台任何图片上传都 500。本轮补回 png/jpg/gif/webp 魔数表，恢复 v3.1.6 魔数校验原貌。
+- **测试 / 验证**：`py_compile` 通过；隔离临时库全量 pytest **65 passed**（无新增测试文件，基线复核）；开发期 13 项端到端冒烟场景全绿（上传魔数、就地建分类/系列 slug 唯一、批量发布/转草稿、预览令牌过期与状态 404、diff 边界，脚本已按纪律零删除）。R64 九维审计 **0 遗留**（详见 `myblog/SECURITY_AUDIT.md` 第六十四轮）。
+- **部署注意**：**纯后端改动，前端产物无变化**（`vue-frontend/` 未动）——全部代码在 `myblog/` 包内（视图 / 后台模板 / `admin.css` / `script.js`）。覆盖 `myblog-backend.zip` 后「停止 → 启动」gunicorn；**无 DB 迁移**，无需 `flask db`；无新增环境变量、无新 Nginx 配置。验证：后台左下角 v3.14.0；左侧出现「📄 文章管理」「🖼️ 媒体库」；编辑未发布草稿可见「复制未发布预览链接」。后台静态已带版本参数自动破缓存，必要时硬刷新一次。APP_VERSION 已升 v3.14.0。
+
 ## v3.13.1（2026-09-06 · 插件重载崩溃修复）
 
 - **修复**：后台「🧩 插件管理 → 重载」按钮（`POST /api/plugins/reload`）在**应用已处理过至少一个请求后**点击，会抛 `AssertionError: The setup method 'register_blueprint' can no longer be called on the application. It has already handled its first request`，导致该接口直接 500（v3.13.0 及之前均存在）。

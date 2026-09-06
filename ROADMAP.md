@@ -797,3 +797,17 @@ v3.1.7 修复 CSRF 隐藏域乱码后，用户反馈「退出登录按钮失效�
 - **修复**（`myblog/plugins/__init__.py`）：`load_plugins` 的 `plugins_sys` 注册改**幂等 + 崩溃安全**（仅在 `app.blueprints` 缺失时补注册；即便运行时缺失也吞掉 `AssertionError` 跳过，路由级变更本就需重启 gunicorn，符合「不热加载」红线）；`_unregister_blueprints(slug=None)` 整体重载**跳过 `"__sys__"` 键**，系统蓝图常驻，`/api/plugins` 自身不 404。
 - **验证**：新增 `tests/test_plugin_system.py::test_reload_after_first_request_does_not_crash`（模拟 `_got_first_request=True` 后 `reload_plugins` / 重复 `load_plugins` 均不崩溃、系统蓝图常驻、`/api/plugins` 仍可访问）；全量 pytest **65 passed**（64 + 1）。R63 九维审计 **0 遗留**（详见 `myblog/SECURITY_AUDIT.md` 第六十三轮）。
 - **部署注意**：**纯后端改动，前端产物无变化**（`vue-frontend/` 未动）。覆盖 `myblog-backend.zip` 后「停止 → 启动」gunicorn；**无 DB 迁移**，无需任何 `flask db` 命令；无新增环境变量。APP_VERSION 升为 v3.13.1。
+
+## 67. v3.14.0：写作面板升级 + 文章管理独立页 + 媒体库 + 版本对比 + 草稿预览（R64 审计通过）
+
+- **背景**：后台写作面板此前只是单 `<textarea>` + 一排裸输入框（「过于简陋」反馈），且「我的文章」页对管理员实际为空（旧逻辑按 `author_id=user.id` 过滤，管理员 author_id 为空 → 空列表）；发布时想用的分类/系列若不存在得先退出编辑页去管理页建。本轮把写作与文章管理一次性做完整。
+- **写作面板（`edit_post.html` 重写 + 后端 `/admin/md-preview` / `/admin/post/<id>/autosave`）**：Markdown 工具栏；编辑/分屏/预览三态（预览走后端同一 `render_markdown`→bleach 清洗管线，400ms 防抖）；`Ctrl+S/B/K`；云端自动保存（4s 防抖、只写内容类字段、不记历史不触发推送）；草稿一键复制**免登录预览链接**（HMAC + 24h，见下）。
+- **文章管理独立页（`my_posts` 重写 + `/admin/posts/bulk`）**：管理员全站 / 普通用户仅本人；关键词·状态·分类·系列筛选、多列排序、分页；批量发布 / 转草稿 / 移分类·系列 / 移回收站（权限复用单篇规则；批量发布不触发订阅群发防打扰）。
+- **就地新建分类/系列**：编辑页下拉选「＋新建…」内联输入，随保存/自动保存提交（同名复用；slug 用新增的 `unique_model_slug` 保持全局唯一），不退出页面。
+- **媒体库（`admin/media.py`）**：浏览 / 复制 URL / 删除上传图；每张图标注大小、时间与「疑似引用它的文章」（删前提醒）；删除仅管理员 + `basename`/`abspath` 防路径穿越。
+- **版本对比**：历史列表每版加「对比当前」，difflib 逐行 diff（增删行 + 少量上下文）。
+- **分类/系列管理**：支持改名（slug 自动重算唯一、撞名保护）；分类删除可「转移文章到…」后删（`move_to` + 转移后 `flush()`）。
+- **草稿免登录预览设计（安全要点）**：`/admin/preview/<token>` 无登录态（给朋友先睹为快），但 token = `post_id:exp:HMAC`（SECRET_KEY + 24h）；仅「未发布 + 非私密 + 非回收站」签发；已发布/私密/回收站一律 404；正文走既有 `render_post_html` bleach 清洗管线输出。
+- **顺带修复**：补回 v3.11.0 切片遗失的 `_MAGIC_PATTERNS` 魔数表 → 后台图片上传不再必 500（恢复 v3.1.6 魔数校验原貌）。
+- **验证**：`py_compile` 通过；全量 pytest **65 passed**（基线复核）；13 项端到端冒烟全绿（脚本已按纪律零删除）。R64 九维审计 **0 遗留**（详见 `myblog/SECURITY_AUDIT.md` 第六十四轮）。
+- **部署注意**：**纯后端改动，前端产物无变化**（`vue-frontend/` 未动）。覆盖 `myblog-backend.zip` 后「停止 → 启动」gunicorn；**无 DB 迁移**，无需任何 `flask db` 命令；无新增环境变量、无新 Nginx 配置。APP_VERSION 升为 v3.14.0。

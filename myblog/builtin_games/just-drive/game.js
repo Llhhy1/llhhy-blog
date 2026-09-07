@@ -221,14 +221,17 @@
 
   // ---------- 对向车 ----------
   function spawnCar() { if (S.phase !== "play") return;
-    var dens = 1 + Math.min(1.1, S.sec / 900) + Math.min(.5, S.dist / 120);
-    if (Math.random() > dens * .11) return;
-    cars.push({ a: VIEW_KM * (.2 + Math.random() * .8), lat: (Math.random() - .5) * 1.75,
+    var dens = 0.34 + Math.min(.9, S.sec / 700) + Math.min(.55, S.dist / 90);
+    if (Math.random() > dens * .26) return;
+    var lane = (Math.random() - .5) * 1.75;
+    // 前方很近且正好堵在同一条道上时，让一点位置（避免“贴脸生成”无解局）
+    if (Math.abs(lane - S.lat) < .5) lane += (lane > 0 ? -1 : 1) * (0.6 + Math.random() * .8);
+    cars.push({ a: VIEW_KM * (.3 + Math.random() * .9), lat: Math.max(-1.7, Math.min(1.7, lane)),
                 passed: false, w: .9, l: 1.8,
                 col: Math.random() < .5 ? "#4fd2ff" : "#ff6b9d" });
   }
   function drawCars(dt) {
-    var closure = (S.spd + 88 + Math.random() * 46) / 3600;
+    var closure = (S.spd * 0.3 + 22 + Math.random() * 28) / 3600;
     for (var i = cars.length - 1; i >= 0; i--) {
       var c = cars[i]; c.a -= closure * dt;
       if (c.a <= .02) { cars.splice(i, 1); continue; }

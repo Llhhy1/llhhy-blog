@@ -2437,3 +2437,15 @@ git diff 计 **70 增 / 70 删**，`tokens.css` 定义**未被改动**。
 **R65 结论**：**0 遗留**。核心新增面（游戏平台）的安全不是「靠信任上传内容」，而是三层隔离：①静态扫描辅助防线；②沙箱化托管（iframe sandbox 无 same-origin + CSP `connect-src 'none'` + nosniff，游戏拿不到本站 Cookie/登录态、不可读父页、不可外联）；③仅站长后台收录 + approved 门禁 + （可选）LLM 审计。已知启发式误报 2 条（后台可见），不阻断上架。
 
 **部署注意**：本次**前后端都有变化**。① 后端：覆盖 `myblog-backend.zip` 后「停止 → 启动」gunicorn；**新表 `game` 由启动时 `create_all` 自愈创建**（不依赖 `flask db`）；无新增环境变量；② 内置游戏：在站点目录执行 `python tools/seed_games.py` 一键收录两枚官方游戏（或走后台手动上传）；③ 前端：覆盖 `vue-frontend-dist.zip` 并硬刷新（新增 /games 等路由依赖 index.html 新产物）；④ 验证：后台左下角 v3.15.0、侧栏「🎮 游戏收录」、前台「🎮 游戏」出现两枚游戏卡、`/games/dev` 可开。APP_VERSION 已改为 3.15.0（与 Release tag 一致）。
+
+---
+
+## 第六十六轮 R66（v3.15.1 · 响应式基座 / 分享卡片收尾 / 游戏调整）
+
+**范围**：`vue-frontend/`（新增 responsive.css、main.js 引入、PostView OG 绝对化）、后台 `base.html` 内联基座、撤下内置《就是开车》。
+
+- R66-1 XSS：后台内联样式为静态 CSS 无用户输入；前台新增规则纯样式；游戏撤下无新代码面。✅
+- R66-2 注入/越权/SSRF/CSRF/密钥/泄漏/限流：本轮无后端逻辑新增（仅模板样式 + 前端 CSS/OG），无新端点、无新凭据、无出站请求。✅
+- R66-3 回归：前端 `vite build` 通过；后端 compileall 通过；全量 pytest 74 passed；`backend/`(v4)、`v5/` 未触碰。✅
+
+**R66 结论**：0 遗留。UI/OG 改动不触碰数据面与权限面。部署：后端包（含 admin base.html）+ 前端包都覆盖；`game` 表仅保留《就是按一下》（撤车走目录与行删除）。

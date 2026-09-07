@@ -59,7 +59,21 @@
         </div>
 
         <div class="share-row">
-          <button class="share-btn" type="button" @click="sharePost">🔗 分享</button>
+          <button class="share-btn" type="button" @click="shareTip ? closeTip() : openShare()">📤 分享到…</button>
+          <div v-if="shareOpen" class="share-panel">
+            <p class="share-panel-title">分享「{{ (post.title || '').slice(0, 30) }}」</p>
+            <div class="share-grid">
+              <button class="share-item" type="button" @click="sharePost">🔗 复制链接</button>
+              <a class="share-item" :href="shareUrl('weibo')" target="_blank" rel="noopener">🅾️ 微博</a>
+              <a class="share-item" :href="shareUrl('qq')" target="_blank" rel="noopener">🐧 QQ</a>
+              <button class="share-item" type="button" @click="sharePost">💬 微信（复制后去微信粘贴）</button>
+              <a class="share-item" :href="shareUrl('x')" target="_blank" rel="noopener">𝕏 Twitter/X</a>
+              <a class="share-item" :href="shareUrl('telegram')" target="_blank" rel="noopener">✈️ Telegram</a>
+              <a class="share-item" :href="shareUrl('facebook')" target="_blank" rel="noopener">f Facebook</a>
+              <a class="share-item" :href="shareUrl('linkedin')" target="_blank" rel="noopener">in LinkedIn</a>
+            </div>
+            <p class="share-hint">微博/QQ/X/TG/FB/LinkedIn 会自动抓取文章卡片（标题/摘要/封面由服务端渲染）。</p>
+          </div>
           <span v-if="shareTip" class="share-tip">{{ shareTip }}</span>
         </div>
 
@@ -107,6 +121,7 @@ const bodyEl = ref(null);
 const tocItems = ref([]);
 const related = ref([]);
 const shareTip = ref("");
+const shareOpen = ref(false);
 const rewardQrDefault = ref("");
 
 async function load() {
@@ -193,8 +208,60 @@ function sharePost() {
   }
 }
 
+function openShare() {
+  shareOpen.value = !shareOpen.value;
+  shareTip.value = "";
+}
+function closeTip() { shareTip.value = ""; }
+
+function shareUrl(platform) {
+  const url = location.href;
+  const title = (post.value && post.value.title) || document.title;
+  const desc = (post.value && (post.value.seo_description || post.value.summary)) || "";
+  const u = encodeURIComponent(url);
+  const t = encodeURIComponent(title + (desc ? "：" + desc.slice(0, 80) : ""));
+  const map = {
+    weibo: `https://service.weibo.com/share/share.php?url=${u}&title=${t}`,
+    qq: `https://connect.qq.com/widget/shareqq/index.html?url=${u}&title=${t}&summary=${encodeURIComponent(desc.slice(0, 120))}`,
+    x: `https://twitter.com/intent/tweet?url=${u}&text=${t}`,
+    telegram: `https://t.me/share/url?url=${u}&text=${t}`,
+    facebook: `https://www.facebook.com/sharer/sharer.php?u=${u}`,
+    linkedin: `https://www.linkedin.com/sharing/share-offsite/?url=${u}`,
+  };
+  return map[platform] || u;
+}
+
 onMounted(() => {
   load();
 });
 watch(() => route.params.slug, () => { load(); });
 </script>
+
+<style scoped>
+.share-row {
+  position: relative;
+  display: flex; align-items: center; flex-wrap: wrap; gap: 8px;
+  margin-top: 18px;
+}
+.share-btn {
+  border: 1px solid #ddd; background: #fff; color: #333; cursor: pointer;
+  padding: 7px 14px; border-radius: 999px; font-size: 14px;
+}
+.share-tip { color: #2e7d32; font-size: 13px; }
+.share-panel {
+  position: absolute; left: 0; top: calc(100% + 8px); z-index: 30;
+  width: min(420px, 92vw);
+  background: var(--surface, #fff); border: 1px solid #e2e2e2;
+  border-radius: 14px; padding: 12px 14px;
+  box-shadow: 0 10px 30px rgba(20, 30, 60, .14);
+}
+.share-panel-title { margin: 0 0 10px; font-size: 13px; color: #666; }
+.share-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 8px; }
+.share-item {
+  display: block; text-align: center; text-decoration: none;
+  border: 1px solid #e5e5e5; background: #fafafa; color: #333;
+  border-radius: 10px; padding: 8px 6px; font-size: 13px; cursor: pointer;
+}
+.share-item:hover { border-color: var(--accent, #1a73e8); color: var(--accent, #1a73e8); }
+.share-hint { margin: 10px 0 0; font-size: 12px; color: #999; line-height: 1.6; }
+</style>

@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>就是开车 · Just Drive</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <canvas id="stage" aria-label="就是开车游戏画面"></canvas>
+
+  <div id="hud">
+    <span><b id="km">0.0</b> km</span>
+    <span id="clock">0:00</span>
+    <span><b id="near">0</b> 次惊险超车</span>
+    <button id="snd" type="button" aria-label="声音">🔊</button>
+  </div>
+
+  <p id="line">前方没有车，也没有人。路是真的长。</p>
+
+  <div id="overlay">
+    <h1>就是开车</h1>
+    <p>左右滑动（或 ← → 键）控车。<br />撞车不罚款、只减速，作者会在旁边嘲讽你。</p>
+    <label>你的 ID（用于大神榜）</label>
+    <input id="pid" maxlength="16" placeholder="比如：压路机驾驶员" />
+    <button id="m40" type="button">正式模式 · 孤独 40 分钟</button>
+    <button id="m1" type="button">试驾模式 · 1 分钟（体验用）</button>
+    <div id="board"></div>
+  </div>
+
+  <div id="final" class="hidden">
+    <h2>🏁 到……到了？</h2>
+    <p id="fscore"></p>
+    <p id="frank"></p>
+    <p id="mock">恭喜，你孤独地浪费了 X 分 Y 秒。前方没有出口，也没有人等你。</p>
+    <button id="again" type="button">再开一遍？我不信</button>
+  </div>
+  <script src="game.js"></script>
+</body>
+</html>

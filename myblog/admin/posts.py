@@ -641,7 +641,7 @@ def delete_category(cid):
 @admin_bp.route("/tags", methods=["GET", "POST"])
 @admin_required
 def tags():
-    from myblog.utils import normalize_tag_key
+    from utils import normalize_tag_key
     if request.method == "POST":
         action = (request.form.get("action") or "").strip()
         if action == "merge":

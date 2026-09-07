@@ -267,7 +267,7 @@ def _sync_tags(post, raw):
     - 单篇内同义重复只保留一次；新建时 slug 走唯一化，避免与既有标签撞 slug。
     0 使用标签由 cleanup_orphan_tags() 在提交后清理。
     """
-    from myblog.utils import normalize_tag_key, split_tag_input
+    from utils import normalize_tag_key, split_tag_input
     index = {}  # norm_key -> Tag（全表按归一化键索引，规模小直接全扫）
     for t in Tag.query.all():
         index.setdefault(normalize_tag_key(t.name), t)
@@ -311,7 +311,7 @@ def merge_duplicate_tags():
     按「使用文章最多优先」保留一行，其余行的文章改挂到保留行后删除重复行。
     返回合并删除的行数。历史遗留的 'AI'+'ai' 类重复调用一次即收敛。
     """
-    from myblog.utils import normalize_tag_key
+    from utils import normalize_tag_key
     by_key = {}
     for t in Tag.query.all():
         by_key.setdefault(normalize_tag_key(t.name), []).append(t)

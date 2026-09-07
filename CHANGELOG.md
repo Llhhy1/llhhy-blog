@@ -3,6 +3,14 @@
 > 本文件承载 **历史版本** 记录。README 只保留最新版本与上手信息。
 > 各版本的安全审计结论见 `myblog/SECURITY_AUDIT.md`；功能规划见 `ROADMAP.md`。
 
+## v3.15.2（2026-09-08 · 分享卡片 SSR / 社交分享面板 / 修复 / 新游戏）
+
+- **分享卡片 SSR**：新增 `GET /api/og/post/<slug>` 服务端渲染文章级 OG meta（title/摘要/封面/绝对 URL）；nginx 对爬虫/社交抓取 UA 访问 `/post/…` 自动分流到 SSR，真人仍走 SPA——微信/微博等外链卡片不再依赖前端 JS。
+- **社交分享面板**：文章页「📤 分享到…」聚合微博/QQ/微信(复制)/X/Telegram/Facebook/LinkedIn，链接统一携带文章卡片信息。
+- **修复**：后台「标签管理」500（`from myblog.utils` 错误包式导入 → 顶层 `from utils`）。
+- **新游戏**：《恐龙快跑 dino-run》（PR #2，ridd1ot 贡献）审计通过并入内置。
+- **收尾**：R67 审计 0 遗留；APP_VERSION → 3.15.2。
+
 ## v3.15.1（2026-09-07 · 响应式基座 / 分享卡片收尾 / 游戏调整）
 
 - **响应式基座重构**（根治移动端文章排版错乱/超模）：主布局 Grid `minmax(0,1fr)`、全站 `min-inline-size:0` 防溢出基线、流式 `clamp()` 字阶、媒体/宽表/长串全局兜底、`text-size-adjust`；后台同步结构级基座（表格滚动、容器 min-width、窄屏舒适化）。新增 `vue-frontend/src/styles/responsive.css`。

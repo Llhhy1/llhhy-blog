@@ -2449,3 +2449,12 @@ git diff 计 **70 增 / 70 删**，`tokens.css` 定义**未被改动**。
 - R66-3 回归：前端 `vite build` 通过；后端 compileall 通过；全量 pytest 74 passed；`backend/`(v4)、`v5/` 未触碰。✅
 
 **R66 结论**：0 遗留。UI/OG 改动不触碰数据面与权限面。部署：后端包（含 admin base.html）+ 前端包都覆盖；`game` 表仅保留《就是按一下》（撤车走目录与行删除）。
+
+---
+
+## 第六十七轮 R67（v3.15.2 · SSR 分享卡 / 分享面板 / 标签修复 / dino-run）
+
+- R67-1 XSS：`api/og.py` 全部输出经 `html.escape`，仅 whitelist 字段（title/desc/image/url）；不带 `|safe`、无脚本注入面；`X-Robots: noindex`。✅
+- R67-2 信息暴露：SSR 仅返回已发布文章；隐私/草稿/回收站不在此端点暴露。✅
+- R67-3 注入/越权/SSRF/CSRF/密钥：无新增写端点；分享面板纯前端 open；nginx 分流仅改写转发到本端 Flask 端点。✅
+- R67-4 回归：compileall/pytest 74 passed；前端 vite build 通过；第三方游戏 dino-run 静态扫描 100/0 并经人工 L1 审计。✅

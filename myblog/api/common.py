@@ -148,6 +148,7 @@ def _comment(c):
         "parent_id": c.parent_id or 0,   # 嵌套回复：父评论 id（0=顶层）
         "reply_to": c.reply_to or "",    # 被回复者昵称（@ 显示）
         "likes": c.likes or 0,           # 评论点赞数
+        "avatar": ("https://cn.cravatar.com/avatar/" + c.email_hash + "?d=mp&s=80") if c.email_hash else "",
     }
 
 

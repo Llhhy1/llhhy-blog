@@ -36,7 +36,7 @@
             {% if c.approved %}<span class="badge-ok">已通过</span>{% else %}<span class="badge-pending">待审核</span>{% endif %}
           </td>
           <td><a href="{{ url_for('main.post', slug=c.post.slug) }}">{{ c.post.title }}</a></td>
-          <td>{{ c.author }}</td>
+          <td>{% if c.email_hash %}<img src="https://cn.cravatar.com/avatar/{{ c.email_hash }}?d=mp&s=24" alt="" style="width:24px;height:24px;border-radius:50%;vertical-align:middle;margin-right:4px;">{% endif %}{{ c.author }}</td>
           <td>{{ c.content }}</td>
           <td>
             {% if c.region %}<span class="muted">📍 {{ c.region }}</span>{% endif %}

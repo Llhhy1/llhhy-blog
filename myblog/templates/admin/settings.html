@@ -74,6 +74,11 @@
       <span>评论需审核（开启后，新评论先标记为「待审核」，通过后才在前台显示；关闭则直接显示）</span>
     </label>
 
+    <label class="checkbox-row">
+      <input type="checkbox" name="comment_email_required" {{ 'checked' if (settings.comment_email_required or '')|lower == 'true' }}>
+      <span>评论邮箱必填（开启后访客评论必须填写邮箱；关闭则选填；邮箱仅用于获取头像，不会公开）</span>
+    </label>
+
     <label style="margin-top:24px;font-size:15px;color:var(--accent);">🛡️ v3.0.0 新增设置</label>
 
     <label>垃圾评论过滤关键词（功能2：英文逗号分隔，命中任一关键词的评论将被直接拒绝，如「代开发票, 办证, 赌博」；留空不过滤）</label>

@@ -5,7 +5,7 @@
 """
 from flask import request, jsonify, session, Response, current_app
 
-from .common import (api_bp, db, User, ROLE_USER, _current_user_or_none, _user_pub, _login_user, _login_delay, _csrf_token, rate_limit, client_key, log_login_attempt)
+from .common import (api_bp, db, User, Setting, ROLE_USER, _current_user_or_none, _user_pub, _login_user, _login_delay, _csrf_token, rate_limit, client_key, log_login_attempt)
 
 # ---------- 认证接口（注册 / 登录 / 登出 / 当前用户）----------
 @api_bp.route("/auth/register", methods=["POST"])
@@ -101,6 +101,14 @@ def captcha_config():
     """返回验证码配置快照（全局启用 / PIL 是否可用 / 各场景开关），供前端分场景显隐。"""
     from security import get_captcha_config
     return jsonify(get_captcha_config())
+
+
+@api_bp.route("/comment/config")
+def comment_config():
+    """v3.15.3 功能1：返回评论配置（邮箱是否必填），供前端动态显隐邮箱输入框的 required 属性。"""
+    row = Setting.query.filter_by(key="comment_email_required").first()
+    email_required = (row.value == "true") if row else False
+    return jsonify({"email_required": email_required})
 
 
 @api_bp.route("/captcha")

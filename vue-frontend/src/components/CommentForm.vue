@@ -6,7 +6,9 @@
     <!-- 顶层评论 + 其下回复 -->
     <div v-for="c in topComments" :key="c.id" class="comment-thread">
       <div class="comment">
-        <p class="comment-meta">{{ c.author }} · {{ (c.created_at || "").slice(0, 16) }}</p>
+        <p class="comment-meta">
+          <img v-if="c.avatar" :src="c.avatar" class="comment-avatar" alt="" />{{ c.author }} · {{ (c.created_at || "").slice(0, 16) }}
+        </p>
         <p class="comment-meta" v-if="c.region || c.device">
           <span v-if="c.region">📍 {{ c.region }}</span>
           <span v-if="c.device">{{ c.region ? " · " : "" }}{{ c.device }}</span>
@@ -18,6 +20,7 @@
       <div v-if="repliesOf(c.id).length" class="comment-replies">
         <div v-for="r in repliesOf(c.id)" :key="r.id" class="comment reply">
           <p class="comment-meta">
+            <img v-if="r.avatar" :src="r.avatar" class="comment-avatar" alt="" />
             {{ r.author }}
             <span v-if="r.reply_to" class="reply-to">回复 @{{ r.reply_to }}</span>
             · {{ (r.created_at || "").slice(0, 16) }}
@@ -44,6 +47,7 @@
         <button type="button" class="reply-cancel" @click="cancelReply">取消</button>
       </p>
       <input v-if="!state.user" type="text" v-model="author" placeholder="昵称（必填，2-20 字）" maxlength="20" required />
+      <input type="email" v-model="email" placeholder="邮箱（仅用于头像，不会公开）" maxlength="120" :required="emailRequired" />
       <textarea v-model="content" placeholder="说点什么…（必填，2-500 字）" maxlength="500" required></textarea>
       <!-- v3.1.6 可选增强：评论验证码 -->
       <div v-if="captchaEnabled" class="captcha-row">
@@ -65,6 +69,8 @@ import { state } from "../store.js";
 
 const props = defineProps({ slug: String, comments: { type: Array, default: () => [] } });
 const author = ref("");
+const email = ref("");
+const emailRequired = ref(false);
 const content = ref("");
 const status = ref("");
 const statusClass = ref("");
@@ -101,6 +107,17 @@ async function initCaptcha() {
   }
 }
 initCaptcha();
+
+// v3.15.3 功能1：读取评论配置（邮箱是否必填）
+async function initCommentConfig() {
+  try {
+    const cfg = await apiGet("/api/comment/config");
+    emailRequired.value = !!cfg.email_required;
+  } catch (e) {
+    emailRequired.value = false;
+  }
+}
+initCommentConfig();
 
 const topComments = computed(() => loaded.value.filter((c) => !c.parent_id));
 function repliesOf(id) {
@@ -144,6 +161,7 @@ async function submit() {
   const body = { content: content.value.trim() };
   // 已登录（含超级管理员/管理员/普通用户）：昵称由后端从会话取，不需要前端传
   if (!state.user) body.author = author.value.trim();
+  if (email.value.trim()) body.email = email.value.trim();
   if (replyingTo.value) {
     body.parent_id = replyingTo.value.id;
     body.reply_to = replyingTo.value.author;
@@ -165,3 +183,14 @@ async function submit() {
   }
 }
 </script>
+
+<style scoped>
+.comment-avatar {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  vertical-align: middle;
+  margin-right: 8px;
+  object-fit: cover;
+}
+</style>

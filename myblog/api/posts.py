@@ -2,6 +2,7 @@
 """
 
 import datetime
+import hashlib
 import re as _re
 from flask import request, jsonify, current_app, session, Response
 from markupsafe import escape
@@ -236,6 +237,17 @@ def comment(slug):
     author = author or (data.get("author") or "").strip()
     if not author or not content:
         return jsonify({"error": "昵称和评论内容不能为空"}), 400
+    # v3.15.3 功能1：邮箱字段处理（仅存 MD5 哈希，明文不落库）
+    from utils import setting_bool as _setting_bool
+    email_required = _setting_bool("comment_email_required", False)
+    raw_email = (data.get("email") or "").strip()
+    email_hash = ""
+    if raw_email:
+        if not _re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", raw_email):
+            return jsonify({"error": "请填写有效的电子邮箱"}), 400
+        email_hash = hashlib.md5(raw_email.lower().encode()).hexdigest()
+    elif email_required:
+        return jsonify({"error": "请填写有效的电子邮箱"}), 400
     # v3.0.0 功能2：垃圾评论关键词过滤（站点设置 comment_spam_keywords 逗号分隔）。
     # 命中任一关键词直接拒绝提交，避免垃圾评论进入审核队列。关键词大小写不敏感。
     spam_kw = (Setting.query.filter_by(key="comment_spam_keywords").first())
@@ -262,7 +274,8 @@ def comment(slug):
     c = Comment(post_id=p.id, author=author[:80], content=content, approved=not require_approval,
                 ip=ip, region=stats.cached_region(ip),
                 device=parse_device(request.headers.get("User-Agent", ""))[:120],
-                parent_id=parent_id or None, reply_to=reply_to[:80])
+                parent_id=parent_id or None, reply_to=reply_to[:80],
+                email_hash=email_hash)
     db.session.add(c)
     db.session.commit()
     # v3.9.0 M1：新评论写入 → 触发插件事件（订阅者异常已隔离）

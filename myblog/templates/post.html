@@ -40,7 +40,10 @@
     <h3>评论（{{ comments | length }}）</h3>
     {% for c in comments %}
       <div class="comment">
-        <div class="comment-meta"><strong>{{ c.author }}</strong> · <span>{{ c.created_at.strftime('%Y-%m-%d %H:%M') }}</span></div>
+        <div class="comment-meta">
+          {% if c.email_hash %}<img src="https://cn.cravatar.com/avatar/{{ c.email_hash }}?d=mp&s=40" class="comment-avatar" alt="" style="width:40px;height:40px;border-radius:50%;vertical-align:middle;margin-right:6px;">{% endif %}
+          <strong>{{ c.author }}</strong> · <span>{{ c.created_at.strftime('%Y-%m-%d %H:%M') }}</span>
+        </div>
         <p>{{ c.content }}</p>
       </div>
     {% else %}
@@ -56,6 +59,7 @@
       <input type="text" name="captcha" placeholder="验证码" autocomplete="off" required>
       {% endif %}
       <input type="text" name="author" placeholder="昵称（可留空）" maxlength="80">
+      <input type="email" name="email" placeholder="邮箱{{ '（必填，' if comment_email_required else '（' }}仅用于头像，不会公开）" maxlength="120"{{ ' required' if comment_email_required }}>
       <textarea name="content" rows="3" placeholder="说点什么…" required></textarea>
       <button type="submit">提交评论</button>
     </form>

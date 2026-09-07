@@ -95,6 +95,7 @@ class Comment(db.Model):
     reply_to = db.Column(db.String(80), default="")  # 被回复者昵称（前端 @ 显示用）
     likes = db.Column(db.Integer, default=0)         # 评论点赞数
     is_read = db.Column(db.Boolean, default=False)   # 管理员是否已读（新消息提醒）
+    email_hash = db.Column(db.String(32), default="")  # v3.15.3 功能1：邮箱 MD5（仅存哈希，明文不落库）
 
 
 class FriendLink(db.Model):

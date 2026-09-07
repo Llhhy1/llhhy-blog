@@ -172,6 +172,7 @@ def _migrate_comment_table():
             "likes": "INTEGER DEFAULT 0",
             "is_read": "BOOLEAN DEFAULT 0",
             "approved": "BOOLEAN DEFAULT 1",  # 审核流：1=已通过显示，0=待审核
+            "email_hash": "VARCHAR(32) DEFAULT ''",  # v3.15.3 功能1：邮箱 MD5 哈希
         }
         need = [c for c in specs if c not in cols]
         if need:

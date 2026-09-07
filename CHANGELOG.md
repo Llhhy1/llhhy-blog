@@ -3,6 +3,16 @@
 > 本文件承载 **历史版本** 记录。README 只保留最新版本与上手信息。
 > 各版本的安全审计结论见 `myblog/SECURITY_AUDIT.md`；功能规划见 `ROADMAP.md`。
 
+## v3.15.3（2026-09-08 · 评论邮箱字段 + Cravatar 头像）
+
+- **评论邮箱字段**：评论表单新增邮箱输入框，站点设置「评论邮箱必填」开关可一键切换必填/选填（默认选填）。邮箱**仅用于获取 Gravatar 风格头像，明文不落库**，仅存 MD5 哈希（Gravatar 协议标准）。
+- **Cravatar 头像接入**：评论列表（前台 SSR + Vue 前台 + 后台管理）自动展示头像；服务端走 `cn.cravatar.com` 国内 CDN（拿不到邮箱哈希时回退 `?d=mp` 神秘人）。**首次引入第三方头像服务**，placeholder 与模板已注明「仅用于头像，不会公开」。
+- **配置 API**：新增 `GET /api/comment/config` 公开返回 `{email_required}`，Vue 前台据此动态决定邮箱输入框 `required` 属性（不影响 SSR 表单 SSR 已用 `comment_email_required` 模板变量）。
+- **数据迁移**：`myblog/app.py _migrate_comment_table` 幂等新增 `email_hash VARCHAR(32) DEFAULT ''`，老库重启自动补列；老评论无邮箱哈希时头像静默隐藏，行为向前兼容。回滚 `git revert` 后不影响其他评论功能。
+- **安全护栏沿用**：评论提交仍受原有限流（60s/10 条）与验证码机制保护（form post 与 API 双入口均覆盖）；邮箱格式 `^[^@\s]+@[^@\s]+\.[^@\s]+$`，先 `.strip()` 后校验。
+- **收尾**：PR #3 squash merge（ridd1ot 贡献，4 项原项目方审计通过）；本地静态自检 0 遗留；APP_VERSION → 3.15.3。
+- **仓库清理**：撤销《桃源岛》3D 开放世界 4 个 WIP commit（`a297274` `1889570` `12ea8a4` `f40f4c1`），main 历史保留 4 个反向 commit 作为诚实留痕（工作树已无 openland 相关文件；桃源岛代码仍可在原 commit 历史中恢复）。
+
 ## v3.15.2（2026-09-08 · 分享卡片 SSR / 社交分享面板 / 修复 / 新游戏）
 
 - **分享卡片 SSR**：新增 `GET /api/og/post/<slug>` 服务端渲染文章级 OG meta（title/摘要/封面/绝对 URL）；nginx 对爬虫/社交抓取 UA 访问 `/post/…` 自动分流到 SSR，真人仍走 SPA——微信/微博等外链卡片不再依赖前端 JS。

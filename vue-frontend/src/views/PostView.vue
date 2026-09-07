@@ -170,7 +170,11 @@ function setOgMeta(p) {
   };
   set("og:title", p.title);
   set("og:description", p.seo_description || p.summary || (p.content || "").slice(0, 120));
-  set("og:image", p.cover || "");
+  // v3.15.0：og:image 必须是绝对 URL，且无封面时回退站点默认分享图（微信/QQ 卡片硬性要求）
+  let img = p.cover || "";
+  try { if (img && !/^https?:\/\//i.test(img)) img = new URL(img, location.origin).href; } catch (e) {}
+  if (!img) img = new URL("/og-default.png", location.origin).href;
+  set("og:image", img);
   set("og:url", location.href);
   set("og:type", "article");
   set("description", p.seo_description || p.summary || "");

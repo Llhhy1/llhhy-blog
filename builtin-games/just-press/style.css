@@ -1,0 +1,77 @@
+:root { color-scheme: dark; }
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+html, body {
+  margin: 0; padding: 0; height: 100%;
+  background: radial-gradient(120% 90% at 50% 0%, #1c2140 0%, #12142b 55%, #0b0d1e 100%);
+  color: #eef0ff;
+  font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+  touch-action: manipulation; user-select: none; -webkit-user-select: none; overflow: hidden;
+}
+#app {
+  height: 100dvh; max-width: 460px; margin: 0 auto;
+  display: flex; flex-direction: column; align-items: center;
+  padding: 3dvh 16px calc(2dvh + env(safe-area-inset-bottom));
+  position: relative; text-align: center;
+}
+h1 { margin: 0; font-size: 23px; letter-spacing: 2px; }
+.sub { margin: 3px 0 0; color: #8d93c4; font-size: 12px; }
+
+#topbar { display: flex; align-items: center; gap: 14px; margin-top: 2dvh; }
+#timer { position: relative; width: 62px; height: 62px; }
+#timer svg { width: 100%; height: 100%; transform: rotate(-90deg); }
+.ring-bg { fill: none; stroke: #2a2f55; stroke-width: 8; }
+.ring { fill: none; stroke: #7fb0ff; stroke-width: 8; stroke-linecap: round;
+        stroke-dasharray: 289; stroke-dashoffset: 0; transition: stroke-dashoffset .2s linear; }
+#tnum { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 15px; font-weight: 700; font-variant-numeric: tabular-nums; }
+#goal { font-size: 22px; margin: 0; font-weight: 800; font-variant-numeric: tabular-nums; }
+#goal span { color: #8d93c4; font-weight: 500; font-size: 16px; }
+
+#line { min-height: 22px; margin: 8px 0 4px; color: #ffd98a; font-size: 13px; }
+
+#arena { position: relative; flex: 1; width: 100%; margin: 6px 0; min-height: 200px; }
+#press {
+  position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
+  width: min(64vw, 220px); aspect-ratio: 1; border-radius: 50%;
+  border: none; cursor: pointer;
+  background: radial-gradient(circle at 32% 28%, #ffb86b, #ff7a59 62%, #e14f3c);
+  color: #fff; font-size: 22px; font-weight: 800; letter-spacing: 2px;
+  box-shadow: 0 8px 0 #a93a2c, 0 16px 36px rgba(255,90,60,.32);
+  transition: left .09s ease, top .09s ease;
+  touch-action: manipulation;
+}
+#press:active { transform: translate(-50%,-50%) translateY(4px) scale(.99); }
+#press.big { font-size: 30px; }
+
+#rate { color: #6f76a8; font-size: 12px; margin: 0; font-variant-numeric: tabular-nums; }
+
+#overlay, #final {
+  position: absolute; inset: 0; z-index: 10; overflow: auto;
+  background: rgba(11, 13, 30, .92); backdrop-filter: blur(8px);
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  padding: 26px 22px; border-radius: 16px; text-align: center;
+}
+.hidden { display: none !important; }
+#overlay h2, #final h2 { margin: 0 0 8px; }
+#overlay p { color: #c6caee; line-height: 1.9; margin: 4px 0 10px; }
+#overlay label { color: #8d93c4; font-size: 13px; margin-top: 4px; }
+#overlay input {
+  margin: 6px 0 0; padding: 10px 14px; width: 76%; max-width: 260px;
+  border-radius: 999px; border: 1px solid #3a4172; background: #191d3a; color: #eef0ff;
+  font-size: 15px; text-align: center; outline: none;
+}
+button {
+  border: 0; border-radius: 999px; cursor: pointer;
+  background: linear-gradient(135deg, #7fb0ff, #5a6cff); color: #fff;
+  font-size: 15px; font-weight: 700; padding: 12px 22px; margin-top: 12px;
+  box-shadow: 0 6px 18px rgba(90,108,255,.4); touch-action: manipulation;
+}
+#snd {
+  position: absolute; top: 3dvh; right: 14px; z-index: 5;
+  background: rgba(255,255,255,.08); padding: 6px 9px; font-size: 14px; box-shadow: none; margin: 0;
+}
+#board { margin-top: 12px; width: 86%; max-width: 300px; text-align: left; font-size: 13px; color: #c6caee; line-height: 1.7; }
+#board h3 { color: #ffd98a; margin: 4px 0; font-size: 14px; text-align: center; }
+#board ol { margin: 0; padding-left: 20px; }
+#final #mock { font-size: 18px; font-weight: 800; color: #ffd98a; margin-top: 6px; }
+#final p { color: #c6caee; margin: 4px 0; }
+#fscore { font-size: 22px; color: #fff; }

@@ -291,6 +291,7 @@ def edit_post(post_id):
         if post.content != old_content or old_title != title:
             _save_post_history(post, user.username if user else "")
         db.session.commit()
+        cleanup_orphan_tags()  # v3.15.0：提交后清 0 使用标签
         try:
             fts.sync_post(post)
         except Exception:
@@ -486,6 +487,7 @@ def autosave_post(post_id):
     post.word_count = wc
     post.reading_minutes = rm
     db.session.commit()
+    cleanup_orphan_tags()  # v3.15.0：提交后清 0 使用标签
     return jsonify({"ok": True, "saved_at": fmt_bj(datetime.datetime.utcnow(), "%H:%M:%S")})
 
 @admin_bp.route("/post/<int:post_id>/history/diff")
@@ -639,20 +641,43 @@ def delete_category(cid):
 @admin_bp.route("/tags", methods=["GET", "POST"])
 @admin_required
 def tags():
+    from myblog.utils import normalize_tag_key
     if request.method == "POST":
+        action = (request.form.get("action") or "").strip()
+        if action == "merge":
+            merged = merge_duplicate_tags()
+            cleaned = cleanup_orphan_tags()
+            flash(f"标签整理完成：合并重复 {merged} 个，清理 0 使用 {cleaned} 个")
+            log_audit("merge", "tag", 0, f"合并重复 {merged} + 清理未使用 {cleaned}", user=_current_user_or_none())
+            return redirect(url_for("admin.tags"))
         name = (request.form.get("name") or "").strip()
         if name:
-            db.session.add(Tag(name=name, slug=make_slug(name)))
-            db.session.commit()
-            flash("标签已添加")
+            key = normalize_tag_key(name)
+            exists = next((t for t in Tag.query.all() if normalize_tag_key(t.name) == key), None)
+            if exists:
+                flash(f"标签「{exists.name}」已存在（含大小写/空白变体），未重复添加")
+            else:
+                db.session.add(Tag(name=name, slug=unique_model_slug(Tag, name, max_len=90)))
+                db.session.commit()
+                flash("标签已添加")
         return redirect(url_for("admin.tags"))
-    tags = Tag.query.order_by(Tag.id).all()
-    return render_template("admin/tags.html", tags=tags)
+    rows = []
+    orphan_count = 0
+    for t in Tag.query.order_by(Tag.id).all():
+        used = len(list(t.posts))
+        if used == 0:
+            orphan_count += 1
+        rows.append((t, used))
+    return render_template("admin/tags.html", tags=rows, orphan_count=orphan_count)
 
 @admin_bp.route("/tag/<int:tid>/delete", methods=["POST"])
 @admin_required
 def delete_tag(tid):
     tag = Tag.query.get_or_404(tid)
+    used = len(list(tag.posts))
+    if used:
+        flash(f"标签「{tag.name}」正被 {used} 篇文章使用：请先移除文章里的该标签，或用「一键整理」合并")
+        return redirect(url_for("admin.tags"))
     db.session.delete(tag)
     db.session.commit()
     flash("标签已删除")

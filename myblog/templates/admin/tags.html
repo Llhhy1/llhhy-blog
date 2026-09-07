@@ -7,22 +7,31 @@
     <input type="text" name="name" placeholder="新标签名称" required>
     <button type="submit" class="btn">添加</button>
   </form>
+  <form method="post" action="{{ url_for('admin.tags') }}" class="inline-form" style="margin-top:10px;">
+        {{ csrf_input() }}
+    <input type="hidden" name="action" value="merge">
+    <button type="submit" class="btn" onclick="return confirm('合并大小写/空白重复的标签，并清理 0 使用的标签？');">一键整理（合并重复 + 清理未使用）</button>
+    {% if orphan_count %}
+      <span style="color:#b8860b;margin-left:8px;">有 {{ orphan_count }} 个 0 使用标签可被清理</span>
+    {% endif %}
+  </form>
   <table class="admin-table">
-    <thead><tr><th>名称</th><th>slug</th><th>操作</th></tr></thead>
+    <thead><tr><th>名称</th><th>slug</th><th>文章数</th><th>操作</th></tr></thead>
     <tbody>
-      {% for t in tags %}
-        <tr>
+      {% for t, used in tags %}
+        <tr{% if used == 0 %} style="opacity:.55"{% endif %}>
           <td>{{ t.name }}</td>
           <td>{{ t.slug }}</td>
+          <td>{{ used }}</td>
           <td>
             <form method="post" action="{{ url_for('admin.delete_tag', tid=t.id) }}" class="inline-form" onsubmit="return confirm('确定删除？');">
                   {{ csrf_input() }}
-              <button type="submit" class="link-danger">删除</button>
+              <button type="submit" class="link-danger" {% if used %}disabled title="该标签正被文章使用"{% endif %}>删除</button>
             </form>
           </td>
         </tr>
       {% else %}
-        <tr><td colspan="3">暂无标签</td></tr>
+        <tr><td colspan="4">暂无标签</td></tr>
       {% endfor %}
     </tbody>
   </table>

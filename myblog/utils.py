@@ -306,6 +306,33 @@ def make_slug(text):
     return s or "post"
 
 
+def normalize_tag_key(name):
+    """标签归一化键（v3.15.0 标签治理）：去首尾/内部空白 + 统一小写。
+
+    'AI'/'ai'/' AI ' 都归一到 'ai'；中文标签不受 casefold 影响。
+    用于「同名不同写法」的标签去重比较，避免标签越积越多。
+    """
+    return "".join((name or "").casefold().split())
+
+
+def split_tag_input(raw):
+    """把标签输入拆成去重后的标签名列表（v3.15.0 标签治理）。
+
+    分隔符兼容 ASCII/中文逗号、顿号、分号与换行；
+    每个名字去除首尾空白/井号；单篇内重复（含大小写/空白变体）只保留一个。
+    """
+    seen, out = set(), []
+    for part in re.split(r"[,，、;；\n]+", raw or ""):
+        name = (part or "").strip().strip(" \t#")
+        if not name:
+            continue
+        key = normalize_tag_key(name)
+        if key and key not in seen:
+            seen.add(key)
+            out.append(name)
+    return out
+
+
 # v3.5.2：链接后缀全局模板支持的占位符与其取值来源。
 # 仅这些键可作为 {xxx} 占位符；其余字面量原样保留（经 make_slug 清洗）。
 SLUG_TEMPLATE_TOKENS = ("slug", "id", "date", "category")

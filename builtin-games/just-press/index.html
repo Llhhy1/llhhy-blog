@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>就是按一下 · 40 分钟的人生税</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div id="app">
+    <header>
+      <h1>就是按一下</h1>
+      <p class="sub" id="lvl">第 1 关 · 人类迷惑行为</p>
+    </header>
+
+    <div id="topbar">
+      <div id="timer">
+        <svg viewBox="0 0 100 100" aria-hidden="true">
+          <circle class="ring-bg" cx="50" cy="50" r="46" />
+          <circle id="ring" class="ring" cx="50" cy="50" r="46" />
+        </svg>
+        <span id="tnum">0:00</span>
+      </div>
+      <p id="goal"><b id="cur">0</b> / <span id="tar">2400</span></p>
+    </div>
+
+    <p id="line">人类文明的按钮按下总量 +1。</p>
+
+    <div id="arena">
+      <button id="press" type="button">按我</button>
+    </div>
+
+    <p id="rate">0.0 下/秒 · 预计全程约 40 分钟</p>
+
+    <!-- 开场 -->
+    <div id="overlay">
+      <h2>就是按一下</h2>
+      <p>一款无聊但认真的点击马拉松。<br />两个关卡，全程约 <b>40 分钟</b>。</p>
+      <label>你的 ID（用于大神榜）</label>
+      <input id="pid" maxlength="16" placeholder="比如：手速亡者" />
+      <button id="start" type="button">开始浪费人生</button>
+      <div id="board"></div>
+    </div>
+
+    <!-- 通关嘲讽 -->
+    <div id="final" class="hidden">
+      <h2>🎉 你通关了</h2>
+      <p id="fscore"></p>
+      <p id="frank"></p>
+      <p id="mock">恭喜，你的人生因此浪费了 40 分钟。</p>
+      <button id="again" type="button">再来一遍？我不信</button>
+    </div>
+
+    <button id="snd" type="button" aria-label="声音">🔊</button>
+  </div>
+  <script src="game.js"></script>
+</body>
+</html>

@@ -401,3 +401,33 @@ def visible_posts_query(user=None):
     if not (user and getattr(user, "is_super", False)):
         q = q.filter(Post.is_private == False)
     return q
+
+
+class Game(db.Model):
+    """原创/第三方解压小游戏（v3.15.0 游戏平台）。
+
+    游戏以 zip（manifest.json + HTML/CSS/JS/素材）经后台收录：
+    安全解包 → 静态可疑扫描 → （可选）LLM 代码审计 → 审核通过后前台沙箱内播放。
+    资源实际解压在 <instance>/games/<slug>/，DB 只存元数据与审计结论。
+    """
+    id = db.Column(db.Integer, primary_key=True)
+    slug = db.Column(db.String(90), unique=True, nullable=False)
+    title = db.Column(db.String(120), nullable=False)
+    description = db.Column(db.Text)
+    cover = db.Column(db.String(500), default="")     # 封面（可为空，前端用默认）
+    entry = db.Column(db.String(160), default="index.html")  # 入口文件名
+    author = db.Column(db.String(80), default="")     # 作者署名
+    version = db.Column(db.String(30), default="1.0")
+    status = db.Column(db.String(16), default="pending", index=True)
+    # status: pending(待审)/approved(已上架)/rejected(已驳回)/removed(已下架)
+    package_hash = db.Column(db.String(64), default="")   # zip sha256，防篡改比对
+    size = db.Column(db.Integer, default=0)               # 解压后总字节
+    file_count = db.Column(db.Integer, default=0)
+    # 审计：静态扫描 + LLM 的结论。score：None 未审 / 0-100（越低越危险）
+    audit_summary = db.Column(db.Text)
+    audit_score = db.Column(db.Integer, default=-1)
+    play_count = db.Column(db.Integer, default=0)
+    admin_note = db.Column(db.String(300), default="")
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    approved_at = db.Column(db.DateTime, nullable=True)

@@ -259,17 +259,80 @@ def _detect_image_magic(header, ext):
     return False
 
 def _sync_tags(post, raw):
-    """把表单里 '生活, 技术' 这样的标签字符串同步到文章。"""
-    names = [n.strip() for n in (raw or "").split(",") if n.strip()]
+    """把 '生活, 技术' 这样的标签字符串同步到文章（v3.15.0 标签治理）。
+
+    自动去重 + 防膨胀：
+    - 分隔符兼容 ASCII/中文逗号、顿号、分号、换行（此前只认 ASCII 逗号，'，'会整串成一个标签）；
+    - 按归一化键（小写 + 去空白）匹配既有标签：'AI'/'ai'/' AI ' 复用同一行，不新建；
+    - 单篇内同义重复只保留一次；新建时 slug 走唯一化，避免与既有标签撞 slug。
+    0 使用标签由 cleanup_orphan_tags() 在提交后清理。
+    """
+    from myblog.utils import normalize_tag_key, split_tag_input
+    index = {}  # norm_key -> Tag（全表按归一化键索引，规模小直接全扫）
+    for t in Tag.query.all():
+        index.setdefault(normalize_tag_key(t.name), t)
     post.tags = []
-    for name in names:
-        slug = make_slug(name)
-        tag = Tag.query.filter_by(slug=slug).first()
+    for name in split_tag_input(raw):
+        key = normalize_tag_key(name)
+        tag = index.get(key)
         if not tag:
-            tag = Tag(name=name, slug=slug)
+            tag = Tag(name=name, slug=unique_model_slug(Tag, name, max_len=90))
             db.session.add(tag)
             db.session.flush()
-        post.tags.append(tag)
+            index[key] = tag
+        if tag not in post.tags:
+            post.tags.append(tag)
+
+
+def cleanup_orphan_tags():
+    """删除没有任何文章使用的标签（0 使用清理，v3.15.0）。
+
+    应在文章保存提交后调用（此时新关联已落库），返回清理条数。
+    """
+    removed = 0
+    for t in Tag.query.all():
+        if not list(t.posts):
+            try:
+                db.session.delete(t)
+                removed += 1
+            except Exception:
+                pass
+    if removed:
+        try:
+            db.session.commit()
+        except Exception:
+            db.session.rollback()
+    return removed
+
+
+def merge_duplicate_tags():
+    """合并归一化键相同的重复标签（v3.15.0 标签治理）。
+
+    按「使用文章最多优先」保留一行，其余行的文章改挂到保留行后删除重复行。
+    返回合并删除的行数。历史遗留的 'AI'+'ai' 类重复调用一次即收敛。
+    """
+    from myblog.utils import normalize_tag_key
+    by_key = {}
+    for t in Tag.query.all():
+        by_key.setdefault(normalize_tag_key(t.name), []).append(t)
+    merged = 0
+    for _key, group in by_key.items():
+        if len(group) < 2:
+            continue
+        group.sort(key=lambda t: len(list(t.posts)), reverse=True)
+        keep = group[0]
+        for dup in group[1:]:
+            for p in list(dup.posts):
+                if keep not in p.tags:
+                    p.tags.append(keep)
+            db.session.delete(dup)
+            merged += 1
+    if merged:
+        try:
+            db.session.commit()
+        except Exception:
+            db.session.rollback()
+    return merged
 
 def _save_post_history(post, author=""):
     """保存当前文章的版本快照（v3.0.0 功能5）。
@@ -332,6 +395,7 @@ def create_post_core(*, title, content, summary="", cover="", category_id=None,
     author_user = db.session.get(User, author_id) if author_id else None
     _save_post_history(post, author_user.username if author_user else "")
     db.session.commit()
+    cleanup_orphan_tags()  # v3.15.0：提交后清 0 使用标签，避免越积越多
     try:
         fts.sync_post(post)
     except Exception:

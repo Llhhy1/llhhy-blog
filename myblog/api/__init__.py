@@ -25,6 +25,7 @@ from . import series        # 系列列表 系列详情
 from . import guestbook     # 留言板 留言点赞
 from . import subscribe     # 订阅 退订
 from . import notifications # 通知列表 已读 全部已读
+from . import games        # v3.15.0：游戏平台公开接口/沙箱资源
 from . import system        # 版本检查 在线更新 webhook 部署
 
 # 蓝图唯一出处（功能模块从 .common 取，app.py 从本包取，二者同一对象）

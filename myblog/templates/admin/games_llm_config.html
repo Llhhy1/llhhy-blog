@@ -1,0 +1,15 @@
+{% extends "admin/base.html" %}
+{% block title %}游戏 LLM 代码审计配置{% endblock %}
+{% block content %}
+  <h1 class="page-title">游戏平台 · LLM 代码安全审计</h1>
+  <p style="color:#666;">使用 OpenAI 兼容接口（Base URL + Key + Model）。开启后，新收录的游戏会自动补一轮大模型代码审计；也可在列表里手动触发。</p>
+  <form method="post" action="{{ url_for('admin.games_llm_config') }}" class="inline-form">
+        {{ csrf_input() }}
+    <p><label><input type="checkbox" name="on" value="1" {% if on == '1' %}checked{% endif %}> 开启自动 LLM 审计</label></p>
+    <p><label>Base URL（如 https://api.deepseek.com/v1）<br><input type="text" name="base" value="{{ base }}" size="60" placeholder="https://…/v1"></label></p>
+    <p><label>Model<br><input type="text" name="model" value="{{ model }}" size="40"></label></p>
+    <p><label>API Key（留空表示不修改；已存 {{ key_masked }}）<br><input type="password" name="key" size="60" placeholder="sk-…"></label></p>
+    <button type="submit" class="btn">保存</button>
+  </form>
+  <p><a class="btn" href="{{ url_for('admin.games') }}">← 返回游戏收录</a></p>
+{% endblock %}

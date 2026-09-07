@@ -252,6 +252,16 @@ body {
  border-collapse: collapse; width: 100%; margin: 14px 0; }
 .post-body th, .post-body td {
  border: 1px solid #ddd; padding: 8px 10px; }
+/* v3.15.0 移动端溢出加固（置顶/新文章仍会超屏的第二类元凶：宽图/宽表/iframe）：
+   图片不缩放会撑破视口；宽表改块级+横向滚动；媒体最大宽=容器。 */
+.post-body img {
+ max-width: 100%; height: auto; }
+.post-body iframe, .post-body video, .post-body canvas, .post-body embed {
+ max-width: 100%; }
+.post-body table {
+ display: block; width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+.post-card h2, .post-card .post-summary, .post-card .post-meta {
+ overflow-wrap: anywhere; word-break: break-word; }
 .post-tags {
  margin-top: 20px; }
 .post-tags .tag {

@@ -1,5 +1,7 @@
 """前台公开页面 + 评论提交接口。"""
+import hashlib
 import json
+import re as _re
 import urllib.request
 import urllib.parse
 
@@ -10,7 +12,7 @@ from markupsafe import escape
 from models import db, Post, Category, Tag, Comment, Setting, User, ROLE_USER, visible_posts_query
 from utils import (make_slug, render_post_html, safe_redirect, rate_limit,
                    client_key, validate_password, get_setting,
-                   fmt_bj, to_beijing, BEIJING_TZ)
+                   fmt_bj, to_beijing, BEIJING_TZ, setting_bool as _setting_bool)
 # v3.1.0：登录审计（log_login_attempt 定义于 admin 模块，admin 不依赖 routes，无循环）
 from admin import log_login_attempt
 
@@ -211,7 +213,8 @@ def post(slug):
         "type": "article",
     }
     return render_template("post.html", post=p, comments=comments, json_ld=json_ld, og=og,
-                           comment_captcha_on=_captcha_required("comment"))
+                           comment_captcha_on=_captcha_required("comment"),
+                           comment_email_required=_setting_bool("comment_email_required", False))
 
 
 @main_bp.route("/post/<slug>/comment", methods=["POST"])
@@ -238,12 +241,25 @@ def add_comment(slug):
     if not content:
         flash("评论内容不能为空")
         return redirect(url_for("main.post", slug=slug) + "#comments")
+    # v3.15.3 功能1：邮箱字段（仅存 MD5，明文不落库）
+    email_required = _setting_bool("comment_email_required", False)
+    raw_email = (request.form.get("email") or "").strip()
+    email_hash = ""
+    if raw_email:
+        if not _re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", raw_email):
+            flash("请填写有效的电子邮箱")
+            return redirect(url_for("main.post", slug=slug) + "#comments")
+        email_hash = hashlib.md5(raw_email.lower().encode()).hexdigest()
+    elif email_required:
+        flash("请填写有效的电子邮箱")
+        return redirect(url_for("main.post", slug=slug) + "#comments")
     from utils import parse_device
     from stats import client_ip, cached_region
     ip = client_ip()
     c = Comment(post_id=p.id, author=author[:80], content=content,
                 ip=ip, region=cached_region(ip),
-                device=parse_device(request.headers.get("User-Agent", ""))[:120])
+                device=parse_device(request.headers.get("User-Agent", ""))[:120],
+                email_hash=email_hash)
     db.session.add(c)
     db.session.commit()
     # v3.9.0 M1：新评论写入 → 触发插件事件（订阅者异常已隔离）

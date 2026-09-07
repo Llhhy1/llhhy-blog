@@ -32,6 +32,13 @@ def settings():
             cap.value = cap_val
         else:
             db.session.add(Setting(key="comment_require_approval", value=cap_val))
+        # v3.15.3 功能1：评论邮箱必填开关（checkbox：勾选=true，不勾选=空）
+        cer = Setting.query.filter_by(key="comment_email_required").first()
+        cer_val = "true" if request.form.get("comment_email_required") else "false"
+        if cer:
+            cer.value = cer_val
+        else:
+            db.session.add(Setting(key="comment_email_required", value=cer_val))
         # v3.8.0：反爬限流两个开关（checkbox：勾选=true，不勾选=空）
         for cb in ("bot_guard_enabled", "bot_guard_search_whitelist"):
             row = Setting.query.filter_by(key=cb).first()

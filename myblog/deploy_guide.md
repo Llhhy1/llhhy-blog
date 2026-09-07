@@ -374,6 +374,7 @@ supervisorctl status
 
 > ⚠️ **服务器上的 `update.sh` / `deploy.sh` 也务必与最新 Release 同版**：脚本经历过「假成功不覆盖 / 校验误报 / 无法自动重启」多轮加固，升级前先从最新 Release 覆盖一次脚本，再跑一键更新。
 
+> **v3.15.0（标签治理 / 分享卡片 / 游戏平台）升级要点**：**前后端包都要覆盖**。后端：覆盖 `myblog-backend.zip` → gunicorn「停止 → 启动」；**新表 `game` 启动时 `create_all` 自愈创建，无需 `flask db`**；无新增环境变量、无新 Nginx 规则。内置游戏：在站点目录执行 `python tools/seed_games.py` 一键收录《就是按一下》《就是开车》（等同后台上传的安全链路），也可在后台「🎮 游戏收录」手动上传 zip。前端：覆盖 `vue-frontend-dist.zip` 并硬刷新（/games 系列路由依赖新 index.html）。后台 LLM 审计为可选：需在「游戏收录 → ⚙️ LLM 审计配置」填 OpenAI 兼容 Base/Model/Key。验证：后台左下角 v3.15.0、侧栏「🎮 游戏收录」、前台「🎮 游戏」两枚内置游戏卡、`/games/dev` 文档页。
 > **v3.14.0（写作后台大升级）升级要点**：**纯后端改动**——本轮全部代码在 `myblog/` 包内（admin 视图 / 后台模板 / `admin.css` / `script.js`），**前端产物无变化**（`vue-frontend/` 未动，无需覆盖 `vue-frontend-dist.zip`）。覆盖 `myblog-backend.zip` 后「停止 → 启动」gunicorn 即生效；**无 DB 迁移**，无需 `flask db`；无新增环境变量、无新 Nginx 配置。验证：后台左下角版本号 = v3.14.0；左侧出现「📄 文章管理」（原「我的文章」升级为全站管理）与「🖼️ 媒体库」；进「写新文章」可见工具栏 / 分屏预览；编辑未发布草稿可「🔗 复制未发布预览链接」（免登录，24h 有效）。后台静态资源已带版本参数自动破缓存，必要时硬刷新一次。
 
 ---

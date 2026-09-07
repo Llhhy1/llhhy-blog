@@ -1,6 +1,6 @@
 """内置游戏收录脚本（v3.15.0）。
 
-用途：把仓库 builtin-games/<slug>/ 下的官方内置游戏，按与后台收录相同的安全链路
+用途：把 myblog/builtin_games/<slug>/ 下的官方内置游戏，按与后台收录相同的安全链路
 （games_safety.unpack/校验/扫描）解包进 <myblog>/data/games/<slug> 并登记为已上架，
 使前台 /games 立即可见。亦可用于部署服务器时安装内置游戏。
 
@@ -12,14 +12,13 @@ import os
 import sys
 import hashlib
 
-_REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-_MYBLOG = os.path.join(_REPO, "myblog")
+_MYBLOG = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, _MYBLOG)
 
 os.environ.setdefault("SECRET_KEY", "seed-games-local-secret")
 os.environ.setdefault("ADMIN_PASSWORD", "seed-games-local-admin")
 
-SRC = os.path.join(_REPO, "builtin-games")
+SRC = os.path.join(_MYBLOG, "builtin_games")
 DST = os.path.join(_MYBLOG, "data", "games")
 
 import games_safety  # noqa: E402

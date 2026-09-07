@@ -2403,3 +2403,37 @@ git diff 计 **70 增 / 70 删**，`tokens.css` 定义**未被改动**。
 **R64 结论**：**0 遗留**。新增面全部收在「登录 + CSRF + 角色/归属校验」既有闸门内；免登录预览是唯一新暴露点，由 HMAC + 24h + 状态白名单三重约束，且输出走既有 bleach 清洗管线；顺带修复的 `/admin/upload` 500 属功能故障（v3.11.0 切片遗留），修复本身恢复 v3.1.6 的魔数校验原貌，无安全面变化。发版前 `APP_VERSION` 已改为 `3.14.0`（与 Release tag 一致）。
 
 **部署注意**：**纯后端改动，前端产物无变化**（`vue-frontend/` 未动）——本轮全部代码在 `myblog/` 包内（视图 / 后台模板 / `admin.css` / `script.js`）。覆盖 `myblog-backend.zip` 后 gunicorn「停止 → 启动」即生效；**无 DB 迁移**，无需任何 `flask db` 命令；无新增环境变量、无新 Nginx 配置。验证：后台左下角版本号 = v3.14.0；左侧出现「📄 文章管理」（原「我的文章」升级为全站管理）与「🖼️ 媒体库」；「写新文章」可见工具栏与分屏预览；编辑未发布草稿可「🔗 复制未发布预览链接」。后台静态资源已带版本参数（`admin_css_v` / `script.js?v=`）自动破缓存，必要时硬刷新一次。
+
+---
+
+## 第六十五轮 R65（v3.15.0 · 标签治理 / 分享卡片 / 游戏平台）
+
+**范围**：后端 `myblog/`（标签去重清理、OG 分享不需要后端出站；游戏平台全链路）＋ `vue-frontend/`（分享 meta、游戏厅页面、全局溢出加固、移动端）＋ 内置游戏两枚（纯静态）。
+
+| 变更文件 | 内容 |
+|---|---|
+| `myblog/models.py` | 新增 `Game`（slug/title/entry/status/package_hash/audit_*/play_count…） |
+| `myblog/games_safety.py`（新） | zip 安全解包（穿越/绝对路径/扩展名白名单/大小 20MB/解压 60MB/200 文件）+ manifest 校验 + 静态可疑扫描（11 规则+评分） |
+| `myblog/admin/games.py`（新） | 上传收录/审核/删除、LLM 审计（OpenAI 兼容，Key `encrypt_secret` 加密落库）、配置页 |
+| `myblog/api/games.py`（新） | `/api/games`、`/api/game/<slug>`（仅 approved）、`/api/game-files/<slug>/…` 沙箱资源托管（CSP sandbox + nosniff + no-referrer + no-store + realpath 防穿越） |
+| `myblog/admin/_helpers.py` / `posts.py` / `utils.py` | `_sync_tags` 归一化去重、`cleanup_orphan_tags`、`merge_duplicate_tags`；`normalize_tag_key`/`split_tag_input` |
+| `myblog/builtin_games/` + `myblog/tools/seed_games.py`（新） | 官方内置游戏两枚（纯静态自绘）＋ 与收录同链路的内置种子工具 |
+| `vue-frontend/*` | og/twitter 默认 meta + `PostView` 动态 OG（绝对 URL/默认图回退）；GamesView/GamePlayView/GamesDevView；`index.html` 站点 meta；正文 img/table/iframe 溢出加固 |
+
+### 九维审计
+
+| 编号 | 维度 | 审计点 | 结论 |
+|------|------|--------|------|
+| R65-1 | XSS | 前台游戏厅三页不渲染第三方 HTML（`iframe sandbox="allow-scripts"` 无 same-origin）；`/game-files` 响应头带 `Content-Security-Policy: sandbox allow-scripts; default-src 'self'; …` + `nosniff`。`/api/games` 只吐白名单 JSON 字段（title/desc 等由 Vue 插值/绑定转义）。后台 games 模板用 `{{ }}` 自动转义，无 `|safe` 用户内容。 | ✅ 无 XSS |
+| R65-2 | 注入 / zip 穿越 | 游戏 zip 解包全量白名单：路径归一后拒绝 `..`、绝对路径、盘符；扩展名白名单（可执行/服务端脚本一律拒）；解压总字节/文件数上限。manifest 仅校验字段、取 `entry` 前经正则 `^[A-Za-z0-9_./-]+\.html?$` + 禁 `..`；落盘按 `name.replace("/",os.sep)` 且包内路径已在上一步清洗。`/game-files` 用 `realpath` + `startswith(base+sep)` 二次防线。ORM 全部参数化（filter_by/contains），无字符串拼接。 | ✅ 无注入/穿越 |
+| R65-3 | 越权 | 收录/审核/删除/LLM 配置路由全部 `@admin_required`；写操作 `log_audit`；LLM 配置保存仅表单字段白名单（on/base/model/key），无任意键写入；LLM Key 密文落库、页面只回显掩码/星号。公开面（list/detail/files）只读且仅放行 `approved` 状态，其余状态一律不可见。 | ✅ 无越权 |
+| R65-4 | SSRF | LLM 审计为唯一出站调用：目标 `base` 来自超管后台配置（OpenAI 兼容端点），`urlopen` 直连、无重定向跟随（urllib 默认不跟）；输入仅本包源码摘要（≤60KB 本地文件拼接），不向用户可控地址发起请求。zip 解包只读字节、不执行。 | ✅ 无 SSRF（风险点=超管自配 base，属信任面） |
+| R65-5 | CSRF | 新后台 POST 全在全局 `enforce_same_origin` + `_csrf_protect` 覆盖内，模板均含 `csrf_input()`；`/game-files` 为只读 GET。`/api/games` 公开只读。 | ✅ 无缺口 |
+| R65-6 | 密钥泄露 | 游戏 zip/磁盘文件不含密钥；LLM Key 仅 `encrypt_secret`（Fernet，密钥派生自 SECRET_KEY）加密落 Setting，日志与页面不回显明文；模板回显 `••••••`。 | ✅ 无泄露 |
+| R65-7 | 资源泄漏 | zip 读入内存有 20MB 上限；解包总字节 60MB 上限 + 文件 200 上限，先全量内存校验后落盘，无 `ZipExtFile` 句柄泄漏（`ZipFile` with 上下文）；文件数/体积受控防 zip 炸弹；`/game-files` 用 Flask `send_file`，路径已 realpath 校验。 | ✅ 无泄漏 |
+| R65-8 | 限流 / DoS | 收录仅后台超管/管理员登录操作（无公开上传面）；`scan_game_files` 按文件数/总字节上限兜底；公开 `/game-files` 走既有访问日志/防爬体系；GamesView 页面级无轮询。内置游戏纯客户端 Canvas，不产生服务器请求。 | ✅ 无风险 |
+| R65-9 | 回归 | `py_compile` 通过；全量 pytest **74 passed**（基线 65 + test_tags 4 + test_games 5）；前端 `vite build` 通过；两枚内置游戏 `node --check` 通过并经种子链路收录（静态分 94 各 1 条启发式提示：`window.top/parent` 类或远程引用类误报，见审核报告）；`backend/`(v4)、`v5/` 未触碰。 | ✅ 无回归 |
+
+**R65 结论**：**0 遗留**。核心新增面（游戏平台）的安全不是「靠信任上传内容」，而是三层隔离：①静态扫描辅助防线；②沙箱化托管（iframe sandbox 无 same-origin + CSP `connect-src 'none'` + nosniff，游戏拿不到本站 Cookie/登录态、不可读父页、不可外联）；③仅站长后台收录 + approved 门禁 + （可选）LLM 审计。已知启发式误报 2 条（后台可见），不阻断上架。
+
+**部署注意**：本次**前后端都有变化**。① 后端：覆盖 `myblog-backend.zip` 后「停止 → 启动」gunicorn；**新表 `game` 由启动时 `create_all` 自愈创建**（不依赖 `flask db`）；无新增环境变量；② 内置游戏：在站点目录执行 `python tools/seed_games.py` 一键收录两枚官方游戏（或走后台手动上传）；③ 前端：覆盖 `vue-frontend-dist.zip` 并硬刷新（新增 /games 等路由依赖 index.html 新产物）；④ 验证：后台左下角 v3.15.0、侧栏「🎮 游戏收录」、前台「🎮 游戏」出现两枚游戏卡、`/games/dev` 可开。APP_VERSION 已改为 3.15.0（与 Release tag 一致）。

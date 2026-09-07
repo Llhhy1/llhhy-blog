@@ -812,7 +812,7 @@ v3.1.7 修复 CSRF 隐藏域乱码后，用户反馈「退出登录按钮失效�
 - **验证**：`py_compile` 通过；全量 pytest **65 passed**（基线复核）；13 项端到端冒烟全绿（脚本已按纪律零删除）。R64 九维审计 **0 遗留**（详见 `myblog/SECURITY_AUDIT.md` 第六十四轮）。
 - **部署注意**：**纯后端改动，前端产物无变化**（`vue-frontend/` 未动）。覆盖 `myblog-backend.zip` 后「停止 → 启动」gunicorn；**无 DB 迁移**，无需任何 `flask db` 命令；无新增环境变量、无新 Nginx 配置。APP_VERSION 升为 v3.14.0。
 
-## 68. v3.15.0（开发中）：标签治理 + 分享卡片 + 游戏平台（未发版）
+## 68. v3.15.0：标签治理 + 分享卡片 + 游戏平台（R65 审计 0 遗留）
 
 - 标签治理：_sync_tags 归一化去重（中英文分隔/大小写/空白）、cleanup_orphan_tags、merge_duplicate_tags；后台标签页使用数 + 一键整理。
 - 分享卡片：站点级 OG/twitter meta + og-default.png；文章页动态 OG 绝对化/默认图回退。

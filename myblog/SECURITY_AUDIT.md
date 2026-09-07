@@ -2458,3 +2458,18 @@ git diff 计 **70 增 / 70 删**，`tokens.css` 定义**未被改动**。
 - R67-2 信息暴露：SSR 仅返回已发布文章；隐私/草稿/回收站不在此端点暴露。✅
 - R67-3 注入/越权/SSRF/CSRF/密钥：无新增写端点；分享面板纯前端 open；nginx 分流仅改写转发到本端 Flask 端点。✅
 - R67-4 回归：compileall/pytest 74 passed；前端 vite build 通过；第三方游戏 dino-run 静态扫描 100/0 并经人工 L1 审计。✅
+
+---
+
+## 第六十八轮 R68（v3.15.3 · 评论邮箱字段可配必填 + Cravatar 头像）
+
+**范围**：`myblog/admin/settings.py`、`myblog/api/auth.py`（新增 `/api/comment/config`）、`myblog/api/common.py`（`_comment` 序列化加 avatar）、`myblog/api/posts.py` + `myblog/routes.py`（评论提交加 email 处理）、`myblog/app.py`（`_migrate_comment_table` 加列）、`myblog/models.py`（Comment.email_hash）、3 个模板、Vue `CommentForm.vue`。PR #3（ridd1ot 贡献，squash merge）。
+
+- R68-1 XSS：头像 URL 由后端拼接 `c.email_hash`（MD5 摘要，非用户输入）拼到 `cn.cravatar.com/avatar/<hash>`，模板 `{{ c.email_hash }}` 经 Jinja2 autoescape；Vue 端 `:src="c.avatar"` 是属性绑定（非 `v-html`/`innerHTML`），无注入面；邮箱明文绝不出现在前台模板（仅哈希用于头像）。✅
+- R68-2 注入：email_hash 落库仅 MD5（`hashlib.md5(raw_email.lower().encode()).hexdigest()`），经 ORM 参数化 `c.email_hash=email_hash` 写入，无字符串拼接；迁移 `ALTER TABLE comment ADD COLUMN email_hash ...` 的列名/类型来自硬编码 `specs` 字典，无用户输入路径。✅
+- R68-3 越权/信息暴露：`/api/comment/config` 为公开 GET，仅返回 `{email_required: bool}`，无敏感数据；邮箱明文不落库、不返回前端；老评论 `email_hash=''` 时模板 `{% if c.email_hash %}` 静默隐藏头像，行为向前兼容。✅
+- R68-4 第三方依赖：首次引入 cravatar 国内 CDN（`cn.cravatar.com`），仅传输邮箱 MD5 哈希（Gravatar 协议标准），拉取失败 `?d=mp` 回退神秘人头像；README 安全章节与 CHANGELOG v3.15.3 段已同步告知。✅
+- R68-5 限流/CSRF：评论提交仍走既有 60s/10 条限流 + 验证码（form post 与 API 双入口均覆盖）；新增配置接口为只读 GET，无状态变更。✅
+- R68-6 回归：py_compile 全过；pytest 全量 74 passed 仍成立（本轮无测试破坏性变更）；前端 `CommentForm.vue` 增量经 `vite build` 通过；迁移幂等（重启自动补 `email_hash` 列），老库无需手动 SQL。✅
+
+**R68 结论**：**0 遗留**。评论邮箱字段为标准 Gravatar 式实现（仅存 MD5、明文不落库、第三方 CDN 回退兜底），安全护栏完全复用既有评论限流/验证码体系，无新增暴露面。

@@ -1,0 +1,124 @@
+/* ============================================================
+ * 响应式基座重构（v3.15.1）
+ * 目标：根治移动端/多端文章排版错乱与横向超模。
+ * 原则（非打补丁，结构级治理）：
+ *  1) 一切 Flex/Grid 子项 min-width:0，杜绝“内容把容器撑破”；
+ *  2) 主布局用 Grid minmax(0,1fr)，正文列可收缩、不被内容反向撑大；
+ *  3) 排版全部走“流式字阶”(clamp) + 舒适行高，旋转/窄屏不再崩版；
+ *  4) 图片/视频/表格/代码块有全局兜底（媒体收进容器、表格滚动、长串可断）；
+ *  5) 视口安全：iOS 字体放大关闭、body 横向 clip 防伪滚动。
+ * 配套后台规则见 admin/base.html 内联基座（同一套哲学）。
+ * ============================================================ */
+
+html {
+  -webkit-text-size-adjust: 100%;          /* 旋转/字号放大不重排崩版 */
+  text-size-adjust: 100%;
+}
+body {
+  overflow-x: clip;                         /* 双保险：杜绝横向伪滚动穿模 */
+}
+
+/* ---------- 1) 主布局：Flex -> Grid(minmax) 单列流式 / 宽屏双列 ---------- */
+.layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);   /* 移动优先：单列、可收缩 */
+  gap: 26px;
+  padding-top: 22px;
+}
+@media (min-width: 981px) {
+  .layout {
+    grid-template-columns: minmax(0, 1fr) 300px;  /* 正文可收缩，不反向撑破 */
+    gap: 34px;
+    padding-top: 30px;
+  }
+}
+.content {
+  min-width: 0;                            /* 关键：Grid 子项不溢出 */
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+}
+.content > * {
+  min-width: 0;
+  max-inline-size: 100%;
+}
+.sidebar {
+  min-width: 0;
+  width: auto;                             /* 去掉固定 280px，交给列宽 */
+  display: grid;
+  gap: 14px;
+  align-content: start;
+}
+.sidebar .widget {
+  min-width: 0;
+  width: 100%;
+}
+
+/* ---------- 2) 全站内容盒防溢出基线 ---------- */
+.post-card,
+.post-detail,
+.widget,
+.comment-item,
+.site-frame-inner,
+.related-box,
+.series-nav,
+.container {
+  min-inline-size: 0;
+  max-inline-size: 100%;
+}
+
+/* ---------- 3) 流式排版（clamp 字阶），文章正文为重中之重 ---------- */
+.post-detail h1 {
+  font-size: clamp(20px, 5.2vw, 31px);
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+.page-title { font-size: clamp(19px, 4.6vw, 25px); }
+.post-body {
+  font-size: clamp(15px, 2.9vw, 17px);
+  line-height: 1.9;
+  letter-spacing: 0.01em;
+}
+.post-body h2 { font-size: clamp(18px, 4.4vw, 23px); margin-top: 24px; }
+.post-body h3 { font-size: clamp(16px, 3.7vw, 19px); }
+.post-card h2 a { font-size: clamp(16px, 3.6vw, 20px); overflow-wrap: anywhere; }
+
+/* ---------- 4) 媒体 / 宽表 / 代码块全局兜底 ---------- */
+img, video, canvas, iframe, embed, object { max-inline-size: 100%; }
+img { height: auto; }
+.post-body img { display: block; }
+pre { max-inline-size: 100%; }
+
+/* 长 URL / base64 / 无空格 token：任意字符可断，杜绝撑破视口 */
+.post-body a,
+.post-body code,
+.post-card .post-summary,
+.post-meta,
+.post-tags .tag,
+td, th {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+/* 表格统一“块级 + 横向滚动”，不再用撑破容器的 100% 版面 */
+.post-body table,
+.admin-table {
+  display: block;
+  width: 100%;
+  max-inline-size: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* ---------- 5) 窄屏细节舒适化 ---------- */
+@media (max-width: 640px) {
+  .post-detail { padding: 20px 16px; border-radius: 14px; }
+  .post-card { padding: 16px; }
+  .home-hero { padding: 22px 18px; }
+  .layout { padding-top: 14px; }
+  .post-body blockquote { padding-left: 12px; }
+}
+
+/* 后台同哲学的结构性兜底（更细的逐页适配在后台内联基座） */
+@media (max-width: 860px) {
+  .layout { gap: 20px; }
+}

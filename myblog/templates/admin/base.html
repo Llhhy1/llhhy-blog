@@ -9,6 +9,20 @@
     :root { --accent: {{ settings.accent_color or '#1a73e8' }}; {{ theme_css }} }
   </style>
   {% if custom_css %}<style id="site-custom-css">{{ custom_css | safe }}</style>{% endif %}
+  <style id="admin-responsive-base">
+    /* v3.15.1 后台响应式基座：与前台同哲学（结构性防溢出/流式） */
+    html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+    body { overflow-x: clip; }
+    main, .admin-main, .content-wrap, .page-wrap { min-width: 0; }
+    .admin-table { display: block; width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+    .admin-table th, .admin-table td { overflow-wrap: anywhere; word-break: break-word; }
+    input, select, textarea { max-width: 100%; }
+    form.inline-form { flex-wrap: wrap; row-gap: 8px; }
+    @media (max-width: 760px) {
+      .page-title { font-size: 20px; }
+      .admin-table th, .admin-table td { white-space: normal; }
+    }
+  </style>
   <script>
     /* 防闪烁：进入页面先定好主题 */
     (function () {

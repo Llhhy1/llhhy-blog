@@ -3,26 +3,28 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-  <title>就是开车 · Just Drive</title>
+  <title>就是开车 · NEON</title>
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
   <canvas id="stage" aria-label="就是开车游戏画面"></canvas>
 
   <div id="hud">
-    <span><b id="km">0.0</b> km</span>
-    <span id="clock">0:00</span>
-    <span><b id="near">0</b> 次惊险超车</span>
+    <div class="chip"><span class="k">里程</span><b id="km">0.0</b><em>km</em></div>
+    <div class="chip mid"><span class="k">速度</span><b id="spd">0</b><em>km/h</em></div>
+    <div class="chip"><span class="k">擦肩连击</span><b id="combo" class="gold">0</b><em>×</em></div>
     <button id="snd" type="button" aria-label="声音">🔊</button>
   </div>
-
-  <p id="line">前方没有车，也没有人。路是真的长。</p>
+  <div id="bars">
+    <div class="bar boost"><i id="boost" style="width:0%"></i></div>
+  </div>
+  <p id="line">夜路很长，把油门踩进霓虹里。</p>
 
   <div id="overlay">
-    <h1>就是开车</h1>
-    <p>左右滑动（或 ← → 键）控车。<br />撞车不罚款、只减速，作者会在旁边嘲讽你。</p>
+    <h1>就是开车 · NEON</h1>
+    <p>左右滑动 / ← → 控车。<br />擦肩超车积 <b>连击</b>，穿过 <b class="gold">氮气光带</b> 冲刺。<br />撞车不掉命，只掉面子（和速度）。</p>
     <label>你的 ID（用于大神榜）</label>
-    <input id="pid" maxlength="16" placeholder="比如：压路机驾驶员" />
+    <input id="pid" maxlength="16" placeholder="比如：午夜飞车手" />
     <button id="m40" type="button">正式模式 · 孤独 40 分钟</button>
     <button id="m1" type="button">试驾模式 · 1 分钟（体验用）</button>
     <div id="board"></div>

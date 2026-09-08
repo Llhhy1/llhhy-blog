@@ -9,6 +9,21 @@ ROOT="$(git rev-parse --show-toplevel 2>/dev/null)"
 [ -z "$ROOT" ] && exit 0
 
 # ============================================================
+# 0. 仓库健康快检（v3.15.3 新增，硬门禁）
+#    曾发生「.git 被并行进程破坏（objects/pack 被清空）却仍继续推送」，
+#    故推送前先确认 HEAD 树可读；仓库损坏时禁止一切推送。
+# ============================================================
+if ! git cat-file -e HEAD^{tree} 2>/dev/null; then
+  echo "❌ pre-push 拦截：本地仓库对象损坏（HEAD 树不可读）。" >&2
+  echo "   可能被其它会话/进程破坏。排查：ls -a | grep '\.git' ；确认 .git/objects 完整。" >&2
+  echo "   禁止在损坏仓库上强推——先用干净 clone 恢复 .git 后重试。" >&2
+  exit 1
+fi
+if [ -e "$ROOT/.git.broken" ]; then
+  echo "⚠️  pre-push：检测到 .git.broken 残留，疑似曾发生仓库损坏或并发操作，请确认无其它会话正在改本仓库。" >&2
+fi
+
+# ============================================================
 # 1. 临时产物零入版（硬门禁）
 #    pre-commit(check-staged.py) 已拦 .zip/sha256.txt/data 等；
 #    此处补拦 pre-commit 未覆盖的临时脚本与构建目录，确保绝不进版本库/Release。
@@ -72,4 +87,44 @@ fi
 if [ -n "$NOTES" ]; then
   printf 'ℹ️  pre-push 提示（不拦截，请按需处理）：%s\n' "$NOTES"
 fi
+
+# ============================================================
+# 4. 远端对账（v3.15.3 新增，硬门禁）
+#    多会话并发操作同一仓库时，本地缓存的 origin/* 会过期，
+#    直接 push / force-push 会静默覆盖他人成果。推送前对齐远端真实值。
+#    设计取舍：网络不可用只警告放行（避免断网推不了），但「值不一致」一律拦截。
+# ============================================================
+BLOCK=0
+ZERO="0000000000000000000000000000000000000000"
+while read -r LOCAL_REF LOCAL_SHA REMOTE_REF REMOTE_SHA; do
+  [ -z "${LOCAL_REF:-}" ] && continue
+  case "${LOCAL_SHA:-}" in "$ZERO") continue;; esac   # 删除分支，跳过
+  case "${REMOTE_SHA:-}" in "$ZERO") continue;; esac  # 新建分支，无需对账
+
+  REAL="$(timeout 15 git ls-remote origin "$REMOTE_REF" 2>/dev/null | awk 'NR==1{print $1}')"
+  if [ -z "$REAL" ]; then
+    echo "⚠️  pre-push：无法对账远端 ${REMOTE_REF}（网络不可用/超时），已放行——请自行确认无并发写入。" >&2
+    continue
+  fi
+  if [ "$REAL" != "$REMOTE_SHA" ]; then
+    SHORT_REAL="$(printf '%s' "$REAL" | cut -c1-8)"
+    SHORT_OLD="$(printf '%s' "$REMOTE_SHA" | cut -c1-8)"
+    echo "❌ pre-push 拦截：远端 ${REMOTE_REF} 已被更新（本地认为 ${SHORT_OLD}，实际 ${SHORT_REAL}）。" >&2
+    echo "   说明有其它会话/协作者已推送。请先执行：git fetch origin && git pull --rebase" >&2
+    echo "   确认同步后再推送；确需改写历史请显式确认后再 force push。" >&2
+    BLOCK=1
+    continue
+  fi
+  # 非快进（force push）检测：仅警告，不拦截（改写历史由人工下令）
+  if ! git merge-base --is-ancestor "$REMOTE_SHA" "$LOCAL_SHA" 2>/dev/null; then
+    SHORT_REAL="$(printf '%s' "$REAL" | cut -c1-8)"
+    SHORT_LOC="$(printf '%s' "$LOCAL_SHA" | cut -c1-8)"
+    echo "🚨 pre-push 警告：本次推送会改写远端历史（非快进）。" >&2
+    echo "   远端 ${REMOTE_REF}=${SHORT_REAL} 不是本地 ${SHORT_LOC} 的祖先，将覆盖以下提交：" >&2
+    git log --oneline "$LOCAL_SHA..$REMOTE_SHA" 2>/dev/null | head -10 >&2
+    echo "   （本钩子仅警告不拦截；确认无误即可继续。）" >&2
+  fi
+done
+[ "$BLOCK" -eq 1 ] && exit 1
+
 exit 0

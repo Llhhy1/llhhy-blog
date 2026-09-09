@@ -76,12 +76,21 @@ def _do_version_update():
         return jsonify({"error": f"未找到更新脚本 {script}，请先上传 update.sh 到服务器"}), 400
     try:
         import json as _json
+        import time as _time
         status_file = os.path.join(_cfg_mod.DATA_DIR, "update_status.json")
         if os.path.exists(status_file):
             with open(status_file, "r", encoding="utf-8") as f:
                 st = _json.load(f).get("status", "")
             if st in ("started", "downloading", "backing_up", "deploying", "restarting"):
-                return jsonify({"error": "更新正在进行中，请稍候"}), 409
+                # 陈旧解锁（v3.16.0 一键更新卡死修复）：状态文件若超过 10 分钟无更新，
+                # 视为上次更新的残留（脚本/依赖安装被强杀、EXIT trap 未触发），
+                # 允许重新触发，避免 status 永远停在 deploying 造成的「防重入死锁」。
+                try:
+                    stale = (_time.time() - os.path.getmtime(status_file)) > 600
+                except OSError:
+                    stale = False
+                if not stale:
+                    return jsonify({"error": "更新正在进行中，请稍候"}), 409
     except Exception:
         pass
     # 异步执行（nohup 风格：脱离父进程，输出重定向到日志，不阻塞请求）

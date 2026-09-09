@@ -1,0 +1,176 @@
+{% extends "admin/base.html" %}
+{% block title %}主题中心{% endblock %}
+{% block content %}
+  <h1 class="page-title">🎨 主题中心</h1>
+  <p style="color:var(--text-muted,#6b7280);margin:0 0 18px;max-width:760px;">
+    一键套用精心调配的主题包，亮色与暗色由 OKLCH 色彩空间自动推导、协调配套。
+    也可导出当前主题 JSON、导入自定义主题，打造独一无二的视觉。
+  </p>
+
+  <!-- 当前主题 -->
+  <div class="tc-current">
+    <div>
+      <span class="tc-current-label">当前主题</span>
+      <strong id="tcCurrentName">{{ current.pack_id or 'default' }}</strong>
+    </div>
+    <div class="tc-swatches" id="tcCurrentSwatches">
+      {% for k in ['accent','bg','surface','text','border'] %}
+        <span class="tc-sw" title="{{ k }}" style="background:{{ current.light.get(k, '#ccc') }};"></span>
+      {% endfor %}
+    </div>
+    <button type="button" class="btn" id="tcExportBtn">导出当前主题 JSON</button>
+  </div>
+
+  <!-- 预设包网格 -->
+  <div class="tc-grid">
+    {% for p in presets %}
+    <div class="tc-card">
+      <div class="tc-prev" style="--accent:{{ p.light.accent }};--bg:{{ p.light.bg }};--surface:{{ p.light.surface }};--text:{{ p.light.text }};--border:{{ p.light.border }};--muted:{{ p.light.text_muted }};">
+        <div class="tc-prev-bar"><span class="tc-dot"></span><span class="tc-prev-title">{{ p.name }}</span></div>
+        <div class="tc-prev-card">
+          <div class="tc-prev-h"></div>
+          <div class="tc-prev-line"></div>
+          <div class="tc-prev-line short"></div>
+          <button class="tc-prev-btn" type="button">主要按钮</button>
+        </div>
+      </div>
+      <div class="tc-meta">
+        <strong>{{ p.name }}</strong>
+        <span class="tc-en">{{ p.en }}</span>
+        <p class="tc-desc">{{ p.desc }}</p>
+        <div class="tc-tags">
+          {% for t in p.tags %}<span class="tc-tag">{{ t }}</span>{% endfor %}
+        </div>
+        <button type="button" class="btn tc-apply" data-pack="{{ p.id }}">应用此主题</button>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+
+  <!-- 自定义主题 JSON -->
+  <div class="tc-custom">
+    <h3>自定义主题（导入 / 导出 JSON）</h3>
+    <p style="color:var(--text-muted,#6b7280);font-size:13px;">
+      格式：<code>{"light": {"accent":"#xxxxxx", ...}, "dark": {...}}</code>；省略 <code>dark</code> 时由 OKLCH 自动推导。
+    </p>
+    <textarea id="tcJson" rows="8" spellcheck="false" style="width:100%;font-family:ui-monospace,Menlo,Consolas,monospace;"></textarea>
+    <div style="margin-top:10px;display:flex;gap:10px;flex-wrap:wrap;">
+      <button type="button" class="btn" id="tcImportBtn">导入并应用</button>
+      <button type="button" class="btn ghost" id="tcCopyBtn">复制 JSON</button>
+      <span id="tcMsg" class="tc-msg"></span>
+    </div>
+  </div>
+
+  <script>
+  (function () {
+    var csrf = '{{ csrf_token }}';
+    var currentName = document.getElementById('tcCurrentName');
+    var currentSw = document.getElementById('tcCurrentSwatches');
+    var jsonEl = document.getElementById('tcJson');
+    var msg = document.getElementById('tcMsg');
+
+    function showMsg(text, ok) {
+      msg.textContent = text;
+      msg.style.color = ok ? 'var(--success,#188038)' : 'var(--danger,#e5484d)';
+      setTimeout(function () { msg.textContent = ''; }, 4000);
+    }
+
+    function applyAxios(body) {
+      return fetch('/api/theme', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf },
+        body: JSON.stringify(body)
+      }).then(function (r) { return r.json().then(function (d) { return { ok: r.ok, d: d }; }); });
+    }
+
+    function refreshCurrent(theme) {
+      currentName.textContent = theme.pack_id || 'custom';
+      currentSw.innerHTML = '';
+      ['accent','bg','surface','text','border'].forEach(function (k) {
+        var s = document.createElement('span');
+        s.className = 'tc-sw';
+        s.style.background = (theme.light && theme.light[k]) || '#ccc';
+        s.title = k;
+        currentSw.appendChild(s);
+      });
+      jsonEl.value = JSON.stringify({ light: theme.light, dark: theme.dark }, null, 2);
+    }
+
+    // 初始填充导出框（当前主题）
+    jsonEl.value = JSON.stringify({ light: {{ current.light | tojson }}, dark: {{ current.dark | tojson }} }, null, 2);
+
+    // 应用预设
+    Array.prototype.forEach.call(document.querySelectorAll('.tc-apply'), function (btn) {
+      btn.addEventListener('click', function () {
+        applyAxios({ pack_id: btn.getAttribute('data-pack') }).then(function (res) {
+          if (res.ok) { refreshCurrent(res.d); showMsg('已应用：' + btn.getAttribute('data-pack'), true); }
+          else { showMsg(res.d.error || '应用失败', false); }
+        }).catch(function () { showMsg('网络错误', false); });
+      });
+    });
+
+    // 导出按钮：重新拉取当前主题填入框
+    document.getElementById('tcExportBtn').addEventListener('click', function () {
+      fetch('/api/theme').then(function (r) { return r.json(); }).then(function (d) {
+        return fetch('/api/site').then(function (r2) { return r2.json(); }).then(function (s) {
+          refreshCurrent({ pack_id: s.theme_pack, light: s.theme_tokens, dark: s.theme_dark_tokens });
+          showMsg('已导出当前主题到文本框', true);
+        });
+      }).catch(function () { showMsg('导出失败', false); });
+    });
+
+    // 复制
+    document.getElementById('tcCopyBtn').addEventListener('click', function () {
+      jsonEl.select();
+      try { document.execCommand('copy'); showMsg('已复制到剪贴板', true); }
+      catch (e) { showMsg('复制失败，请手动选择', false); }
+    });
+
+    // 导入并应用
+    document.getElementById('tcImportBtn').addEventListener('click', function () {
+      var raw = jsonEl.value.trim();
+      if (!raw) { showMsg('文本框为空', false); return; }
+      var obj;
+      try { obj = JSON.parse(raw); } catch (e) { showMsg('JSON 解析失败：' + e.message, false); return; }
+      applyAxios({ custom: obj }).then(function (res) {
+        if (res.ok) { refreshCurrent(res.d); showMsg('已应用自定义主题', true); }
+        else { showMsg(res.d.error || '应用失败', false); }
+      }).catch(function () { showMsg('网络错误', false); });
+    });
+  })();
+  </script>
+
+  <style>
+    .tc-current { display:flex; align-items:center; gap:16px; flex-wrap:wrap;
+      background:var(--surface,#fff); border:1px solid var(--border,#ececec); border-radius:14px;
+      padding:14px 16px; margin-bottom:18px; }
+    .tc-current-label { color:var(--text-muted,#6b7280); font-size:13px; margin-right:8px; }
+    .tc-swatches { display:flex; gap:6px; }
+    .tc-sw { width:22px; height:22px; border-radius:6px; border:1px solid rgba(0,0,0,.1); display:inline-block; }
+    .tc-grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(240px,1fr)); gap:16px; }
+    .tc-card { background:var(--surface,#fff); border:1px solid var(--border,#ececec); border-radius:14px; overflow:hidden;
+      display:flex; flex-direction:column; }
+    .tc-prev { padding:12px; background:var(--bg,#f7f8fa); color:var(--text,#2c2c2c); font-family:var(--font-sans,sans-serif); }
+    .tc-prev-bar { display:flex; align-items:center; gap:8px; margin-bottom:10px; }
+    .tc-dot { width:12px; height:12px; border-radius:50%; background:var(--accent,#1a73e8); }
+    .tc-prev-title { font-weight:600; font-size:14px; }
+    .tc-prev-card { background:var(--surface,#fff); border:1px solid var(--border,#ececec); border-radius:10px; padding:10px; }
+    .tc-prev-h { height:8px; width:60%; background:var(--text,#2c2c2c); border-radius:4px; opacity:.85; margin-bottom:8px; }
+    .tc-prev-line { height:6px; background:var(--muted,#9aa0a6); border-radius:4px; margin:6px 0; }
+    .tc-prev-line.short { width:75%; }
+    .tc-prev-btn { margin-top:10px; border:0; background:var(--accent,#1a73e8); color:#fff;
+      padding:7px 14px; border-radius:999px; font-size:13px; cursor:pointer; }
+    .tc-meta { padding:12px 14px 16px; display:flex; flex-direction:column; gap:6px; }
+    .tc-en { color:var(--text-muted,#9aa0a6); font-size:12px; }
+    .tc-desc { color:var(--text-muted,#6b7280); font-size:13px; margin:2px 0; }
+    .tc-tags { display:flex; gap:6px; flex-wrap:wrap; margin-bottom:4px; }
+    .tc-tag { font-size:11px; background:var(--surface-2,#f4f6f8); color:var(--text-muted,#6b7280);
+      border-radius:999px; padding:2px 9px; }
+    .tc-apply { margin-top:auto; }
+    .tc-custom { margin-top:24px; background:var(--surface,#fff); border:1px solid var(--border,#ececec);
+      border-radius:14px; padding:16px; }
+    .tc-custom h3 { margin:0 0 8px; }
+    .tc-msg { font-size:13px; align-self:center; }
+    .btn.ghost { background:transparent; border:1px solid var(--border-strong,#d9dde3); color:var(--text,#2c2c2c); }
+  </style>
+{% endblock %}

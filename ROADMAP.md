@@ -819,3 +819,9 @@ v3.1.7 修复 CSRF 隐藏域乱码后，用户反馈「退出登录按钮失效�
 - 移动端溢出加固：正文 img/table/iframe 超屏规则。
 - 游戏平台：Game 表 + games_safety（安全解包/白名单/静态扫描 11 规则）+ 后台收录/审核/LLM(OpenAI 兼容)审计 + 沙箱资源托管（CSP sandbox + nosniff + approved 门禁）。
 - 前台：/games 卡片厅 + /games/:slug 沙箱播放 + /games/dev 接入文档；内置首款「就是按一下」双关 40 分钟马拉松（ID 大神榜 + 通关按真实用时嘲讽）。
+
+## 69. v3.16.0：主题中心 + 分享卡重做收尾 + 动态 OG/二维码（R69 审计 0 遗留）
+
+- 主题中心（新模块，仅超管）：myblog/themes.py 用 OKLCH 感知色彩空间（纯标准库）从单个亮色 accent 推导暗色，14 套预设主题包（亮色单源 / 暗色自动、每包含 light.accent 与 dark.bg 语义 token）；myblog/api/theme.py（GET /api/theme 公开列预设+当前 pack_id；POST /api/theme 仅超管 + 全局 CSRF，应用预设包或自定义 JSON）；myblog/admin/theme_center.py + 模板（实时预览网格 + 自定义 JSON 导入/导出）；base.html 新增「🎨 主题中心」导航；api/site.py 下发 theme_pack/theme_tokens/theme_dark_tokens，store.js/App.vue 前台整体换肤。复用 Setting 表，无 DB 迁移。
+- 分享卡重做收尾：myblog/og_image.py（Pillow 绘制 1200×630 分享卡 PNG + 磁盘缓存 + 缺依赖/字体即降级回退 og-default.png）、myblog/api/og.py（动态 OG 图 /api/og/post/<slug>.png + 站点二维码 /api/qr SVG + 文章级 OG meta SSR）；vue-frontend SharePanel.vue（SVG 图标分享面板，聚合微博/QQ/微信/X/Telegram/Facebook/LinkedIn）、PostView.vue（图片灯箱 + 代码复制 + 阅读时长）；requirements.txt 加 segno。
+- 安全（R69）：写接口严格限超管 + 全局 CSRF；读接口（预设/OG/QR）公开只读且经 SSRF（封面仅站内、QR 仅同 host）/限流（/api/qr 30/60s）/降级三重加固。已知低风险：自定义主题值未做颜色白名单（管理员→自身 CSS 视觉篡改，无 JS 执行），威胁模型内已接受并记录。细节见 SECURITY_AUDIT.md R69。

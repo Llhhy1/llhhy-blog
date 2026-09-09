@@ -2473,3 +2473,27 @@ git diff 计 **70 增 / 70 删**，`tokens.css` 定义**未被改动**。
 - R68-6 回归：py_compile 全过；pytest 全量 74 passed 仍成立（本轮无测试破坏性变更）；前端 `CommentForm.vue` 增量经 `vite build` 通过；迁移幂等（重启自动补 `email_hash` 列），老库无需手动 SQL。✅
 
 **R68 结论**：**0 遗留**。评论邮箱字段为标准 Gravatar 式实现（仅存 MD5、明文不落库、第三方 CDN 回退兜底），安全护栏完全复用既有评论限流/验证码体系，无新增暴露面。
+
+---
+
+## 第六十九轮 R69（v3.16.0 · 主题中心 + 分享卡重做收尾 + 动态 OG/二维码）
+
+**范围**：
+1. **主题中心（新模块，仅超管）**：`myblog/themes.py`（OKLCH 纯标准库色彩推导，14 套预设包，亮色单源 / 暗色自动推导）、`myblog/api/theme.py`（`GET /api/theme` 公开列预设+当前 pack_id；`POST /api/theme` 仅超管，应用预设包或自定义 JSON）、`myblog/admin/theme_center.py` + `templates/admin/theme_center.html`（后台实时预览网格 + 自定义 JSON 导入/导出）、`api/site.py` 暴露 `theme_pack`/`theme_tokens`/`theme_dark_tokens`、`store.js`/`App.vue` 前端整体换肤、后台 `base.html` 新增「🎨 主题中心」导航。
+2. **分享卡重做收尾**：`myblog/og_image.py`（Pillow 绘制 1200×630 分享卡 PNG，磁盘缓存）、`myblog/api/og.py`（动态 OG 图 `/api/og/post/<slug>.png` + `/api/qr` 站点二维码 SVG + 文章级 OG meta SSR）、`vue-frontend/src/components/SharePanel.vue`（SVG 图标分享面板）、`PostView.vue`（图片灯箱 + 代码复制 + 阅读时长）、`requirements.txt` 加 `segno`（二维码）。
+
+| 编号 | 维度 | 审计点 | 结论 |
+|---|---|---|---|
+| R69-1 | 认证/越权（关键） | `POST /api/theme` 第一行即 `session.get("user_id")` → `User` → `if not user or not user.is_super: return 403`；后台 `theme_center()` 挂 `@super_required`。普通管理员（role=admin）与游客均被拒（用例 `test_theme_post_requires_super` / `test_theme_center_page_requires_super` 覆盖）。`GET /api/theme` 与 `/api/og/*` 为公开只读，无敏感数据泄露。 | ✅ 强越权控制 |
+| R69-2 | CSRF | `POST /api/theme` 走全局 `_csrf_protect`（JSON 取 `body.csrf_token` 或 `X-CSRF-Token` 头，恒定时间比对），无豁免；`/api/qr`、`/api/og/post/<slug>.png` 为只读 GET 天然免 CSRF。用例 `test_theme_post_requires_super` 验证缺 token 即 403。 | ✅ 无 CSRF 缺口 |
+| R69-3 | XSS（主题渲染） | 后台预览页用 `{{ p.light.accent }}` 等 `{{ }}` 文本插值（Jinja2 autoescape 生效）；前端换肤经 `store.applyThemeTokens` 用 `element.style.setProperty('--key', value)`（非 `innerHTML`/`v-html`）。自定义主题值仅作 CSS 自定义属性值，现代浏览器下 CSS 自定义属性无法触发脚本执行（无 `expression()`/`url(javascript:)`）。 | ✅ 无脚本注入 |
+| R69-4 | CSS 注入（已知低风险，已接受） | 自定义主题 JSON 仅校验「light 为 dict 且含 accent」，**未对其它 token 值做颜色格式白名单**（如 `accent:"red; background:url(...)"` 会被原样写入 `--accent`）。影响面：① 仅超管可写；② 最多视觉篡改自身站点（CSS 不能执行 JS）；③ `/api/site` 下发的自定义 token 对所有访客同样仅作用于 CSS 变量。属「管理员→自身」低风险，落在项目威胁模型（管理员可信）内，本轮不引入额外校验以保持自定义自由度；后续若需可加 hex/rgba 白名单。 | ⚠️ 已记录低风险 |
+| R69-5 | 注入（SQL） | 主题/OG/QR 全部经 ORM 参数化；`theme_post` 写 Setting 用 `Setting(key=key, value=val)` + `db.session.commit()`（键值均来自固定字面量 + 受控 JSON，无字符串拼接）；`og_post_image` 按 `slug` 查 `published=True` 文章。无 SQL 注入面。 | ✅ 无注入 |
+| R69-6 | SSRF（OG 封面 / QR） | `og_image._local_cover_path` **仅接受站内相对路径**（`static/`/`uploads/` 前缀、`os.path.isfile` 校验），拒绝 `http(s)://` 与 `//`，封面不下载外部资源；`/api/qr` **仅允许本站 URL**（site_url host ∪ 请求 host 白名单，外链 403），杜绝被当作公共钓鱼二维码生成器。 | ✅ 无 SSRF |
+| R69-7 | 资源泄漏 | `og_image` 全程 `try/except` 降级（Pillow 缺失/字体缺失/绘制异常 → 回退 `og-default.png`，绝不 500）；缓存目录 `_cache_trim()` 超 300 张即删最旧一批，有界；`og_png_bytes` 用 `io.BytesIO` 且异常静默。无文件句柄/subprocess 泄漏。 | ✅ 无泄漏 |
+| R69-8 | 限流 / DoS | `/api/qr` 接 `rate_limit(client_key("qr"), 30/60s)`（超限 429）；OG PNG 走磁盘缓存（同 slug+stamp+主题色 1 天内命中）；Pillow 逐行渐变 630 行开销可忽略。无长连接、无外部遍历。 | ✅ 有上限 |
+| R69-9 | 密钥泄露 | 无任何新增密钥/环境变量；主题色与二维码颜色来自既有 `accent_color` Setting（管理员配置，非凭据）；`segno` 仅生成 SVG，无密钥。 | ✅ 无泄露 |
+| R69-10 | 迁移/降级 | 主题中心与 OG/QR **全部复用既有 `Setting` 表与 `db.create_all` 自愈**，无新表、无新列、无 `Alembic` 迁移；`themes.py` 任意色彩解析失败回退默认、`current_theme()` 懒加载 `get_setting` 不拉 `bleach`；`og_image` 缺字体即降级。符合「表结构能不改就不改」纪律。 | ✅ 零迁移 |
+| R69-11 | 回归 | py_compile 全过；**全量 pytest 82 passed**（新增 8 条主题中心测试：公开读取/预设结构 14·唯一/POST 权限/预设落 Setting 且 /api/site 联动/自定义接受·缺 accent 400·非 dict 400/未知 pack 400/后台页 403·200 渲染）；前端 `vite build` 通过；回归测试抓出「`admin/theme_center.py` 漏注册到 `admin/__init__.py` 致 404」并已修复。 | ✅ 无回归 |
+
+**R69 结论**：**0 遗留（1 个已记录的低风险）**。主题中心与分享卡重做收尾不引入新的信任边界：写操作严格限于超管 + 全局 CSRF；读接口（预设/OG/QR）均为公开只读且经 SSRF/限流/降级三重加固；唯一已知点是自定义主题值未做颜色白名单（管理员→自身 CSS 视觉篡改，无 JS 执行），属威胁模型内可接受项，已记录待后续按需收紧。发版前 `APP_VERSION` 已改为 `3.16.0`（与 Release tag 一致）。

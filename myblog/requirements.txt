@@ -18,4 +18,7 @@ cryptography>=41.0.0
 # 既有库（如服务器 blog.db）升级后只需一次性 `flask db stamp head` 注册基线（不改任何表）；
 #   之后改 model 后用 `flask db migrate` 生成迁移、`flask db upgrade` 应用。新库可直接 `flask db upgrade` 建表。
 # 未安装时 app.py 静默跳过（降级范式：绝不因缺依赖导致应用无法启动）。
+# v3.16.0 分享卡重做：纯 Python 二维码生成（零二进制依赖），微信扫码分享用。
+# /api/qr 使用；未安装时该接口 404，不影响其他功能（降级范式）。
+segno>=1.6.0
 Flask-Migrate==4.0.7

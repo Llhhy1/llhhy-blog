@@ -70,6 +70,26 @@ function applyThemeVars(s) {
   el.style.setProperty("--nav-border", darkNav ? "#2a2e35" : "#ececec");
 }
 
+// v3.16.0 主题中心：把完整 token 映射（颜色+圆角+字号+导航）整体写入 :root
+export function applyThemeTokens(map) {
+  if (!map) return;
+  const el = document.documentElement;
+  for (const k in map) {
+    if (Object.prototype.hasOwnProperty.call(map, k)) el.style.setProperty("--" + k, map[k]);
+  }
+}
+
+// v3.16.0：按当前/指定模式应用「当前激活主题」的亮或暗 token（含导航变量，覆盖默认暗色块）
+export function applyActiveTheme(mode) {
+  const m = mode || (document.documentElement.getAttribute("data-theme") === "dark" ? "dark" : "light");
+  const map = m === "dark" ? state.site.theme_dark_tokens : state.site.theme_tokens;
+  if (map) {
+    applyThemeTokens(map);
+  } else {
+    applyThemeVars(state.site); // 无完整主题包（默认/旧版）：回退到 accent + 圆角/字号/导航
+  }
+}
+
 // 默认主题：用户没手动切过时，按后台 theme_mode 定（system=跟随系统）
 function applyDefaultTheme(s) {
   try { if (localStorage.getItem("theme")) return; } catch (e) {}
@@ -103,6 +123,8 @@ export async function initSite() {
     document.documentElement.style.setProperty("--accent", s.accent_color || "#1a73e8");
     applyThemeVars(s);
     applyDefaultTheme(s);
+    // v3.16.0 主题中心：若有完整主题包，整体换肤（亮/暗按当前模式）
+    applyActiveTheme();
     injectCustomCss(s.custom_css);
     document.title = s.site_name || s.site_title || "我的博客";
     initLang(s.site_lang);  // v3.0.0 功能11：按本地/后台设置初始化语言

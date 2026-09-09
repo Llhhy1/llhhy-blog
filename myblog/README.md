@@ -2,10 +2,11 @@
 
 llhhy-blog 的后端：Flask + SQLite，服务端渲染前台 + `/api/*` JSON 接口 + Jinja2 管理后台。
 
-- 当前版本：**v3.15.1**
+- 当前版本：**v3.16.0**
 - **v3.15.1：响应式基座重构**（Grid minmax(0,1fr)/流式字阶/防溢出基线，前后台同步）+ 微信分享卡 OG 收尾；内置游戏调整（撤《就是开车》）。
 - **v3.15.0：游戏平台 + 标签治理 + 分享卡片**——`myblog/builtin_games/` 官方内置游戏两枚（纯静态），`myblog/tools/seed_games.py` 一键收录；后台「🎮 游戏收录」（上传 zip → `games_safety` 安全解包/白名单/静态扫描 → 审核；可选 OpenAI 兼容 LLM 代码审计，Key Fernet 加密）；公开 `/api/games` 与 `/api/game-files/…`（仅 approved + 沙箱响应头）；标签 `_sync_tags` 归一化去重 + 孤儿清理 + 后台一键整理；OG/分享 meta。**新表 `game` 启动自愈创建；无新环境变量**。
 - 移动端适配（v3.10.6）：修复后台「统计」长标题与公开站「文档页」移动端长文本横向溢出穿模（窄屏统一换行而非挤压版心）。v3.11.0：引入 Flask-Migrate 基线迁移、运营驾驶舱二期（趋势区间切换 + 评论/新文量曲线 + CSV 导出）、CI 增前端构建校验与双源互证校验脚本。v3.11.1：修复后台侧边栏版本号未注入回归（裸「v」）+ 运营驾驶舱视觉升级（指标卡重做、趋势图加面积填充/网格/抗拉伸描边/悬浮高亮），纯前端无逻辑变更。v3.12.0：新增「💭 微动态」后台管理（列表检索/编辑/删除级联清评论/批量删除，写审计日志，无迁移）。**v3.12.1：UI 设计系统 token 纯度（铲除散点暗色）**——后台 `admin.css` 与前端 `global.css` 的散点硬编码色（hex/rgb）全替换为 `tokens.css` 语义 token，明暗主题像素级零色差；无逻辑变更、无 DB 迁移。v3.13.0：后台「🔌 MCP 服务」面板（内置 /mcp、/mcp-write 一键启停 + 外部 MCP 服务登记 + AI 脱敏接入指令，token Fernet 加密零明文落库，零新表）。v3.13.1：插件重载在应用已处理请求后崩溃的修复。**v3.14.0：写作后台大升级**——写作面板（Markdown 工具栏 / 分屏实时预览 / 云端自动保存 / 未发布稿免登录预览链接）+ 「📄 文章管理」独立页（管理员全站、筛选/排序/分页/批量）+ 就地新建分类/系列 + 「🖼️ 媒体库」+ 版本逐行对比 + 分类/系列改名 + 分类删除可先转移文章；修复图片上传必 500 的遗留 bug（v3.11.0 切片遗失 `_MAGIC_PATTERNS`）。纯后端改动、无 DB 迁移。
+- **v3.16.0：主题中心 + 分享卡重做收尾 + 动态 OG/二维码**——后台「🎨 主题中心」：`myblog/themes.py`（OKLCH 感知色彩，14 套预设包，亮色单源 / 暗色自动推导）+ `myblog/api/theme.py`（`GET /api/theme` 公开 / `POST /api/theme` 仅超管 + 全局 CSRF）+ `admin/theme_center.py` + 模板（实时预览网格 + 自定义 JSON 导入/导出），`base.html` 新增导航；`api/site.py` 下发 `theme_pack/theme_tokens/theme_dark_tokens`，前台 `store.js`/`App.vue` 整体换肤；复用 `Setting` 表，**无 DB 迁移**。后端：`myblog/og_image.py`（Pillow 1200×630 分享卡 + 磁盘缓存 + 降级回退）、`myblog/api/og.py`（动态 OG 图 `/api/og/post/<slug>.png` + 站点二维码 `/api/qr` + 文章级 OG meta SSR）、`requirements.txt` 加 `segno`。前端：`SharePanel.vue` SVG 分享面板（微博/QQ/微信/X/Telegram/Facebook/LinkedIn）+ `PostView.vue` 图片灯箱 + 代码复制 + 阅读时长。安全见 `SECURITY_AUDIT.md` R69（0 遗留，自定义主题值未做颜色白名单为已记录低风险）。
 - 时区：展示统一北京时间（UTC+8），存储仍为 UTC；配置见 `config.TIME_ZONE`（默认 `Asia/Shanghai`，固定不可经环境变量改，避免 UI 内部错位）。
 - 根目录 README / 历史版本见仓库根 [README.md](../README.md) 与 [CHANGELOG.md](../CHANGELOG.md)
 

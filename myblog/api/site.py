@@ -5,6 +5,7 @@ import re as _re
 from flask import request, jsonify, current_app
 
 from .common import (api_bp, db, Post, Category, Tag, Comment, FriendLink, Setting, LinkApplication, Announcement, visible_posts_query, _settings_map, clean_html, render_markdown, rate_limit, client_key)
+from themes import current_theme
 import stats  # myblog/stats.py：client_ip（友链申请归属地）
 
 # ---------- 站点公共信息（导航 / 页脚 / 侧边栏用）----------
@@ -30,6 +31,10 @@ def site():
         "custom_css": s.get("custom_css", ""),
         "reward_qr_default": s.get("reward_qr_default", ""),
         "site_lang": s.get("site_lang", "zh"),
+        # v3.16.0 主题中心：当前激活主题的完整 token（亮/暗），前台据此整体换肤
+        "theme_pack": current_theme()["pack_id"],
+        "theme_tokens": current_theme()["light"],
+        "theme_dark_tokens": current_theme()["dark"],
         "categories": [
             {"name": c.name, "slug": c.slug,
              "count": visible_posts_query().filter_by(category_id=c.id).count()}

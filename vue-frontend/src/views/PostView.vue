@@ -59,22 +59,7 @@
         </div>
 
         <div class="share-row">
-          <button class="share-btn" type="button" @click="shareTip ? closeTip() : openShare()">📤 分享到…</button>
-          <div v-if="shareOpen" class="share-panel">
-            <p class="share-panel-title">分享「{{ (post.title || '').slice(0, 30) }}」</p>
-            <div class="share-grid">
-              <button class="share-item" type="button" @click="sharePost">🔗 复制链接</button>
-              <a class="share-item" :href="shareUrl('weibo')" target="_blank" rel="noopener">🅾️ 微博</a>
-              <a class="share-item" :href="shareUrl('qq')" target="_blank" rel="noopener">🐧 QQ</a>
-              <button class="share-item" type="button" @click="sharePost">💬 微信（复制后去微信粘贴）</button>
-              <a class="share-item" :href="shareUrl('x')" target="_blank" rel="noopener">𝕏 Twitter/X</a>
-              <a class="share-item" :href="shareUrl('telegram')" target="_blank" rel="noopener">✈️ Telegram</a>
-              <a class="share-item" :href="shareUrl('facebook')" target="_blank" rel="noopener">f Facebook</a>
-              <a class="share-item" :href="shareUrl('linkedin')" target="_blank" rel="noopener">in LinkedIn</a>
-            </div>
-            <p class="share-hint">微博/QQ/X/TG/FB/LinkedIn 会自动抓取文章卡片（标题/摘要/封面由服务端渲染）。</p>
-          </div>
-          <span v-if="shareTip" class="share-tip">{{ shareTip }}</span>
+          <SharePanel :title="post.title" :slug="post.slug" />
         </div>
 
         <LikeButton :slug="post.slug" :count="post.likes || 0" />
@@ -82,11 +67,20 @@
       </article>
     </main>
     <Sidebar />
+
+    <!-- v3.16.0 图片灯箱：点击正文图片放大预览，支持 ←/→ 切换、Esc 关闭 -->
+    <div v-if="lbIndex >= 0" class="lightbox" @click="lbClose">
+      <button class="lb-close" type="button" aria-label="关闭" @click.stop="lbClose">×</button>
+      <img class="lb-img" :src="lbImgs[lbIndex]" alt="预览大图" @click.stop />
+      <button v-if="lbImgs.length > 1" class="lb-nav lb-prev" type="button" aria-label="上一张" @click.stop="lbStep(-1)">‹</button>
+      <button v-if="lbImgs.length > 1" class="lb-nav lb-next" type="button" aria-label="下一张" @click.stop="lbStep(1)">›</button>
+      <span class="lb-count" v-if="lbImgs.length > 1">{{ lbIndex + 1 }} / {{ lbImgs.length }}</span>
+    </div>
   </div>
 </template>
 
 <script setup>
-import { onMounted, ref, watch, nextTick } from "vue";
+import { onMounted, onBeforeUnmount, ref, watch, nextTick } from "vue";
 import { useRoute } from "vue-router";
 import { apiGet, apiPost } from "../lib/api.js";
 import { state } from "../store.js";
@@ -113,6 +107,7 @@ hljs.registerLanguage("xml", xml);
 import Sidebar from "../components/Sidebar.vue";
 import LikeButton from "../components/LikeButton.vue";
 import CommentForm from "../components/CommentForm.vue";
+import SharePanel from "../components/SharePanel.vue";
 
 const route = useRoute();
 const post = ref(null);
@@ -120,9 +115,21 @@ const notFound = ref(false);
 const bodyEl = ref(null);
 const tocItems = ref([]);
 const related = ref([]);
-const shareTip = ref("");
-const shareOpen = ref(false);
 const rewardQrDefault = ref("");
+// v3.16.0 图片灯箱
+const lbImgs = ref([]);
+const lbIndex = ref(-1);
+function lbClose() { lbIndex.value = -1; }
+function lbStep(d) {
+  if (!lbImgs.value.length) return;
+  lbIndex.value = (lbIndex.value + d + lbImgs.value.length) % lbImgs.value.length;
+}
+function lbKey(e) {
+  if (lbIndex.value < 0) return;
+  if (e.key === "Escape") lbClose();
+  if (e.key === "ArrowLeft") lbStep(-1);
+  if (e.key === "ArrowRight") lbStep(1);
+}
 
 async function load() {
   const slug = route.params.slug;
@@ -138,6 +145,7 @@ async function load() {
     renderBody(data.html || "");
     buildToc();
     highlight();
+    enhanceBody();
     setOgMeta(data);
     // 阅读埋点（统计"反复阅读"的文章）
     apiPost("/api/stats/read", { slug }).catch(() => {});
@@ -171,6 +179,40 @@ function highlight() {
   });
 }
 
+// v3.16.0 正文增强：图片灯箱 + 代码块复制（在 highlight 之后调用）
+function enhanceBody() {
+  const root = bodyEl.value;
+  if (!root) return;
+  // 1) 图片灯箱（跳过被链接包裹的图片，避免与外链冲突）
+  const imgs = [...root.querySelectorAll("img")].filter((i) => !i.closest("a"));
+  imgs.forEach((img) => {
+    img.classList.add("img-zoomable");
+    img.addEventListener("click", () => {
+      lbImgs.value = imgs.map((i) => i.currentSrc || i.src);
+      lbIndex.value = imgs.indexOf(img);
+    });
+  });
+  // 2) 代码块复制按钮（pre 定位锚点，按钮绝对定位右上角）
+  root.querySelectorAll("pre").forEach((pre) => {
+    if (pre.querySelector(".code-copy-btn")) return;
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "code-copy-btn";
+    btn.textContent = "复制";
+    btn.addEventListener("click", async () => {
+      const text = (pre.querySelector("code") || pre).innerText;
+      try {
+        await navigator.clipboard.writeText(text);
+        btn.textContent = "已复制 ✓";
+      } catch (e) {
+        btn.textContent = "复制失败";
+      }
+      setTimeout(() => { btn.textContent = "复制"; }, 1800);
+    });
+    pre.appendChild(btn);
+  });
+}
+
 // 动态注入 Open Graph 分享元信息（D1 · 分享卡片）
 function setOgMeta(p) {
   document.title = (p.title || "") + " · " + (state.site.site_name || state.site.site_title);
@@ -196,72 +238,71 @@ function setOgMeta(p) {
   set("keywords", p.seo_keywords || (p.tags || []).map((t) => t.name).join(","));
 }
 
-function sharePost() {
-  const url = location.href;
-  if (navigator.clipboard && navigator.clipboard.writeText) {
-    navigator.clipboard.writeText(url).then(() => {
-      shareTip.value = "链接已复制，去分享吧！";
-      setTimeout(() => { shareTip.value = ""; }, 2000);
-    }).catch(() => { shareTip.value = url; });
-  } else {
-    shareTip.value = url;
-  }
-}
-
-function openShare() {
-  shareOpen.value = !shareOpen.value;
-  shareTip.value = "";
-}
-function closeTip() { shareTip.value = ""; }
-
-function shareUrl(platform) {
-  const url = location.href;
-  const title = (post.value && post.value.title) || document.title;
-  const desc = (post.value && (post.value.seo_description || post.value.summary)) || "";
-  const u = encodeURIComponent(url);
-  const t = encodeURIComponent(title + (desc ? "：" + desc.slice(0, 80) : ""));
-  const map = {
-    weibo: `https://service.weibo.com/share/share.php?url=${u}&title=${t}`,
-    qq: `https://connect.qq.com/widget/shareqq/index.html?url=${u}&title=${t}&summary=${encodeURIComponent(desc.slice(0, 120))}`,
-    x: `https://twitter.com/intent/tweet?url=${u}&text=${t}`,
-    telegram: `https://t.me/share/url?url=${u}&text=${t}`,
-    facebook: `https://www.facebook.com/sharer/sharer.php?u=${u}`,
-    linkedin: `https://www.linkedin.com/sharing/share-offsite/?url=${u}`,
-  };
-  return map[platform] || u;
-}
-
 onMounted(() => {
   load();
+  document.addEventListener("keydown", lbKey);
+});
+onBeforeUnmount(() => {
+  document.removeEventListener("keydown", lbKey);
 });
 watch(() => route.params.slug, () => { load(); });
 </script>
 
 <style scoped>
 .share-row {
-  position: relative;
   display: flex; align-items: center; flex-wrap: wrap; gap: 8px;
   margin-top: 18px;
 }
-.share-btn {
-  border: 1px solid #ddd; background: #fff; color: #333; cursor: pointer;
-  padding: 7px 14px; border-radius: 999px; font-size: 14px;
+
+/* v3.16.0 正文增强：图片灯箱 + 代码复制（作用于 v-html 注入的内容，必须用 :deep 命中） */
+.post-body :deep(.img-zoomable) {
+  cursor: zoom-in; transition: transform .2s ease;
 }
-.share-tip { color: #2e7d32; font-size: 13px; }
-.share-panel {
-  position: absolute; left: 0; top: calc(100% + 8px); z-index: 30;
-  width: min(420px, 92vw);
-  background: var(--surface, #fff); border: 1px solid #e2e2e2;
-  border-radius: 14px; padding: 12px 14px;
-  box-shadow: 0 10px 30px rgba(20, 30, 60, .14);
+.post-body :deep(.img-zoomable:hover) { transform: scale(1.012); }
+
+.post-body :deep(pre) { position: relative; }
+.post-body :deep(.code-copy-btn) {
+  position: absolute; top: 8px; right: 8px; z-index: 5;
+  border: 1px solid var(--border, #e2e2e2); background: rgba(255,255,255,.9); color: #444;
+  border-radius: 8px; padding: 3px 10px; font-size: 12px; cursor: pointer;
+  opacity: .82; transition: opacity .18s ease, color .18s ease, border-color .18s ease;
 }
-.share-panel-title { margin: 0 0 10px; font-size: 13px; color: #666; }
-.share-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 8px; }
-.share-item {
-  display: block; text-align: center; text-decoration: none;
-  border: 1px solid #e5e5e5; background: #fafafa; color: #333;
-  border-radius: 10px; padding: 8px 6px; font-size: 13px; cursor: pointer;
+.post-body :deep(pre):hover .code-copy-btn { opacity: 1; }
+.post-body :deep(.code-copy-btn:hover) { color: var(--accent, #1a73e8); border-color: var(--accent, #1a73e8); }
+
+/* v3.16.0 图片灯箱（模板内元素，scoped 正常生效） */
+.lightbox {
+  position: fixed; inset: 0; z-index: 1000;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(0,0,0,.86); padding: 24px;
+  animation: lb-fade .2s ease;
 }
-.share-item:hover { border-color: var(--accent, #1a73e8); color: var(--accent, #1a73e8); }
-.share-hint { margin: 10px 0 0; font-size: 12px; color: #999; line-height: 1.6; }
+@keyframes lb-fade { from { opacity: 0; } to { opacity: 1; } }
+.lb-img {
+  max-width: 92vw; max-height: 88vh; border-radius: 10px;
+  box-shadow: 0 20px 60px rgba(0,0,0,.5);
+  animation: lb-pop .24s cubic-bezier(.2,.8,.2,1);
+}
+@keyframes lb-pop { from { transform: scale(.94); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+.lb-close {
+  position: fixed; top: 18px; right: 22px; z-index: 1001;
+  width: 42px; height: 42px; border-radius: 50%; border: none;
+  background: rgba(255,255,255,.16); color: #fff; font-size: 26px; line-height: 1;
+  cursor: pointer; transition: background .18s ease;
+}
+.lb-close:hover { background: rgba(255,255,255,.32); }
+.lb-nav {
+  position: fixed; top: 50%; transform: translateY(-50%); z-index: 1001;
+  width: 48px; height: 48px; border-radius: 50%; border: none;
+  background: rgba(255,255,255,.16); color: #fff; font-size: 30px; line-height: 1;
+  cursor: pointer; transition: background .18s ease;
+}
+.lb-nav:hover { background: rgba(255,255,255,.32); }
+.lb-prev { left: 20px; }
+.lb-next { right: 20px; }
+.lb-count {
+  position: fixed; bottom: 22px; left: 50%; transform: translateX(-50%);
+  color: #fff; font-size: 13px; background: rgba(0,0,0,.4);
+  padding: 4px 12px; border-radius: 999px;
+}
 </style>

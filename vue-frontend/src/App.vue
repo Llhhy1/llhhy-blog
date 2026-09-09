@@ -156,7 +156,7 @@
 <script setup>
 import { onMounted, ref, h, reactive } from "vue";
 import { useRouter } from "vue-router";
-import { state, initSite, logout, t, setLang } from "./store.js";
+import { state, initSite, logout, t, setLang, applyActiveTheme } from "./store.js";
 import { apiPost, apiGet } from "./lib/api.js";
 import { sanitizeHtml } from "./lib/sanitize.js";
 const themeIcon = ref("🌙");
@@ -230,21 +230,9 @@ function currentTheme() {
 function applyTheme(t) {
   document.documentElement.setAttribute("data-theme", t);
   themeIcon.value = t === "dark" ? "☀️" : "🌙";
-  // 修复 v3.2.x：store.applyThemeVars 用内联 style 写死了 --nav-fg 等导航变量（浅色 #555555），
-  // 内联优先级高于 [data-theme="dark"] 的 CSS 重定义 → 暗色下汉堡抽屉文字仍是深灰，看不清。
-  // 这里在主题切换时同步刷新导航变量：暗色用暗色值，浅色恢复由后台设置决定的值。
-  const el = document.documentElement;
-  if (t === "dark") {
-    el.style.setProperty("--nav-bg", "#1d2025");
-    el.style.setProperty("--nav-fg", "#e6e8eb");
-    el.style.setProperty("--nav-border", "#2a2e35");
-  } else {
-    // 浅色：按后台 nav_style 设置回写（与 store.applyThemeVars 一致）
-    const darkNav = state.site.nav_style === "dark";
-    el.style.setProperty("--nav-bg", darkNav ? "#1d2025" : "#ffffff");
-    el.style.setProperty("--nav-fg", darkNav ? "#e6e8eb" : "#555555");
-    el.style.setProperty("--nav-border", darkNav ? "#2a2e35" : "#ececec");
-  }
+  // v3.16.0 主题中心：应用当前主题包的亮/暗 token（含导航变量），覆盖默认暗色块，
+  // 同时根治「内联 --nav-fg 覆盖导致暗色抽屉文字看不清」的历史问题。
+  applyActiveTheme(t);
 }
 function toggleTheme() {
   const next = currentTheme() === "dark" ? "light" : "dark";

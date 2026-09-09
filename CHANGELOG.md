@@ -3,6 +3,14 @@
 > 本文件承载 **历史版本** 记录。README 只保留最新版本与上手信息。
 > 各版本的安全审计结论见 `myblog/SECURITY_AUDIT.md`；功能规划见 `ROADMAP.md`。
 
+## v3.16.0（2026-09-10 · 主题中心 + 分享卡重做收尾 + 动态 OG/二维码）
+
+- **主题中心（新模块，仅超管）**：`myblog/themes.py` 用 OKLCH 感知色彩空间（纯标准库）从单个亮色 accent 推导暗色，提供 14 套预设主题包（亮色单源 / 暗色自动、每包含 `light.accent` 与 `dark.bg` 等语义 token）。`myblog/api/theme.py` 暴露 `GET /api/theme`（公开列预设 + 当前 `pack_id`）与 `POST /api/theme`（仅超管，应用预设包或自定义 JSON，全局 CSRF）。`myblog/admin/theme_center.py` + `templates/admin/theme_center.html` 后台实时预览网格 + 自定义 JSON 导入/导出；后台 `base.html` 新增「🎨 主题中心」导航。`api/site.py` 下发 `theme_pack`/`theme_tokens`/`theme_dark_tokens`，`store.js`/`App.vue` 前端整体换肤；应用预设即写入 `Setting`（重启即时生效，`/api/site` 联动）。
+- **分享卡重做收尾**：`myblog/og_image.py`（Pillow 绘制 1200×630 分享卡 PNG + 磁盘缓存 + 缺依赖/字体即降级回退 `og-default.png`）、`myblog/api/og.py`（动态 OG 图 `/api/og/post/<slug>.png` + 站点二维码 `/api/qr` SVG + 文章级 OG meta SSR）；`vue-frontend/src/components/SharePanel.vue`（SVG 图标分享面板，聚合微博/QQ/微信/X/Telegram/Facebook/LinkedIn）、`PostView.vue`（图片灯箱 + 代码复制 + 阅读时长）。`requirements.txt` 加 `segno`（二维码）。
+- **安全加固（R69）**：写接口严格限超管 + 全局 CSRF；读接口（预设/OG/QR）公开只读且经 SSRF（封面仅站内、QR 仅同 host）/限流（`/api/qr` 30/60s）/降级三重加固。已知低风险：自定义主题值未做颜色白名单（管理员→自身 CSS 视觉篡改，无 JS 执行），威胁模型内已接受并记录。**R69 结论：0 遗留（1 已记录低风险）**。详见 `myblog/SECURITY_AUDIT.md`。
+- **兼容/收尾**：主题中心与 OG/QR 全部复用既有 `Setting` 表与 `db.create_all` 自愈，**无新表、无新列、无 Alembic 迁移**；全量 pytest **82 passed**（新增 8 条主题中心测试，并抓出「`admin/theme_center.py` 漏注册到 `admin/__init__.py` 致 404」已修复）；`APP_VERSION` → 3.16.0。
+- **发版**：`myblog-backend.zip` + `vue-frontend-dist.zip` + `sha256.txt` 双源互证；升级需**前后端包都覆盖**（主题中心依赖新后台路由 + 新 `index.html`）。
+
 ## v3.15.3（2026-09-08 · 评论邮箱字段 + Cravatar 头像）
 
 - **评论邮箱字段**：评论表单新增邮箱输入框，站点设置「评论邮箱必填」开关可一键切换必填/选填（默认选填）。邮箱**仅用于获取 Gravatar 风格头像，明文不落库**，仅存 MD5 哈希（Gravatar 协议标准）。

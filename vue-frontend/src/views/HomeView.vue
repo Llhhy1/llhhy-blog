@@ -25,7 +25,7 @@
         <span class="bento-k">标签</span>
         <span class="bento-v">{{ (state.site.tags || []).length }}</span>
       </router-link>
-      <router-link class="bento-card bento-tall" to="/links">
+      <router-link class="bento-card bento-wide" to="/links">
         <span class="bento-k">友链</span>
         <span class="bento-v">{{ (state.site.links || []).length }}</span>
         <span class="bento-s">博客圈 →</span>

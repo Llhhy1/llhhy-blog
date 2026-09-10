@@ -61,6 +61,18 @@
           <p v-if="!d.regions.length" class="ar-empty">暂无地域数据</p>
         </div>
       </section>
+
+      <section class="ar-card">
+        <h2>🏅 成就徽章<em class="ar-badge-count">{{ ms.unlocked }}/{{ ms.total }}</em></h2>
+        <div class="ar-badges">
+          <div v-for="b in ms.items" :key="b.id" class="ar-badge" :class="{ on: b.unlocked }" :title="b.desc">
+            <span class="ar-badge-icon">{{ b.icon }}</span>
+            <span class="ar-badge-name">{{ b.name }}</span>
+            <span class="ar-badge-prog">{{ b.unlocked ? '已解锁' : b.current + '/' + b.target }}</span>
+          </div>
+        </div>
+        <p class="ar-badge-tip">连续更新 {{ ms.streak }} 天 · 开博 {{ ms.running_days }} 天</p>
+      </section>
     </template>
   </div>
 </template>
@@ -72,6 +84,7 @@ import { apiGet } from "../lib/api.js";
 const year = ref(new Date().getFullYear());
 const years = ref([]);
 const loading = ref(true);
+const ms = ref({ unlocked: 0, total: 0, items: [], streak: 0, running_days: 0 });
 const d = ref({
   posts: 0, views: 0, comments: 0, visitors: 0, words: 0,
   months: new Array(12).fill(0), hot_posts: [], tags: [], regions: [],
@@ -100,7 +113,10 @@ async function load() {
     d.value = res;
     if (res.years && res.years.length) years.value = res.years;
     if (res.year) year.value = res.year;
-  } catch (e) {} finally { loading.value = false; }
+  } catch (e) {}
+  // v3.17.2：成就徽章（独立接口，失败不影响页面）
+  apiGet("/api/milestones").then((r) => { if (r) ms.value = r; }).catch(() => {});
+  loading.value = false;
 }
 onMounted(load);
 </script>
@@ -135,6 +151,19 @@ onMounted(load);
 .ar-rbar i { display: block; height: 100%; background: var(--accent); border-radius: 999px; transition: width var(--transition, 160ms ease); }
 .ar-rnum { text-align: right; color: var(--text-muted); }
 .ar-empty { color: var(--text-faint); font-size: 13px; }
+/* v3.17.2 成就徽章 */
+.ar-badge-count { font-style: normal; color: var(--text-muted); font-size: 13px; margin-left: 6px; }
+.ar-badges { display: grid; grid-template-columns: repeat(auto-fill, minmax(108px, 1fr)); gap: 10px; }
+.ar-badge { display: flex; flex-direction: column; align-items: center; gap: 3px; padding: 12px 8px;
+  border: 1px solid var(--border); border-radius: var(--radius-md, 12px); background: var(--surface-2);
+  filter: grayscale(1); opacity: .5;
+  transition: transform var(--transition, 160ms ease), opacity var(--transition, 160ms ease); }
+.ar-badge.on { filter: none; opacity: 1; background: var(--surface); border-color: var(--accent); }
+.ar-badge.on:hover { transform: translateY(-2px); }
+.ar-badge-icon { font-size: 22px; line-height: 1; }
+.ar-badge-name { font-size: 12.5px; font-weight: 600; }
+.ar-badge-prog { font-size: 11px; color: var(--text-muted); }
+.ar-badge-tip { margin: 12px 0 0; font-size: 12px; color: var(--text-faint); }
 @media (max-width: 720px) {
   .ar-stats { grid-template-columns: repeat(2, 1fr); }
   .ar-two { grid-template-columns: 1fr; }

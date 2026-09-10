@@ -832,3 +832,9 @@ v3.1.7 修复 CSRF 隐藏域乱码后，用户反馈「退出登录按钮失效�
 - 体验升级：reduced-motion 降级、骨架屏、Toast、路由过渡、滚动渐入、容器查询、Bento 首页概览、移动端手势、键盘彩蛋；token 补 `--radius-xs`/`--transition-*`/`--ease-standard`。
 - AVIF：Pillow 支持时生成 `.avif` 旁路 + 渲染 `<picture>` 升级（`_RENDER_VERSION`→2）；年度回顾 `GET /api/review/annual` + `/annual` 页（地域用条形列表，不渲染地图以规避合规风险）；A 内容 AI 摘要 `GET/POST /api/ai/summary/<slug>`（复用 `games_llm_*`，存 Setting，零表结构变更）。
 - **v3.17.1 补记（发版后线上核验发现）**：`theme_nav_css` 的选择器含双引号，被 Jinja autoescape 转义成 `&#34;` → CSS 选择器失效，后台/SSR 深色修复实际未生效。已改为无引号写法 `html:not([data-theme=dark])` 并新增 `tests/test_theme_nav_css.py` 锁死该坑。**教训：模板注入 CSS/JS 时引号会被转义，断言测试要覆盖渲染后的 HTML。**
+
+## 71. v3.17.2：后台移动端系统性修复 + 打印优化 + 成就徽章（R72 审计）
+
+- 后台移动端（用户报「仪表盘已修但其他菜单仍异常」）：`admin.css` ≤760px 规则组——表单控件取消 min-width 且窄屏占满（覆盖模板内联宽度）、`.md-body` 分屏改单列、工具条/筛选/批量操作换行、`pre/code` 横滚、容器宽度上限解除、媒体自适应。
+- 打印优化：`@media print` 去交互元素、正文全宽黑字白底、外链附 URL、代码换行、图文避免跨页断裂。
+- 成就徽章：`GET /api/milestones`（公开只读聚合，零表结构变更）8 枚徽章 + 连续更新/开博天数，`/annual` 展示。

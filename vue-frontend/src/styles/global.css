@@ -1130,6 +1130,30 @@ body { text-rendering: optimizeLegibility; }
   60% { transform: translateY(3px); }
 }
 
+/* ===== v3.17.2 打印优化：正文优先，去掉交互元素、还原可读版式 ===== */
+@media print {
+  .site-header, .site-footer, aside, nav, .sidebar, .drawer, .drawer-mask,
+  .toast-host, #back-to-top, .reading-progress, .ann-wrap,
+  .share, .share-panel, .post-actions, .comments, .comment-list, .lightbox,
+  [class^="lb-"], [class*=" lb-"], .egg-pop { display: none !important; }
+  html, body { background: #fff !important; color: #000 !important; }
+  .site-frame, .site-frame-body, .site-frame-inner, .layout, .content, main {
+    display: block !important; width: 100% !important; max-width: 100% !important;
+    margin: 0 !important; padding: 0 !important;
+    box-shadow: none !important; border: none !important; background: #fff !important;
+  }
+  .post-body { font-size: 12pt; line-height: 1.65; color: #000 !important; }
+  .post-body a { color: #000 !important; text-decoration: underline; }
+  .post-body a[href^="http"]::after { content: " (" attr(href) ")"; font-size: 90%; color: #444; }
+  .post-body pre, .post-body code {
+    background: #f7f7f7 !important; color: #000 !important; border: 1px solid #ccc;
+    white-space: pre-wrap; word-break: break-word;
+  }
+  .post-body img, .post-body table { max-width: 100% !important; page-break-inside: avoid; }
+  h1, h2, h3 { page-break-after: avoid; }
+  @page { margin: 14mm; }
+}
+
 /* 骨架屏（列表首屏加载态） */
 .skel-card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 18px; margin-bottom: 16px; }
 .skel-line { height: 12px; border-radius: 6px; margin: 9px 0;

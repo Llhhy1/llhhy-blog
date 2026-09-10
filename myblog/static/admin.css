@@ -1173,6 +1173,29 @@ body.drawer-open {
 [data-theme="dark"] .diff-add { background: rgba(81,199,129,.16); }
 [data-theme="dark"] .diff-del { background: rgba(242,139,130,.14); }
 
+/* ===== v3.17.2：后台移动端系统性防溢出（表单 / 编辑器 / 筛选 / 代码块 / 媒体） ===== */
+@media (max-width: 760px) {
+  /* 表单控件：取消固定/最小宽度，窄屏一律占满，避免把按钮和布局挤出屏 */
+  input:not([type=checkbox]):not([type=radio]), select, textarea {
+    width: 100% !important; min-width: 0 !important; max-width: 100% !important;
+    box-sizing: border-box;
+  }
+  .quick-create input, .editor-form input, .editor-form select,
+  .filter-form input, .filter-form select { min-width: 0 !important; }
+  /* 写作面板分屏 → 单列 */
+  .md-body { grid-template-columns: 1fr !important; min-height: 320px; }
+  /* 工具条 / 筛选 / 批量操作：换行而不是撑宽 */
+  .quick-create, .filter-form, .row-ops, .batch-actions, .form-actions {
+    flex-wrap: wrap !important; white-space: normal !important; row-gap: 8px;
+  }
+  /* 代码 / 长内容可横向滚动，不撑破容器 */
+  pre, code { max-width: 100%; overflow-x: auto; }
+  /* 容器宽度上限解除 */
+  .edit-form, .auth-box, .stats-card, .section-box, .hero-card { max-width: 100% !important; }
+  .auth-box { margin: 0 !important; }
+  img, video, canvas, iframe { max-width: 100%; height: auto; }
+}
+
 /* v3.17.0 无障碍：尊重系统「减少动态效果」偏好 */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {

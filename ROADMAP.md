@@ -843,3 +843,4 @@ v3.1.7 修复 CSRF 隐藏域乱码后，用户反馈「退出登录按钮失效�
 
 - D 表情回应：Setting KV（`react_<cid>`）计数，POST 限流 40/分钟 + 全局 CSRF + 仅已审核评论；前端乐观更新 + localStorage 去重。**零表结构变更**。
 - F 来源分析（经用户确认加列）：`visit_log` 加 `referrer` 列（**仅存 origin**，防外链 query 隐私泄漏）+ 幂等迁移脚本 `migrate_visit_log_referrer.py`（备用）+ 启动自愈补列；`GET /api/stats/referrers`（排除 bot/本站自引用，单独计直接访问）+ 统计页「🧭 访客来源 Top 10」卡。
+- B 访客地图（补全）：合规底图（阿里 DataV 行政区划 GeoJSON，后端缓存 7 天）+ 自绘墨卡托 SVG 省份热力（`color-mix` 跟随主题色）；`GET /api/geo/visitors`（省级聚合，简称→全称映射）与 `GET /api/geo/china.json`（缓存代理）；仅省级计数不含个人位置（PIPL），渲染失败自动降级地域榜。

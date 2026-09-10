@@ -7,6 +7,7 @@
 
 - **评论表情回应（D 项）**：每条评论（含回复）新增 👍❤️😂🎉🤔👏 表情条——`GET /api/comments/reactions?ids=` 批量取计数、`POST /api/comments/<id>/reactions` 点/取消（IP 限流 40/分钟、全局 CSRF、仅已审核评论）；计数存 Setting KV（`react_<评论id>`，**零表结构变更**，与 `ai_summary_<id>` 同模式；每评论独立 key 避免并发读改写竞态）；前端乐观更新 + 失败回滚 + localStorage 记本机已选（与点赞机制一致）。
 - **访客来源分析（F 项，经用户确认加列）**：`visit_log` 新增 `referrer` 列（**仅存 origin**，完整 URL 的 query 可能含 token/隐私参数不入库）；新增幂等迁移脚本 `myblog/migrate_visit_log_referrer.py`（PRAGMA 检查 + ALTER，与 v3.7.1 bot 字段迁移同模式，可重复运行）；前端埋点上报 `document.referrer`（仅真实入口有值）；新增 `GET /api/stats/referrers?days=N`（来源 TOP10，排除 bot 与本站自引用，单独计「直接访问」）；统计页新增「🧭 访客来源 Top 10」卡。
+- **访客地图（B 项补全，地图合规）**：`/annual` 新增「🗺️ 访客地图」——自绘墨卡托 SVG + 省份热力着色（`color-mix` 跟随主题色，含港澳台与南海诸岛完整版图）；底图用**阿里云 DataV 行政区划 GeoJSON**（国标审图号数据，不用 OSM/Mapbox 等不合规源），后端磁盘缓存 7 天（`GET /api/geo/china.json`，拉取失败前端自动降级为地域榜）；数据 `GET /api/geo/visitors`（按 `VisitLog.region` 省级部分聚合 + 简称→全称映射，**仅省级计数，不含任何个人位置数据**）。
 - 回归：pytest 84 passed；compileall、vite build 通过。
 
 ## v3.17.2（2026-09-10 · 后台移动端系统性修复 + 打印优化 + 成就徽章）

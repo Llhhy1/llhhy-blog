@@ -50,6 +50,23 @@
         </section>
       </div>
 
+      <!-- v3.17.3 访客地图（DataV 合规底图，后端缓存；仅省级聚合，失败降级为地域榜） -->
+      <section class="ar-card">
+        <h2>🗺️ 访客地图<em class="ar-badge-count">近一年 · 按省</em></h2>
+        <div v-if="geoLoading" class="ar-loading">地图数据加载中…</div>
+        <template v-else-if="!geoFailed && geoPaths.length">
+          <svg class="geo-svg" viewBox="0 0 640 500" role="img" aria-label="访客省份分布地图">
+            <path v-for="p in geoPaths" :key="p.name" :d="p.d" class="geo-prov"
+                  :fill="p.count ? heatColor(p.count) : 'var(--surface-2)'"
+                  stroke="var(--border)" stroke-width="0.5">
+              <title>{{ p.name }}：{{ p.count ? p.count + ' 次访问' : '暂无访问' }}</title>
+            </path>
+          </svg>
+          <p class="ar-badge-tip">底图：阿里云 DataV 行政区划（含港澳台及南海诸岛）· 仅按省级聚合，不含任何个人位置数据</p>
+        </template>
+        <p v-else class="ar-empty">地图底图加载失败，请参考下方地域榜</p>
+      </section>
+
       <section class="ar-card">
         <h2>🌏 访客地域 TOP8</h2>
         <div class="ar-regions">
@@ -119,6 +136,66 @@ async function load() {
   loading.value = false;
 }
 onMounted(load);
+
+// v3.17.3 访客地图：合规底图（DataV 行政区划，后端缓存 7 天）+ 自绘墨卡托 SVG；
+// 仅省级聚合渲染，不含任何个人位置；底图/数据任一失败则降级为地域榜。
+const geoLoading = ref(false);
+const geoFailed = ref(false);
+const geoPaths = ref([]);
+const geoMax = ref(1);
+let geoTried = false;
+async function loadMap() {
+  if (geoTried) return;
+  geoTried = true;
+  geoLoading.value = true;
+  try {
+    const [g, d] = await Promise.all([
+      fetch("/api/geo/china.json").then((r) => { if (!r.ok) throw new Error("geo unavailable"); return r.json(); }),
+      apiGet("/api/geo/visitors?days=365").catch(() => ({ provinces: [] })),
+    ]);
+    buildMap(g, (d && d.provinces) || []);
+  } catch (e) {
+    geoFailed.value = true;
+  } finally {
+    geoLoading.value = false;
+  }
+}
+function buildMap(g, provinces) {
+  const feats = (g && g.features) || [];
+  const proj = ([lng, lat]) => [lng, Math.log(Math.tan(Math.PI / 4 + (lat * Math.PI / 180) / 2)) * 180 / Math.PI];
+  let minX = 180, minY = 90, maxX = -180, maxY = -90;
+  feats.forEach((f) => {
+    const polys = f.geometry.type === "MultiPolygon" ? f.geometry.coordinates : [f.geometry.coordinates];
+    polys.forEach((pl) => pl.forEach((ring) => ring.forEach((pt) => {
+      const [x, y] = proj(pt);
+      if (x < minX) minX = x; if (x > maxX) maxX = x;
+      if (y < minY) minY = y; if (y > maxY) maxY = y;
+    })));
+  });
+  const W = 640, H = 500, pad = 6;
+  const s = Math.min((W - pad * 2) / (maxX - minX), (H - pad * 2) / (maxY - minY));
+  const cnt = {};
+  provinces.forEach((p) => { cnt[p.name] = p.count; });
+  geoPaths.value = feats.map((f) => {
+    const polys = f.geometry.type === "MultiPolygon" ? f.geometry.coordinates : [f.geometry.coordinates];
+    let d = "";
+    polys.forEach((pl) => pl.forEach((ring) => {
+      ring.forEach((pt, i) => {
+        const [x, y] = proj(pt);
+        d += (i ? "L" : "M") + (pad + (x - minX) * s).toFixed(1) + " " + (pad + (maxY - y) * s).toFixed(1);
+      });
+      d += "Z";
+    }));
+    const name = (f.properties && f.properties.name) || "";
+    return { name, d, count: cnt[name] || 0 };
+  });
+  geoMax.value = Math.max(1, ...geoPaths.value.map((p) => p.count));
+}
+function heatColor(c) {
+  const t = Math.min(1, Math.max(0, c / geoMax.value));
+  return `color-mix(in srgb, var(--accent) ${Math.round(25 + t * 75)}%, var(--surface-2))`;
+}
+loadMap();
 </script>
 
 <style scoped>
@@ -164,6 +241,9 @@ onMounted(load);
 .ar-badge-name { font-size: 12.5px; font-weight: 600; }
 .ar-badge-prog { font-size: 11px; color: var(--text-muted); }
 .ar-badge-tip { margin: 12px 0 0; font-size: 12px; color: var(--text-faint); }
+/* v3.17.3 访客地图 */
+.geo-svg { width: 100%; height: auto; display: block; }
+.geo-prov { cursor: default; }
 @media (max-width: 720px) {
   .ar-stats { grid-template-columns: repeat(2, 1fr); }
   .ar-two { grid-template-columns: 1fr; }

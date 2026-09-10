@@ -8,8 +8,12 @@
 - 任何聚合异常都降级为空列表，绝不 500。
 """
 import datetime
+import os
+import time
+import urllib.parse
+import urllib.request
 
-from flask import request, jsonify
+from flask import Response, request, jsonify
 from sqlalchemy import func
 
 from .common import api_bp
@@ -159,3 +163,77 @@ def milestones():
         "total": len(items),
         "items": items,
     })
+
+
+# ---------- v3.17.3：访客地图（省份聚合 + 合规行政区划底图） ----------
+# 省份简称 → 行政区划全称（阿里 DataV GeoJSON 的 properties.name 用全称）
+_PROV_ALIAS = {
+    "北京": "北京市", "天津": "天津市", "上海": "上海市", "重庆": "重庆市",
+    "河北": "河北省", "山西": "山西省", "辽宁": "辽宁省", "吉林": "吉林省",
+    "黑龙江": "黑龙江省", "江苏": "江苏省", "浙江": "浙江省", "安徽": "安徽省",
+    "福建": "福建省", "江西": "江西省", "山东": "山东省", "河南": "河南省",
+    "湖北": "湖北省", "湖南": "湖南省", "广东": "广东省", "海南": "海南省",
+    "四川": "四川省", "贵州": "贵州省", "云南": "云南省", "陕西": "陕西省",
+    "甘肃": "甘肃省", "青海": "青海省", "台湾": "台湾省",
+    "内蒙古": "内蒙古自治区", "广西": "广西壮族自治区", "西藏": "西藏自治区",
+    "宁夏": "宁夏回族自治区", "新疆": "新疆维吾尔自治区",
+    "香港": "香港特别行政区", "澳门": "澳门特别行政区",
+}
+_GEO_DATA_URL = "https://geo.datav.aliyun.com/areas_v3/bound/100000_full.json"
+
+
+@api_bp.route("/geo/visitors")
+def geo_visitors():
+    """v3.17.3：访客省份分布（按 VisitLog.region 省级部分聚合，排除 bot）。公开只读。
+
+    隐私：仅返回**省级聚合计数**，不含 IP、不含任何个人位置数据（符合 PIPL 要求）。
+    """
+    days = request.args.get("days", type=int) or 30
+    days = max(1, min(365, days))
+    since = (datetime.datetime.utcnow() - datetime.timedelta(days=days)).strftime("%Y-%m-%d")
+    rows = (db.session.query(VisitLog.region, func.count(VisitLog.id))
+            .filter(VisitLog.date >= since, VisitLog.is_bot.is_(False), VisitLog.region != "")
+            .group_by(VisitLog.region)
+            .order_by(func.count(VisitLog.id).desc()).limit(500).all())
+    prov = {}
+    for region, n in rows:
+        name = (region or "").split("·")[0].strip()
+        full = _PROV_ALIAS.get(name)
+        if full:
+            prov[full] = prov.get(full, 0) + n
+    items = sorted(prov.items(), key=lambda x: x[1], reverse=True)
+    return jsonify({
+        "days": days,
+        "provinces": [{"name": k, "count": v} for k, v in items],
+    })
+
+
+def _geo_cache_path():
+    base = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # myblog/
+    return os.path.join(base, "data", "geo_china.json")
+
+
+@api_bp.route("/geo/china.json")
+def geo_china_json():
+    """中国省级行政区划 GeoJSON（阿里云 DataV，含港澳台与南海诸岛，审图号合规数据）。
+
+    后端磁盘缓存 7 天（避免每次访客都拉 CDN）；异常时返回 503，前端降级为地域榜。
+    """
+    cache = _geo_cache_path()
+    try:
+        if os.path.isfile(cache) and time.time() - os.path.getmtime(cache) < 7 * 86400:
+            with open(cache, "rb") as f:
+                body = f.read()
+        else:
+            req = urllib.request.Request(_GEO_DATA_URL, headers={"User-Agent": "llhhy-blog"})
+            with urllib.request.urlopen(req, timeout=30) as resp:
+                body = resp.read()
+            os.makedirs(os.path.dirname(cache), exist_ok=True)
+            tmp = cache + ".tmp"
+            with open(tmp, "wb") as f:
+                f.write(body)
+            os.replace(tmp, cache)
+    except Exception:
+        return jsonify({"error": "底图数据暂不可用"}), 503
+    return Response(body, mimetype="application/json",
+                    headers={"Cache-Control": "public, max-age=86400"})

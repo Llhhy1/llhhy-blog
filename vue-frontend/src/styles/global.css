@@ -401,7 +401,7 @@ button:hover, .btn:hover {
 .about-content {
  background: var(--surface); border: 1px solid #eee; border-radius: var(--theme-radius, 12px); padding: 24px 28px; }
 .empty {
- color: #999; padding: 20px 0; }
+ color: var(--text-faint); padding: 20px 0; }
 /* 分页（v3.4.1：胶囊样式） */.pagination {
  display: flex; align-items: center; gap: 8px; justify-content: center; margin: 24px 0; color: #666; flex-wrap: wrap; }
 .pagination a, .pagination span {
@@ -636,11 +636,11 @@ button:hover, .btn:hover {
 /* 归档时间线 */.timeline {
  position: relative; margin: 10px 0 0 8px; padding-left: 22px; }
 .timeline::before {
- content: ""; position: absolute; left: 0; top: 6px; bottom: 6px; width: 2px; background: #e6e6e6; }
+ content: ""; position: absolute; left: 0; top: 6px; bottom: 6px; width: 2px; background: var(--border); }
 .tl-year {
  font-size: 20px; font-weight: 700; color: var(--accent); margin: 18px 0 6px; }
 .tl-month {
- font-size: 14px; color: #999; margin: 8px 0 4px; }
+ font-size: 14px; color: var(--text-muted); margin: 8px 0 4px; }
 .tl-item {
  position: relative; padding: 5px 0; }
 .tl-item::before {
@@ -648,11 +648,11 @@ button:hover, .btn:hover {
 [data-theme="dark"] .tl-item::before {
  box-shadow: 0 0 0 3px var(--surface); }
 .tl-item a {
- color: #333; text-decoration: none; font-size: 15px; }
+ color: var(--text); text-decoration: none; font-size: 15px; }
 .tl-item a:hover {
  color: var(--accent); }
 .tl-item .tl-date {
- color: #aaa; font-size: 12px; margin-left: 8px; }
+ color: var(--text-faint); font-size: 12px; margin-left: 8px; }
 /* 登录/注册（v3.4.1：与后台 admin-auth-card 同款） */.auth-box {
  max-width: 420px; background: var(--surface); border: 1px solid #eee; border-radius: var(--theme-radius, 12px); padding: 26px; margin: 0 auto; box-shadow: 0 4px 20px rgba(0,0,0,0.06); }
 .auth-box label {

@@ -335,7 +335,14 @@ start_backend() {
   local sd_prefix=""
   command -v setsid >/dev/null 2>&1 && sd_prefix="setsid"
   log "   启动后端：${bin_args[*]} -c $GUNICORN_CONF app:app（setsid 脱离会话）"
-  ( cd "$APP_DIR" && run_as $sd_prefix env "HOME=${APP_DIR%/*}" "PATH=$venv_bin:$PATH" \
+  # v3.17.2 修复：启动前加载宝塔项目 env 文件（SECRET_KEY / ADMIN_PASSWORD 等），
+  # 否则 create_app 会按安全护栏拒绝启动（"缺少环境变量 SECRET_KEY"）。
+  local bt_env="/www/server/python_project/vhost/env/${PROJECT_NAME}.env"
+  [ -f "$bt_env" ] || bt_env="$(ls /www/server/python_project/vhost/env/*.env 2>/dev/null | head -1)"
+  if [ -n "$bt_env" ] && [ -f "$bt_env" ]; then log "   ↳ 已加载环境变量文件: $bt_env"; fi
+  ( cd "$APP_DIR" && \
+      if [ -n "$bt_env" ] && [ -f "$bt_env" ]; then set -a; . "$bt_env"; set +a; fi; \
+      run_as $sd_prefix env "HOME=${APP_DIR%/*}" "PATH=$venv_bin:$PATH" \
         "${bin_args[@]}" -c "$GUNICORN_CONF" app:app >"$APP_DIR/gunicorn.log" 2>&1 < /dev/null & ) || true
   # 轮询最多 20 秒等待真正起来
   sleep 2
@@ -378,7 +385,7 @@ install_deps() {
     return 0
   fi
   local py=""
-  # 优先用探测到的真实解释器
+  # 1. 优先用探测到的真实解释器（GUNICORN_BIN 可能是 python 解释器路径）
   if [ -n "$GUNICORN_BIN" ]; then
     case "$GUNICORN_BIN" in
       *python*|*/bin/python*|python*)
@@ -399,17 +406,24 @@ install_deps() {
     log "   ⚠️ 未找到可用的 python，请手动安装依赖: pip install -r $APP_DIR/requirements.txt"
     return 0
   fi
-  log "   自动安装依赖: $py -m pip install -r requirements.txt ..."
-  if run_as "$py" -m pip install --timeout 60 -r "$APP_DIR/requirements.txt" >/dev/null 2>&1; then
-    log "   ✅ Python 依赖已安装/已满足。"
-    return 0
+  # v3.17.2 加固：国内镜像优先 + 总超时 300s + 失败透出 pip 日志（防无限挂起无日志）
+  mkdir -p "$WORK" 2>/dev/null || true
+  local mirror="https://mirrors.aliyun.com/pypi/simple/"
+  local plog="$WORK/pip_install_${TS:-$(date +%s)}.log"
+  log "   自动安装依赖: $py -m pip install -i $mirror -r requirements.txt （总超时 300s）..."
+  if run_as timeout 300 "$py" -m pip install --timeout 30 -i "$mirror" -r "$APP_DIR/requirements.txt" >"$plog" 2>&1; then
+    log "   ✅ Python 依赖已安装/已满足（阿里云镜像）。"
+    rm -f "$plog"; return 0
   fi
-  log "   ⚠️ 直连 PyPI 失败，改用阿里云镜像重试..."
-  if run_as "$py" -m pip install --timeout 60 -i https://mirrors.aliyun.com/pypi/simple/ -r "$APP_DIR/requirements.txt" >/dev/null 2>&1; then
-    log "   ✅ Python 依赖已通过阿里云镜像安装。"
-    return 0
+  log "   ⚠️ 镜像安装失败或超时（总超时 300s），改用官方 PyPI 重试..."
+  if run_as timeout 300 "$py" -m pip install --timeout 30 -r "$APP_DIR/requirements.txt" >>"$plog" 2>&1; then
+    log "   ✅ Python 依赖已安装/已满足（官方 PyPI）。"
+    rm -f "$plog"; return 0
   fi
-  log "   ⚠️ 依赖安装失败，请手动执行: $py -m pip install -i https://mirrors.aliyun.com/pypi/simple/ -r $APP_DIR/requirements.txt"
+  log "   ⚠️ 依赖安装失败，pip 输出最后 8 行："
+  tail -8 "$plog" 2>/dev/null | while read -r l; do log "     $l"; done
+  rm -f "$plog"
+  log "   请手动执行: $py -m pip install -i $mirror -r $APP_DIR/requirements.txt"
 }
 
 # ==================== 主流程 ====================

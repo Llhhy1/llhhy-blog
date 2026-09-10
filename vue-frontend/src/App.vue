@@ -11,6 +11,7 @@
       <router-link to="/" @click="drawerOpen = false">{{ t('home') }}</router-link>
       <router-link to="/archive" @click="drawerOpen = false">{{ t('archive') }}</router-link>
       <router-link to="/stats" @click="drawerOpen = false">{{ t('stats') }}</router-link>
+      <router-link to="/annual" @click="drawerOpen = false">📅 回顾</router-link>
       <router-link to="/about" @click="drawerOpen = false">{{ t('about') }}</router-link>
       <router-link to="/links" @click="drawerOpen = false">{{ t('links') }}</router-link>
       <router-link to="/square" @click="drawerOpen = false">{{ t('square') }}</router-link>
@@ -48,6 +49,7 @@
         <router-link to="/">{{ t('home') }}</router-link>
         <router-link to="/archive">{{ t('archive') }}</router-link>
         <router-link to="/stats">{{ t('stats') }}</router-link>
+        <router-link to="/annual">📅 回顾</router-link>
         <router-link to="/about">{{ t('about') }}</router-link>
         <router-link to="/links">{{ t('links') }}</router-link>
         <router-link to="/square">{{ t('square') }}</router-link>

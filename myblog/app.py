@@ -253,7 +253,8 @@ def _migrate_visit_log_table():
         cols = [c["name"] for c in ins.get_columns("visit_log")]
         specs = {"is_bot": "BOOLEAN DEFAULT 0",
                  "bot_name": "VARCHAR(60) DEFAULT ''",
-                 "bot_category": "VARCHAR(20) DEFAULT ''"}
+                 "bot_category": "VARCHAR(20) DEFAULT ''",
+                 "referrer": "VARCHAR(300) DEFAULT ''"}  # v3.17.3：访问来源（仅存 origin）
         need = [c for c in specs if c not in cols]
         if need:
             db.session.remove()

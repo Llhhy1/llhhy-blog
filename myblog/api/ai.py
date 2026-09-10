@@ -33,6 +33,12 @@ def _setting_set(key, value):
         db.session.add(Setting(key=key, value=value))
 
 
+# v3.17.7：摘要生成提示词提取为常量（后台「AI 摘要」管理页与 API 共用，保证口径一致）
+AI_SUMMARY_SYSTEM = "你是中文技术博客编辑。输出简洁准确的中文摘要，不要客套话、不要 Markdown 标记。"
+AI_SUMMARY_USER_TMPL = ("请为下面这篇文章写一段 120 字以内的中文摘要；然后另起一行，以「标签建议：」开头，"
+                        "给出 3-5 个中文标签（用中文逗号分隔）。\n\n标题：{title}\n\n正文：\n{content}")
+
+
 def _llm_chat(system, user, timeout=90):
     """OpenAI 兼容 /chat/completions。返回 (text, err)。"""
     if get_setting("games_llm_on", "0") != "1":
@@ -92,12 +98,8 @@ def ai_summary_make(slug):
     if not content:
         return jsonify({"error": "正文为空，无法生成"}), 400
 
-    text, err = _llm_chat(
-        "你是中文技术博客编辑。输出简洁准确的中文摘要，不要客套话、不要 Markdown 标记。",
-        "请为下面这篇文章写一段 120 字以内的中文摘要；然后另起一行，以「标签建议：」开头，"
-        "给出 3-5 个中文标签（用中文逗号分隔）。\n\n标题：" + (p.title or "") +
-        "\n\n正文：\n" + content[:6000],
-    )
+    text, err = _llm_chat(AI_SUMMARY_SYSTEM,
+                          AI_SUMMARY_USER_TMPL.format(title=(p.title or ""), content=content[:6000]))
     if text is None:
         return jsonify({"error": err or "生成失败"}), 502
 

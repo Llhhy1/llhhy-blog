@@ -39,6 +39,15 @@ AI_SUMMARY_USER_TMPL = ("请为下面这篇文章写一段 120 字以内的中�
                         "给出 3-5 个中文标签（用中文逗号分隔）。\n\n标题：{title}\n\n正文：\n{content}")
 
 
+def _normalize_llm_base(base):
+    """v3.17.8：兼容把完整端点填进 Base 的情况（如 .../v4/chat/completions），
+    归一化为前缀，避免拼出 /chat/completions/chat/completions。"""
+    b = (base or "").rstrip("/")
+    if b.endswith("/chat/completions"):
+        b = b[: -len("/chat/completions")]
+    return b
+
+
 def _llm_chat(system, user, timeout=90):
     """OpenAI 兼容 /chat/completions。返回 (text, err)。"""
     if get_setting("games_llm_on", "0") != "1":
@@ -57,6 +66,7 @@ def _llm_chat(system, user, timeout=90):
         ],
         "temperature": 0.3,
     }
+    base = _normalize_llm_base(base)
     try:
         req = urllib.request.Request(
             base + "/chat/completions",

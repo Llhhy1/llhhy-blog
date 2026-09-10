@@ -62,6 +62,9 @@ def _run_llm_audit(g):
     if get_setting("games_llm_on", "0") != "1":
         return False, "未开启"
     base = (get_setting("games_llm_base", "") or "").rstrip("/")
+    # v3.17.8：兼容把完整端点填进 Base 的情况（如 .../v4/chat/completions），归一化为前缀
+    if base.endswith("/chat/completions"):
+        base = base[: -len("/chat/completions")]
     enc = get_setting("games_llm_key_enc", "") or ""
     key = decrypt_secret(enc) if enc else ""
     model = get_setting("games_llm_model", "gpt-4o-mini")

@@ -3,7 +3,21 @@
 > 本文件承载 **历史版本** 记录。README 只保留最新版本与上手信息。
 > 各版本的安全审计结论见 `myblog/SECURITY_AUDIT.md`；功能规划见 `ROADMAP.md`。
 
-## v3.16.0（2026-09-10 · 主题中心 + 分享卡重做收尾 + 动态 OG/二维码）
+## v3.17.0（2026-09-10 · 深色修复 + 动效/无障碍 + AVIF + 年度回顾 + AI 摘要）
+
+- **修复：深色模式顶部白条（前后台 + SSR，同源根因）**：`nav_style`（独立设置）把 `--nav-bg` 写死白色，且写在了压过 `[data-theme="dark"]` 的优先级位置——前台是 `store.js` 的元素内联 style（最高优先级），后台/SSR 是 `base.html` 里位于 `link admin.css` 之后的 `<style>:root{…}`（同特异性后者胜）。修法：`app.py` 把导航配色拆成 `theme_nav_css` 并限定 `html:not([data-theme="dark"])`；`admin/base.html`、`templates/base.html` 各注入一次；`store.js` 不再写死导航变量（新增 `applyNavVars` 仅作无主题包兜底）；SSR 前台 `style.css` 的 `.site-header` 改用 `var(--nav-bg)`；顺带修 `global.css` 的 `--nav-fg: var(--nav-fg)` 自引用（该变量此前变为无效值）。
+- **修复：主题包换肤实际未生效**：`themes.py` 的 token key 用下划线（`nav_bg`/`surface_2`），CSS 变量用短横线（`--nav-bg`），而 `applyThemeTokens` 原样拼接 `"--" + k` → 写入的是无效变量名。已改为统一转换（`_`→`-`）并在写入前清除上一轮变量（避免亮/暗切换残留）。
+- **修复：后台表格手机端无法浏览全文**：`admin/base.html` 的 `admin-responsive-base` 内 `@media (max-width:760px)` 升级为**卡片化堆叠**（隐藏表头、每行成卡片、单元格纵向、取消 `min-width:560px` 与首列 sticky），彻底消除横向滚动，长文本可换行完整阅读。
+- **P0 体验/无障碍**：`prefers-reduced-motion: reduce` 全局降级（前后台）；首页骨架屏（`HomeView` loading + `.skel-*`）；新增轻量 Toast（`src/lib/toast.js`）替换前台 4 处原生 `alert`。
+- **设计 token 补齐**：前后端 `tokens.css` 增加 `--radius-xs`、`--transition-fast/-slow`、`--ease-standard`，动效统一走变量。
+- **P1 动效/响应式**：路由过渡（`App.vue` `<Transition name="page">`）、滚动渐入指令 `v-reveal`（`main.js` IntersectionObserver，reduced-motion 下自动跳过）、容器查询（`.content{container-type:inline-size}` + `@container`）。
+- **P2 视觉/趣味**：首页 Bento Grid 概览卡（文章/阅读/分类/标签/友链/评论，数据取 `/api/site`）；排版升级（流式字阶 `clamp` + 阅读行高）；移动端手势导航（左缘右滑开抽屉、抽屉内左滑关闭）；键盘彩蛋（依次输入 `llhhy`）。
+- **AVIF 图片优化（零新增依赖）**：`maybe_convert_webp` 在 Pillow 支持时额外生成同名 `.avif` 旁路（`features.check("avif")`，不支持则静默跳过）；渲染管线 `utils.render_markdown` 在清洗后把站内 `.webp` 图片升级为 `<picture><source type="image/avif">`（仅当同名 avif 磁盘存在，避免 404）；`_RENDER_VERSION` 1→2 触发正文缓存一次性重渲染。
+- **游戏化：年度回顾 + 访客地域榜**：新增公开只读 `GET /api/review/annual?year=YYYY`（`myblog/api/review.py`）聚合发文/阅读/评论/访客/字数、月度发文、最热文章 Top5、高频标签、地域 Top8；前端新增 `/annual` 页（`AnnualView.vue`）。**地域用条形列表呈现，不渲染地图**（规避地图数据合规问题与重依赖）。
+- **A 内容 AI：文章摘要 / 标签建议**：新增 `GET /api/ai/summary/<slug>`（公开只读）与 `POST /api/ai/summary/<slug>`（仅超管，全局 CSRF）——复用「游戏收录」的 OpenAI 兼容配置（`games_llm_*`），结果存 `Setting`（`ai_summary_<id>` / `ai_tags_<id>`），**零表结构变更**；后台文章编辑页新增「🤖 生成 AI 摘要」按钮，前台文章页展示摘要与标签建议。
+- **回归**：全量 pytest **82 passed**；后端 compileall 通过；前端 `vite build` 通过（`_vite_build21`）。
+
+
 
 - **主题中心（新模块，仅超管）**：`myblog/themes.py` 用 OKLCH 感知色彩空间（纯标准库）从单个亮色 accent 推导暗色，提供 14 套预设主题包（亮色单源 / 暗色自动、每包含 `light.accent` 与 `dark.bg` 等语义 token）。`myblog/api/theme.py` 暴露 `GET /api/theme`（公开列预设 + 当前 `pack_id`）与 `POST /api/theme`（仅超管，应用预设包或自定义 JSON，全局 CSRF）。`myblog/admin/theme_center.py` + `templates/admin/theme_center.html` 后台实时预览网格 + 自定义 JSON 导入/导出；后台 `base.html` 新增「🎨 主题中心」导航。`api/site.py` 下发 `theme_pack`/`theme_tokens`/`theme_dark_tokens`，`store.js`/`App.vue` 前端整体换肤；应用预设即写入 `Setting`（重启即时生效，`/api/site` 联动）。
 - **分享卡重做收尾**：`myblog/og_image.py`（Pillow 绘制 1200×630 分享卡 PNG + 磁盘缓存 + 缺依赖/字体即降级回退 `og-default.png`）、`myblog/api/og.py`（动态 OG 图 `/api/og/post/<slug>.png` + 站点二维码 `/api/qr` SVG + 文章级 OG meta SSR）；`vue-frontend/src/components/SharePanel.vue`（SVG 图标分享面板，聚合微博/QQ/微信/X/Telegram/Facebook/LinkedIn）、`PostView.vue`（图片灯箱 + 代码复制 + 阅读时长）。`requirements.txt` 加 `segno`（二维码）。

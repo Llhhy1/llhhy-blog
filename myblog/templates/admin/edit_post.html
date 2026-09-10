@@ -155,6 +155,8 @@
     {% if post %}
     <p style="margin-top:8px;">
       {% if preview_token %}<button type="button" class="btn ghost small" id="preview-link-btn">🔗 复制未发布预览链接</button>{% endif %}
+      {% if post %}<button type="button" class="btn ghost small" id="ai-summary-btn">🤖 生成 AI 摘要</button>{% endif %}
+      {% if post %}<div id="ai-summary-box" style="display:none;margin:10px 0;padding:10px 12px;background:var(--surface-2,#f4f6f8);border:1px solid var(--border,#ececec);border-radius:10px;font-size:13px;line-height:1.7;"></div>{% endif %}
       <a class="btn ghost small" href="{{ url_for('admin.post_history', post_id=post.id) }}">🕓 版本历史 / 对比</a>
     </p>
     {% endif %}
@@ -451,6 +453,39 @@
     }
 
     /* ---------- 提交：清空本地草稿与挂起计时器 ---------- */
+    // v3.17.0：A 内容 AI —— 一键生成文章摘要 + 标签建议（存 Setting，零表结构变更）
+    (function () {
+      var aiBtn = document.getElementById("ai-summary-btn");
+      var aiBox = document.getElementById("ai-summary-box");
+      if (!aiBtn || !aiBox) return;
+      aiBtn.addEventListener("click", function () {
+        var old = aiBtn.textContent;
+        aiBtn.disabled = true;
+        aiBtn.textContent = "⏳ 生成中…";
+        aiBox.style.display = "block";
+        aiBox.textContent = "正在调用模型，请稍候…";
+        fetch("/api/ai/summary/{{ post.slug if post else '' }}", {
+          method: "POST",
+          headers: { "X-CSRF-Token": csrf, "Content-Type": "application/json" },
+          body: "{}"
+        }).then(function (r) {
+          return r.json().then(function (d) { return { ok: r.ok, d: d }; });
+        }).then(function (res) {
+          if (res.ok && res.d && res.d.ok) {
+            aiBox.textContent = "🤖 AI 摘要：" + res.d.summary +
+              (res.d.tags ? "　｜　标签建议：" + res.d.tags : "");
+          } else {
+            aiBox.textContent = "⚠️ " + ((res.d && res.d.error) || "生成失败");
+          }
+        }).catch(function () {
+          aiBox.textContent = "⚠️ 网络错误，请稍后重试";
+        }).then(function () {
+          aiBtn.disabled = false;
+          aiBtn.textContent = old;
+        });
+      });
+    })();
+
     form.addEventListener("submit", function () {
       clearNewFields();
       clearAutoTimers();

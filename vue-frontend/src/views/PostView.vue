@@ -27,6 +27,14 @@
           </ul>
         </nav>
         <!-- 正文渲染 -->
+        <!-- v3.17.0：A 内容 AI 摘要（存在时展示） -->
+        <div v-if="aiSummary" class="ai-summary">
+          <span class="ai-badge">🤖 AI 摘要</span>
+          <p class="ai-summary-text">{{ aiSummary }}</p>
+          <div v-if="aiTagList.length" class="ai-tags">
+            <router-link v-for="t in aiTagList" :key="t" :to="`/tag/${encodeURIComponent(t)}`" class="ai-tag">#{{ t }}</router-link>
+          </div>
+        </div>
         <div class="post-body" ref="bodyEl"></div>
         <div v-if="post.tags && post.tags.length" class="post-tags">
           <router-link v-for="t in post.tags" :key="t.slug" class="tag" :to="`/tag/${t.slug}`">{{ t.name }}</router-link>
@@ -80,7 +88,7 @@
 </template>
 
 <script setup>
-import { onMounted, onBeforeUnmount, ref, watch, nextTick } from "vue";
+import { onMounted, onBeforeUnmount, ref, watch, nextTick, computed } from "vue";
 import { useRoute } from "vue-router";
 import { apiGet, apiPost } from "../lib/api.js";
 import { state } from "../store.js";
@@ -111,6 +119,11 @@ import SharePanel from "../components/SharePanel.vue";
 
 const route = useRoute();
 const post = ref(null);
+// v3.17.0：A 内容 AI 摘要（后端 Setting 存储，公开只读获取）
+const aiSummary = ref("");
+const aiTags = ref("");
+const aiTagList = computed(() =>
+  (aiTags.value || "").split(/[，,;；]/).map((s) => s.trim()).filter(Boolean));
 const notFound = ref(false);
 const bodyEl = ref(null);
 const tocItems = ref([]);
@@ -147,6 +160,12 @@ async function load() {
     highlight();
     enhanceBody();
     setOgMeta(data);
+    // v3.17.0：拉取 A 内容 AI 摘要（存在时前台展示）
+    aiSummary.value = "";
+    aiTags.value = "";
+    apiGet(`/api/ai/summary/${encodeURIComponent(slug)}`)
+      .then((r) => { aiSummary.value = (r && r.summary) || ""; aiTags.value = (r && r.tags) || ""; })
+      .catch(() => {});
     // 阅读埋点（统计"反复阅读"的文章）
     apiPost("/api/stats/read", { slug }).catch(() => {});
     // 「看了又看」协同过滤推荐（v3.0.0 功能8）
@@ -253,6 +272,17 @@ watch(() => route.params.slug, () => { load(); });
   display: flex; align-items: center; flex-wrap: wrap; gap: 8px;
   margin-top: 18px;
 }
+
+/* v3.17.0：AI 摘要块 */
+.ai-summary {
+  background: var(--surface-2); border: 1px solid var(--border);
+  border-left: 3px solid var(--accent); border-radius: var(--radius-md, 12px);
+  padding: 14px 16px; margin: 0 0 20px;
+}
+.ai-badge { display: inline-block; font-size: 12px; font-weight: 600; color: var(--accent); margin-bottom: 6px; }
+.ai-summary-text { margin: 0; font-size: 14px; line-height: 1.75; color: var(--text); }
+.ai-tags { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.ai-tag { font-size: 12px; color: var(--accent); text-decoration: none; background: var(--accent-soft, rgba(26,115,232,.1)); border-radius: 999px; padding: 2px 10px; }
 
 /* v3.16.0 正文增强：图片灯箱 + 代码复制（作用于 v-html 注入的内容，必须用 :deep 命中） */
 .post-body :deep(.img-zoomable) {

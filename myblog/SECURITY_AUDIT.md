@@ -2497,3 +2497,27 @@ git diff 计 **70 增 / 70 删**，`tokens.css` 定义**未被改动**。
 | R69-11 | 回归 | py_compile 全过；**全量 pytest 82 passed**（新增 8 条主题中心测试：公开读取/预设结构 14·唯一/POST 权限/预设落 Setting 且 /api/site 联动/自定义接受·缺 accent 400·非 dict 400/未知 pack 400/后台页 403·200 渲染）；前端 `vite build` 通过；回归测试抓出「`admin/theme_center.py` 漏注册到 `admin/__init__.py` 致 404」并已修复。 | ✅ 无回归 |
 
 **R69 结论**：**0 遗留（1 个已记录的低风险）**。主题中心与分享卡重做收尾不引入新的信任边界：写操作严格限于超管 + 全局 CSRF；读接口（预设/OG/QR）均为公开只读且经 SSRF/限流/降级三重加固；唯一已知点是自定义主题值未做颜色白名单（管理员→自身 CSS 视觉篡改，无 JS 执行），属威胁模型内可接受项，已记录待后续按需收紧。发版前 `APP_VERSION` 已改为 `3.16.0`（与 Release tag 一致）。
+
+---
+
+## 第七十轮 R70（v3.17.0 · 深色修复 + AVIF + 年度回顾 + A 内容 AI）
+
+**范围**：
+1. **修复类（无新增攻击面）**：深色白条（`app.py theme_nav_css` 限定 `html:not([data-theme="dark"])`、`store.js` 不再内联写死导航变量、`style.css` 用 `var(--nav-bg)`）；主题包 token key 映射（`_`→`-`，仅前端变量名转换）；后台表格窄屏卡片化（纯 CSS）。
+2. **AVIF**：`app.py maybe_convert_webp` 增 `.avif` 旁路；`utils.render_markdown` 增 `_upgrade_img_avif`（`<picture>` 升级，`_RENDER_VERSION`→2）。
+3. **年度回顾**：`myblog/api/review.py` `GET /api/review/annual`（公开只读聚合）。
+4. **A 内容 AI**：`myblog/api/ai.py` `GET /api/ai/summary/<slug>`（公开只读）、`POST /api/ai/summary/<slug>`（仅超管 + 限流 + 全局 CSRF）；后台按钮 + 前台展示。
+
+| 编号 | 维度 | 审计点 | 结论 |
+|---|---|---|---|
+| R70-1 | 认证/越权（关键） | `POST /api/ai/summary/<slug>` 先 `session.get("user_id")` → `User` → `if not u or not u.is_super: 403`，普通管理员/游客均拒；`GET /api/ai/summary`、`GET /api/review/annual` 为公开只读，仅返回聚合数字与被标记摘要文本（无 IP、无邮箱、无用户标识）。 | ✅ 越权控制完整 |
+| R70-2 | CSRF | `POST /api/ai/summary` 无豁免，走全局 `_csrf_protect`（`X-CSRF-Token` 或 body）；后台按钮 JS 从表单隐藏域取 token 随请求发送。GET 只读天然免 CSRF。 | ✅ 无 CSRF 缺口 |
+| R70-3 | XSS（新增渲染路径） | ① AI 摘要前台用 Vue `{{ }}` 文本插值（自动转义），后台用 `textContent`（非 `innerHTML`）；② 年度回顾页全部 `{{ }}` 插值；③ AVIF `<picture>` 注入的 `srcset` 取自**原 `<img src>`（已过 bleach 白名单）**，且仅当 `/static/` 前缀 + 磁盘确实存在同名 `.avif` 时才插入（不允许外部 URL、不允许 `//` 协议相对），无用户可控拼接。 | ✅ 无脚本注入 |
+| R70-4 | 注入（SQL） | Setting 读写用 ORM（`Setting(key=..., value=...)`）；`ai_summary_%d / ai_tags_%d` 键由 int 主键格式化，无字符串拼接注入；`func.strftime` / `VisitLog.date.like(ymd+"%")` 中的 `ymd` 为 `int()` 转换后的四位年份。 | ✅ 无注入 |
+| R70-5 | SSRF | `_llm_chat` 目标为 `games_llm_base + /chat/completions`（超管配置项，R66 已评估）；本版**未新增**任何外部请求入口（AVIF 为本地磁盘写入、年度回顾为纯 DB 聚合）。 | ✅ 无新增 SSRF |
+| R70-6 | 资源/DoS | AI 生成按超管限流 `10 次/小时`（超限 429），LLM 请求 `timeout=90s`；正文输入截断 6000 字符；年度回顾聚合均带 `limit`（地域 Top8、热文 Top5、标签 Top8）且年份参数经 int 校验；AVIF 生成失败静默跳过，不产生重试风暴。 | ✅ 有上限 |
+| R70-7 | 密钥泄露 | 无新增密钥；AI 复用 `games_llm_key_enc`（Fernet 加密落库，仅在服务端解密使用），响应体不含 Key/Base。 | ✅ 无泄露 |
+| R70-8 | 迁移/降级 | AI 摘要/标签结果存既有 `Setting` 表（`ai_summary_<id>` / `ai_tags_<id>`），年度回顾纯查询——**无新表、无新列、无 Alembic 迁移**；AVIF 依赖探测 + 静默降级；`_upgrade_img_avif` 全 `try/except` 回退原 HTML。 | ✅ 零迁移 + 全降级 |
+| R70-9 | 回归 | 后端 `compileall` 通过；**全量 pytest 82 passed**（无回归）；前端 `vite build` 通过。 | ✅ 无回归 |
+
+**R70 结论**：**0 遗留**。本版新增的两个只读接口均为聚合/文本输出、不含任何用户标识或凭据；唯一的写接口（AI 生成）严格限于超管 + 全局 CSRF + 小时级限流 + 90s 超时，且复用既有加密配置与 Setting 存储，未扩大信任边界。修复类改动为纯前端变量/CSS 调整与 key 名映射，不涉及权限或数据处理逻辑。发版前 `APP_VERSION` 改为 `3.17.0`（与 Release tag 一致）。

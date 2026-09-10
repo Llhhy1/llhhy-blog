@@ -28,6 +28,8 @@ from . import notifications # 通知列表 已读 全部已读
 from . import games        # v3.15.0：游戏平台公开接口/沙箱资源
 from . import og           # v3.15.1：文章分享卡 SSR meta（爬虫 UA）
 from . import theme        # v3.16.0：主题中心（预设包 + 自定义应用）
+from . import review       # v3.17.0：年度回顾 / 访客地域榜（公开只读聚合）
+from . import ai           # v3.17.0：A 内容 AI（文章摘要 / 标签建议，复用 LLM 配置）
 from . import system        # 版本检查 在线更新 webhook 部署
 
 # 蓝图唯一出处（功能模块从 .common 取，app.py 从本包取，二者同一对象）

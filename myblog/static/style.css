@@ -16,8 +16,8 @@ body {
 
 /* 顶部导航 */
 .site-header {
-  background: #fff;
-  border-bottom: 1px solid #ececec;
+  background: var(--nav-bg, #fff);
+  border-bottom: 1px solid var(--nav-border, #ececec);
   position: sticky; top: 0; z-index: 10;
 }
 .header-inner { display: flex; align-items: center; justify-content: space-between; height: 58px; }

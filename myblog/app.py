@@ -315,6 +315,10 @@ def count_unique_view(post_id, ip):
 def maybe_convert_webp(path, max_side=1600):
     """上传图片若体积较大则转 WebP 以省流量（v2.8.0）。
 
+    v3.17.0：若 Pillow 带 AVIF 支持，额外生成同名 .avif 旁路文件（体积通常再省
+    20%~40%），前端以 <picture> 优先 AVIF、回退 WebP；avif 生成失败静默跳过，
+    不影响主流程与返回值。返回的仍是 .webp 路径（兼容既有调用方）。
+
     需要 Pillow；未安装（零依赖降级）则直接返回原路径，不做转换。
     转换成功会原地替换文件为 .webp 并返回新路径。失败/非图片也安全回退原路径。
     """
@@ -334,8 +338,16 @@ def maybe_convert_webp(path, max_side=1600):
             ratio = max_side / max(im.size)
             im = im.resize((int(im.size[0] * ratio), int(im.size[1] * ratio)),
                            Image.LANCZOS)
-        new_path = _os.path.splitext(path)[0] + ".webp"
+        base = _os.path.splitext(path)[0]
+        new_path = base + ".webp"
         im.save(new_path, "WEBP", quality=82)
+        # v3.17.0：AVIF 旁路（Pillow 未编译 AVIF 时自动跳过，零新增依赖）
+        try:
+            from PIL import features as _feat
+            if _feat.check("avif"):
+                im.save(base + ".avif", "AVIF", quality=62)
+        except Exception:
+            pass
         # 释放原文件，避免上传目录堆积
         try:
             if _os.path.abspath(new_path) != _os.path.abspath(path):
@@ -626,9 +638,16 @@ def create_app():
         nav_bg = "#1d2025" if nav_style == "dark" else "#ffffff"
         nav_fg = "#e6e8eb" if nav_style == "dark" else "#555555"
         nav_border = "#2a2e35" if nav_style == "dark" else "#ececec"
+        # v3.17.0 修复「深色模式顶部白条」：导航配色（nav_style，一个独立设置）
+        # 原先无条件注入 :root，与 tokens.css 的 [data-theme="dark"] 同特异性且
+        # 后定义（<style> 在 <link> 之后）→ 深色下把导航背景压回白色。
+        # 改为限定 :not([data-theme="dark"])，深色时交由 tokens.css 的 dark 块接管。
         theme_css = (
             f"--theme-radius: {radius}; --theme-font-size: {font_size}; "
-            f"--nav-bg: {nav_bg}; --nav-fg: {nav_fg}; --nav-border: {nav_border};"
+        )
+        theme_nav_css = (
+            'html:not([data-theme="dark"]) { '
+            f"--nav-bg: {nav_bg}; --nav-fg: {nav_fg}; --nav-border: {nav_border}; }}"
         )
         # v3.1.6：CSRF Token 注入模板（表单页用 {{ csrf_input() }} 生成隐藏域）
         from utils import csrf_input as _csrf_input
@@ -643,6 +662,7 @@ def create_app():
             current_user=current_user,
             admin_css_v=admin_css_v,
             theme_css=theme_css,
+            theme_nav_css=theme_nav_css,
             custom_css=settings.get("custom_css", ""),
             csrf_input=_csrf_input,
             csrf_token=_session.get("csrf_token", ""),

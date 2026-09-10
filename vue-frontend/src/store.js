@@ -57,25 +57,42 @@ export function initLang(siteLang) {
   document.documentElement.setAttribute("lang", lang === "en" ? "en" : "zh-CN");
 }
 
-// 主题美化：把后台设置转成 CSS 变量（圆角/字号/导航栏）
+// 主题美化：把后台设置转成 CSS 变量（圆角/字号）
+// v3.17.0：不再在此写导航变量——否则内联 --nav-bg 会压死 [data-theme=dark]，
+// 造成「一调深色模式顶部就一整条白色」。导航改由主题包 token 或 applyNavVars 提供。
 function applyThemeVars(s) {
   const radiusMap = { sm: "8px", md: "12px", lg: "20px" };
   const fontMap = { sm: "14px", md: "15px", lg: "17px" };
-  const darkNav = s.nav_style === "dark";
   const el = document.documentElement;
   el.style.setProperty("--theme-radius", radiusMap[s.theme_radius] || "12px");
   el.style.setProperty("--theme-font-size", fontMap[s.theme_font] || "15px");
+}
+
+// v3.17.0：无完整主题包时的导航兜底（按后台 nav_style 设置）
+function applyNavVars(s) {
+  const darkNav = (s && s.nav_style) === "dark";
+  const el = document.documentElement;
   el.style.setProperty("--nav-bg", darkNav ? "#1d2025" : "#ffffff");
   el.style.setProperty("--nav-fg", darkNav ? "#e6e8eb" : "#555555");
   el.style.setProperty("--nav-border", darkNav ? "#2a2e35" : "#ececec");
 }
 
 // v3.16.0 主题中心：把完整 token 映射（颜色+圆角+字号+导航）整体写入 :root
+// v3.17.0 修复：themes.py 的 key 用下划线（nav_bg/surface_2…），而 CSS 变量用短横线
+// （--nav-bg/--surface-2）；原先原样写 "--"+k 得到无效变量名，导致主题包换肤从未生效
+// （也是深色白条的成因之一）。现统一转换，并在写入前清除上一轮变量，避免亮/暗切换残留。
+let _appliedTokenNames = [];
 export function applyThemeTokens(map) {
   if (!map) return;
   const el = document.documentElement;
+  for (const name of _appliedTokenNames) el.style.removeProperty(name);
+  _appliedTokenNames = [];
   for (const k in map) {
-    if (Object.prototype.hasOwnProperty.call(map, k)) el.style.setProperty("--" + k, map[k]);
+    if (Object.prototype.hasOwnProperty.call(map, k)) {
+      const name = "--" + k.replace(/_/g, "-");
+      el.style.setProperty(name, map[k]);
+      _appliedTokenNames.push(name);
+    }
   }
 }
 
@@ -86,7 +103,9 @@ export function applyActiveTheme(mode) {
   if (map) {
     applyThemeTokens(map);
   } else {
-    applyThemeVars(state.site); // 无完整主题包（默认/旧版）：回退到 accent + 圆角/字号/导航
+    // 无完整主题包（默认/旧版）：回退圆角/字号 + 按 nav_style 设导航变量
+    applyThemeVars(state.site);
+    applyNavVars(state.site);
   }
 }
 

@@ -7,6 +7,7 @@
 <script setup>
 import { ref } from "vue";
 import { apiPost } from "../lib/api.js";
+import { toastErr } from "../lib/toast.js";
 
 const props = defineProps({ slug: String, count: Number });
 const liked = ref(false);
@@ -26,7 +27,7 @@ async function like() {
     try { localStorage.setItem(KEY, "1"); } catch (e) {}
   } catch (e) {
     // 失败不再假加一 / 假置已赞（v3.8.4：原 catch 分支本地 +1 误导用户，服务端实际未计入）
-    alert(e && e.message ? e.message : "点赞失败，请重试");
+    toastErr(e && e.message ? e.message : "点赞失败，请重试");
   }
 }
 </script>

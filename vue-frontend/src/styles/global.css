@@ -7,7 +7,7 @@
   --theme-radius: 12px;   /* 后台「主题美化」可调 */
   --theme-font-size: 15px;
   --nav-bg: var(--surface);
-  --nav-fg: var(--nav-fg);
+  --nav-fg: var(--text);
   --nav-border: var(--border);
 }
 body {
@@ -508,7 +508,7 @@ button:hover, .btn:hover {
 /* 暗色模式 */[data-theme="dark"] {
 
   --nav-bg: var(--surface);
-  --nav-fg: var(--nav-fg);
+  --nav-fg: var(--text);
   --nav-border: var(--border);
 }
 [data-theme="dark"] .logo,
@@ -1067,3 +1067,84 @@ button:hover, .btn:hover {
  height: 40px; width: 110px; border-radius: 6px; border: 1px solid #ddd; cursor: pointer; object-fit: cover; background: #f5f6f8; }
 [data-theme="dark"] .captcha-img {
  border-color: #333; background: var(--surface-2); }
+
+/* ===== v3.17.0：Toast 提示 / 骨架屏 / 无障碍降级 ===== */
+/* Toast（由 lib/toast.js 动态创建） */
+.toast-host { position: fixed; left: 50%; bottom: 26px; transform: translateX(-50%); z-index: 9999;
+  display: flex; flex-direction: column; align-items: center; gap: 8px; pointer-events: none; }
+.toast { pointer-events: auto; cursor: pointer; max-width: 86vw;
+  background: rgba(28,32,38,.95); color: #fff; padding: 10px 16px; border-radius: 10px;
+  font-size: 14px; line-height: 1.5; box-shadow: 0 8px 24px rgba(0,0,0,.22);
+  opacity: 0; transform: translateY(8px); transition: opacity .2s ease, transform .2s ease; }
+.toast.show { opacity: 1; transform: translateY(0); }
+.toast-success { background: #188038; }
+.toast-danger { background: #d93025; }
+
+/* 路由过渡（v3.17.0） */
+.page-enter-active, .page-leave-active { transition: opacity .18s ease, transform .18s ease; }
+.page-enter-from { opacity: 0; transform: translateY(6px); }
+.page-leave-to { opacity: 0; }
+
+/* 滚动渐入（v-reveal 指令，v3.17.0） */
+.reveal { opacity: 0; transform: translateY(10px); transition: opacity .35s ease, transform .35s ease; }
+.reveal.revealed { opacity: 1; transform: none; }
+
+/* 容器查询（v3.17.0 渐进增强：按内容容器宽度自适应，而非视口） */
+.content { container-type: inline-size; }
+@container (min-width: 700px) {
+  .home-hero { padding: 30px 32px; }
+  .home-hero-title { font-size: 26px; }
+}
+
+/* Bento Grid 概览（v3.17.0） */
+.bento { display: grid; grid-template-columns: repeat(4, 1fr); grid-auto-rows: 88px; gap: 12px; margin: 0 0 24px; }
+.bento-card {
+  display: flex; flex-direction: column; justify-content: center; gap: 2px;
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius-md, 12px); padding: 12px 14px;
+  text-decoration: none; color: inherit; overflow: hidden;
+  transition: transform var(--transition, 160ms ease), box-shadow var(--transition, 160ms ease), border-color var(--transition, 160ms ease);
+}
+.bento-card:hover { transform: translateY(-2px); box-shadow: var(--shadow-md); border-color: var(--accent); }
+.bento-k { font-size: 12px; color: var(--text-muted); }
+.bento-v { font-size: 22px; font-weight: 700; color: var(--text); line-height: 1.15; }
+.bento-s { font-size: 12px; color: var(--accent); }
+.bento-wide { grid-column: span 2; }
+.bento-tall { grid-row: span 2; }
+@media (max-width: 720px) {
+  .bento { grid-template-columns: repeat(2, 1fr); grid-auto-rows: 80px; }
+  .bento-tall { grid-row: span 1; }
+}
+
+/* 排版升级：流式字阶 + 阅读舒适度（v3.17.0） */
+body { text-rendering: optimizeLegibility; }
+.page-title { font-size: clamp(20px, 1.4vw + 16px, 26px); letter-spacing: -.01em; }
+.post-body { font-size: clamp(15px, .3vw + 14px, 16.5px); line-height: 1.78; }
+.post-body h2, .post-body h3 { letter-spacing: -.01em; }
+
+/* 彩蛋动画（v3.17.0：输入 llhhy 触发） */
+.egg-pop .site-header { animation: egg-bounce .7s ease; }
+@keyframes egg-bounce {
+  0%, 100% { transform: translateY(0); }
+  30% { transform: translateY(-6px); }
+  60% { transform: translateY(3px); }
+}
+
+/* 骨架屏（列表首屏加载态） */
+.skel-card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 18px; margin-bottom: 16px; }
+.skel-line { height: 12px; border-radius: 6px; margin: 9px 0;
+  background: linear-gradient(90deg, var(--surface-2) 25%, var(--surface-3) 37%, var(--surface-2) 63%);
+  background-size: 400% 100%; animation: skel-shimmer 1.4s ease-in-out infinite; }
+.skel-title { height: 20px; width: 58%; }
+.skel-short { width: 38%; }
+@keyframes skel-shimmer { 0% { background-position: 100% 50%; } 100% { background-position: 0 50%; } }
+
+/* 无障碍：尊重系统「减少动态效果」偏好 */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: .01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

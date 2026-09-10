@@ -7,6 +7,7 @@
   <link rel="stylesheet" href="{{ url_for('static', filename='admin.css') }}?v={{ admin_css_v }}">
   <style>
     :root { --accent: {{ settings.accent_color or '#1a73e8' }}; {{ theme_css }} }
+    {{ theme_nav_css }}
   </style>
   {% if custom_css %}<style id="site-custom-css">{{ custom_css | safe }}</style>{% endif %}
   <style id="admin-responsive-base">
@@ -20,7 +21,27 @@
     form.inline-form { flex-wrap: wrap; row-gap: 8px; }
     @media (max-width: 760px) {
       .page-title { font-size: 20px; }
-      .admin-table th, .admin-table td { white-space: normal; }
+      /* v3.17.0：表格卡片化——手机端彻底消除横向滚动，单元格纵向堆叠、长内容全文可读 */
+      .admin-table { display: block; overflow-x: visible; white-space: normal; }
+      .admin-table thead { display: none; }
+      .admin-table tbody { display: block; width: auto; min-width: 0; }
+      .admin-table tr {
+        display: block; background: var(--surface, #fff);
+        border: 1px solid var(--border, #ececec); border-radius: 10px;
+        margin-bottom: 10px; padding: 2px 0; box-shadow: none;
+      }
+      .admin-table th, .admin-table td {
+        display: block; width: auto; min-width: 0;
+        white-space: normal; padding: 7px 12px; border: none; text-align: left;
+      }
+      .admin-table td { border-bottom: 1px dashed var(--border, #ececec); }
+      .admin-table tr td:last-child { border-bottom: none; }
+      .admin-table td:first-child, .admin-table th:first-child {
+        position: static; left: auto; min-width: 0; background: transparent; z-index: auto;
+      }
+      .admin-table td[data-label]::before, .admin-table th[data-label]::before {
+        content: attr(data-label) "："; color: var(--text-muted, #6b7280); font-weight: 600;
+      }
     }
   </style>
   <script>

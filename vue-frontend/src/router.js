@@ -7,6 +7,7 @@ const routes = [
   { path: "/category/:slug", name: "category", component: () => import("./views/CategoryView.vue") },
   { path: "/tag/:slug", name: "tag", component: () => import("./views/TagView.vue") },
   { path: "/archive", name: "archive", component: () => import("./views/ArchiveView.vue") },
+  { path: "/annual", name: "annual", component: () => import("./views/AnnualView.vue") },
   { path: "/stats", name: "stats", component: () => import("./views/StatsView.vue") },
   { path: "/about", name: "about", component: () => import("./views/AboutView.vue") },
   { path: "/links", name: "links", component: () => import("./views/LinksView.vue") },

@@ -37,6 +37,7 @@
   --info:    #1a73e8;
 
   /* 形状（--radius-md 运行时由后台 theme_radius 覆盖） */
+  --radius-xs: 4px;
   --radius-sm: 8px;
   --radius-md: 12px;
   --radius-lg: 20px;
@@ -61,7 +62,11 @@
   --nav-fg: #555555;
   --nav-border: #ececec;
 
+  /* 动效（时长 / 缓动 scale，组件统一引用；受 prefers-reduced-motion 降级） */
+  --transition-fast: 120ms ease;
   --transition: 160ms ease;
+  --transition-slow: 240ms ease;
+  --ease-standard: cubic-bezier(.2, 0, .2, 1);
 }
 
 /* 暗色：只重写 token 取值，不碰具体组件 */

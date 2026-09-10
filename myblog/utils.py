@@ -88,10 +88,57 @@ def clean_html(html):
     return cleaned
 
 
+def _upgrade_img_avif(html):
+    """v3.17.0：把站内 .webp 图片包成 <picture>，优先 AVIF、回退 WebP。
+
+    - 仅当磁盘上确实存在同名 .avif 时才插入 <source>（避免 404）；
+    - 只处理 /static/ 开头的站内相对路径（不碰外链，避免跨域/SSRF 复杂度）；
+    - 任何异常或无匹配都原样返回，零副作用。
+    """
+    if not html or ".webp" not in html:
+        return html
+    import os as _os, re as _re
+    try:
+        from flask import current_app
+        static_folder = current_app.static_folder
+    except Exception:
+        return html
+    if not static_folder:
+        return html
+
+    def _avif_url(src):
+        if not src.startswith("/static/"):
+            return None
+        disk = _os.path.join(static_folder, src[len("/static/"):])
+        if not disk.lower().endswith(".webp"):
+            return None
+        if _os.path.isfile(disk[:-5] + ".avif"):
+            return src[:-5] + ".avif"
+        return None
+
+    def _repl(m):
+        tag = m.group(0)
+        sm = _re.search(r'src\s*=\s*"([^"]+)"', tag)
+        if not sm:
+            return tag
+        avif = _avif_url(sm.group(1))
+        if not avif:
+            return tag
+        return '<picture><source type="image/avif" srcset="%s">%s</picture>' % (avif, tag)
+
+    try:
+        return _re.sub(r"<img\b[^>]*>", _repl, html)
+    except Exception:
+        return html
+
+
 def render_markdown(content):
-    """把 Markdown 渲染为 HTML 并清理（统一出口，避免 XSS）。"""
+    """把 Markdown 渲染为 HTML 并清理（统一出口，避免 XSS）。
+
+    v3.17.0：清洗后追加 AVIF <picture> 升级（存在同名 .avif 时）。
+    """
     raw = markdown(content or "", extensions=["fenced_code", "tables"])
-    return clean_html(raw)
+    return _upgrade_img_avif(clean_html(raw))
 
 
 # ---------- 正文渲染缓存（v3.9.1）----------
@@ -101,7 +148,7 @@ def render_markdown(content):
 # 缓存自动失效，无需在保存文章的各处手工清理。
 # 渲染版本号：若将来调整 Markdown 扩展或 clean_html 白名单，把 _RENDER_VERSION
 # +1 即可让全部历史缓存一次性失效，避免旧 HTML 与新的白名单不一致。
-_RENDER_VERSION = "1"
+_RENDER_VERSION = "2"
 
 
 def content_digest(content, html=""):

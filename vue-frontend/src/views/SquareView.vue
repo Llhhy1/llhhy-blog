@@ -90,6 +90,7 @@ import { onMounted, ref, watch } from "vue";
 import { apiGet, apiPost } from "../lib/api.js";
 import { state } from "../store.js";
 import Sidebar from "../components/Sidebar.vue";
+import { toast, toastErr } from "../lib/toast.js";
 
 const tab = ref("all");
 const moments = ref([]);
@@ -131,7 +132,7 @@ async function postMoment() {
     await apiPost("/api/moment", { content: draft.value.trim() });
     draft.value = "";
     await loadMoments();
-  } catch (e) { alert(e.message || "发布失败"); }
+  } catch (e) { toastErr(e.message || "发布失败"); }
   posting.value = false;
 }
 
@@ -149,14 +150,14 @@ async function addComment(m) {
   if (!text) return;
   const body = { content: text };
   if (!state.user) {
-    if (!m._author || !m._author.trim()) { alert("请填写昵称"); return; }
+    if (!m._author || !m._author.trim()) { toast("请填写昵称"); return; }
     body.author = m._author.trim();
   }
   try {
     const d = await apiPost(`/api/moment/${m.id}/comment`, body);
     m.comments.push(d.comment);
     m._text = "";
-  } catch (e) { alert(e.message || "评论失败"); }
+  } catch (e) { toastErr(e.message || "评论失败"); }
 }
 
 // 切换标签时按需加载（避免无谓请求）

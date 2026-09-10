@@ -10,6 +10,7 @@
   <style>
     /* 站点主题色：可被后台「站点设置」中的 accent_color 覆盖 */
     :root { --accent: {{ settings.accent_color or '#1a73e8' }}; {{ theme_css }} }
+    {{ theme_nav_css }}
   </style>
   {% if custom_css %}<style id="site-custom-css">{{ custom_css | safe }}</style>{% endif %}
   <script>

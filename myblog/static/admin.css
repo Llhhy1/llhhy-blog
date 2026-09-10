@@ -1172,3 +1172,13 @@ body.drawer-open {
 .diff-skip { text-align: center; color: #999; font-size: 12px; padding: 6px; background: rgba(127,127,127,.05); }
 [data-theme="dark"] .diff-add { background: rgba(81,199,129,.16); }
 [data-theme="dark"] .diff-del { background: rgba(242,139,130,.14); }
+
+/* v3.17.0 无障碍：尊重系统「减少动态效果」偏好 */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: .01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

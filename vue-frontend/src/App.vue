@@ -114,7 +114,10 @@
     <div class="site-frame-body" :class="{ 'has-sidebar': pluginSidebar.length && $route.name !== 'docs' }">
       <main class="site-frame-inner">
         <router-view v-slot="{ Component }">
-          <component :is="Component" />
+          <!-- v3.17.0：路由过渡（淡入上移；prefers-reduced-motion 下自动降级为瞬时） -->
+          <Transition name="page" mode="out-in">
+            <component :is="Component" :key="$route.path" />
+          </Transition>
         </router-view>
       </main>
       <!-- v3.9.0 M2：插件侧栏槽位（结构化 <a>，不用 v-html） -->
@@ -154,9 +157,10 @@
 </template>
 
 <script setup>
-import { onMounted, ref, h, reactive } from "vue";
+import { onMounted, onBeforeUnmount, ref, h, reactive } from "vue";
 import { useRouter } from "vue-router";
 import { state, initSite, logout, t, setLang, applyActiveTheme } from "./store.js";
+import { toast } from "./lib/toast.js";
 import { apiPost, apiGet } from "./lib/api.js";
 import { sanitizeHtml } from "./lib/sanitize.js";
 const themeIcon = ref("🌙");
@@ -224,6 +228,52 @@ function trackVisit(to) {
 }
 router.afterEach((to) => trackVisit(to));
 
+// v3.17.0：手势导航 / 彩蛋 生命周期清理
+onBeforeUnmount(() => { uninstallGestures(); uninstallEasterEgg(); });
+
+// v3.17.0 手势导航：移动端从左缘右滑开抽屉、抽屉内左滑关闭（阈值 60px、纵向容差 50px）
+let _gx = 0, _gy = 0;
+function _onTouchStart(e) {
+  const t = e.changedTouches && e.changedTouches[0];
+  if (!t) return;
+  _gx = t.clientX; _gy = t.clientY;
+}
+function _onTouchEnd(e) {
+  const t = e.changedTouches && e.changedTouches[0];
+  if (!t) return;
+  const dx = t.clientX - _gx, dy = t.clientY - _gy;
+  if (Math.abs(dx) < 60 || Math.abs(dy) > 50) return;
+  if (!drawerOpen.value && _gx <= 24 && dx > 0) drawerOpen.value = true;
+  else if (drawerOpen.value && dx < 0) drawerOpen.value = false;
+}
+function installGestures() {
+  window.addEventListener("touchstart", _onTouchStart, { passive: true });
+  window.addEventListener("touchend", _onTouchEnd, { passive: true });
+}
+function uninstallGestures() {
+  window.removeEventListener("touchstart", _onTouchStart);
+  window.removeEventListener("touchend", _onTouchEnd);
+}
+
+// v3.17.0 彩蛋：依次输入 llhhy 触发（输入框内不触发）
+let _eggSeq = "";
+function _onEggKey(e) {
+  const el = e.target || {};
+  const tag = el.tagName ? el.tagName.toLowerCase() : "";
+  if (tag === "input" || tag === "textarea" || tag === "select" || el.isContentEditable) return;
+  const ch = (e.key || "").toLowerCase();
+  if (!/^[a-z]$/.test(ch)) return;
+  _eggSeq = (_eggSeq + ch).slice(-5);
+  if (_eggSeq === "llhhy") {
+    _eggSeq = "";
+    document.documentElement.classList.add("egg-pop");
+    setTimeout(() => document.documentElement.classList.remove("egg-pop"), 1400);
+    toast("✨ 你发现了彩蛋：llhhy", "success", 2200);
+  }
+}
+function installEasterEgg() { window.addEventListener("keydown", _onEggKey); }
+function uninstallEasterEgg() { window.removeEventListener("keydown", _onEggKey); }
+
 function currentTheme() {
   return document.documentElement.getAttribute("data-theme") === "dark" ? "dark" : "light";
 }
@@ -283,6 +333,8 @@ function onScroll() {
 }
 
 onMounted(async () => {
+  installGestures();
+  installEasterEgg();
   await initSite();
   // v3.1.0 修复：initSite 内部 applyDefaultTheme 仅在「用户未手动选过主题」时设置 data-theme；
   // 若用户曾手动切到 dark（localStorage 有值），需在此据 localStorage 修正并同步图标，

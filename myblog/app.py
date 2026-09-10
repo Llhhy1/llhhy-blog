@@ -638,15 +638,15 @@ def create_app():
         nav_bg = "#1d2025" if nav_style == "dark" else "#ffffff"
         nav_fg = "#e6e8eb" if nav_style == "dark" else "#555555"
         nav_border = "#2a2e35" if nav_style == "dark" else "#ececec"
-        # v3.17.0 修复「深色模式顶部白条」：导航配色（nav_style，一个独立设置）
-        # 原先无条件注入 :root，与 tokens.css 的 [data-theme="dark"] 同特异性且
-        # 后定义（<style> 在 <link> 之后）→ 深色下把导航背景压回白色。
-        # 改为限定 :not([data-theme="dark"])，深色时交由 tokens.css 的 dark 块接管。
         theme_css = (
             f"--theme-radius: {radius}; --theme-font-size: {font_size}; "
         )
+        # v3.17.0 修复「深色模式顶部白条」：导航配色（nav_style，独立设置）原先无条件注入
+        # :root，与 tokens.css 的 dark 规则同特异性且后定义 → 深色下把导航背景压回白色。
+        # v3.17.1：属性选择器**不要加引号**——Jinja autoescape 会把引号转义成 &#34;/&#39;，
+        # 致选择器失效（曾渲染为 html:not([data-theme=&#34;dark&#34;])，修复实际不生效）。
         theme_nav_css = (
-            'html:not([data-theme="dark"]) { '
+            "html:not([data-theme=dark]) { "
             f"--nav-bg: {nav_bg}; --nav-fg: {nav_fg}; --nav-border: {nav_border}; }}"
         )
         # v3.1.6：CSRF Token 注入模板（表单页用 {{ csrf_input() }} 生成隐藏域）

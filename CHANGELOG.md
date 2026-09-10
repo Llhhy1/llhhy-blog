@@ -3,6 +3,12 @@
 > 本文件承载 **历史版本** 记录。README 只保留最新版本与上手信息。
 > 各版本的安全审计结论见 `myblog/SECURITY_AUDIT.md`；功能规划见 `ROADMAP.md`。
 
+## v3.17.1（2026-09-10 · 修复导航 CSS 选择器被转义致深色修复不生效）
+
+- **根因**：v3.17.0 注入的导航配色选择器写作 `html:not([data-theme="dark"])`，含双引号；Jinja **autoescape** 把 `"` 转义为 `&#34;`，线上实际渲染成 `html:not([data-theme=&#34;dark&#34;])`——这在 CSS 中不是合法选择器，整条规则失效，导致**后台与 SSR 页面的深色白条修复实际未生效**（前台 Vue 走 JS 内联变量，不受影响）。
+- **修复**：改用**无引号属性选择器** `html:not([data-theme=dark])`（CSS 合法等价写法），从根上规避转义；同时补回被编辑波及的 `theme_css` 定义（圆角/字号变量）。
+- **回归测试**：新增 `tests/test_theme_nav_css.py` —— 断言 SSR 输出含可用选择器、不含 `&#34;`、且 `--theme-radius/--theme-font-size` 仍在，防止再次踩坑。
+
 ## v3.17.0（2026-09-10 · 深色修复 + 动效/无障碍 + AVIF + 年度回顾 + AI 摘要）
 
 - **修复：深色模式顶部白条（前后台 + SSR，同源根因）**：`nav_style`（独立设置）把 `--nav-bg` 写死白色，且写在了压过 `[data-theme="dark"]` 的优先级位置——前台是 `store.js` 的元素内联 style（最高优先级），后台/SSR 是 `base.html` 里位于 `link admin.css` 之后的 `<style>:root{…}`（同特异性后者胜）。修法：`app.py` 把导航配色拆成 `theme_nav_css` 并限定 `html:not([data-theme="dark"])`；`admin/base.html`、`templates/base.html` 各注入一次；`store.js` 不再写死导航变量（新增 `applyNavVars` 仅作无主题包兜底）；SSR 前台 `style.css` 的 `.site-header` 改用 `var(--nav-bg)`；顺带修 `global.css` 的 `--nav-fg: var(--nav-fg)` 自引用（该变量此前变为无效值）。

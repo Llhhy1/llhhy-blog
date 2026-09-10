@@ -3,6 +3,12 @@
 > 本文件承载 **历史版本** 记录。README 只保留最新版本与上手信息。
 > 各版本的安全审计结论见 `myblog/SECURITY_AUDIT.md`；功能规划见 `ROADMAP.md`。
 
+## v3.17.3（2026-09-11 · 评论表情回应 + 访客来源分析）
+
+- **评论表情回应（D 项）**：每条评论（含回复）新增 👍❤️😂🎉🤔👏 表情条——`GET /api/comments/reactions?ids=` 批量取计数、`POST /api/comments/<id>/reactions` 点/取消（IP 限流 40/分钟、全局 CSRF、仅已审核评论）；计数存 Setting KV（`react_<评论id>`，**零表结构变更**，与 `ai_summary_<id>` 同模式；每评论独立 key 避免并发读改写竞态）；前端乐观更新 + 失败回滚 + localStorage 记本机已选（与点赞机制一致）。
+- **访客来源分析（F 项，经用户确认加列）**：`visit_log` 新增 `referrer` 列（**仅存 origin**，完整 URL 的 query 可能含 token/隐私参数不入库）；新增幂等迁移脚本 `myblog/migrate_visit_log_referrer.py`（PRAGMA 检查 + ALTER，与 v3.7.1 bot 字段迁移同模式，可重复运行）；前端埋点上报 `document.referrer`（仅真实入口有值）；新增 `GET /api/stats/referrers?days=N`（来源 TOP10，排除 bot 与本站自引用，单独计「直接访问」）；统计页新增「🧭 访客来源 Top 10」卡。
+- 回归：pytest 84 passed；compileall、vite build 通过。
+
 ## v3.17.2（2026-09-10 · 后台移动端系统性修复 + 打印优化 + 成就徽章）
 
 - **后台移动端系统性防溢出**（用户报：仪表盘已修好但**其他菜单仍异常**）：`admin.css` 新增 `@media (max-width:760px)` 规则组——表单控件取消 `min-width:180/200px` 并在窄屏占满（`!important` 覆盖模板内联固定宽度）、写作面板 `.md-body` 分屏改单列、工具条/筛选/批量操作改换行而非撑宽、`pre/code` 允许横向滚动、`.edit-form/.auth-box/.section-box/.hero-card` 宽度上限解除、`img/video/canvas/iframe` 自适应。

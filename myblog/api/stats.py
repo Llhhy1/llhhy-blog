@@ -6,6 +6,10 @@ from flask import request, jsonify
 
 from .common import (api_bp, rate_limit, client_key, Post)
 import stats  # 顶层 stats 模块（myblog/stats.py）：record_visit / record_search / record_read / compute_summary / compute_trend / client_ip
+import datetime
+import urllib.parse
+from sqlalchemy import func
+from models import db, VisitLog, Setting
 
 # ---------- 访问统计（埋点 + 汇总）----------
 @api_bp.route("/stats/visit", methods=["POST"])
@@ -18,13 +22,15 @@ def stats_visit():
     path = (data.get("path") or "")[:255]
     if path.startswith("/admin"):
         return jsonify({"ok": True, "skipped": True})
+    # v3.17.3：来源上报（前端传 document.referrer，后端只保留 origin 存库）
+    referrer = (data.get("referrer") or "")[:500]
     post_id = data.get("post_id")
     if post_id is not None:
         try:
             post_id = int(post_id)
         except (TypeError, ValueError):
             post_id = None
-    stats.record_visit(path, post_id)
+    stats.record_visit(path, post_id, referrer)
     return jsonify({"ok": True})
 
 
@@ -49,6 +55,51 @@ def stats_read():
     if p:
         stats.record_read(p.id, stats.client_ip())
     return jsonify({"ok": True})
+
+
+@api_bp.route("/stats/referrers")
+def stats_referrers():
+    """v3.17.3：访客来源 TOP（referrer origin 聚合；排除 bot 与本站自引用）。公开只读。"""
+    days = request.args.get("days", type=int) or 30
+    days = max(1, min(365, days))
+    since = (datetime.datetime.utcnow() - datetime.timedelta(days=days)).strftime("%Y-%m-%d")
+
+    # 本站 origin 集合（site_url 设置 + 当前请求 host），来源命中即视为自引用，不进榜
+    hosts = set()
+    try:
+        su = Setting.query.filter_by(key="site_url").first()
+        if su and su.value:
+            hosts.add(urllib.parse.urlsplit(su.value).netloc.lower())
+    except Exception:
+        pass
+    try:
+        hosts.add((request.host or "").lower())
+    except Exception:
+        pass
+    hosts.discard("")
+
+    rows = (db.session.query(VisitLog.referrer, func.count(VisitLog.id))
+            .filter(VisitLog.date >= since, VisitLog.is_bot.is_(False), VisitLog.referrer != "")
+            .group_by(VisitLog.referrer)
+            .order_by(func.count(VisitLog.id).desc()).limit(50).all())
+    items = []
+    for ref, n in rows:
+        try:
+            netloc = urllib.parse.urlsplit(ref).netloc.lower()
+        except Exception:
+            netloc = ""
+        if not netloc or netloc in hosts:
+            continue
+        items.append({"source": ref, "count": n})
+        if len(items) >= 10:
+            break
+    try:
+        direct = (db.session.query(func.count(VisitLog.id))
+                  .filter(VisitLog.date >= since, VisitLog.is_bot.is_(False), VisitLog.referrer == "")
+                  .scalar() or 0)
+    except Exception:
+        direct = 0
+    return jsonify({"days": days, "direct": direct, "items": items})
 
 
 @api_bp.route("/stats/summary")

@@ -13,6 +13,6 @@ export default defineConfig({
     },
   },
   build: {
-    outDir: "_vite_build22",
+    outDir: "_vite_build24",
   },
 });

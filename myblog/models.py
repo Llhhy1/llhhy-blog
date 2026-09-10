@@ -128,6 +128,7 @@ class VisitLog(db.Model):
     is_bot = db.Column(db.Boolean, default=False, index=True)   # 是否爬虫/Bot（v3.7.1）
     bot_name = db.Column(db.String(60), default="")             # 具体爬虫名（Googlebot 等，v3.7.1）
     bot_category = db.Column(db.String(20), default="")         # search/ai/tool/unknown（v3.7.1）
+    referrer = db.Column(db.String(300), default="")            # v3.17.3：访问来源（仅存 origin，防 query 泄漏隐私）
 
 
 class ReadLog(db.Model):

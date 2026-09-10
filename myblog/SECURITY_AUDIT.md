@@ -2552,3 +2552,19 @@ git diff 计 **70 增 / 70 删**，`tokens.css` 定义**未被改动**。
 | R72-6 | 回归 | `compileall` 通过；**全量 pytest 84 passed**；前端 `vite build` 通过。 | ✅ 无回归 |
 
 **R72 结论**：**0 遗留**。本版新增唯一接口为公开只读聚合、零写操作零迁移，不扩大信任边界；其余为纯样式调整。发版前 `APP_VERSION` 改为 `3.17.2`（与 Release tag 一致）。
+
+---
+
+## 第七十三轮 R73（v3.17.3 · 评论表情回应 + 访客来源分析）
+
+**范围**：`myblog/api/reactions.py`（GET 批量 / POST 回应，存 Setting KV）；`visit_log` 加 `referrer` 列（仅存 origin）+ 幂等迁移脚本 + 启动自愈；`api/stats.py` visit 上报与 `GET /api/stats/referrers`；前端表情条与统计卡。
+
+| 编号 | 维度 | 审计点 | 结论 |
+|---|---|---|---|
+| R73-1 | 越权/滥用 | 表情 POST 匿名可用（与评论一致），IP 限流 40/分钟 + 全局 CSRF；仅**已审核**评论可回应；单表情计数上限 9999。`/api/stats/referrers` 与 `/api/milestones` 均为公开只读聚合，**不含 IP、UA、用户名等任何标识**。 | ✅ 有控 |
+| R73-2 | 注入/XSS | 表情集为服务端白名单常量（emoji），非白名单 400；计数 JSON 经 ORM 存 Setting；前端全部 `{{ }}` 插值（自动转义）；来源 host 用 `new URL()` 解析且异常回退原文、经插值输出。SQL 均为 ORM 参数化聚合。 | ✅ 无注入 |
+| R73-3 | 隐私 | referrer **只存 origin**（协议+域名），完整 URL（可能含 token/隐私 query）不入库；不新增用户标识或行为画像；地域/搜索等既有口径不变。 | ✅ 隐私最小化 |
+| R73-4 | 迁移/降级 | `referrer` 由 `_migrate_visit_log_table` **启动自愈补列**（幂等），另有独立迁移脚本备用；不跑迁移仅影响来源记录，其余功能不受影响；表情回应零迁移。 | ✅ 安全降级 |
+| R73-5 | 回归 | compileall 通过；**全量 pytest 84 passed**（含 dashboard 3 例——曾因测试库缺新列失败，自愈后通过）；vite build 通过。 | ✅ 无回归 |
+
+**R73 结论**：**0 遗留**。发版前 `APP_VERSION` 改为 `3.17.3`（与 Release tag 一致）。

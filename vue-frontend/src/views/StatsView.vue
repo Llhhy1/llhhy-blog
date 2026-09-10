@@ -70,6 +70,21 @@
           </ul>
         </section>
 
+        <!-- v3.17.3 访客来源 Top 10（referrer origin；不含本站与 bot） -->
+        <section class="stats-card">
+          <h3>🧭 访客来源 Top 10（近 {{ range }} 天）</h3>
+          <p v-if="!refs.items.length" class="stats-empty">暂无外部来源记录（多为直接访问）</p>
+          <ul v-else class="rank-list">
+            <li v-for="(r, i) in refs.items" :key="r.source" class="rank-row">
+              <span class="rank-no" :class="{ top: i === 0 }">{{ i + 1 }}</span>
+              <span class="rank-name ref-name" :title="r.source">{{ refHost(r.source) }}</span>
+              <div class="bar-track"><div class="bar-fill" :style="{ width: pct(r.count, maxRef) + '%' }"></div></div>
+              <span class="rank-count">{{ fmt(r.count) }}</span>
+            </li>
+          </ul>
+          <p class="stats-tip">另有直接访问 {{ fmt(refs.direct) }} 次（无来源页）</p>
+        </section>
+
         <!-- 访客趋势图（二期：区间切换 + 4 曲线 + 悬浮提示 + CSV 导出；视觉升级：面积填充 + 网格 + 悬浮高亮） -->
         <section class="stats-card trend-card">
           <div class="card-head">
@@ -182,6 +197,10 @@ const cards = computed(() => {
 
 const maxReads = computed(() => Math.max(1, ...(s.value.hot_reads || []).map(p => p.reads)));
 const maxRegion = computed(() => Math.max(1, ...(s.value.active_regions || []).map(r => r.count)));
+// v3.17.3 访客来源（referrer origin 聚合；直接访问单独计）
+const refs = ref({ direct: 0, items: [] });
+const maxRef = computed(() => Math.max(1, ...(refs.value.items || []).map(r => r.count)));
+function refHost(u) { try { return new URL(u).host || u; } catch (e) { return u; } }
 const maxHour = computed(() => Math.max(1, ...(s.value.hourly || []).map(b => b.count)));
 
 // ---------- 访客趋势图（SVG 坐标映射） ----------
@@ -284,6 +303,10 @@ async function load() {
     s.value = await apiGet("/api/stats/dashboard?range=" + range.value);
   } catch (e) { console.warn("驾驶舱加载失败", e); }
   loaded.value = true;
+  // v3.17.3 访客来源（独立接口，失败不影响主数据）
+  apiGet("/api/stats/referrers?days=" + range.value)
+    .then((r) => { if (r) refs.value = r; })
+    .catch(() => {});
 }
 async function setRange(r) {
   if (r === range.value) return;
@@ -462,4 +485,8 @@ onMounted(load);
 .trend-legend .lg-uv { color: #34a853; }
 .trend-legend .lg-cm { color: #f4b400; }
 .trend-legend .lg-ps { color: #e8710a; }
+
+/* v3.17.3 来源卡 */
+.ref-name { max-width: 180px; }
+@media (max-width: 760px) { .ref-name { max-width: 110px; } }
 </style>

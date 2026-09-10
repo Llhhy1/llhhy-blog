@@ -308,16 +308,27 @@ def cached_region(ip):
     return ""
 
 
-def record_visit(path, post_id=None):
+def record_visit(path, post_id=None, referrer=""):
     """记录一次访问；属地解析异步回填。任何异常都不影响页面本身。"""
     try:
         ip = client_ip()
         ua = request.headers.get("User-Agent", "")
         is_bot, bot_name, bot_category = detect_bot(ua)
+        # v3.17.3：referrer 只保留 origin（协议+域名），不落完整 URL，
+        # 避免把外链 query 里的 token/隐私参数写进日志。
+        origin = ""
+        r = (referrer or "").strip()
+        if r.startswith(("http://", "https://")):
+            try:
+                pr = urllib.parse.urlsplit(r)
+                origin = ((pr.scheme or "https") + "://" + pr.netloc)[:300] if pr.netloc else ""
+            except Exception:
+                origin = ""
         db.session.add(VisitLog(
             date=today_str(), hour=datetime.datetime.now().hour,
             ip=ip, region="", path=(path or "")[:255], post_id=post_id,
             is_bot=is_bot, bot_name=bot_name, bot_category=bot_category,
+            referrer=origin,
         ))
         db.session.commit()
         _resolve_region_async(ip)

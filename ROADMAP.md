@@ -838,3 +838,8 @@ v3.1.7 修复 CSRF 隐藏域乱码后，用户反馈「退出登录按钮失效�
 - 后台移动端（用户报「仪表盘已修但其他菜单仍异常」）：`admin.css` ≤760px 规则组——表单控件取消 min-width 且窄屏占满（覆盖模板内联宽度）、`.md-body` 分屏改单列、工具条/筛选/批量操作换行、`pre/code` 横滚、容器宽度上限解除、媒体自适应。
 - 打印优化：`@media print` 去交互元素、正文全宽黑字白底、外链附 URL、代码换行、图文避免跨页断裂。
 - 成就徽章：`GET /api/milestones`（公开只读聚合，零表结构变更）8 枚徽章 + 连续更新/开博天数，`/annual` 展示。
+
+## 72. v3.17.3：评论表情回应 + 访客来源分析（R73 审计）
+
+- D 表情回应：Setting KV（`react_<cid>`）计数，POST 限流 40/分钟 + 全局 CSRF + 仅已审核评论；前端乐观更新 + localStorage 去重。**零表结构变更**。
+- F 来源分析（经用户确认加列）：`visit_log` 加 `referrer` 列（**仅存 origin**，防外链 query 隐私泄漏）+ 幂等迁移脚本 `migrate_visit_log_referrer.py`（备用）+ 启动自愈补列；`GET /api/stats/referrers`（排除 bot/本站自引用，单独计直接访问）+ 统计页「🧭 访客来源 Top 10」卡。

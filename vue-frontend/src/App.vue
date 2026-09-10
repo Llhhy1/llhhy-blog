@@ -224,7 +224,9 @@ function dismissAnn(id) {
 function trackVisit(to) {
   const path = to.path || window.location.pathname || "/";
   if (path.startsWith("/admin")) return;
-  apiPost("/api/stats/visit", { path }).catch(() => {});
+  // v3.17.3：上报 document.referrer（仅真实入口有值；后端只保留 origin 存储）
+  const ref = document.referrer || "";
+  apiPost("/api/stats/visit", { path, referrer: ref }).catch(() => {});
 }
 router.afterEach((to) => trackVisit(to));
 

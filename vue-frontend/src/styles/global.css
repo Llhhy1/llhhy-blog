@@ -1130,6 +1130,24 @@ body { text-rendering: optimizeLegibility; }
   60% { transform: translateY(3px); }
 }
 
+/* ===== v3.17.9 主页「找到我」社交墙 ===== */
+.home-social { margin: 18px 0 6px; }
+.home-social-head { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 10px; }
+.home-social-head h2 { font-size: 16px; margin: 0; }
+.home-social-more { font-size: 13px; color: var(--accent); text-decoration: none; }
+.home-social-grid { display: flex; flex-wrap: wrap; gap: 10px; }
+.home-social-item {
+  display: inline-flex; align-items: center; gap: 8px; padding: 8px 12px;
+  background: var(--surface); border: 1px solid var(--border); border-radius: 999px;
+  color: inherit; text-decoration: none; cursor: pointer; font-size: 13px;
+  transition: transform 140ms ease, border-color 140ms ease;
+}
+.home-social-item:hover { transform: translateY(-2px); border-color: var(--accent); }
+.hs-icon { width: 22px; height: 22px; border-radius: 6px; display: grid; place-items: center; font-size: 13px; line-height: 1; }
+@media (max-width: 640px) {
+  .home-social-item { padding: 6px 10px; font-size: 12px; }
+}
+
 /* ===== v3.17.2 打印优化：正文优先，去掉交互元素、还原可读版式 ===== */
 @media print {
   .site-header, .site-footer, aside, nav, .sidebar, .drawer, .drawer-mask,

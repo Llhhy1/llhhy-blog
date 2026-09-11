@@ -12,6 +12,7 @@ const routes = [
   { path: "/about", name: "about", component: () => import("./views/AboutView.vue") },
   { path: "/links", name: "links", component: () => import("./views/LinksView.vue") },
   { path: "/square", name: "square", component: () => import("./views/SquareView.vue") },
+  { path: "/social", name: "social", component: () => import("./views/SocialView.vue") },
   { path: "/series", name: "series", component: () => import("./views/SeriesView.vue") },
   { path: "/series/:slug", name: "series-detail", component: () => import("./views/SeriesDetailView.vue") },
   { path: "/games", name: "games", component: () => import("./views/GamesView.vue") },

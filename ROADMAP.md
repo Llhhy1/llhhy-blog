@@ -844,3 +844,12 @@ v3.1.7 修复 CSRF 隐藏域乱码后，用户反馈「退出登录按钮失效�
 - D 表情回应：Setting KV（`react_<cid>`）计数，POST 限流 40/分钟 + 全局 CSRF + 仅已审核评论；前端乐观更新 + localStorage 去重。**零表结构变更**。
 - F 来源分析（经用户确认加列）：`visit_log` 加 `referrer` 列（**仅存 origin**，防外链 query 隐私泄漏）+ 幂等迁移脚本 `migrate_visit_log_referrer.py`（备用）+ 启动自愈补列；`GET /api/stats/referrers`（排除 bot/本站自引用，单独计直接访问）+ 统计页「🧭 访客来源 Top 10」卡。
 - B 访客地图（补全）：合规底图（阿里 DataV 行政区划 GeoJSON，后端缓存 7 天）+ 自绘墨卡托 SVG 省份热力（`color-mix` 跟随主题色）；`GET /api/geo/visitors`（省级聚合，简称→全称映射）与 `GET /api/geo/china.json`（缓存代理）；仅省级计数不含个人位置（PIPL），渲染失败自动降级地域榜。
+
+## 73. v3.17.4~9：布局/深色/LLM 兼容 + 复制兜底 + 后台移动端 + AI 摘要页 + 社交墙独立页（R74 审计）
+
+- v3.17.4 Bento 概览卡错位（`bento-tall` 跨 2 行留空 → 对角双宽卡，6 卡正好铺满）。
+- v3.17.5 归档时间线深色可读性（写死 `#333/#999/#aaa` → 主题 token）。
+- v3.17.6 访客地图菜单入口（前台「📅 回顾」+ 后台「🗺️ 访客地图」）。
+- v3.17.7 后台「AI 摘要」独立管理页（`admin/ai_summary.py`：覆盖状态 + 生成/重新生成/编辑/清除 + 批量补齐；提示词提取为公共常量；`admin_required + log_audit`）。
+- v3.17.8 LLM Base 兼容完整端点（`_llm_chat` 与游戏审计均归一化，修复「游戏审计与 AI 摘要从未成功」）。
+- v3.17.9 复制三层兜底（7 处统一）；后台移动端补齐（`.stats-grid` 内联覆盖 + `.stats-table` 横滚）；AI 摘要完整展示；社交账号墙独立成页 `/social` + 主页区块 + 20 平台预设。

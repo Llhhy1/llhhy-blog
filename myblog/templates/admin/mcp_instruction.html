@@ -38,15 +38,7 @@
   <script>
     function _copyText(txt, btn) {
       function done() { var t = btn.textContent; btn.textContent = '✅ 已复制'; setTimeout(function(){ btn.textContent = t; }, 1500); }
-      if (navigator.clipboard && navigator.clipboard.writeText) {
-        navigator.clipboard.writeText(txt).then(done, function(){ _fallback(txt, done); });
-      } else { _fallback(txt, done); }
-    }
-    function _fallback(txt, done) {
-      var ta = document.createElement('textarea');
-      ta.value = txt; document.body.appendChild(ta); ta.select();
-      try { document.execCommand('copy'); done(); } catch (e) {}
-      document.body.removeChild(ta);
+      window.__copyText(txt).then(function (ok) { if (ok) done(); });
     }
     document.getElementById('copy-all').addEventListener('click', function(){
       _copyText(document.getElementById('instr-text').textContent, this);

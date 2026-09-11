@@ -472,6 +472,7 @@ print(c.get('/api/posts').get_json())
 
 <script setup>
 import { onMounted, ref } from "vue";
+import { copyText } from "../lib/clipboard.js";
 
 const tocItems = ref([]);
 const activeId = ref("");
@@ -491,16 +492,7 @@ function buildToc() {
   tocItems.value = items;
 }
 
-function fallbackCopy(text, done) {
-  const ta = document.createElement("textarea");
-  ta.value = text;
-  ta.style.position = "fixed";
-  ta.style.opacity = "0";
-  document.body.appendChild(ta);
-  ta.select();
-  try { document.execCommand("copy"); done(); } catch (e) { /* ignore */ }
-  document.body.removeChild(ta);
-}
+// v3.17.9：复制统一走 lib/clipboard.js 的三层兜底（原 fallbackCopy 已被其覆盖）
 
 onMounted(() => {
   // highlight.js 通过 CDN 动态加载（写在模板里会在每次挂载重复注入 <script> 并触发告警），
@@ -544,13 +536,9 @@ onMounted(() => {
     btn.addEventListener("click", () => {
       const code = pre.querySelector("code");
       if (!code) return;
-      const text = code.innerText;
       const done = () => { btn.textContent = "已复制"; setTimeout(() => { btn.textContent = "复制"; }, 1500); };
-      if (navigator.clipboard && navigator.clipboard.writeText) {
-        navigator.clipboard.writeText(text).then(done).catch(() => fallbackCopy(text, done));
-      } else {
-        fallbackCopy(text, done);
-      }
+      // v3.17.9：三层兜底复制（Clipboard API → execCommand → 手动提示）
+      copyText(code.innerText).then((ok) => { if (ok) done(); });
     });
     pre.appendChild(btn);
   });

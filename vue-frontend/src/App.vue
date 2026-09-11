@@ -15,6 +15,7 @@
       <router-link to="/about" @click="drawerOpen = false">{{ t('about') }}</router-link>
       <router-link to="/links" @click="drawerOpen = false">{{ t('links') }}</router-link>
       <router-link to="/square" @click="drawerOpen = false">{{ t('square') }}</router-link>
+      <router-link to="/social" @click="drawerOpen = false">🔗 社交</router-link>
       <router-link to="/series" @click="drawerOpen = false">{{ t('series') }}</router-link>
       <router-link to="/games" @click="drawerOpen = false">🎮 游戏</router-link>
       <router-link to="/tags/hot" @click="drawerOpen = false">{{ t('hot_tags') }}</router-link>
@@ -53,6 +54,7 @@
         <router-link to="/about">{{ t('about') }}</router-link>
         <router-link to="/links">{{ t('links') }}</router-link>
         <router-link to="/square">{{ t('square') }}</router-link>
+        <router-link to="/social">🔗 社交</router-link>
         <router-link to="/series">{{ t('series') }}</router-link>
         <router-link to="/games">🎮 游戏</router-link>
         <router-link to="/tags/hot">{{ t('hot_tags') }}</router-link>

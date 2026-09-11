@@ -74,16 +74,10 @@
       b.addEventListener("click", function () {
         var name = b.closest(".media-card").getAttribute("data-name");
         var url = location.origin + "/static/uploads/" + encodeURIComponent(name);
-        if (navigator.clipboard && navigator.clipboard.writeText) {
-          navigator.clipboard.writeText(url).then(function () {
-            b.textContent = "已复制 ✓";
-            setTimeout(function () { b.textContent = "复制 URL"; }, 1800);
-          });
-        } else {
-          var i = document.createElement("input"); i.value = url; document.body.appendChild(i);
-          i.select(); document.execCommand("copy"); document.body.removeChild(i);
-          b.textContent = "已复制 ✓"; setTimeout(function () { b.textContent = "复制 URL"; }, 1800);
-        }
+        window.__copyText(url).then(function (ok) {
+          b.textContent = ok ? "已复制 ✓" : "复制失败";
+          setTimeout(function () { b.textContent = "复制 URL"; }, 1800);
+        });
       });
     });
     document.querySelectorAll(".del-media").forEach(function (f) {

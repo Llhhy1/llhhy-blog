@@ -68,16 +68,27 @@
         </article>
       </template>
 
-      <!-- 关注：社交账号墙 -->
+      <!-- 关注：社交账号墙（v3.17.9 起独立成页 /social，此处保留精简版 + 入口） -->
       <template v-if="tab === 'follow'">
         <p v-if="!accounts.length" class="empty">还没有添加社交账号，去后台「社交账号」里添加吧。</p>
         <div class="sq-accounts">
-          <a v-for="a in accounts" :key="a.id" class="sq-account post-card" :href="a.url" target="_blank" rel="noopener">
-            <div class="sq-account-platform">{{ a.platform }}</div>
-            <div class="sq-account-handle">{{ a.handle || a.url }}</div>
-            <span class="sq-account-go">前往 →</span>
-          </a>
+          <component
+            :is="a.href ? 'a' : 'button'"
+            v-for="a in socialItems"
+            :key="a.id"
+            class="sq-account post-card"
+            :href="a.href || null"
+            :target="a.href ? '_blank' : null"
+            :rel="a.href ? 'noopener' : null"
+            :type="a.href ? null : 'button'"
+            @click="a.href ? null : onCopySocial(a)"
+          >
+            <div class="sq-account-platform">{{ a.meta.icon }} {{ a.meta.label }}</div>
+            <div class="sq-account-handle">{{ a.handle || a.tip }}</div>
+            <span class="sq-account-go">{{ a.href ? '前往 →' : '复制 →' }}</span>
+          </component>
         </div>
+        <p style="margin-top:14px;"><router-link class="btn-ghost" to="/social">🔗 查看完整社交墙 →</router-link></p>
       </template>
     </main>
 
@@ -91,11 +102,22 @@ import { apiGet, apiPost } from "../lib/api.js";
 import { state } from "../store.js";
 import Sidebar from "../components/Sidebar.vue";
 import { toast, toastErr } from "../lib/toast.js";
+import { computed } from "vue";
+import { copyText } from "../lib/clipboard.js";
+import { toastOk } from "../lib/toast.js";
+import { toSocialItem } from "../lib/social.js";
 
 const tab = ref("all");
 const moments = ref([]);
 const circle = ref([]);
 const accounts = ref([]);
+// v3.17.9：社交账号统一转展示模型（图标/点击行为），完整墙已独立到 /social
+const socialItems = computed(() => (accounts.value || []).map(toSocialItem));
+async function onCopySocial(a) {
+  const ok = await copyText(a.url);
+  if (ok) toastOk("已复制：" + a.url);
+  else toastErr("已弹窗，请手动复制");
+}
 const draft = ref("");
 const posting = ref(false);
 const loadingM = ref(false);

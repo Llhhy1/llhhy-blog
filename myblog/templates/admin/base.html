@@ -268,5 +268,33 @@
   })();
   </script>
   {% endif %}
+  <script>
+  /* v3.17.9：全局健壮复制（三层兜底：Clipboard API → execCommand → 手动提示）。
+     后台各页的「一键复制」按钮统一调用 window.__copyText(text)，解决 http/微信/权限被拒环境下复制失效。 */
+  window.__copyText = async function (text) {
+    var s = (text == null) ? "" : String(text);
+    if (!s) return false;
+    try {
+      if (navigator.clipboard && window.isSecureContext) {
+        await navigator.clipboard.writeText(s);
+        return true;
+      }
+    } catch (e) { /* 继续兜底 */ }
+    try {
+      var ta = document.createElement("textarea");
+      ta.value = s;
+      ta.setAttribute("readonly", "");
+      ta.style.cssText = "position:fixed;top:-2000px;left:0;opacity:0;";
+      document.body.appendChild(ta);
+      ta.select();
+      ta.setSelectionRange(0, s.length);
+      var ok = document.execCommand("copy");
+      document.body.removeChild(ta);
+      if (ok) return true;
+    } catch (e) { /* 继续兜底 */ }
+    try { window.prompt("自动复制被浏览器拦截，请手动复制（Ctrl/Cmd+C）：", s); } catch (e) { /* ignore */ }
+    return false;
+  };
+  </script>
 </body>
 </html>

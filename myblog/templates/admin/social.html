@@ -2,12 +2,34 @@
 {% block title %}社交账号管理{% endblock %}
 {% block content %}
   <h1 class="page-title">社交账号管理</h1>
-  <p class="auth-tip">这里维护广场页「我的社交账号」墙，访客可一键前往关注你。</p>
+  <p class="auth-tip">这里维护前台「🔗 找到我」社交墙（主页区块 + 独立页 <code>/social</code>）。平台名可从预设下拉选择，<b>图标按平台名自动匹配</b>；<b>QQ / 微信</b> 填号码时前台点击自动复制，填图片地址（如二维码图）则展示为可点开的图片；<b>邮箱</b> 可直接填地址（自动补 mailto:）。</p>
   <form method="post" action="{{ url_for('admin.social') }}" class="link-form">
         {{ csrf_input() }}
-    <input type="text" name="platform" placeholder="平台，如 GitHub" required>
+    <input type="text" name="platform" list="social-platform-presets" placeholder="平台，如 GitHub（可从下拉选）" required>
+    <datalist id="social-platform-presets">
+      <option value="GitHub"></option>
+      <option value="微信"></option>
+      <option value="QQ"></option>
+      <option value="公众号"></option>
+      <option value="Bilibili"></option>
+      <option value="知乎"></option>
+      <option value="微博"></option>
+      <option value="小红书"></option>
+      <option value="抖音"></option>
+      <option value="掘金"></option>
+      <option value="CSDN"></option>
+      <option value="语雀"></option>
+      <option value="Gitee"></option>
+      <option value="豆瓣"></option>
+      <option value="YouTube"></option>
+      <option value="Telegram"></option>
+      <option value="Mastodon"></option>
+      <option value="X"></option>
+      <option value="邮箱"></option>
+      <option value="RSS"></option>
+    </datalist>
     <input type="text" name="handle" placeholder="展示名 / @账号（可选）">
-    <input type="text" name="url" placeholder="https://..." required>
+    <input type="text" name="url" placeholder="链接；QQ/微信可填号码或二维码图片地址；邮箱可只填地址" required>
     <input type="number" name="sort" value="0" title="排序，越小越靠前">
     <button type="submit" class="btn">添加</button>
   </form>

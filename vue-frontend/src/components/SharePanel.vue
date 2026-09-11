@@ -64,6 +64,7 @@
 
 <script setup>
 import { ref, computed, onMounted, onBeforeUnmount } from "vue";
+import { copyText } from "../lib/clipboard.js";
 
 const props = defineProps({
   title: { type: String, default: "" },
@@ -108,12 +109,9 @@ function flash(msg) {
 }
 
 async function copyLink() {
-  try {
-    await navigator.clipboard.writeText(postUrl.value);
-    flash("链接已复制，去分享吧！");
-  } catch (e) {
-    flash(postUrl.value);
-  }
+  // v3.17.9：统一走三层兜底复制（Clipboard API → execCommand → 手动提示）
+  const ok = await copyText(postUrl.value);
+  flash(ok ? "链接已复制，去分享吧！" : "已弹窗，请手动复制链接");
 }
 
 function showQr() {

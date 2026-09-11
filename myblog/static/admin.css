@@ -924,7 +924,12 @@ body.drawer-open {
 }
 /* 表格：默认所有视口都允许横滚（v2.6.1 全局兜底，避免 760-1100 中屏溢出） *//* 容器级横滚的细节已在 base .admin-table 块中配置 */@media (max-width: 900px) {
 .stats-grid {
- grid-template-columns: 1fr; }
+ grid-template-columns: 1fr !important; }   /* v3.17.9：!important 覆盖模板内联 grid-template-columns（如「备份配置」页内联 4 列导致手机端挤压） */
+/* v3.17.9：诊断页用的 .stats-table 与 rank-table 一样允许横滚，并解除内联列宽 */
+.stats-table {
+ display: block; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+.stats-table td[style*="width"], .stats-table th[style*="width"] {
+ width: auto !important; white-space: normal; }
 .rank-table {
  display: block; overflow-x: auto; }
 .rank-table th, .rank-table td {
@@ -1194,6 +1199,8 @@ body.drawer-open {
   .edit-form, .auth-box, .stats-card, .section-box, .hero-card { max-width: 100% !important; }
   .auth-box { margin: 0 !important; }
   img, video, canvas, iframe { max-width: 100%; height: auto; }
+  /* v3.17.9：模板内联的固定多列网格在手机端统一降为单列（如「备份配置」页内联 4 列统计卡） */
+  [style*="grid-template-columns"] { grid-template-columns: 1fr !important; }
 }
 
 /* v3.17.0 无障碍：尊重系统「减少动态效果」偏好 */

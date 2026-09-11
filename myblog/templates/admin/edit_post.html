@@ -440,15 +440,7 @@
       var pvUrl = location.origin + "{{ url_for('admin.preview_post', token=preview_token) if preview_token else '' }}";
       pvBtn.addEventListener("click", function () {
         var done = function () { pvBtn.textContent = "✅ 已复制，24 小时内可分享"; setTimeout(function () { pvBtn.textContent = "🔗 复制未发布预览链接"; }, 2500); };
-        if (navigator.clipboard && navigator.clipboard.writeText) {
-          navigator.clipboard.writeText(pvUrl).then(done, function () { fallbackCopy(); });
-        } else { fallbackCopy(); }
-        function fallbackCopy() {
-          var i = document.createElement("input");
-          i.value = pvUrl; document.body.appendChild(i);
-          i.select(); try { document.execCommand("copy"); done(); } catch (e) { prompt("复制预览链接：", pvUrl); }
-          document.body.removeChild(i);
-        }
+        window.__copyText(pvUrl).then(function (ok) { if (ok) done(); });
       });
     }
 

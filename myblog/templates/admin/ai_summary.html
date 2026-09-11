@@ -34,14 +34,16 @@
             <a href="{{ url_for('admin.edit_post', post_id=r.p.id) }}" target="_blank" rel="noopener">{{ r.p.title }}</a>
             <div class="stats-tip">{{ r.p.slug }} · {{ r.p.created_at and r.p.created_at.strftime('%Y-%m-%d') }}</div>
           </td>
-          <td>
+          <td class="ai-sum-cell">
             {% if r.summary %}
-              <details>
-                <summary style="cursor:pointer;">✅ {{ r.summary[:60] }}{% if r.summary|length > 60 %}…{% endif %}</summary>
+              <div class="ai-sum-text">{{ r.summary }}</div>
+              {% if r.tags %}<div class="ai-sum-tags">🏷️ {{ r.tags }}</div>{% endif %}
+              <details style="margin-top:8px;">
+                <summary style="cursor:pointer;font-size:12px;">✏️ 编辑摘要 / 标签</summary>
                 <form method="post" action="{{ url_for('admin.ai_summary_save', post_id=r.p.id) }}" style="margin-top:8px;">
                   {{ csrf_input() }}
-                  <textarea name="summary" rows="4" style="width:100%;">{{ r.summary }}</textarea>
-                  <input type="text" name="tags" value="{{ r.tags }}" placeholder="标签建议（逗号分隔）" style="width:100%;margin-top:6px;" />
+                  <textarea name="summary" rows="6" style="width:100%;box-sizing:border-box;">{{ r.summary }}</textarea>
+                  <input type="text" name="tags" value="{{ r.tags }}" placeholder="标签建议（逗号分隔）" style="width:100%;margin-top:6px;box-sizing:border-box;" />
                   <button type="submit" class="btn small" style="margin-top:6px;">💾 保存修改</button>
                 </form>
               </details>
@@ -66,4 +68,17 @@
       </tbody>
     </table>
   </div>
+</div>
+<style>
+  /* v3.17.9：摘要完整展示（不再 60 字截断），编辑折叠在 details 内；窄屏自适应 */
+  .ai-sum-cell { min-width: 340px; }
+  .ai-sum-text { font-size: 13.5px; line-height: 1.75; color: #333; white-space: pre-wrap; word-break: break-word; }
+  [data-theme="dark"] .ai-sum-text { color: #eef0f2; }
+  .ai-sum-tags { margin-top: 6px; font-size: 12px; color: #6b7280; }
+  [data-theme="dark"] .ai-sum-tags { color: #9aa0a6; }
+  .ai-sum-cell textarea { min-height: 120px; font-size: 13px; line-height: 1.6; }
+  @media (max-width: 760px) {
+    .ai-sum-cell { min-width: 0; }
+  }
+</style>
 {% endblock %}

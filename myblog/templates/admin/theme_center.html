@@ -121,9 +121,9 @@
 
     // 复制
     document.getElementById('tcCopyBtn').addEventListener('click', function () {
-      jsonEl.select();
-      try { document.execCommand('copy'); showMsg('已复制到剪贴板', true); }
-      catch (e) { showMsg('复制失败，请手动选择', false); }
+      window.__copyText(jsonEl.value).then(function (ok) {
+        showMsg(ok ? '已复制到剪贴板' : '已弹窗，请手动复制', ok);
+      });
     });
 
     // 导入并应用

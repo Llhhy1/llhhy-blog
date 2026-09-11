@@ -91,6 +91,7 @@
 import { onMounted, onBeforeUnmount, ref, watch, nextTick, computed } from "vue";
 import { useRoute } from "vue-router";
 import { apiGet, apiPost } from "../lib/api.js";
+import { copyText } from "../lib/clipboard.js";
 import { state } from "../store.js";
 import hljs from "highlight.js/lib/core";
 import "highlight.js/styles/github.css";
@@ -220,12 +221,9 @@ function enhanceBody() {
     btn.textContent = "复制";
     btn.addEventListener("click", async () => {
       const text = (pre.querySelector("code") || pre).innerText;
-      try {
-        await navigator.clipboard.writeText(text);
-        btn.textContent = "已复制 ✓";
-      } catch (e) {
-        btn.textContent = "复制失败";
-      }
+      // v3.17.9：三层兜底复制，避免 http/微信/权限被拒时失效
+      const ok = await copyText(text);
+      btn.textContent = ok ? "已复制 ✓" : "已弹窗，请手动复制";
       setTimeout(() => { btn.textContent = "复制"; }, 1800);
     });
     pre.appendChild(btn);

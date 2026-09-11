@@ -36,6 +36,31 @@
       </div>
     </section>
 
+    <!-- v3.17.9：社交账号墙入口（独立页 /social；此处展示前 6 个） -->
+    <section v-if="socials.length" class="home-social" aria-label="找到我">
+      <div class="home-social-head">
+        <h2>🔗 找到我</h2>
+        <router-link to="/social" class="home-social-more">全部 {{ socials.length }} 个 →</router-link>
+      </div>
+      <div class="home-social-grid">
+        <component
+          :is="s.href ? 'a' : 'button'"
+          v-for="s in socials.slice(0, 6)"
+          :key="s.id"
+          class="home-social-item"
+          :href="s.href || null"
+          :target="s.href ? '_blank' : null"
+          :rel="s.href ? 'noopener' : null"
+          :type="s.href ? null : 'button'"
+          :title="s.handle || s.tip"
+          @click="s.href ? null : onCopySocial(s)"
+        >
+          <span class="hs-icon" :style="{ background: s.meta.color || 'var(--surface-2)' }">{{ s.meta.icon }}</span>
+          <span class="hs-label">{{ s.meta.label }}</span>
+        </component>
+      </div>
+    </section>
+
     <div class="layout">
       <main class="content">
         <h1 class="page-title">✨ 最新文章</h1>
@@ -76,6 +101,9 @@ import { apiGet } from "../lib/api.js";
 import { state } from "../store.js";
 import PostCard from "../components/PostCard.vue";
 import Sidebar from "../components/Sidebar.vue";
+import { copyText } from "../lib/clipboard.js";
+import { toastOk, toastErr } from "../lib/toast.js";
+import { toSocialItem } from "../lib/social.js";
 
 const route = useRoute();
 const items = ref([]);
@@ -83,6 +111,19 @@ const loading = ref(true);   // v3.17.0 骨架屏
 const page = ref(1);
 // v3.17.0 Bento 概览数据（/api/site 的 stats + categories/tags/links）
 const siteStats = computed(() => state.site.stats || { posts: 0, views: 0, comments: 0 });
+
+// v3.17.9：社交账号墙（独立页 /social；主页展示前 6 个）
+const rawSocials = ref([]);
+const socials = computed(() => (rawSocials.value || []).map(toSocialItem));
+async function loadSocials() {
+  try { rawSocials.value = (await apiGet("/api/social-accounts")) || []; } catch (e) { rawSocials.value = []; }
+}
+async function onCopySocial(s) {
+  const ok = await copyText(s.url);
+  if (ok) toastOk("已复制：" + s.url);
+  else toastErr("已弹窗，请手动复制");
+}
+onMounted(loadSocials);
 function fmtNum(n) {
   n = Number(n) || 0;
   if (n >= 10000) return (n / 10000).toFixed(1) + "w";

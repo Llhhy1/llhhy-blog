@@ -2569,3 +2569,20 @@ git diff 计 **70 增 / 70 删**，`tokens.css` 定义**未被改动**。
 | R73-6 | 地图合规（B 补全） | 访客地图底图采用**阿里云 DataV 行政区划 GeoJSON**（含港澳台与南海诸岛的国标审图号数据），**不使用** OSM/Mapbox/海外瓦片等不合规源；仅渲染**省级聚合计数**，不收集、不上传、不展示任何个人位置数据（PIPL）；底图/数据失败自动降级为地域榜，无空白或错绘领土风险；聚合口径经简称→全称映射确保省份归属正确。 | ✅ 合规 |
 
 **R73 结论**：**0 遗留**。发版前 `APP_VERSION` 改为 `3.17.3`（与 Release tag 一致）。
+
+---
+
+## 第七十四轮 R74（v3.17.4~9 · 布局/深色/LLM 兼容 + 复制兜底 + 后台移动端 + AI 摘要页 + 社交墙独立页）
+
+**范围**：前端 `lib/clipboard.js`、`lib/social.js`、`SocialView.vue`、`HomeView/SquareView/SharePanel/DocsView/PostView`；后台 `base.html`（注入 `window.__copyText`）、`edit_post/mcp_instruction/media_lib/theme_center/social/ai_summary` 模板、`admin.css`、`admin/ai_summary.py`、`api/ai.py`（Base 归一化）、`admin/games.py`（同款归一化）。
+
+| 编号 | 维度 | 审计点 | 结论 |
+|---|---|---|---|
+| R74-1 | 复制实现 | 三层兜底复制：Clipboard API（仍受浏览器安全上下文/用户手势约束）→ `execCommand('copy')` → `prompt()` 手动兜底；不读取剪贴板、不请求额外权限、不外传内容。`prompt` 兜底仅展示待复制文本。 | ✅ 无越权 |
+| R74-2 | 注入/XSS | 社交墙渲染：平台名经 `socialMeta()` 匹配为**内置常量**图标/色值，URL 经 `toSocialItem()` 处理（`encodeURIComponent` 拼接 QQ 链接、`mailto:` 前缀），所有插值均 `{{ }}` 自动转义；`SocialView`/`HomeView` 不渲染用户 HTML。后台 `datalist` 为静态预设。 | ✅ 无注入 |
+| R74-3 | 新增页面/接口 | `/social` 为纯前端路由（复用既有公开只读 `GET /api/social-accounts`），**未新增任何后端接口**；未新增存储与字段（社交账号沿用 `SocialAccount` 表既有列，平台名扩展为文本取值）。 | ✅ 零迁移 |
+| R74-4 | 后台权限 | `admin/ai_summary.py` 全部路由 `@admin_required`，写操作 `log_audit` 记录（生成/批量/保存/清除）；批量限 3 篇/次防请求超时；LLM 未配置时按钮禁用。 | ✅ 有控 |
+| R74-5 | 隐私/合规 | 社交墙仅展示博主主动配置的公开账号，不涉及访客数据；地图合规沿用 R73-6（DataV 国标底图、仅省级聚合、失败降级）；LLM 请求仅发送文章正文（作者自有内容），Base/Key 仍加密存储。 | ✅ 合规 |
+| R74-6 | 回归 | `compileall` 通过；**全量 pytest 84 passed**；`vite build`（`_vite_build29`）通过。 | ✅ 无回归 |
+
+**R74 结论**：**0 遗留**。发版前 `APP_VERSION` 改为 `3.17.9`（与 Release tag 一致）。

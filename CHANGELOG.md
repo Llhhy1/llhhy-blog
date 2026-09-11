@@ -3,6 +3,13 @@
 > 本文件承载 **历史版本** 记录。README 只保留最新版本与上手信息。
 > 各版本的安全审计结论见 `myblog/SECURITY_AUDIT.md`；功能规划见 `ROADMAP.md`。
 
+## v3.17.9（2026-09-11 · 复制修复 + 后台移动端补齐 + AI 摘要完整显示 + 社交墙独立成页）
+
+- **修复：全站一键复制失效**——前台 `SharePanel / DocsView / PostView` 与后台 `edit_post / mcp_instruction / media_lib / theme_center` 共 7 处统一改为「三层兜底」复制：`navigator.clipboard`（需 https + 权限）→ 临时 textarea + `execCommand('copy')`（兼容 http / 微信内置浏览器 / 权限被拒）→ `prompt()` 手动兜底（保证永不失效）。前台新增 `lib/clipboard.js`；后台在 `base.html` 注入全局 `window.__copyText`。
+- **修复：后台移动端显示异常（备份配置页 / 诊断助手页）**——「备份配置」内联 `grid-template-columns:1fr 1fr 1fr 1fr` 强制 4 列致手机挤压：`.stats-grid` 窄屏单列规则加 `!important` 覆盖内联，并新增通用规则 `[style*="grid-template-columns"]` 窄屏单列；「诊断助手」（`/admin/feed-diag`）用的 `.stats-table` 补齐横滚与内联列宽解除（此前只处理了 `.admin-table` / `.rank-table`）。
+- **修复：AI 摘要显示不全**——后台「AI 摘要」页原用 `details` 折叠且只显示前 60 字，改为**默认完整展示**摘要与标签（`white-space: pre-wrap` 换行），编辑表单折叠在「✏️ 编辑」内。
+- **新增：社交账号墙独立成页 + 更多平台**——新增前台独立页 `/social`（「🔗 找到我」卡片墙：平台图标/主题色自动匹配；QQ/微信填号码点击复制、填图片地址展示二维码；邮箱自动补 `mailto:`），主页新增「找到我」区块（前 6 个 + 全部入口），导航（桌面 + 抽屉）加「🔗 社交」；广场页关注 tab 保留精简版并引导到独立页；后台「社交账号」表单加 20 个平台预设下拉与填写说明。
+
 ## v3.17.8（2026-09-11 · 修复 LLM Base 填完整端点时 URL 拼接错误）
 
 - **修复：`games_llm_base` 填完整端点（如 `https://open.bigmodel.cn/api/paas/v4/chat/completions`）时，代码再拼一次 `/chat/completions` → 请求 404/挂起**——游戏 LLM 审计与 AI 摘要都受影响。现在 `_llm_chat` 与游戏审计均自动归一化 Base（剥离尾部 `/chat/completions`），两种填法都兼容。

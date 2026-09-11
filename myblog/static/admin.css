@@ -1203,6 +1203,23 @@ body.drawer-open {
   [style*="grid-template-columns"] { grid-template-columns: 1fr !important; }
 }
 
+/* ===== v3.17.12：后台「游戏收录」页排版修复（用户报障）=====
+   1) 说明文字/状态文字原为内联写死浅色，深色模式下不可读 → 类 + 深色覆盖；
+   2) 操作列内多个表单/按钮/输入框并排会挤压错位 → .row-ops 统一 flex 换行； */
+.page-sub-tip { color: #6b7280; font-size: 13px; line-height: 1.7; margin: 0 0 12px; }
+:root[data-theme="dark"] .page-sub-tip { color: #9aa3ae; }
+.llm-on-tip { color: #2e7d32; margin-left: 6px; }
+:root[data-theme="dark"] .llm-on-tip { color: #7bd88f; }
+.row-ops { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.row-ops .inline-form { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 0; }
+.row-ops input[name="note"] { flex: 1 1 130px; min-width: 0; max-width: 100%; }
+.row-ops .btn, .row-ops .link-danger { white-space: nowrap; }
+.admin-table td pre { overflow-wrap: anywhere; word-break: break-word; }
+@media (max-width: 760px) {
+  .row-ops { gap: 8px; }
+  .row-ops input[name="note"] { flex-basis: 100%; }
+}
+
 /* v3.17.0 无障碍：尊重系统「减少动态效果」偏好 */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {

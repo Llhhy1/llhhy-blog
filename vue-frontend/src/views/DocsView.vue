@@ -473,6 +473,22 @@ print(c.get('/api/posts').get_json())
 <script setup>
 import { onMounted, ref } from "vue";
 import { copyText } from "../lib/clipboard.js";
+// v3.17.10：highlight.js 改为本地打包——原 cdnjs 动态注入的 CSS/JS 被 CSP（style-src/script-src 'self'）
+// 拦截，线上代码高亮从未真正生效。代码块仅用 bash/js/json/python 四种语言，主题沿用 github-dark。
+import hljs from "highlight.js/lib/core";
+import "highlight.js/styles/github-dark.css";
+import lBash from "highlight.js/lib/languages/bash";
+import lJson from "highlight.js/lib/languages/json";
+import lPython from "highlight.js/lib/languages/python";
+import lJs from "highlight.js/lib/languages/javascript";
+hljs.registerLanguage("bash", lBash);
+hljs.registerLanguage("shell", lBash);
+hljs.registerLanguage("json", lJson);
+hljs.registerLanguage("python", lPython);
+hljs.registerLanguage("js", lJs);
+hljs.registerLanguage("javascript", lJs);
+// 既有 tryHl 轮询逻辑依赖 window.hljs，这里直接就绪（轮询保留以兼容时序）
+window.hljs = hljs;
 
 const tocItems = ref([]);
 const activeId = ref("");
@@ -495,20 +511,7 @@ function buildToc() {
 // v3.17.9：复制统一走 lib/clipboard.js 的三层兜底（原 fallbackCopy 已被其覆盖）
 
 onMounted(() => {
-  // highlight.js 通过 CDN 动态加载（写在模板里会在每次挂载重复注入 <script> 并触发告警），
-  // 这里幂等地注入一次，下方轮询 window.hljs 即可高亮；CDN 不可达时优雅跳过（不高亮而已）。
-  if (!document.getElementById("hljs-cdn-css")) {
-    const l = document.createElement("link");
-    l.id = "hljs-cdn-css"; l.rel = "stylesheet";
-    l.href = "https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css";
-    document.head.appendChild(l);
-  }
-  if (!document.getElementById("hljs-cdn-js")) {
-    const s = document.createElement("script");
-    s.id = "hljs-cdn-js";
-    s.src = "https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js";
-    document.head.appendChild(s);
-  }
+  // v3.17.10：highlight.js 与主题样式已本地打包（见 script 顶部 import），不再依赖 CDN 与 CSP 放行
 
   buildToc();
 

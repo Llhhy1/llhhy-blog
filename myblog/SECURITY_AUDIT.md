@@ -2586,3 +2586,17 @@ git diff 计 **70 增 / 70 删**，`tokens.css` 定义**未被改动**。
 | R74-6 | 回归 | `compileall` 通过；**全量 pytest 84 passed**；`vite build`（`_vite_build29`）通过。 | ✅ 无回归 |
 
 **R74 结论**：**0 遗留**。发版前 `APP_VERSION` 改为 `3.17.9`（与 Release tag 一致）。
+
+---
+
+## 第七十五轮 R75（v3.17.10 · update.sh 资源清理 + 文档页高亮本地化）
+
+**范围**：`update.sh` 前端覆盖步骤（新增清理 `assets/`）、`vue-frontend/src/views/DocsView.vue`（highlight.js 由 CDN 注入改为本地打包）；服务器存量 `assets/` 清理（一次性运维操作，已备份）。
+
+| 编号 | 维度 | 审计点 | 结论 |
+|---|---|---|---|
+| R75-1 | CSP 合规 | 原 DocsView 从 cdnjs 动态注入 `<script>`/`<link>`，被本站 CSP（`script-src/style-src 'self'`）拦截——**高亮功能实际从未生效，且属于既有的「功能失效」而非「安全缺口」**。修复选择**本地打包**而非放宽 CSP，安全策略不回退（未新增任何外部源）。 | ✅ 策略不回退 |
+| R75-2 | 资源清理安全性 | `update.sh` 清理仅针对 `$FRONT_DIR/assets`（前端构建产物目录，文件名带内容 hash，由 `index.html` 引用，新包含全部所需文件）；改前先解压到唯一临时目录、再清理再覆盖。存量清理前已整目录备份至 `/www/wwwroot/backups/assets_backup_<ts>`，并按「index.html 引用链递归解析」校验保留集合（缺失引用 0 个），无懒加载 404 风险。 | ✅ 可回滚 |
+| R75-3 | 回归 | `vite build`（`_vite_build30`）通过并产出本地 hljs 主题与语言 chunk；页面与懒加载路由 200；后端无逻辑改动。 | ✅ 无回归 |
+
+**R75 结论**：**0 遗留**。发版前 `APP_VERSION` 改为 `3.17.10`（与 Release tag 一致）。

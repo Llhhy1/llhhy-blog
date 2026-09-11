@@ -295,6 +295,33 @@
     try { window.prompt("自动复制被浏览器拦截，请手动复制（Ctrl/Cmd+C）：", s); } catch (e) { /* ignore */ }
     return false;
   };
+
+  /* v3.17.11：后台侧栏滚动位置记忆——点击菜单跳转后不再回到最顶部。
+     sessionStorage 在同标签页跨页面跳转时保留，正好适配后台的传统多页导航。 */
+  (function () {
+    var nav = document.querySelector('.side-nav');
+    if (!nav) return;
+    var KEY = 'admin_side_nav_scroll';
+    try {
+      var saved = sessionStorage.getItem(KEY);
+      if (saved !== null) nav.scrollTop = parseInt(saved, 10) || 0;
+    } catch (e) { /* sessionStorage 不可用时忽略 */ }
+    // 首次进入（无记忆或位置为 0）时，把当前激活菜单滚入视野，避免「要自己找当前在哪」
+    if (window.innerWidth > 1100 && !nav.scrollTop) {
+      var act = nav.querySelector('a.active');
+      if (act && act.scrollIntoView) {
+        try { act.scrollIntoView({ block: 'nearest' }); } catch (e) { /* ignore */ }
+      }
+    }
+    var t = null;
+    nav.addEventListener('scroll', function () {
+      if (t) return;
+      t = setTimeout(function () {
+        t = null;
+        try { sessionStorage.setItem(KEY, String(Math.round(nav.scrollTop))); } catch (e) { /* ignore */ }
+      }, 120);
+    });
+  })();
   </script>
 </body>
 </html>

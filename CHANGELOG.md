@@ -3,6 +3,14 @@
 > 本文件承载 **历史版本** 记录。README 只保留最新版本与上手信息。
 > 各版本的安全审计结论见 `myblog/SECURITY_AUDIT.md`；功能规划见 `ROADMAP.md`。
 
+## v3.17.10（2026-09-12 · update.sh 清理旧 assets + 文档页代码高亮修复）
+
+- **update.sh：前端覆盖前先清 `assets/`**（用户要求）——assets 文件名带内容 hash、由 `index.html` 引用，新包含全部所需文件，清理可避免历史 chunk 无限堆积（此前每次升级残留数份）。已同步服务器现有部署并清理存量残留（**214 → 39 个文件**，先备份到 `/www/wwwroot/backups/assets_backup_*`；清理依据「index.html 引用链递归解析」校验，页面与懒加载 chunk 全部正常）。
+- **修复：文档页（`/docs`）代码高亮从未生效**——highlight.js 的 CSS/JS 原从 cdnjs 动态注入，被本站 CSP（`style-src/script-src 'self'`）拦截。改为**本地打包**（`highlight.js/lib/core` + bash/js/json/python 按需注册 + `styles/github-dark.css`），不再依赖 CDN，也不放宽 CSP。
+- **修复：游戏目录（`/games`）显示异常**——卡片内文字写死浅色（`#777/#999/#666/#888`）在深色模式下不可读，统一改主题 token（`--text-muted` / `--text-faint` / `--border`）；**封面图加载失败自动回退为「首字母」占位**（此前封面地址失效会留裂图）；窄屏（≤560px）改单列并加大按钮点击区。
+- **优化：后台侧栏点击菜单不再跳回最顶部**——侧栏 `.side-nav` 的滚动位置记入 `sessionStorage`，跨页面跳转后自动恢复；首次进入（无记忆）时把当前激活菜单滚入视野（仅桌面宽度，避免抽屉模式下页面跳动）。
+- **修复：后台「游戏收录」页（`/admin/games`）显示异常**——说明文字与「LLM 自动审计已开启」原为内联写死浅色（`#666/#2e7d32`），深色模式下不可读 → 改为类 + 深色覆盖；**操作列内多个表单/按钮/输入框并排挤压错位** → 新增 `.row-ops` 统一 flex 换行（窄屏下驳回原因输入框占满一行）；审计摘要 `<pre>` 加 `overflow-wrap:anywhere`，避免长内容撑破表格。
+
 ## v3.17.9（2026-09-11 · 复制修复 + 后台移动端补齐 + AI 摘要完整显示 + 社交墙独立成页）
 
 - **修复：全站一键复制失效**——前台 `SharePanel / DocsView / PostView` 与后台 `edit_post / mcp_instruction / media_lib / theme_center` 共 7 处统一改为「三层兜底」复制：`navigator.clipboard`（需 https + 权限）→ 临时 textarea + `execCommand('copy')`（兼容 http / 微信内置浏览器 / 权限被拒）→ `prompt()` 手动兜底（保证永不失效）。前台新增 `lib/clipboard.js`；后台在 `base.html` 注入全局 `window.__copyText`。

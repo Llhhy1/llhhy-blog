@@ -586,6 +586,12 @@ if [ -d "$FRONT_DIR" ]; then
   FX="$WORK/frontend_extract_$TS"   # 唯一临时目录（v3.4.4）
   rm -rf "$FX"; mkdir -p "$FX"
   unzip -q frontend.zip -d "$FX" || fail_exit "前端包解压失败"
+  # v3.17.10：先清旧 assets/ 再覆盖——assets 文件名带内容 hash、由 index.html 引用，
+  # 新包已含全部所需文件，清掉可避免历史 chunk 无限堆积（此前每次升级残留数份）。
+  if [ -d "$FRONT_DIR/assets" ]; then
+    run_as rm -rf "$FRONT_DIR/assets" 2>/dev/null || rm -rf "$FRONT_DIR/assets" 2>/dev/null || true
+    log "   已清理旧 assets/（历史构建产物）"
+  fi
   run_as cp -rf "$FX/." "$FRONT_DIR/" 2>/dev/null \
     || cp -rf "$FX/." "$FRONT_DIR/" || fail_exit "前端覆盖失败（请检查 $FRONT_DIR 写入权限）"
   log "   完成。"

@@ -2,13 +2,13 @@
 {% block title %}游戏收录{% endblock %}
 {% block content %}
   <h1 class="page-title">游戏平台 · 收录与审核</h1>
-  <p style="color:#666;">上传 zip（需含 manifest.json：name/entry/description/cover/author/version）→ 安全解包 + 静态扫描 → 待审 → 通过后前台沙箱播放。</p>
+  <p class="page-sub-tip">上传 zip（需含 manifest.json：name/entry/description/cover/author/version）→ 安全解包 + 静态扫描 → 待审 → 通过后前台沙箱播放。</p>
 
   <form method="post" enctype="multipart/form-data" action="{{ url_for('admin.games') }}" class="inline-form">
         {{ csrf_input() }}
     <input type="file" name="game_zip" accept=".zip" required>
     <button type="submit" class="btn">上传收录</button>
-    {% if llm_on %}<span style="color:#2e7d32;margin-left:6px;">LLM 自动审计已开启</span>{% endif %}
+    {% if llm_on %}<span class="llm-on-tip">LLM 自动审计已开启</span>{% endif %}
   </form>
   <p><a class="btn" href="{{ url_for('admin.games_llm_config') }}">⚙️ LLM 代码审计配置</a></p>
 
@@ -25,6 +25,7 @@
           <td>{{ g.file_count }}</td>
           <td>{{ (g.created_at.strftime('%Y-%m-%d %H:%M') if g.created_at else '') }}</td>
           <td>
+            <div class="row-ops">
             {% if g.status == 'pending' %}
               <form method="post" action="{{ url_for('admin.game_action', gid=g.id) }}" class="inline-form">
                     {{ csrf_input() }}
@@ -49,6 +50,7 @@
                   {{ csrf_input() }}
               <button class="link-danger" name="action" value="delete">删除</button>
             </form>
+            </div>
           </td>
         </tr>
         {% if g.audit_summary %}

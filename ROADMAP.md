@@ -853,3 +853,4 @@ v3.1.7 修复 CSRF 隐藏域乱码后，用户反馈「退出登录按钮失效�
 - v3.17.7 后台「AI 摘要」独立管理页（`admin/ai_summary.py`：覆盖状态 + 生成/重新生成/编辑/清除 + 批量补齐；提示词提取为公共常量；`admin_required + log_audit`）。
 - v3.17.8 LLM Base 兼容完整端点（`_llm_chat` 与游戏审计均归一化，修复「游戏审计与 AI 摘要从未成功」）。
 - v3.17.9 复制三层兜底（7 处统一）；后台移动端补齐（`.stats-grid` 内联覆盖 + `.stats-table` 横滚）；AI 摘要完整展示；社交账号墙独立成页 `/social` + 主页区块 + 20 平台预设。
+- v3.17.10 `update.sh` 前端覆盖前先清 `assets/`（防历史 chunk 堆积）；文档页 highlight.js 改本地打包（原 cdnjs 注入被 CSP 拦截致高亮从未生效）。

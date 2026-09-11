@@ -9,13 +9,13 @@
     <div v-if="loading" class="empty">加载中…</div>
     <div v-else-if="!games.length" class="empty">
       <p>还没有上架的小游戏。</p>
-      <p style="margin-top:8px;font-size:13px;color:#888;">游戏由站长收录审核后上架，欢迎通过<router-link to="/games/dev">接入文档</router-link>了解如何贡献原创小游戏。</p>
+      <p style="margin-top:8px;font-size:13px;color:var(--text-faint);">游戏由站长收录审核后上架，欢迎通过<router-link to="/games/dev">接入文档</router-link>了解如何贡献原创小游戏。</p>
     </div>
     <div v-else class="games-grid">
       <div v-for="g in games" :key="g.slug" class="game-card">
         <router-link :to="`/games/${g.slug}`" class="game-cover">
           <span v-if="!g.cover" class="game-cover-fallback">{{ g.title.slice(0, 1) }}</span>
-          <img v-else :src="g.cover" :alt="g.title" loading="lazy" />
+          <img v-else :src="g.cover" :alt="g.title" loading="lazy" @error="onCoverError" />
         </router-link>
         <div class="game-card-body">
           <h3><router-link :to="`/games/${g.slug}`">{{ g.title }}</router-link></h3>
@@ -35,6 +35,20 @@ import { apiGet } from "../lib/api.js";
 const games = ref([]);
 const loading = ref(true);
 
+// v3.17.11：封面图加载失败（地址失效/外链挂了）时回退为「首字母」占位，避免出现裂图
+function onCoverError(e) {
+  const img = e && e.target;
+  if (!img) return;
+  const wrap = img.parentElement;
+  img.style.display = "none";
+  if (wrap && !wrap.querySelector(".game-cover-fallback")) {
+    const span = document.createElement("span");
+    span.className = "game-cover-fallback";
+    span.textContent = (img.getAttribute("alt") || "?").slice(0, 1);
+    wrap.appendChild(span);
+  }
+}
+
 onMounted(async () => {
   try {
     const data = await apiGet("/api/games");
@@ -50,13 +64,13 @@ onMounted(async () => {
 <style scoped>
 .games-head { display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap; }
 .dev-link { margin-left: auto; font-size: 13px; color: var(--accent, #1a73e8); }
-.games-sub { color: #777; margin-bottom: 16px; }
+.games-sub { color: var(--text-muted); margin-bottom: 16px; }
 .games-grid {
   display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
   gap: 16px;
 }
 .game-card {
-  background: var(--surface, #fff); border: 1px solid #eee;
+  background: var(--surface, #fff); border: 1px solid var(--border);
   border-radius: var(--theme-radius, 12px); overflow: hidden;
   display: flex; flex-direction: column;
   box-shadow: 0 1px 3px rgba(0,0,0,.04);
@@ -74,14 +88,19 @@ onMounted(async () => {
 .game-card-body { padding: 12px 14px 14px; display: flex; flex-direction: column; flex: 1; }
 .game-card-body h3 { margin: 0 0 2px; font-size: 16px; }
 .game-card-body h3 a { color: inherit; text-decoration: none; }
-.game-meta { color: #999; font-size: 12px; margin: 0 0 6px; }
+.game-meta { color: var(--text-faint); font-size: 12px; margin: 0 0 6px; }
 .game-desc {
-  color: #666; font-size: 13px; line-height: 1.5; flex: 1;
+  color: var(--text-muted); font-size: 13px; line-height: 1.5; flex: 1;
   overflow-wrap: anywhere; word-break: break-word;
 }
 .play-btn {
   margin-top: 10px; text-align: center; padding: 7px 0; border-radius: 8px;
   background: var(--accent, #1a73e8); color: #fff; text-decoration: none; font-size: 14px;
 }
-.empty { color: #999; padding: 30px 0; text-align: center; }
+.empty { color: var(--text-faint); padding: 30px 0; text-align: center; }
+@media (max-width: 560px) {
+  .games-grid { grid-template-columns: 1fr; gap: 12px; }
+  .game-cover-fallback { font-size: 40px; }
+  .play-btn { padding: 9px 0; }
+}
 </style>

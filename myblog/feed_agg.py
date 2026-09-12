@@ -209,7 +209,17 @@ def get_circle_feed(force=False):
             rec["safe"] = True
             try:
                 import feedparser
-                parsed = feedparser.parse(link.rss_url)
+                # v3.17.12（审计 R77）：单源抓取加 socket 超时——feedparser.parse 内部走 urllib，
+                # 默认无超时；当某个友链 RSS 挂起（慢速响应/黑洞）时，会把整个博客圈聚合请求
+                # 连同 gunicorn worker 一起拖住（前台 /api/feed/circle 会卡死）。
+                # 与 _probe_rss（上方诊断探针）保持同一手法。
+                import socket as _sock_agg
+                _old_to = _sock_agg.getdefaulttimeout()
+                _sock_agg.setdefaulttimeout(12)
+                try:
+                    parsed = feedparser.parse(link.rss_url)
+                finally:
+                    _sock_agg.setdefaulttimeout(_old_to)
             except ImportError:
                 print("[FEED AGG] feedparser 未安装！请在服务器上执行: pip install feedparser==6.0.11 后重启服务")
                 diag["feedparser_ok"] = False

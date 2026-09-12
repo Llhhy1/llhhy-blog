@@ -2644,3 +2644,40 @@ git diff 计 **70 增 / 70 删**，`tokens.css` 定义**未被改动**。
 - `grep -rE "bootcdn|cdnjs|jsdelivr|unpkg" myblog/` → 生产代码 **0 命中**。
 
 **R76 结论**：**0 遗留**。发版前 `APP_VERSION` 改为 `3.17.11`（与 Release tag 一致）。
+
+---
+
+## 第七十七轮 R77（v3.17.12 · 补充修复：RSS 聚合抓取加超时 + 纪律零 gitignore 兜底）
+
+**背景**：承接 R76 全项目审查，对「未采纳项」逐条复核，并补扫「外部请求超时 / 出站库选择 / `target=_blank` 安全 / gitignore 覆盖 / 历史遗留待办」五类。
+
+### 77.1 修复项
+
+| 编号 | 级别 | 问题（含位置） | 修复 |
+|---|---|---|---|
+| R77-1 | 🟡 健壮性（worker 可被挂死） | `feed_agg.py:212` 的 `feedparser.parse(link.rss_url)` **无超时**：博客圈聚合逐个抓取友链 RSS，而 feedparser 内部走 urllib、默认无超时 → 任一源挂起（慢响应/黑洞）会把整个 `/api/feed/circle` 请求**连同 gunicorn worker 一起拖住**。**R54 的 socket 超时加固只覆盖了诊断探针 `_probe_rss`（`feed_agg.py:144-158`），漏了聚合主路径**（与 M2 漏改属同类教训）。 | 与 `_probe_rss` 同手法：抓取前 `socket.setdefaulttimeout(12)`、`finally` 精确还原旧值（不污染全局超时）。 |
+| R77-2 | 🟠 纪律零（防误入版） | `.gitignore` 未显式覆盖纪律零黑名单（`_verify_*.py` / `_make_release_*.py` / `smoke_*.py`）——此前仅靠 pre-commit 警告 + pre-push 硬门禁拦截，`git add -A` 仍可能把一次性脚本加入暂存区。 | `.gitignore` 补 4 条模式（含本地审查脚本 `_review_*.py` / `_rescan*.py`），gitignore 层再兜一道。 |
+
+### 77.2 补扫确认无问题项
+
+| 维度 | 结论 | 证据 |
+|---|---|---|
+| 外部请求超时 | ✅ 除 R77-1 外**全部带显式超时** | `urlopen(req, timeout=…)` 7 处：`api/ai.py:76`、`admin/games.py:94`、`api/review.py:229`、`notify.py:19`、`api/system.py:40`、`routes.py:410`、`stats.py:133`；SMTP 2 处 `timeout=20`（`mail_notify.py:83,87`）；`_probe_rss` 已有 socket 超时（`feed_agg.py:144-158`） |
+| 出站库选择 | ✅ 统一用标准库 `urllib`，依赖面小 | `grep "requests\."` → **0 命中** |
+| `target="_blank"` | ✅ 均带 `rel`（现代浏览器亦默认 `noopener`） | 前端 + 模板扫描无裸 `target="_blank"` |
+| gitignore 覆盖 | ✅ 部署产物 / 数据库 / 缓存 / 构建目录 / 内存目录均已覆盖；黑名单于 R77-2 补齐 | `.gitignore` 全文复核 |
+| 历史遗留待办 | ✅ 无未清项 | `SECURITY_AUDIT.md` 全文检索「遗留」，R1–R75 结论均为「0 遗留」 |
+
+### 77.3 复核后仍不做的项（附工程判断）
+
+- **`datetime.utcnow()` 32 处 / 15 文件**：当前 Python 3.13 下仅产生 `DeprecationWarning`，**无功能与安全影响**；32 处机械替换会显著放大 diff 面积与误改概率，收益仅为消除告警。正确时机是「Python 版本升级」专项——届时集中替换并逐处回归时间敏感逻辑（定时发布、软删时间、审计导出）。
+- **84 处静默 `except …: pass` 全量改造**：项目既定「降级范式」（次要能力失败不阻断主流程），R76 已抽检确认均为合理场景；全量改造风险大于收益。
+- **超长文件拆分**（`admin/posts.py` 851 行等 5 个）：属**重构**而非缺陷修复；在测试覆盖（94 例）尚不足以保护大范围代码迁移的前提下，拆分是净增风险。建议先补测试再排期。
+
+### 77.4 本环境无法完成项
+
+- **依赖 CVE 扫描**（`pip-audit` / `npm audit`）：当前执行环境无外网（`npm audit` 被沙箱 SIGTERM 拦截）。建议在联网环境执行：`pip-audit -r myblog/requirements.txt`、`cd vue-frontend && npm audit --production`。
+
+**验证记录（R77）**：`compileall` 通过；`pytest tests/ -q` → **94 passed**；后端无 API/DB 变更，前端无改动。
+
+**R77 结论**：**0 遗留**。发版前 `APP_VERSION` 改为 `3.17.12`（与 Release tag 一致）。

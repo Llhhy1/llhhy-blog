@@ -3,6 +3,14 @@
 > 本文件承载 **历史版本** 记录。README 只保留最新版本与上手信息。
 > 各版本的安全审计结论见 `myblog/SECURITY_AUDIT.md`；功能规划见 `ROADMAP.md`。
 
+## v3.17.12（2026-09-12 · 补充修复：RSS 聚合抓取加超时 + 纪律零 gitignore 兜底）
+
+- **修复：博客圈 RSS 聚合抓取无超时**（`feed_agg.py:212`）——`feedparser.parse()` 内部走 urllib、默认无超时，任一友链源挂起会把 `/api/feed/circle` 请求**连同 gunicorn worker 一起拖住**；R54 的 socket 超时加固只覆盖了诊断探针 `_probe_rss`，漏了聚合主路径。现与探针同手法加 `setdefaulttimeout(12)` + `finally` 还原。
+- **加固：`.gitignore` 补纪律零黑名单**——`_verify_*.py` / `_make_release_*.py` / `smoke_*.py` / `_review_*.py` / `_rescan*.py`，在钩子之外于 gitignore 层再兜一道，避免 `git add -A` 误入版。
+- **补扫确认（无问题）**：7 处 `urlopen` 均带显式超时、SMTP 2 处 `timeout=20`、全项目无 `requests` 依赖、`target="_blank"` 均带 `rel`、gitignore 覆盖完整、历史审计轮次无未清遗留。
+- **复核后仍不做（附理由）**：`datetime.utcnow()` 32 处（当前 Python 无影响，宜随「Python 升级」专项集中替换）、84 处降级 `except` 全量改造（既定范式）、超长文件拆分（属重构，需先补测试）。详见 `myblog/SECURITY_AUDIT.md` R77。
+- **本环境无法完成**：依赖 CVE 扫描需联网（`pip-audit` / `npm audit`），已在 R77 给出可执行命令。
+
 ## v3.17.11（2026-09-12 · 全项目审查修复：SSR 高亮本地化 + 限流 fail-closed + CSS 注入面 + 依赖上限 + 核心面补测）
 
 - **修复：SSR 文章页代码高亮从未生效**——`post.html` 从 bootcdn 加载 highlight.js 的 CSS/JS，被本站 CSP（`script-src/style-src 'self'`）拦截；同时是 M2「CDN 供应链加固」的**漏改点**（当时只改了 Vue 前端）。改为**本地静态资源**（`myblog/static/vendor/hljs/highlight.min.js`，esbuild 从 `highlight.js/lib/common` 打包 + `github.min.css` / `github-dark.min.css`），模板 4 处引用改 `url_for('static', ...)`；**不放宽 CSP**、零外部源。

@@ -41,3 +41,12 @@ tools/_api_routes_*.txt
 
 # 插件运行时禁用标记（手动关停某插件用，勿提交；见 PLUGIN_SYSTEM.md M3）
 myblog/plugins/*/disabled
+
+# v3.17.12（审计 R77）：纪律零「临时产物零入版」黑名单——此前仅靠 pre-commit/pre-push 钩子拦截，
+# 这里在 gitignore 层再兜一层，避免 `git add -A` 误把一次性脚本加进暂存区。
+_verify_*.py
+_make_release_*.py
+smoke_*.py
+# 本地审查/排查脚本（一次性，不入库）
+_review_*.py
+_rescan*.py

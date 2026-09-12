@@ -374,6 +374,7 @@ supervisorctl status
 
 > ⚠️ **服务器上的 `update.sh` / `deploy.sh` 也务必与最新 Release 同版**：脚本经历过「假成功不覆盖 / 校验误报 / 无法自动重启」多轮加固，升级前先从最新 Release 覆盖一次脚本，再跑一键更新。
 
+> **v3.17.12（RSS 聚合超时 + gitignore 兜底）升级要点**：`feed_agg.py` 聚合抓取加 12s socket 超时（防友链源挂起拖死 worker）；`.gitignore` 补纪律零黑名单。**只需覆盖后端包**；无迁移、无前端改动。
 > **v3.17.11（全项目审查修复）升级要点**：SSR 文章页 highlight.js 由 bootcdn 改为**本地静态资源**（`myblog/static/vendor/hljs/`，新增 3 个文件：`highlight.min.js` + 两个主题 CSS）；`custom_css` 注入前转义；MCP 写端点限流改 fail-closed；`requirements.txt` 可选依赖补上限。**后端包必须覆盖**（含 `static/vendor/`），前端包无变化。**无迁移、无新依赖要求**（依赖上限仅约束版本区间，已装环境无需重装）。验证：访问任一篇文章（SSR 页）查看代码块是否已高亮（亮/暗主题各一次）。
 > **v3.17.10（update.sh 清理旧 assets + 文档页代码高亮修复）升级要点**：`update.sh` 前端覆盖步骤新增「先清 `assets/` 再解压」（防止历史 hash chunk 堆积）；文档页 `/docs` 的 highlight.js 由 cdnjs 动态注入改为**本地打包**（原被 CSP 拦截、高亮从未生效）。**只需覆盖前端包**（后端仅版本号）；无迁移、无新依赖。
 > **v3.17.9（复制修复 + 后台移动端 + AI 摘要 + 社交墙独立页）升级要点**：**前后端包都要覆盖**（前端新增 `lib/clipboard.js`、`lib/social.js`、`SocialView.vue` 与路由 `/social`；后台模板改造复制调用、`admin.css` 补移动端规则、`social.html` 加平台预设）。**无迁移、无新依赖**。验证：手机端打开后台「备份配置」与「诊断助手」不再挤压/溢出；任一「复制」按钮（后台媒体库/预览链接、前台代码块/分享链接）可复制并给出提示；后台「AI 摘要」页摘要完整可读；前台导航出现「🔗 社交」，主页出现「找到我」区块，`/social` 卡片墙正常。

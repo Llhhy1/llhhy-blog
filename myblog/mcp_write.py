@@ -365,12 +365,12 @@ def mcp_write_endpoint():
         return jsonify({"error": "not found"}), 404
     if not _token_ok():
         return jsonify({"error": "未授权：需要有效的 Bearer Token"}), 401
-    # ③ 限流（比只读更严：10/60s，异常时放行以免误伤自己）
-    try:
-        if not rate_limit(client_key("mcp_write"), limit=10, window=60):
-            return jsonify({"error": "请求过于频繁，请稍后再试"}), 429
-    except Exception:
-        pass
+    # ③ 限流（比只读更严：10/60s）
+    # v3.17.11：移除原先「异常时放行」的 fail-open 包裹——utils.rate_limit 内部已自带
+    # Redis 异常 → 进程内内存回退（utils.py:256-257），外层再吞异常只会让写端点静默失去限流。
+    # 现在限流器若真出意外则显式 500（fail-closed），故障可被生产日志/告警捕获。
+    if not rate_limit(client_key("mcp_write"), limit=10, window=60):
+        return jsonify({"error": "请求过于频繁，请稍后再试"}), 429
 
     body = request.get_json(silent=True)
     if not isinstance(body, dict):

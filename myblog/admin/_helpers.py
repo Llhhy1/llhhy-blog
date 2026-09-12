@@ -83,7 +83,11 @@ def super_required(view):
     """超级管理员专属装饰器：其他角色（含普通管理员）一律 403。"""
     @functools.wraps(view)
     def wrapped(*args, **kwargs):
-        user = db.session.get(User, session.get("user_id"))
+        # v3.17.11（审计 R76-R1）：未登录时 session 无 user_id，原写法 db.session.get(User, None)
+        # 会触发 SAWarning「fully NULL primary key identity cannot load any object」
+        # （SQLAlchemy 未来版本将升级为错误）——先判空再查，行为等价。
+        uid = session.get("user_id")
+        user = db.session.get(User, uid) if uid else None
         if not user or not user.is_super:
             abort(403)
         return view(*args, **kwargs)

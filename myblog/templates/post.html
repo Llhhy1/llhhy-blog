@@ -65,17 +65,22 @@
     </form>
   </section>
 
-  <link id="hljs-theme" rel="stylesheet" href="https://cdn.bootcdn.net/ajax/libs/highlight.js/11.9.0/styles/github.min.css">
-  <script src="https://cdn.bootcdn.net/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+  {# v3.17.11：highlight.js 改为本地静态资源——原先引用 bootcdn 的 CSS/JS 被本站 CSP
+     （script-src/style-src 'self'）拦截，SSR 文章页代码高亮实际从未生效；同时消除外部
+     CDN 供应链风险（对齐 SECURITY_AUDIT M2）。产物由 esbuild 从
+     node_modules/highlight.js/lib/common 打包，见 myblog/static/vendor/hljs/。 #}
+  <link id="hljs-theme" rel="stylesheet" href="{{ url_for('static', filename='vendor/hljs/github.min.css') }}">
+  <script src="{{ url_for('static', filename='vendor/hljs/highlight.min.js') }}"></script>
   <script>
     // 根据当前主题切换代码高亮配色（亮/暗）
     window.applyHighlightTheme = function () {
       var dark = document.documentElement.getAttribute("data-theme") === "dark";
       var link = document.getElementById("hljs-theme");
       if (link) {
+        // v3.17.11：亮/暗主题各指向本地静态资源（与上方 link 同源），不再请求外部 CDN
         link.href = dark
-          ? "https://cdn.bootcdn.net/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css"
-          : "https://cdn.bootcdn.net/ajax/libs/highlight.js/11.9.0/styles/github.min.css";
+          ? "{{ url_for('static', filename='vendor/hljs/github-dark.min.css') }}"
+          : "{{ url_for('static', filename='vendor/hljs/github.min.css') }}";
       }
     };
     applyHighlightTheme();

@@ -606,6 +606,17 @@ def create_app():
         except Exception:
             pass
 
+    def _safe_css(css):
+        r"""v3.17.11（审计 R76-B3）：自定义 CSS 注入 <style> 前转义闭合序列。
+
+        原实现把 custom_css 直接 `| safe` 注入 <style>，内容含 `</style><script>…` 时可
+        逃逸出样式上下文执行脚本（当前 custom_css 仅超管可写，属低危，但转义为零成本加固）。
+        `<\/style` 在 CSS 中无意义、不会闭合标签，因此不影响任何正常样式。
+        """
+        if not css:
+            return ""
+        return str(css).replace("</style", "<\\/style").replace("<!--", "<\\!--")
+
     @app.context_processor
     def inject_globals():
         """把每个页面都需要的公共数据注入模板（侧边栏/页脚用）。"""
@@ -664,7 +675,7 @@ def create_app():
             admin_css_v=admin_css_v,
             theme_css=theme_css,
             theme_nav_css=theme_nav_css,
-            custom_css=settings.get("custom_css", ""),
+            custom_css=_safe_css(settings.get("custom_css", "")),
             csrf_input=_csrf_input,
             csrf_token=_session.get("csrf_token", ""),
         )

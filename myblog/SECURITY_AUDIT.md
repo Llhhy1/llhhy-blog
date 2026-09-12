@@ -2600,3 +2600,47 @@ git diff 计 **70 增 / 70 删**，`tokens.css` 定义**未被改动**。
 | R75-3 | 回归 | `vite build`（`_vite_build30`）通过并产出本地 hljs 主题与语言 chunk；页面与懒加载路由 200；后端无逻辑改动。 | ✅ 无回归 |
 
 **R75 结论**：**0 遗留**。发版前 `APP_VERSION` 改为 `3.17.10`（与 Release tag 一致）。
+
+---
+
+## 第七十六轮 R76（v3.17.11 · 全项目代码审查与修复：SSR 高亮本地化 + 限流 fail-closed + CSS 注入面 + 依赖上限 + 核心面补测）
+
+**背景**：应要求对全项目做一次完整代码审查（L2 季度深度审查五维 + 六类发现项），覆盖 `myblog/`（61 个 py / 13,904 行）、`myblog/templates/`（51 个 html / 4,168 行）、`vue-frontend/src/`（38 个文件 / 5,093 行）。**总体裁决：无 🔴 安全漏洞**，以下为发现与逐项修复。
+
+### 76.1 修复项
+
+| 编号 | 级别 | 问题（含位置） | 修复 |
+|---|---|---|---|
+| R76-B1 | 🟡 功能失效 + 供应链残留 | `myblog/templates/post.html:68-69,77-78`：SSR 文章页从 **bootcdn** 加载 highlight.js 的 CSS/JS → 被本站 CSP（`script-src/style-src 'self'`，`security.py:62-80`）拦截，**SSR 页代码高亮从未生效**；同时是 M2「CDN 供应链加固」的**漏改点**（当时只改了 Vue 前端）。全局排查确认生产代码外部 CDN 引用**仅此一处**。 | highlight.js 落本地：`myblog/static/vendor/hljs/highlight.min.js`（esbuild 从 `node_modules/highlight.js/lib/common` 打包，160.3 kB）+ `github.min.css` / `github-dark.min.css`；模板 4 处引用改 `url_for('static', ...)`。**不放宽 CSP**、零外部源。 |
+| R76-B2 | 🟡 安全（fail-open） | `myblog/mcp_write.py:369-373`：写端点限流被 `try/except: pass` 包裹 → 限流器一旦异常，**写接口静默失去限流**。（`utils.rate_limit` 内部已自带 Redis 异常→内存回退，见 `utils.py:249-257`，外层包裹冗余） | 删除冗余包裹 → 限流真实生效；限流器意外时显式 500（**fail-closed**），故障可被日志/告警捕获。 |
+| R76-B3 | 🟡 加固（低危） | `base.html:15` / `admin/base.html:12` 的 `{{ custom_css \| safe }}` 直插 `<style>`：内容含 `</style><script>…` 可变相逃逸出样式上下文（custom_css 仅超管可写，故低危）。 | `app.py` 新增 `_safe_css()`：注入前转义 `</style` → `<\/style`、`<!--` → `<\!--`；在 context processor 统一调用（**一处修复，前后台两模板同时生效**），CSS 语义不受影响。 |
+| R76-R1 | 🟠 可观测性 | 扫描到 84 处静默 `except …: pass`；抽检（图片 AVIF 旁路 `app.py:346-351`、中间文件删除 `app.py:353-357`、MCP 开关读取 `mcp_write.py:354-359`）均属**合理降级**（项目既定范式）。另发现 `admin/_helpers.py:86` 未登录时 `db.session.get(User, None)` 触发 SAWarning（SQLAlchemy 未来版本将升级为错误）。 | 按「只改真正掩盖故障之处」原则：修正 `_helpers.py:86` 为「先判空再查」（行为等价、消除告警）；其余降级范式保留并在此记录判断依据。 |
+| R76-R3 | 🟠 可复现性 | `myblog/requirements.txt` 可选依赖无上限（redis / Pillow / cryptography / segno），生产 `pip install` 可能拉到未来不兼容大版本。 | 补上限：`redis>=4.5.0,<7.0.0`、`Pillow>=10.0.0,<13.0.0`、`cryptography>=41.0.0,<47.0.0`、`segno>=1.6.0,<2.0.0`。 |
+| R76-R4 | 📊 测试覆盖 | 测试分布偏斜：MCP / 主题中心 / 插件系统有专测，而**影响面最大的公开内容面与认证面此前无专测**。 | 新增 `tests/test_api_posts.py`（5 例）与 `tests/test_api_auth.py`（4 例）：分页参数不可被客户端放大、搜索高亮 XSS 防护、草稿匿名 404、`/api/csrf` 可用、未登录 `me` 不泄露、登录失败统一文案且不回显口令。**全量 94 passed**（原 84 + 新 10）。 |
+
+### 76.2 审查确认通过项（保留证据以便复核）
+
+| 维度 | 结论 | 证据 |
+|---|---|---|
+| 越权 | ✅ 「无装饰器 ≠ 无鉴权」：6 个高风险写接口均在函数体内显式校验 | `api/system.py:115-129`（`is_super` + 3/时限流 + 进程内锁防 TOCTOU）、`api/system.py:138-141`、`api/system.py:162-179`（`hmac.compare_digest` + 强制防重放 ≥30s + 仅请求头传密钥）、`api/posts.py:457-470`（登录 + 归属校验：管理员全部 / 普通用户仅自己 `author_id`）、`api/theme.py:28-31`、`api/ai.py:97-103`（`is_super` + 10/时限流，防 LLM 成本失控） |
+| XSS | ✅ 前端 6 处 `v-html`/`innerHTML` 全部溯源到清洗链 | 公告 → `api/site.py:103` `clean_html(render_markdown(...))`；关于 → `api/site.py:20`；正文 → `utils.py:141`；RSS 摘要 → `feed_agg.py:248` `clean_html(...)[:300]`；搜索高亮 → `api/posts.py:407-413`（先 `escape` 全文再包 `<mark>`）；插件槽位 → `sanitizeHtml`（DOMPurify） |
+| CSRF | ✅ 全局覆盖 | `app.py::_csrf_protect`（POST/PUT/DELETE/PATCH），SPA 走 `X-CSRF-Token`、后台表单 `{{ csrf_input() }}` |
+| 命令执行 | ✅ 无 shell 拼接 | `api/system.py:101-102`（`Popen([...])` list 传参，脚本路径来自配置） |
+| MCP 端点 | ✅ 三重闸门 | `mcp_write.py:351-373`（Origin 校验防 DNS 重绑定 + token 缺失返回 404 不暴露存在 + 10/60s 限流） |
+| 密钥 | ✅ 无硬编码 | `config.py`（`SECRET_KEY`/`ADMIN_PASSWORD` 缺失即拒绝启动）；备份密钥 Fernet 加密落库 + 页面掩码 |
+| 依赖 | ✅ 核心固定版本 | `requirements.txt`（`Flask==3.0.3` 等） |
+| 死代码/TODO | ✅ 全仓 `TODO/FIXME/HACK` **0 处** | 模式扫描 |
+
+### 76.3 未采纳项（附工程判断）
+
+- **超长文件拆分**（`admin/posts.py` 851 行、`utils.py` 784 行、`app.py` 771 行、`routes.py` 629 行、`stats.py` 628 行）：属**重构**而非缺陷修复，会引入回归风险，建议单独立项排期，不在本补丁版内进行。
+- **84 处静默 `except` 全量改造**：为项目既定「降级范式」，抽检均为合理场景；全量改造风险大于收益，保留现状并按 R76-R1 原则只处理关键位置。
+- **`datetime.utcnow()` 弃用告警**（`models.py:396`、`admin/_helpers.py:170` 等）：涉及时区语义变更（UTC naive → aware），需专项评估与回归，记入 ROADMAP。
+
+**验证记录（R76）**：
+- `python -m compileall -q myblog` 通过；`pytest tests/ -q` → **94 passed**（新增 10 例）。
+- hljs 本地产物：`myblog/static/vendor/hljs/highlight.min.js`（160.3 kB，esbuild `--bundle --minify --format=iife`，`lib/common` 常用语言集）+ `github.min.css` / `github-dark.min.css`。
+- 前端源码无改动（本次不涉 Vue），无需 `vite build`。
+- `grep -rE "bootcdn|cdnjs|jsdelivr|unpkg" myblog/` → 生产代码 **0 命中**。
+
+**R76 结论**：**0 遗留**。发版前 `APP_VERSION` 改为 `3.17.11`（与 Release tag 一致）。

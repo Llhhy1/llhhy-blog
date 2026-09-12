@@ -374,6 +374,7 @@ supervisorctl status
 
 > ⚠️ **服务器上的 `update.sh` / `deploy.sh` 也务必与最新 Release 同版**：脚本经历过「假成功不覆盖 / 校验误报 / 无法自动重启」多轮加固，升级前先从最新 Release 覆盖一次脚本，再跑一键更新。
 
+> **v3.17.11（全项目审查修复）升级要点**：SSR 文章页 highlight.js 由 bootcdn 改为**本地静态资源**（`myblog/static/vendor/hljs/`，新增 3 个文件：`highlight.min.js` + 两个主题 CSS）；`custom_css` 注入前转义；MCP 写端点限流改 fail-closed；`requirements.txt` 可选依赖补上限。**后端包必须覆盖**（含 `static/vendor/`），前端包无变化。**无迁移、无新依赖要求**（依赖上限仅约束版本区间，已装环境无需重装）。验证：访问任一篇文章（SSR 页）查看代码块是否已高亮（亮/暗主题各一次）。
 > **v3.17.10（update.sh 清理旧 assets + 文档页代码高亮修复）升级要点**：`update.sh` 前端覆盖步骤新增「先清 `assets/` 再解压」（防止历史 hash chunk 堆积）；文档页 `/docs` 的 highlight.js 由 cdnjs 动态注入改为**本地打包**（原被 CSP 拦截、高亮从未生效）。**只需覆盖前端包**（后端仅版本号）；无迁移、无新依赖。
 > **v3.17.9（复制修复 + 后台移动端 + AI 摘要 + 社交墙独立页）升级要点**：**前后端包都要覆盖**（前端新增 `lib/clipboard.js`、`lib/social.js`、`SocialView.vue` 与路由 `/social`；后台模板改造复制调用、`admin.css` 补移动端规则、`social.html` 加平台预设）。**无迁移、无新依赖**。验证：手机端打开后台「备份配置」与「诊断助手」不再挤压/溢出；任一「复制」按钮（后台媒体库/预览链接、前台代码块/分享链接）可复制并给出提示；后台「AI 摘要」页摘要完整可读；前台导航出现「🔗 社交」，主页出现「找到我」区块，`/social` 卡片墙正常。
 > **v3.17.3（评论表情回应 + 访客来源分析）升级要点**：**前后端包都要覆盖**（后端新增 `api/reactions.py`、VisitLog 新列 `referrer` 与 `/api/stats/referrers`；前端新增评论表情条与统计页「访客来源 Top 10」）。**VisitLog 的 `referrer` 列由启动自愈自动添加**（`_migrate_visit_log_table` 幂等补列，重启即生效）——**无需手动迁移**；备用脚本 `myblog/migrate_visit_log_referrer.py`（幂等）仅当自愈失效时手动跑。表情回应计数存 Setting KV（`react_<评论id>`），零表结构变更。验证：评论区出现 👍❤️😂🎉🤔👏 表情条（点击 +1，再点取消）；统计页出现「🧭 访客来源 Top 10」卡（需积累几天外部访问数据）；后台左下角 v3.17.3。**v3.17.3 同版补全「🗺️ 访客地图」**（`/annual` 页，阿里 DataV 合规底图由后端缓存 7 天，无需任何 key；仅省级聚合、不含个人位置；底图不可用时前端自动降级为地域榜）。

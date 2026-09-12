@@ -3,6 +3,16 @@
 > 本文件承载 **历史版本** 记录。README 只保留最新版本与上手信息。
 > 各版本的安全审计结论见 `myblog/SECURITY_AUDIT.md`；功能规划见 `ROADMAP.md`。
 
+## v3.17.11（2026-09-12 · 全项目审查修复：SSR 高亮本地化 + 限流 fail-closed + CSS 注入面 + 依赖上限 + 核心面补测）
+
+- **修复：SSR 文章页代码高亮从未生效**——`post.html` 从 bootcdn 加载 highlight.js 的 CSS/JS，被本站 CSP（`script-src/style-src 'self'`）拦截；同时是 M2「CDN 供应链加固」的**漏改点**（当时只改了 Vue 前端）。改为**本地静态资源**（`myblog/static/vendor/hljs/highlight.min.js`，esbuild 从 `highlight.js/lib/common` 打包 + `github.min.css` / `github-dark.min.css`），模板 4 处引用改 `url_for('static', ...)`；**不放宽 CSP**、零外部源。
+- **修复：MCP 写端点限流 fail-open**——`utils.rate_limit` 内部已自带 Redis 异常→内存回退，`mcp_write.py` 外层的 `try/except: pass` 属冗余，且会让写接口在限流器异常时**静默失去限流**；已删除，改为显式 500（**fail-closed**）。
+- **加固：`custom_css` 注入 `<style>` 的逃逸面**——新增 `app.py::_safe_css()` 转义 `</style` 与 `<!--` 后再注入，一处修复**前后台两模板同时生效**（CSS 语义不受影响）。
+- **修复：未登录访问超管页触发 SAWarning**——`admin/_helpers.py:86` 的 `db.session.get(User, session.get("user_id"))` 在未登录时为 `get(User, None)`，改为先判空再查（行为等价，消除 SQLAlchemy 未来版本将升级为错误的告警）。
+- **可复现性**：`requirements.txt` 可选依赖补上限（`redis<7`、`Pillow<13`、`cryptography<47`、`segno<2`）。
+- **测试**：新增 `tests/test_api_posts.py`（5 例）与 `tests/test_api_auth.py`（4 例）——覆盖此前无专测的**公开内容面与认证面**（分页参数不可被客户端放大、搜索高亮 XSS 防护、草稿匿名 404、`/api/csrf` 可用、未登录 `me` 不泄露、登录失败统一文案且不回显口令）；**全量 94 passed**（原 84 + 新 10）。
+- **全项目代码审查结论**（审查范围、六类发现项、逐项证据与未采纳项的工程判断）已合并进 `myblog/SECURITY_AUDIT.md` **R76** 轮次。
+
 ## v3.17.10（2026-09-12 · update.sh 清理旧 assets + 文档页代码高亮修复）
 
 - **update.sh：前端覆盖前先清 `assets/`**（用户要求）——assets 文件名带内容 hash、由 `index.html` 引用，新包含全部所需文件，清理可避免历史 chunk 无限堆积（此前每次升级残留数份）。已同步服务器现有部署并清理存量残留（**214 → 39 个文件**，先备份到 `/www/wwwroot/backups/assets_backup_*`；清理依据「index.html 引用链递归解析」校验，页面与懒加载 chunk 全部正常）。

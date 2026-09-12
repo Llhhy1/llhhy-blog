@@ -357,6 +357,69 @@ def prune_local():
             pass
 
 
+# ---------- v3.17.13：概览统计工具（供后台「数据备份」页展示更全面的运维数据）----------
+_SIZE_UNITS = ("B", "KB", "MB", "GB", "TB")
+
+
+def fmt_size(n):
+    """人性化文件大小（B/KB/MB/GB/TB）——避免出现「51200 KB」这类不直观显示。"""
+    try:
+        val = float(n or 0)
+    except (TypeError, ValueError):
+        return "—"
+    for unit in _SIZE_UNITS:
+        if val < 1024 or unit == _SIZE_UNITS[-1]:
+            return ("%.0f %s" % (val, unit)) if unit == "B" else ("%.1f %s" % (val, unit))
+        val /= 1024.0
+    return "%.1f TB" % val
+
+
+def file_size(path):
+    """单个文件大小（不存在/无权限返回 0）。"""
+    try:
+        return os.path.getsize(path)
+    except OSError:
+        return 0
+
+
+_DIR_STAT_CACHE = {"ts": 0.0, "path": "", "size": 0, "count": 0}
+
+
+def dir_stat(path, ttl=60):
+    """目录总大小与文件数（带 TTL 缓存）。
+
+    上传目录可能有上千文件，后台页每次打开都全量遍历会拖慢页面 → 缓存 60 秒。
+    """
+    import time as _time
+    now = _time.time()
+    if _DIR_STAT_CACHE["path"] == path and (now - _DIR_STAT_CACHE["ts"]) < ttl:
+        return _DIR_STAT_CACHE["size"], _DIR_STAT_CACHE["count"]
+    size = 0
+    count = 0
+    try:
+        for root, _dirs, files in os.walk(path):
+            for fn in files:
+                try:
+                    size += os.path.getsize(os.path.join(root, fn))
+                    count += 1
+                except OSError:
+                    pass
+    except OSError:
+        pass
+    _DIR_STAT_CACHE.update({"ts": now, "path": path, "size": size, "count": count})
+    return size, count
+
+
+def backup_stamp(fn):
+    """从备份文件名（blog_backup_YYYYMMDD_HHMMSS.zip）解析出可读时间戳。"""
+    import re as _re
+    m = _re.search(r"blog_backup_(\d{8})_(\d{6})", fn or "")
+    if not m:
+        return ""
+    d, t = m.group(1), m.group(2)
+    return "%s-%s-%s %s:%s:%s" % (d[:4], d[4:6], d[6:8], t[:2], t[2:4], t[4:6])
+
+
 def list_backups():
     out = []
     if not os.path.isdir(BACKUP_ROOT):

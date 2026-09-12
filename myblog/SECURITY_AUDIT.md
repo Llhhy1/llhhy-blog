@@ -2681,3 +2681,28 @@ git diff 计 **70 增 / 70 删**，`tokens.css` 定义**未被改动**。
 **验证记录（R77）**：`compileall` 通过；`pytest tests/ -q` → **94 passed**；后端无 API/DB 变更，前端无改动。
 
 **R77 结论**：**0 遗留**。发版前 `APP_VERSION` 改为 `3.17.12`（与 Release tag 一致）。
+
+## 第七十八轮 R78（v3.17.13 · UI：后台备份页移动端重构 + 前台导航图标统一）
+
+**背景**：用户反馈两类 UI 问题——① 后台「数据备份」页在手机上「不美观、数据不全面」；② 前台手机抽屉菜单「样式不统一」。逐项处理。
+
+### 78.1 修复项
+
+| 编号 | 级别 | 问题（含位置） | 修复 |
+|---|---|---|---|
+| R78-1 | 🟡 移动端 UX | 后台「数据备份」页（`templates/admin/backup.html`）原用 `.backup-table` 横向表格，手机上横向溢出、且只暴露「文件名/时间/文件数/版本/完整性/大小」列，**缺全局运维概览**（总占用、数据库大小、上传目录大小、最近一次、异地容灾配置数）。 | ① 新增**概览卡**（7 项）：本地备份数 / 备份总占用 / 数据库大小 / 上传目录大小+文件数 / 保留周期 / 最近一次时间 / 异地容灾配置数（OSS·SCP·WebDAV 三态标签）。② 备份列表表格改为**响应式**：窄屏（≤720px）每行自动转卡片（`td[data-label]` + 媒体查询），完整性红绿配色。 |
+| R78-2 | 🟡 数据装配 | 概览所需数据原无统一来源，散落在 `list_backups()` / `remote_status()` 与文件系统。 | `backup.py` 新增 4 个工具：`fmt_size`（字节→可读）、`file_size`（单文件）、`dir_stat`（目录递归统计，**带 60s TTL 缓存**，避免每次打开页全量遍历上传目录）、`backup_stamp`（从文件名解析时间戳）；`admin/settings.py` 的 `backup()` 一次性装配为 `summary` 传给模板。**零新增表/字段**，调用开销恒定。 |
+| R78-3 | 🟡 移动端 UX | 前台手机抽屉菜单 13 个项里仅 3 个带 emoji（📅 回顾 / 🔗 社交 / 🎮 游戏），其余纯文字 → 竖排时视觉不齐、左对齐错位。 | 与后台侧栏 `.side-nav .nav-emoji` **风格对齐**：13 个项全部加 `<span class="nav-emoji">`，固定 20px 宽、居中、不压缩；抽屉（`App.vue` `.drawer-nav`）与桌面顶栏（`.site-header nav`）**同步**加图标。`global.css` 新增 `.nav-emoji` 与对应 flex 布局。 |
+
+### 78.2 实现注意（踩坑）
+
+- **修复过程中发现并清理的半成品**：上一轮编辑 `admin/settings.py` 的 `summary` 块引用了 4 个 `backup.py` 函数（`fmt_size` / `backup_stamp` / `dir_stat` / `file_size`），但对应函数定义因限流 429 未落盘 → 页面会 `AttributeError` 崩溃。本轮补上函数定义，并清理了 `backup.py` 中因多次重试产生的**重复函数集**（4 个 helper 各出现两次），保留带 TTL 缓存的 `dir_stat` 版本。
+- **图标选型**：emoji 而非 SVG 图标，与后台既有 `.nav-emoji` 体系一致，且无需引入图标字体/依赖；`home/archive/stats/about/links/square/series/tags/hot/docs/guestbook` 为新增 emoji，`annual/social/games` 沿用既有 emoji。
+
+### 78.3 验证记录（R78）
+
+- 后端：`py_compile` 通过；冒烟 import `backup.py` 确认 6 个函数均存在、`list_backups` / `fmt_size` / `backup_stamp` 运行正常；`pytest tests/ -q` → **94 passed**。
+- 前端：`npm run build` 通过（产物含更新后的 `App.vue` 与 `global.css`）。
+- 部署：`update.sh` 升级后需**同时覆盖前端包**（`vue-frontend-dist.zip`）；无迁移、无新增依赖。
+
+**R78 结论**：**0 遗留**。发版前 `APP_VERSION` 改为 `3.17.13`（与 Release tag 一致）。

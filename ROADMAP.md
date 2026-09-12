@@ -855,4 +855,5 @@ v3.1.7 修复 CSRF 隐藏域乱码后，用户反馈「退出登录按钮失效�
 - v3.17.9 复制三层兜底（7 处统一）；后台移动端补齐（`.stats-grid` 内联覆盖 + `.stats-table` 横滚）；AI 摘要完整展示；社交账号墙独立成页 `/social` + 主页区块 + 20 平台预设。
 - v3.17.10 `update.sh` 前端覆盖前先清 `assets/`（防历史 chunk 堆积）；文档页 highlight.js 改本地打包（原 cdnjs 注入被 CSP 拦截致高亮从未生效）。
 - v3.17.11 **全项目代码审查（R76）与修复**：SSR 文章页 hljs 本地化（原 bootcdn 被 CSP 拦截、且为 M2 加固漏改点）；MCP 写端点限流改 fail-closed；`custom_css` 注入转义；未登录 SAWarning 修复；可选依赖补上限；新增 content/auth 两面测试（94 passed）。
+- v3.17.13 **UI 两项**：后台「数据备份」页移动端重构（概览 7 卡 + 备份列表窄屏转卡片，数据由 `backup.py` 新增统计工具算、零新表）；前台导航 13 项统一加 `.nav-emoji` 图标，抽屉与桌面顶栏同步，风格对齐后台侧栏。
   - **后续可做（审查未采纳项，需单独排期）**：① 超长文件拆分（`admin/posts.py` 851 / `utils.py` 784 / `app.py` 771）；② `datetime.utcnow()` → 时区感知改造（`models.py` 等 3 处弃用告警，涉及数据语义需专项回归）；③ 84 处静默 `except` 中关键路径补日志（可观测性）。

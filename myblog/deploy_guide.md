@@ -374,6 +374,8 @@ supervisorctl status
 
 > ⚠️ **服务器上的 `update.sh` / `deploy.sh` 也务必与最新 Release 同版**：脚本经历过「假成功不覆盖 / 校验误报 / 无法自动重启」多轮加固，升级前先从最新 Release 覆盖一次脚本，再跑一键更新。
 
+> **v3.17.13（后台备份页移动端重构 + 前台导航图标统一）升级要点**：后端包 + **前端包都需覆盖**（`vue-frontend-dist.zip` 更新了 `App.vue` 导航与 `global.css` 的 `.nav-emoji`）；无迁移、无新增依赖。`backup.py` 新增 4 个统计工具（`fmt_size`/`file_size`/`dir_stat`/`backup_stamp`），`admin/settings.py` 装配 `summary` 给备份页模板。
+
 > **v3.17.12（RSS 聚合超时 + gitignore 兜底）升级要点**：`feed_agg.py` 聚合抓取加 12s socket 超时（防友链源挂起拖死 worker）；`.gitignore` 补纪律零黑名单。**只需覆盖后端包**；无迁移、无前端改动。
 > **v3.17.11（全项目审查修复）升级要点**：SSR 文章页 highlight.js 由 bootcdn 改为**本地静态资源**（`myblog/static/vendor/hljs/`，新增 3 个文件：`highlight.min.js` + 两个主题 CSS）；`custom_css` 注入前转义；MCP 写端点限流改 fail-closed；`requirements.txt` 可选依赖补上限。**后端包必须覆盖**（含 `static/vendor/`），前端包无变化。**无迁移、无新依赖要求**（依赖上限仅约束版本区间，已装环境无需重装）。验证：访问任一篇文章（SSR 页）查看代码块是否已高亮（亮/暗主题各一次）。
 > **v3.17.10（update.sh 清理旧 assets + 文档页代码高亮修复）升级要点**：`update.sh` 前端覆盖步骤新增「先清 `assets/` 再解压」（防止历史 hash chunk 堆积）；文档页 `/docs` 的 highlight.js 由 cdnjs 动态注入改为**本地打包**（原被 CSP 拦截、高亮从未生效）。**只需覆盖前端包**（后端仅版本号）；无迁移、无新依赖。

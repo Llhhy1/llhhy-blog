@@ -8,22 +8,22 @@
       <button class="drawer-close" type="button" aria-label="关闭菜单" @click="drawerOpen = false">×</button>
     </div>
     <nav class="drawer-nav">
-      <router-link to="/" @click="drawerOpen = false">{{ t('home') }}</router-link>
-      <router-link to="/archive" @click="drawerOpen = false">{{ t('archive') }}</router-link>
-      <router-link to="/stats" @click="drawerOpen = false">{{ t('stats') }}</router-link>
-      <router-link to="/annual" @click="drawerOpen = false">📅 回顾</router-link>
-      <router-link to="/about" @click="drawerOpen = false">{{ t('about') }}</router-link>
-      <router-link to="/links" @click="drawerOpen = false">{{ t('links') }}</router-link>
-      <router-link to="/square" @click="drawerOpen = false">{{ t('square') }}</router-link>
-      <router-link to="/social" @click="drawerOpen = false">🔗 社交</router-link>
-      <router-link to="/series" @click="drawerOpen = false">{{ t('series') }}</router-link>
-      <router-link to="/games" @click="drawerOpen = false">🎮 游戏</router-link>
-      <router-link to="/tags/hot" @click="drawerOpen = false">{{ t('hot_tags') }}</router-link>
-      <router-link to="/docs" @click="drawerOpen = false">{{ t('docs') }}</router-link>
-      <router-link to="/guestbook" @click="drawerOpen = false">{{ t('guestbook') }}</router-link>
+      <router-link to="/" @click="drawerOpen = false"><span class="nav-emoji">🏠</span>{{ t('home') }}</router-link>
+      <router-link to="/archive" @click="drawerOpen = false"><span class="nav-emoji">🗂️</span>{{ t('archive') }}</router-link>
+      <router-link to="/stats" @click="drawerOpen = false"><span class="nav-emoji">📊</span>{{ t('stats') }}</router-link>
+      <router-link to="/annual" @click="drawerOpen = false"><span class="nav-emoji">📅</span>回顾</router-link>
+      <router-link to="/about" @click="drawerOpen = false"><span class="nav-emoji">ℹ️</span>{{ t('about') }}</router-link>
+      <router-link to="/links" @click="drawerOpen = false"><span class="nav-emoji">🤝</span>{{ t('links') }}</router-link>
+      <router-link to="/square" @click="drawerOpen = false"><span class="nav-emoji">💬</span>{{ t('square') }}</router-link>
+      <router-link to="/social" @click="drawerOpen = false"><span class="nav-emoji">🔗</span>社交</router-link>
+      <router-link to="/series" @click="drawerOpen = false"><span class="nav-emoji">📚</span>{{ t('series') }}</router-link>
+      <router-link to="/games" @click="drawerOpen = false"><span class="nav-emoji">🎮</span>游戏</router-link>
+      <router-link to="/tags/hot" @click="drawerOpen = false"><span class="nav-emoji">🔥</span>{{ t('hot_tags') }}</router-link>
+      <router-link to="/docs" @click="drawerOpen = false"><span class="nav-emoji">📖</span>{{ t('docs') }}</router-link>
+      <router-link to="/guestbook" @click="drawerOpen = false"><span class="nav-emoji">📝</span>{{ t('guestbook') }}</router-link>
       <!-- v3.9.0 M2：插件导航入口（结构化 <a>，不用 v-html） -->
       <template v-for="ni in pluginNav" :key="'drawer-' + ni.label">
-        <a :href="ni.href || ni.to" class="plugin-nav-link" @click="drawerOpen = false">{{ ni.icon ? ni.icon + ' ' : '' }}{{ ni.label }}</a>
+        <a :href="ni.href || ni.to" class="plugin-nav-link" @click="drawerOpen = false"><span v-if="ni.icon" class="nav-emoji">{{ ni.icon }}</span>{{ ni.label }}</a>
       </template>
     </nav>
     <div class="drawer-foot">
@@ -47,22 +47,22 @@
       <button class="hamburger" type="button" aria-label="打开菜单" @click="drawerOpen = true">☰</button>
       <router-link class="logo" to="/" @click="drawerOpen = false">{{ state.site.site_name || state.site.site_title }}</router-link>
       <nav>
-        <router-link to="/">{{ t('home') }}</router-link>
-        <router-link to="/archive">{{ t('archive') }}</router-link>
-        <router-link to="/stats">{{ t('stats') }}</router-link>
-        <router-link to="/annual">📅 回顾</router-link>
-        <router-link to="/about">{{ t('about') }}</router-link>
-        <router-link to="/links">{{ t('links') }}</router-link>
-        <router-link to="/square">{{ t('square') }}</router-link>
-        <router-link to="/social">🔗 社交</router-link>
-        <router-link to="/series">{{ t('series') }}</router-link>
-        <router-link to="/games">🎮 游戏</router-link>
-        <router-link to="/tags/hot">{{ t('hot_tags') }}</router-link>
-        <router-link to="/docs">{{ t('docs') }}</router-link>
-        <router-link to="/guestbook">{{ t('guestbook') }}</router-link>
+        <router-link to="/"><span class="nav-emoji">🏠</span>{{ t('home') }}</router-link>
+        <router-link to="/archive"><span class="nav-emoji">🗂️</span>{{ t('archive') }}</router-link>
+        <router-link to="/stats"><span class="nav-emoji">📊</span>{{ t('stats') }}</router-link>
+        <router-link to="/annual"><span class="nav-emoji">📅</span>回顾</router-link>
+        <router-link to="/about"><span class="nav-emoji">ℹ️</span>{{ t('about') }}</router-link>
+        <router-link to="/links"><span class="nav-emoji">🤝</span>{{ t('links') }}</router-link>
+        <router-link to="/square"><span class="nav-emoji">💬</span>{{ t('square') }}</router-link>
+        <router-link to="/social"><span class="nav-emoji">🔗</span>社交</router-link>
+        <router-link to="/series"><span class="nav-emoji">📚</span>{{ t('series') }}</router-link>
+        <router-link to="/games"><span class="nav-emoji">🎮</span>游戏</router-link>
+        <router-link to="/tags/hot"><span class="nav-emoji">🔥</span>{{ t('hot_tags') }}</router-link>
+        <router-link to="/docs"><span class="nav-emoji">📖</span>{{ t('docs') }}</router-link>
+        <router-link to="/guestbook"><span class="nav-emoji">📝</span>{{ t('guestbook') }}</router-link>
         <!-- v3.9.0 M2：插件导航入口（结构化 <a>，不用 v-html） -->
         <template v-for="ni in pluginNav" :key="'desk-' + ni.label">
-          <a :href="ni.href || ni.to" class="plugin-nav-link">{{ ni.icon ? ni.icon + ' ' : '' }}{{ ni.label }}</a>
+          <a :href="ni.href || ni.to" class="plugin-nav-link"><span v-if="ni.icon" class="nav-emoji">{{ ni.icon }}</span>{{ ni.label }}</a>
         </template>
         <template v-if="state.user">
           <span class="nav-user">

@@ -475,9 +475,13 @@ button:hover, .btn:hover {
  display: flex; flex-direction: column; padding: 8px 0; }
 .drawer-nav a {
  padding: 13px 18px; color: var(--nav-fg); text-decoration: none; font-size: 15px;
-    border-left: 3px solid transparent; transition: all .15s; }
+    border-left: 3px solid transparent; transition: all .15s;
+    display: flex; align-items: center; gap: 10px; }
 .drawer-nav a:hover {
  background: rgba(26,115,232,.08); border-left-color: var(--accent); color: var(--accent); }
+/* v3.17.13：前台导航统一图标（与后台 .side-nav .nav-emoji 视觉一致，手机抽屉 / 桌面顶栏同步） */
+.nav-emoji { display: inline-block; width: 20px; text-align: center; flex-shrink: 0; font-size: 16px; line-height: 1; }
+.site-header nav a { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
 .drawer-foot {
  margin-top: auto; padding: 14px 16px; border-top: 1px solid var(--nav-border);
     display: flex; flex-direction: column; gap: 8px; }

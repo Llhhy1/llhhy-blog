@@ -166,8 +166,25 @@ def backup():
                           detail=str(e)[:200], success=False)
                 flash("恢复失败：" + str(e)[:200])
             return redirect(url_for("admin.backup"))
+    # v3.17.13：把「更全面」的运维数据一次性算好传给模板（零新增表/字段）
+    import config as _cfg
+    total_size = sum((b.get("size") or 0) for b in backups)
+    for _b in backups:
+        _b["size_h"] = backup_mod.fmt_size(_b.get("size") or 0)
+        _b["stamp"] = backup_mod.backup_stamp(_b.get("file"))
+    _up_dir = os.path.join(_cfg.BASE_DIR, "static", "uploads")
+    _up_size, _up_count = backup_mod.dir_stat(_up_dir)
+    summary = {
+        "count": len(backups),
+        "total_size_h": backup_mod.fmt_size(total_size),
+        "db_size_h": backup_mod.fmt_size(backup_mod.file_size(os.path.join(_cfg.DATA_DIR, "blog.db"))),
+        "uploads_size_h": backup_mod.fmt_size(_up_size),
+        "uploads_count": _up_count,
+        "latest_at": (backups[-1].get("stamp") or backups[-1].get("created_at") or "") if backups else "",
+        "remote_count": sum(1 for _k in ("oss", "scp", "webdav") if remote_status.get(_k)),
+    }
     return render_template("admin/backup.html", backups=backups, remote_status=remote_status,
-                           retention=backup_mod.RETENTION_DAYS)
+                           retention=backup_mod.RETENTION_DAYS, summary=summary)
 
 @admin_bp.route("/backup-settings", methods=["GET", "POST"])
 @super_required

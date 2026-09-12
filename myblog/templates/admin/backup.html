@@ -5,15 +5,26 @@
 <p class="stats-tip">
   备份内容：数据库 <code>data/blog.db</code> + 上传目录 <code>static/uploads/</code>，每个备份包内嵌
   <code>manifest.json</code>（含每个文件 SHA256，恢复前强制校验）。本地保留 {{ retention }} 天滚动；
-  若配置了对象存储 / SCP / WebDAV 环境变量，会自动同步到异地（密钥只走环境变量，页面不回显）。
+  若配置了对象存储 / SCP / WebDAV，会自动同步到异地（密钥只走环境变量，页面不回显）。
 </p>
 
-<div class="stats-grid" style="grid-template-columns:1fr 1fr 1fr 1fr;">
-  <div class="stats-card"><h3>本地备份目录</h3><p style="word-break:break-all;">{{ remote_status.local_dir }}</p></div>
-  <div class="stats-card"><h3>对象存储 OSS</h3><p>{{ '✅ 已配置' if remote_status.oss else '未配置（跳过）' }}{{ ' · 后台' if remote_status.oss_from_db else (' · 环境变量' if remote_status.oss else '') }}</p></div>
-  <div class="stats-card"><h3>SCP 备用机</h3><p>{{ '✅ 已配置' if remote_status.scp else '未配置（跳过）' }}{{ ' · 后台' if remote_status.scp_from_db else (' · 环境变量' if remote_status.scp else '') }}</p></div>
-  <div class="stats-card"><h3>WebDAV 云盘</h3><p>{{ '✅ 已配置' if remote_status.webdav else '未配置（跳过）' }}{{ ' · 后台' if remote_status.webdav_from_db else (' · 环境变量' if remote_status.webdav else '') }}</p></div>
+<!-- 概览：把分散在表格/后端的信息汇总成一眼可见的卡片（v3.17.13，移动端自适应） -->
+<div class="bk-overview">
+  <div class="bk-ov-card"><span class="bk-ov-label">本地备份</span><span class="bk-ov-value">{{ summary.count }} 个</span></div>
+  <div class="bk-ov-card"><span class="bk-ov-label">备份总占用</span><span class="bk-ov-value">{{ summary.total_size_h }}</span></div>
+  <div class="bk-ov-card"><span class="bk-ov-label">数据库</span><span class="bk-ov-value">{{ summary.db_size_h }}</span></div>
+  <div class="bk-ov-card"><span class="bk-ov-label">上传目录</span><span class="bk-ov-value">{{ summary.uploads_size_h }}<small> · {{ summary.uploads_count }} 文件</small></span></div>
+  <div class="bk-ov-card"><span class="bk-ov-label">保留周期</span><span class="bk-ov-value">{{ summary.retention }} 天</span></div>
+  <div class="bk-ov-card"><span class="bk-ov-label">最近一次</span><span class="bk-ov-value bk-ov-sm">{{ summary.latest_at or '—' }}</span></div>
+  <div class="bk-ov-card bk-ov-wide"><span class="bk-ov-label">异地容灾（OSS / SCP / WebDAV）</span>
+    <span class="bk-ov-value">
+      <span class="bk-tag {{ 'on' if remote_status.oss }}">{{ 'OSS' if remote_status.oss else 'OSS·未配' }}</span>
+      <span class="bk-tag {{ 'on' if remote_status.scp }}">{{ 'SCP' if remote_status.scp else 'SCP·未配' }}</span>
+      <span class="bk-tag {{ 'on' if remote_status.webdav }}">{{ 'WebDAV' if remote_status.webdav else 'WebDAV·未配' }}</span>
+    </span>
+  </div>
 </div>
+
 <p class="stats-tip">
   <a href="{{ url_for('admin.backup_settings') }}" style="font-weight:600;">⚙️ 在「备份配置」页直接配置目的地 / 保留天数 / 密钥（v3.4.0，密钥加密存储）</a>
 </p>
@@ -26,19 +37,21 @@
 
 <h3 style="margin:22px 0 10px;">本地备份列表（保留 {{ retention }} 天）</h3>
 {% if backups %}
-<div class="table-scroll">
-  <table class="backup-table">
-    <thead><tr><th>文件名</th><th>创建时间</th><th>文件数</th><th>版本</th><th>完整性</th><th>大小</th><th>操作</th></tr></thead>
+<div class="bk-table-wrap">
+  <table class="bk-table">
+    <thead><tr>
+      <th>备份文件</th><th>创建时间</th><th>大小</th><th>文件数</th><th>版本</th><th>完整性</th><th>操作</th>
+    </tr></thead>
     <tbody>
     {% for b in backups %}
       <tr>
-        <td style="word-break:break-all;">{{ b.file }}</td>
-        <td>{{ b.created_at or '—' }}</td>
-        <td>{{ b.file_count or '—' }}</td>
-        <td>{{ b.app_version or '—' }}</td>
-        <td>{{ b.integrity }}</td>
-        <td>{{ (b.size // 1024) }} KB</td>
-        <td class="bk-actions">
+        <td data-label="文件"><span style="word-break:break-all;">{{ b.file }}</span></td>
+        <td data-label="时间">{{ b.stamp or b.created_at or '—' }}</td>
+        <td data-label="大小">{{ b.size_h }}</td>
+        <td data-label="文件数">{{ b.file_count or '—' }}</td>
+        <td data-label="版本">{{ b.app_version or '—' }}</td>
+        <td data-label="完整性"><span class="bk-int {{ 'ok' if b.integrity == 'ok' else 'bad' }}">{{ b.integrity }}</span></td>
+        <td data-label="操作" class="bk-actions">
           <form method="post" action="{{ url_for('admin.backup') }}" style="display:inline;">
             {{ csrf_input() }}
             <input type="hidden" name="action" value="download">
@@ -70,18 +83,55 @@
 </p>
 
 <style>
-  .backup-table { width:100%; border-collapse:collapse; background:#fff; border-radius:12px; overflow:hidden; box-shadow:0 1px 3px rgba(0,0,0,.03); }
-  [data-theme="dark"] .backup-table { background:#1d2025; }
-  .backup-table th, .backup-table td { padding:11px 12px; text-align:left; font-size:13px; border-bottom:1px solid #eee; }
-  [data-theme="dark"] .backup-table th, [data-theme="dark"] .backup-table td { border-color:#2a2e35; }
-  .backup-table th { background:#fafbfc; color:#555; font-weight:600; }
-  [data-theme="dark"] .backup-table th { background:#23272e; color:#c7ccd3; }
+  .bk-overview { display:grid; grid-template-columns:repeat(3, 1fr); gap:12px; margin:16px 0; }
+  .bk-ov-card { background:#fff; border:1px solid #eee; border-radius:12px; padding:12px 14px;
+    display:flex; flex-direction:column; gap:6px; box-shadow:0 1px 3px rgba(0,0,0,.03); }
+  .bk-ov-wide { grid-column:1 / -1; }
+  .bk-ov-label { font-size:12px; color:#888; }
+  .bk-ov-value { font-size:17px; font-weight:600; color:#1f2329; word-break:break-all; }
+  .bk-ov-value small { font-size:12px; font-weight:400; color:#999; }
+  .bk-ov-sm { font-size:15px; }
+  .bk-tag { display:inline-block; font-size:12px; padding:2px 9px; border-radius:999px; margin-right:6px;
+    background:#f1f3f4; color:#9aa0a6; }
+  .bk-tag.on { background:#e6f4ea; color:#1e7e34; }
+  [data-theme="dark"] .bk-ov-card { background:#1d2025; border-color:#2a2e35; }
+  [data-theme="dark"] .bk-ov-label { color:#9aa0a6; }
+  [data-theme="dark"] .bk-ov-value { color:#eef0f2; }
+  [data-theme="dark"] .bk-tag { background:#2a2e35; color:#9aa0a6; }
+  [data-theme="dark"] .bk-tag.on { background:#1f3a28; color:#7ee2a0; }
+
+  /* 响应式表格：窄屏每行变卡片 */
+  .bk-table-wrap { width:100%; overflow-x:auto; }
+  .bk-table { width:100%; border-collapse:collapse; background:#fff; border-radius:12px; overflow:hidden;
+    box-shadow:0 1px 3px rgba(0,0,0,.03); }
+  .bk-table th, .bk-table td { padding:11px 12px; text-align:left; font-size:13px; border-bottom:1px solid #eee; vertical-align:top; }
+  .bk-table th { background:#fafbfc; color:#555; font-weight:600; white-space:nowrap; }
+  .bk-table tbody tr:last-child td { border-bottom:none; }
   .bk-actions { white-space:nowrap; }
   .bk-confirm { font-size:12px; margin:0 6px 0 2px; color:#c0392b; }
-  [data-theme="dark"] .bk-confirm { color:#ff8a80; }
-  .btn.danger { background:#c0392b; color:#fff; border:none; padding:5px 12px; border-radius:6px; cursor:pointer; font-size:13px; }
-  .btn.primary { background:var(--accent,#1a73e8); color:#fff; border:none; padding:9px 18px; border-radius:8px; cursor:pointer; font-size:14px; }
-  .btn.ghost { background:#f1f3f4; color:#333; border:none; padding:5px 12px; border-radius:6px; cursor:pointer; font-size:13px; }
-  [data-theme="dark"] .btn.ghost { background:#2a2e35; color:#eef0f2; }
+  [data-theme="dark"] .bk-table { background:#1d2025; }
+  [data-theme="dark"] .bk-table th, [data-theme="dark"] .bk-table td { border-color:#2a2e35; }
+  [data-theme="dark"] .bk-table th { background:#23272e; color:#c7ccd3; }
+  .bk-int { font-weight:600; }
+  .bk-int.ok { color:#1e7e34; }
+  .bk-int.bad { color:#c0392b; }
+
+  @media (max-width: 720px) {
+    .bk-overview { grid-template-columns:1fr 1fr; }
+    .bk-ov-wide { grid-column:1 / -1; }
+    .bk-table thead { display:none; }
+    .bk-table, .bk-table tbody, .bk-table tr, .bk-table td { display:block; width:100%; }
+    .bk-table tr { margin-bottom:12px; border:1px solid #eee; border-radius:12px; padding:4px 14px; background:#fff; }
+    .bk-table td { display:flex; justify-content:space-between; align-items:flex-start; gap:14px;
+      padding:8px 0; border-bottom:1px solid #f0f0f0; text-align:right; }
+    .bk-table td:last-child { border-bottom:none; }
+    .bk-table td::before { content: attr(data-label); font-weight:600; color:#888; text-align:left;
+      flex:0 0 auto; }
+    .bk-table td[data-label="操作"] { flex-direction:column; align-items:stretch; }
+    .bk-table td[data-label="操作"]::before { margin-bottom:6px; }
+    [data-theme="dark"] .bk-table tr { background:#1d2025; border-color:#2a2e35; }
+    [data-theme="dark"] .bk-table td { border-color:#2a2e35; }
+    [data-theme="dark"] .bk-table td::before { color:#9aa0a6; }
+  }
 </style>
 {% endblock %}

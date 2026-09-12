@@ -20,6 +20,7 @@ from admin import admin_bp
 from api import api_bp
 from mcp_diag import mcp_bp  # v3.10.0：只读诊断 MCP（端点 /mcp）
 from mcp_write import mcp_write_bp  # v3.12.2：写能力 MCP（端点 /mcp-write，未配置 MCP_WRITE_TOKEN 时自动关闭）
+from _time import utcnow
 
 # v3.11.0：Flask-Migrate（可选依赖）—— 数据库迁移工具，便于未来 schema 演进。
 # 未安装时静默跳过（降级范式：绝不因缺依赖导致应用无法启动）。
@@ -296,7 +297,7 @@ def count_unique_view(post_id, ip):
     """
     from models import ReadLog, db as _db
     import datetime as _dt
-    cutoff = _dt.datetime.utcnow() - _dt.timedelta(hours=24)
+    cutoff = utcnow() - _dt.timedelta(hours=24)
     recent = (ReadLog.query.filter_by(post_id=post_id, ip=ip)
               .filter(ReadLog.updated_at >= cutoff).first())
     if recent:
@@ -305,7 +306,7 @@ def count_unique_view(post_id, ip):
     rec = ReadLog.query.filter_by(post_id=post_id, ip=ip).first()
     if rec:
         rec.read_count += 1
-        rec.updated_at = _dt.datetime.utcnow()
+        rec.updated_at = utcnow()
     else:
         rec = ReadLog(post_id=post_id, ip=ip, read_count=1)
         _db.session.add(rec)
@@ -557,7 +558,7 @@ def create_app():
         if not uid:
             return None
         last = session.get("last_active")
-        now = datetime.datetime.utcnow()
+        now = utcnow()
         if last:
             try:
                 last_dt = datetime.datetime.fromisoformat(last)
@@ -690,7 +691,7 @@ def create_app():
             _time.sleep(60)
             try:
                 with app.app_context():
-                    now = datetime.datetime.utcnow()
+                    now = utcnow()
                     due = Post.query.filter(
                         Post.scheduled_at.isnot(None),
                         Post.scheduled_at <= now,

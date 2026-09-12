@@ -2,6 +2,7 @@
 # 自动切片自 admin.py（v3.11.0）：原样搬运，路由/行为不变。
 from ._helpers import *   # 复用导入、辅助函数与装饰器
 from . import admin_bp     # 同一蓝图对象
+from _time import utcnow
 
 @admin_bp.route("/links", methods=["GET", "POST"])
 @admin_required
@@ -78,7 +79,7 @@ def approve_link_application(aid):
                                       sort=99))
         app_row.status = "approved"
         app_row.reviewer = (_current_user_or_none().username if _current_user_or_none() else "")
-        app_row.reviewed_at = datetime.datetime.utcnow()
+        app_row.reviewed_at = utcnow()
         db.session.commit()
         log_audit("approve", "link_application", aid, f"通过友链申请：{app_row.name}", user=_current_user_or_none())
         flash(f"已通过友链申请：{app_row.name}")
@@ -91,7 +92,7 @@ def reject_link_application(aid):
     app_row = LinkApplication.query.get_or_404(aid)
     app_row.status = "rejected"
     app_row.reviewer = (_current_user_or_none().username if _current_user_or_none() else "")
-    app_row.reviewed_at = datetime.datetime.utcnow()
+    app_row.reviewed_at = utcnow()
     note = (request.form.get("note") or "").strip()
     if note:
         app_row.review_note = note

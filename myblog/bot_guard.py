@@ -13,6 +13,7 @@ from flask import request
 from models import db, BotBlock
 from utils import detect_bot, get_setting, setting_bool, rate_limit, client_key
 from stats import client_ip
+from _time import utcnow
 
 # 不参与限流的路径前缀（搜索引擎必须能抓 robots/sitemap；静态资源不计；
 # 后台 / 接口各自已有 rate_limit，避免被 bot_guard 误伤或自锁）。
@@ -30,7 +31,7 @@ def guard_enabled():
 
 def is_blocked(ip):
     """查询该 IP 是否处于封禁期内。返回 BotBlock 记录或 None。"""
-    now = datetime.utcnow()
+    now = utcnow()
     rec = BotBlock.query.filter_by(ip=ip, active=True).first()
     if rec and rec.blocked_until and rec.blocked_until > now:
         return rec
@@ -75,7 +76,7 @@ def check_bot_guard():
 
 
 def _record_block(ip, bot_name, category, reason):
-    now = datetime.utcnow()
+    now = utcnow()
     rec = BotBlock.query.filter_by(ip=ip).first()
     if not rec:
         rec = BotBlock(ip=ip, bot_name=bot_name, bot_category=category,
@@ -118,7 +119,7 @@ def unblock_ip(ip):
 def guard_stats():
     """供后台看板使用的风控统计。表尚未建立时返回安全默认值（避免边缘 500）。"""
     try:
-        now = datetime.utcnow()
+        now = utcnow()
         total = BotBlock.query.count()
         active_blocks = BotBlock.query.filter_by(active=True).count()
         blocked_now = BotBlock.query.filter(

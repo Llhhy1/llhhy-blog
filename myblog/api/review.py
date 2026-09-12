@@ -18,10 +18,11 @@ from sqlalchemy import func
 
 from .common import api_bp
 from models import db, Post, Comment, Category, Tag, VisitLog
+from _time import utcnow
 
 
 def _visible_posts():
-    now = datetime.datetime.utcnow()
+    now = utcnow()
     return Post.query.filter(
         Post.published.is_(True),
         db.or_(Post.scheduled_at.is_(None), Post.scheduled_at <= now),
@@ -31,9 +32,9 @@ def _visible_posts():
 @api_bp.route("/review/annual")
 def annual_review():
     try:
-        year = int(request.args.get("year") or datetime.datetime.utcnow().year)
+        year = int(request.args.get("year") or utcnow().year)
     except (TypeError, ValueError):
-        year = datetime.datetime.utcnow().year
+        year = utcnow().year
     ymd = str(year)
 
     posts = _visible_posts().filter(func.strftime("%Y", Post.created_at) == ymd).all()
@@ -190,7 +191,7 @@ def geo_visitors():
     """
     days = request.args.get("days", type=int) or 30
     days = max(1, min(365, days))
-    since = (datetime.datetime.utcnow() - datetime.timedelta(days=days)).strftime("%Y-%m-%d")
+    since = (utcnow() - datetime.timedelta(days=days)).strftime("%Y-%m-%d")
     rows = (db.session.query(VisitLog.region, func.count(VisitLog.id))
             .filter(VisitLog.date >= since, VisitLog.is_bot.is_(False), VisitLog.region != "")
             .group_by(VisitLog.region)

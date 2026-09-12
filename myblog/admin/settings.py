@@ -2,6 +2,7 @@
 # 自动切片自 admin.py（v3.11.0）：原样搬运，路由/行为不变。
 from ._helpers import *   # 复用导入、辅助函数与装饰器
 from . import admin_bp     # 同一蓝图对象
+from _time import utcnow
 
 @admin_bp.route("/settings", methods=["GET", "POST"])
 @super_required
@@ -72,7 +73,7 @@ def slug_preview():
     else:
         template = SLUG_PRESETS.get(mode, SLUG_PRESETS["title"])
     # 预览用占位数据：ID=123、日期=今天、分类=技术
-    date_str = fmt_bj(datetime.datetime.utcnow(), "%Y%m%d")
+    date_str = fmt_bj(utcnow(), "%Y%m%d")
     slug = render_slug_template(
         template,
         slug=make_slug(title) if title else "示例文章",

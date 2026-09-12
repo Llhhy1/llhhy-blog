@@ -37,6 +37,7 @@ from utils import (render_markdown, clean_html, render_post_html,
 import stats
 # v3.1.0：记录登录审计（log_login_attempt 定义在 admin 模块，admin 不依赖 api，无循环）
 from admin import log_login_attempt
+from _time import utcnow
 
 
 def _current_user_or_none():
@@ -132,7 +133,7 @@ def _is_visible(p):
     """判断单篇文章当前是否对访客可见（已发布且未到定时发布时间）。"""
     if not p or not p.published:
         return False
-    if p.scheduled_at is not None and p.scheduled_at > datetime.utcnow():
+    if p.scheduled_at is not None and p.scheduled_at > utcnow():
         return False
     return True
 

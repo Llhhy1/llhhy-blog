@@ -22,6 +22,7 @@ import bot_guard
 import mail_notify
 import feed_agg
 import diagnostics
+from _time import utcnow
 
 admin_bp = Blueprint("admin", __name__, url_prefix="/admin")
 
@@ -171,7 +172,7 @@ def log_login_attempt(username, success, ip=""):
 def _purge_audit_logs_older_than(days):
     """清理超过 N 天的审计日志（含登录日志）。轻量：仅当存在时才删除。"""
     try:
-        cutoff = datetime.datetime.utcnow() - datetime.timedelta(days=days)
+        cutoff = utcnow() - datetime.timedelta(days=days)
         deleted = AuditLog.query.filter(AuditLog.created_at < cutoff).delete()
         if deleted:
             db.session.commit()
@@ -375,7 +376,7 @@ def create_post_core(*, title, content, summary="", cover="", category_id=None,
     mcp_write（读 MCP_WRITE_ALLOW_SUPER_FIELDS 配置）各自在调用前完成。
     """
     # 定时发布：填了未来时间则先存为未发布（与 new_post 行为一致）
-    if scheduled_at is not None and scheduled_at > datetime.datetime.utcnow():
+    if scheduled_at is not None and scheduled_at > utcnow():
         published = False
 
     # 字数统计 + 阅读时长（v3.0.0 功能12）

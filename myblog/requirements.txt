@@ -1,7 +1,7 @@
-Flask==3.0.3
+Flask==3.1.3
 Flask-SQLAlchemy==3.1.1
-markdown==3.6
-bleach==6.1.0
+markdown==3.8.1
+bleach==6.4.0
 gunicorn==22.0.0
 feedparser==6.0.11
 # v3.1.6 可选：配置 REDIS_URL 后用于多 worker 全局限流（未配置不安装也不报错，自动回退内存限流）
@@ -12,7 +12,12 @@ redis>=4.5.0,<7.0.0
 Pillow>=10.0.0,<13.0.0
 # v3.4.0 备份密钥加密存储（Fernet / AES-128-CBC + HMAC）：后台「备份配置」保存 OSS/WebDAV/SCP 密钥必需。
 # 服务器升级后需 pip install cryptography 并重启，否则加密保存会报错（读取/解密已有密文也需此库）。
-cryptography>=41.0.0,<47.0.0
+# v3.17.14（R79 依赖 CVE 扫描）：原上限 <47.0.0 把全部安全修复（48.0.1/49.0.0/50.0.0）挡在门外，
+#   等于「上限定死漏洞」。抬到 >=50.0.0,<51.0.0 消化 CVE-2026-69247/69248/69249 + 捆绑 OpenSSL(GHSA-537c-gmf6-5ccf)。
+#   注意（v3.17.14 复核）：运行环境**最低 Python 版本由 bleach 6.4.0 决定为 >=3.10**
+#   （PyPI 元数据：bleach 6.4.0 requires_python>=3.10；cryptography 50.0.1 为 !=3.9.0,!=3.9.1,>=3.9；
+#     Flask 3.1.3 与 markdown 3.8.1 均为 >=3.9）。服务器须 Python>=3.10 才能装齐本文件。
+cryptography>=50.0.0,<51.0.0
 # v3.11.0：Flask-Migrate —— 数据库迁移工具，schema 演进改用迁移脚本（不再仅靠手写 _migrate_* 自愈）。
 # 已落地：migrations/ 环境 + 基线迁移 f8f1f29b6ddf_baseline_v3_10_6.py（复用 db.create_all() 产出，与现状逐字节一致）。
 # 生产主路径仍为 db.create_all() + _migrate_*（启动自愈，零风险）；迁移作为「额外登记的迁移工具」。

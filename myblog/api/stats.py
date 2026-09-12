@@ -10,6 +10,7 @@ import datetime
 import urllib.parse
 from sqlalchemy import func
 from models import db, VisitLog, Setting
+from _time import utcnow
 
 # ---------- 访问统计（埋点 + 汇总）----------
 @api_bp.route("/stats/visit", methods=["POST"])
@@ -62,7 +63,7 @@ def stats_referrers():
     """v3.17.3：访客来源 TOP（referrer origin 聚合；排除 bot 与本站自引用）。公开只读。"""
     days = request.args.get("days", type=int) or 30
     days = max(1, min(365, days))
-    since = (datetime.datetime.utcnow() - datetime.timedelta(days=days)).strftime("%Y-%m-%d")
+    since = (utcnow() - datetime.timedelta(days=days)).strftime("%Y-%m-%d")
 
     # 本站 origin 集合（site_url 设置 + 当前请求 host），来源命中即视为自引用，不进榜
     hosts = set()

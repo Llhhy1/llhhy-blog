@@ -2,6 +2,7 @@
 # 自动切片自 admin.py（v3.11.0）：原样搬运，路由/行为不变。
 from ._helpers import *   # 复用导入、辅助函数与装饰器
 from . import admin_bp     # 同一蓝图对象
+from _time import utcnow
 
 @admin_bp.route("/post/<int:post_id>/publish-now", methods=["POST"])
 @login_required
@@ -260,7 +261,7 @@ def edit_post(post_id):
         scheduled_at = _parse_scheduled(request.form.get("scheduled_at"))
         published = request.form.get("published") == "on"
         # 定时发布：填了未来时间则先存为未发布，后台线程到点自动翻 published
-        if scheduled_at is not None and scheduled_at > datetime.datetime.utcnow():
+        if scheduled_at is not None and scheduled_at > utcnow():
             published = False
         else:
             scheduled_at = None  # 立即发布/草稿：清空定时，避免历史脏值
@@ -326,7 +327,7 @@ def edit_post(post_id):
         scheduled_local = fmt_bj(post.scheduled_at, "%Y-%m-%dT%H:%M")
     return render_template("admin/edit_post.html", post=post, cats=cats, series=series,
                            tag_names=tag_names, scheduled_local=scheduled_local,
-                           now_local=fmt_bj(datetime.datetime.utcnow(), "%Y-%m-%dT%H:%M"),
+                           now_local=fmt_bj(utcnow(), "%Y-%m-%dT%H:%M"),
                            preview_token=preview_token,
                            current_user=user)
 
@@ -355,7 +356,7 @@ def delete_post(post_id):
     except Exception:
         pass
     post.in_trash = True
-    post.deleted_at = datetime.datetime.utcnow()
+    post.deleted_at = utcnow()
     db.session.commit()
     try:
         fts.delete_post(post.id)  # 同步从 FTS 索引移除，避免搜索命中已删文章
@@ -430,7 +431,7 @@ def bulk_posts():
             except Exception:
                 pass
             p.in_trash = True
-            p.deleted_at = datetime.datetime.utcnow()
+            p.deleted_at = utcnow()
             try:
                 fts.delete_post(p.id)
             except Exception:
@@ -488,7 +489,7 @@ def autosave_post(post_id):
     post.reading_minutes = rm
     db.session.commit()
     cleanup_orphan_tags()  # v3.15.0：提交后清 0 使用标签
-    return jsonify({"ok": True, "saved_at": fmt_bj(datetime.datetime.utcnow(), "%H:%M:%S")})
+    return jsonify({"ok": True, "saved_at": fmt_bj(utcnow(), "%H:%M:%S")})
 
 @admin_bp.route("/post/<int:post_id>/history/diff")
 @login_required

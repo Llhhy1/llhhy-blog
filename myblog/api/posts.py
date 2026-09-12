@@ -10,6 +10,7 @@ from markupsafe import escape
 from .common import (api_bp, db, Post, Category, Tag, Comment, ReadLog, Setting, User, visible_posts_query, _current_user_or_none, _post_summary, _is_visible, _comment, _render_html, rate_limit, client_key)
 import stats  # myblog/stats.py：client_ip / cached_region（浏览量去重与评论归属地）
 from utils import fmt_bj, to_beijing, BEIJING_TZ
+from _time import utcnow
 
 # ---------- 文章列表（分页 + 搜索）----------
 @api_bp.route("/posts")
@@ -97,7 +98,7 @@ def hot_tags():
     rows = []
     for t in Tag.query.all():
         posts = [p for p in t.posts if not p.in_trash and p.published
-                 and (not p.is_private) and (p.scheduled_at is None or p.scheduled_at <= datetime.utcnow())]
+                 and (not p.is_private) and (p.scheduled_at is None or p.scheduled_at <= utcnow())]
         if not posts:
             continue
         views = sum(p.views or 0 for p in posts)

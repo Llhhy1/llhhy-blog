@@ -3,6 +3,19 @@
 > 本文件承载 **历史版本** 记录。README 只保留最新版本与上手信息。
 > 各版本的安全审计结论见 `myblog/SECURITY_AUDIT.md`；功能规划见 `ROADMAP.md`。
 
+## v3.17.14（2026-09-12 · 安全：依赖 CVE 修复 + utcnow 弃用清理 + 技术债推进）
+
+- **依赖安全升级（修复 13 条 advisory，覆盖 4 个包）**：经 OSV 全量扫描（R79），将 4 个存在已知漏洞的依赖升至已修复版本——
+  - `Flask` 3.0.3 → **3.1.3**（CVE-2026-27205，LOW）
+  - `markdown` 3.6 → **3.8.1**（CVE-2025-69534，MODERATE）
+  - `bleach` 6.1.0 → **6.4.0**（GHSA-8rfp-98v4-mmr6 LOW + GHSA-gj48-438w-jh9v MODERATE）
+  - `cryptography` 46.0.7 → **50.0.1**（CVE-2026-69247 HIGH、CVE-2026-69248 MODERATE、CVE-2026-69249 HIGH、GHSA-537c-gmf6-5ccf HIGH【捆绑 OpenSSL】）
+  - 根因：此前 `cryptography` 上限卡在 `<47` 挡住了全部修复；本次放宽至 `>=50.0.0,<51.0.0`，其余三包同步取最新安全版。前端 `npm audit --production` 0 漏洞。
+- **`utcnow()` 弃用清理（技术债①）**：新增 `myblog/_time.py` 集中导出 `utcnow()`（语义不变：返回 naive UTC，与旧 `datetime.utcnow()` 字节级一致，DB 列均为 naive），替换 17 处直接调用（含 `models.py` 的 `default=`/`onupdate=` 工厂），消除 Python 3.12+ 的 `DeprecationWarning`。
+- **技术债核查（R80）**：②「84 处裸 `except` 需补日志」经逐文件核查**不成立**——仓库 0 处裸 `except:`（均为 `except Exception:` 或具体异常），无需改动，与 R76 结论一致；③「超大文件拆分」（`admin/posts.py` 851 行等）本次先做**前置安全网**——新增 5 条 characterization 测试（发布 / 编辑 / 软删入回收站 / 回收站恢复 / 立即发布），锁死最高风险行为，拆分留待后续单独排期。
+- **部署前置（重要）**：运行环境最低 Python 升至 **≥3.10**（由 `bleach 6.4.0` 的 `requires_python>=3.10` 决定；`cryptography 50.0.1` 亦要求 `!=3.9.0,!=3.9.1,>=3.9`）。服务器须 Python ≥3.10 才能 `pip install -r requirements.txt` 装齐本文件。宝塔文档环境为 3.13.5，满足；上线前仍建议 `python --version` 复核。
+- **验证**：`99 passed`（94 基线 + 5 新增 characterization）；后端 `python -m compileall` 通过；无 `datetime.utcnow` 弃用告警残留。安全审计结论见 `myblog/SECURITY_AUDIT.md` R79 / R80。
+
 ## v3.17.13（2026-09-12 · UI：后台备份页移动端重构 + 前台导航图标统一）
 
 - **后台「数据备份」页移动端重构**（原问题：手机上看不美观、数据不全面）：

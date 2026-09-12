@@ -3,6 +3,7 @@
 """
 from flask_sqlalchemy import SQLAlchemy
 from datetime import datetime
+from _time import utcnow
 
 db = SQLAlchemy()
 
@@ -20,8 +21,8 @@ class Post(db.Model):
     # 作者关系：author_id 并非真正的外键（旧数据/管理员的文章为 None），用 primaryjoin 显式关联
     author = db.relationship("User", primaryjoin="Post.author_id == User.id",
                              foreign_keys=[author_id], viewonly=True)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=utcnow)
+    updated_at = db.Column(db.DateTime, default=utcnow, onupdate=utcnow)
     published = db.Column(db.Boolean, default=True)                # 是否发布
     # 定时发布时间：为空=立即发布/已发布；不为空且未来时间=定时待发布（到点后由后台线程翻 published）
     scheduled_at = db.Column(db.DateTime, nullable=True)
@@ -86,7 +87,7 @@ class Comment(db.Model):
     post_id = db.Column(db.Integer, db.ForeignKey("post.id"), nullable=False)
     author = db.Column(db.String(80), nullable=False)
     content = db.Column(db.Text, nullable=False)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=utcnow)
     approved = db.Column(db.Boolean, default=True)  # True=显示，False=待审核
     ip = db.Column(db.String(64), default="")       # 评论者 IP（用于回填归属地）
     region = db.Column(db.String(64), default="")   # 归属地（如 广东·广州），异步解析回填
@@ -124,7 +125,7 @@ class VisitLog(db.Model):
     region = db.Column(db.String(64), default="")  # 属地（如 浙江·杭州），后台线程异步解析回填
     path = db.Column(db.String(255), default="")
     post_id = db.Column(db.Integer, default=None)  # 若访问的是文章页，记录文章 id
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=utcnow)
     is_bot = db.Column(db.Boolean, default=False, index=True)   # 是否爬虫/Bot（v3.7.1）
     bot_name = db.Column(db.String(60), default="")             # 具体爬虫名（Googlebot 等，v3.7.1）
     bot_category = db.Column(db.String(20), default="")         # search/ai/tool/unknown（v3.7.1）
@@ -137,7 +138,7 @@ class ReadLog(db.Model):
     post_id = db.Column(db.Integer, db.ForeignKey("post.id"), nullable=False)
     ip = db.Column(db.String(64), index=True)
     read_count = db.Column(db.Integer, default=1)
-    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=utcnow, onupdate=utcnow)
     __table_args__ = (db.UniqueConstraint("post_id", "ip", name="uq_read_post_ip"),)
 
 
@@ -146,7 +147,7 @@ class SearchLog(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     keyword = db.Column(db.String(120), index=True)
     date = db.Column(db.String(10), index=True)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=utcnow)
 
 
 class IpRegion(db.Model):
@@ -154,7 +155,7 @@ class IpRegion(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     ip = db.Column(db.String(64), unique=True, index=True)
     region = db.Column(db.String(64), default="")
-    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=utcnow, onupdate=utcnow)
 
 
 class BotBlock(db.Model):
@@ -167,8 +168,8 @@ class BotBlock(db.Model):
     reason = db.Column(db.String(40), default="")            # rate_human/rate_tool/rate_ai
     blocked_until = db.Column(db.DateTime, default=None)     # 封禁截止（None=仅记录未封禁）
     active = db.Column(db.Boolean, default=True, index=True) # 是否仍在封禁 / 监控中
-    first_seen = db.Column(db.DateTime, default=datetime.utcnow)
-    last_seen = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    first_seen = db.Column(db.DateTime, default=utcnow)
+    last_seen = db.Column(db.DateTime, default=utcnow, onupdate=utcnow)
 
 
 # 用户角色（权限等级从高到低）
@@ -187,7 +188,7 @@ class User(db.Model):
     password_hash = db.Column(db.String(255), nullable=False)
     role = db.Column(db.String(16), default=ROLE_USER, nullable=False)
     must_change_password = db.Column(db.Boolean, default=True)  # True=首次进入后台需先设置账号密码
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=utcnow)
     # v3.1.6 中优：会话版本号（改密码 / 超管踢下线时 +1，旧会话全部失效）
     session_version = db.Column(db.Integer, default=0)
 
@@ -225,7 +226,7 @@ class Moment(db.Model):
     author_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=True)
     author = db.relationship("User", foreign_keys=[author_id], viewonly=True)
     content = db.Column(db.Text, nullable=False)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=utcnow)
     likes = db.Column(db.Integer, default=0)
     comments = db.relationship("MomentComment", backref="moment",
                                cascade="all, delete-orphan", lazy="dynamic")
@@ -237,7 +238,7 @@ class MomentComment(db.Model):
     moment_id = db.Column(db.Integer, db.ForeignKey("moment.id"), nullable=False)
     author = db.Column(db.String(80), nullable=False)
     content = db.Column(db.Text, nullable=False)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=utcnow)
     ip = db.Column(db.String(64), default="")       # 评论者 IP（异步回填归属地）
     region = db.Column(db.String(64), default="")   # 归属地
     device = db.Column(db.String(120), default="")  # 设备信息
@@ -260,7 +261,7 @@ class Series(db.Model):
     description = db.Column(db.String(400))
     cover = db.Column(db.String(500))
     sort = db.Column(db.Integer, default=0)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=utcnow)
 
 
 class Announcement(db.Model):
@@ -270,7 +271,7 @@ class Announcement(db.Model):
     level = db.Column(db.String(20), default="info")      # info / warning / success
     active = db.Column(db.Boolean, default=True)          # 是否启用
     dismissible = db.Column(db.Boolean, default=True)     # 访客能否关闭
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=utcnow)
 
 
 class Guestbook(db.Model):
@@ -279,7 +280,7 @@ class Guestbook(db.Model):
     user_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=True)
     author = db.Column(db.String(80), nullable=False)
     content = db.Column(db.Text, nullable=False)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=utcnow)
     likes = db.Column(db.Integer, default=0)
     ip = db.Column(db.String(64), default="")
     region = db.Column(db.String(64), default="")
@@ -291,7 +292,7 @@ class Subscriber(db.Model):
     """邮件订阅者（Newsletter）。"""
     id = db.Column(db.Integer, primary_key=True)
     email = db.Column(db.String(160), unique=True, nullable=False)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=utcnow)
     active = db.Column(db.Boolean, default=True)
     unsub_token = db.Column(db.String(64), default="")  # 退订令牌（邮件退订链接用，一次性校验）
 
@@ -303,7 +304,7 @@ class Notification(db.Model):
     content = db.Column(db.String(300), nullable=False)   # 通知文案（纯文本）
     link = db.Column(db.String(300), default="")          # 点击跳转地址（如 /post/xxx）
     is_read = db.Column(db.Boolean, default=False)        # 是否已读
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=utcnow)
 
 
 class AuditLog(db.Model):
@@ -321,7 +322,7 @@ class AuditLog(db.Model):
     detail = db.Column(db.String(300), default="")       # 简述，如文章标题/动作结果
     ip = db.Column(db.String(64), default="")
     success = db.Column(db.Boolean, default=True)        # 是否成功（登录失败/操作失败时为 False）
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=utcnow)
 
 
 class RecycleBin(db.Model):
@@ -341,7 +342,7 @@ class RecycleBin(db.Model):
     author_id = db.Column(db.Integer, nullable=True)
     series_id = db.Column(db.Integer, nullable=True)
     deleted_by = db.Column(db.String(40), default="")   # 删除操作执行者用户名
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)  # 入站时间
+    created_at = db.Column(db.DateTime, default=utcnow)  # 入站时间
     restored = db.Column(db.Boolean, default=False)     # 是否已还原（避免重复还原）
 
 
@@ -360,7 +361,7 @@ class LinkApplication(db.Model):
     applicant_ip = db.Column(db.String(64), default="")
     reviewer = db.Column(db.String(40), default="")      # 审核人用户名
     review_note = db.Column(db.String(200), default="") # 审核备注
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=utcnow)
     reviewed_at = db.Column(db.DateTime, nullable=True)
 
 
@@ -376,7 +377,7 @@ class PostHistory(db.Model):
     summary = db.Column(db.String(400))
     content = db.Column(db.Text)
     author = db.Column(db.String(40), default="")        # 编辑者用户名（冗余存，便于追溯）
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=utcnow)
     __table_args__ = (db.Index("ix_post_history_post", "post_id"),)
 
 
@@ -393,7 +394,7 @@ def visible_posts_query(user=None):
     注意：本函数只负责「可见性过滤」，排序由各调用方自行 order_by。
     置顶优先：调用方应在 order_by 最前面加 Post.is_pinned.desc()。
     """
-    now = datetime.utcnow()
+    now = utcnow()
     q = Post.query.filter(
         Post.published == True,
         Post.in_trash == False,
@@ -430,6 +431,6 @@ class Game(db.Model):
     audit_score = db.Column(db.Integer, default=-1)
     play_count = db.Column(db.Integer, default=0)
     admin_note = db.Column(db.String(300), default="")
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=utcnow)
+    updated_at = db.Column(db.DateTime, default=utcnow, onupdate=utcnow)
     approved_at = db.Column(db.DateTime, nullable=True)

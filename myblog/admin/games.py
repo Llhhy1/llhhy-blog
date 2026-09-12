@@ -26,6 +26,7 @@ from utils import get_setting
 from backup_settings import encrypt_secret, decrypt_secret
 from ._helpers import (admin_bp, admin_required, log_audit, _current_user_or_none,
                        unique_model_slug)
+from _time import utcnow
 
 
 def _root():
@@ -175,7 +176,7 @@ def game_action(gid):
     user = _current_user_or_none()
     if action == "approve":
         g.status = "approved"
-        g.approved_at = datetime.datetime.utcnow()
+        g.approved_at = utcnow()
         db.session.commit()
         log_audit("approve", "game", g.id, f"上架《{g.title}》", user=user)
         flash(f"《{g.title}》已上架")

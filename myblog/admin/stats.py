@@ -2,6 +2,7 @@
 # 自动切片自 admin.py（v3.11.0）：原样搬运，路由/行为不变。
 from ._helpers import *   # 复用导入、辅助函数与装饰器
 from . import admin_bp     # 同一蓝图对象
+from _time import utcnow
 
 @admin_bp.route("/")
 @admin_required
@@ -129,7 +130,7 @@ def export_audit_logs():
     except Exception:
         keep_days = 90
     scope = f"时间范围：{frm or '起始'} → {to or '最新'}" if (frm or to) else f"保留 {keep_days} 天内的全部记录"
-    lines = ["llhhy-blog 后台审计日志导出", "生成时间：" + fmt_bj(datetime.datetime.utcnow(), "%Y-%m-%d %H:%M:%S"),
+    lines = ["llhhy-blog 后台审计日志导出", "生成时间：" + fmt_bj(utcnow(), "%Y-%m-%d %H:%M:%S"),
              "共 %d 条记录（%s）" % (len(logs), scope), "=" * 60]
     for l in logs:
         ts = fmt_bj(l.created_at, "%Y-%m-%d %H:%M:%S")
@@ -145,7 +146,7 @@ def export_audit_logs():
         zf.writestr("audit_logs.txt", txt_bytes)
     zip_buf.seek(0)
 
-    stamp = fmt_bj(datetime.datetime.utcnow(), "%Y%m%d_%H%M%S")
+    stamp = fmt_bj(utcnow(), "%Y%m%d_%H%M%S")
     return send_file(
         zip_buf,
         mimetype="application/zip",
@@ -163,7 +164,7 @@ def clear_audit_logs():
         days = _app.config.get("AUDIT_LOG_DAYS", 90)
     except Exception:
         days = 90
-    cutoff = datetime.datetime.utcnow() - datetime.timedelta(days=days)
+    cutoff = utcnow() - datetime.timedelta(days=days)
     deleted = AuditLog.query.filter(AuditLog.created_at < cutoff).delete()
     db.session.commit()
     log_audit("clear", "audit_log", None, f"清空 {days} 天前的审计日志 {deleted} 条", user=_current_user_or_none())

@@ -2,6 +2,7 @@
 # 自动切片自 admin.py（v3.11.0）：原样搬运，路由/行为不变。
 from ._helpers import *   # 复用导入、辅助函数与装饰器
 from . import admin_bp     # 同一蓝图对象
+from _time import utcnow
 
 @admin_bp.route("/categories", methods=["GET", "POST"])
 @admin_required
@@ -82,7 +83,7 @@ def bot_guard_view():
             flash("已解封 " + ip if ok else "未找到该 IP 的封禁记录")
         return redirect(url_for("admin.bot_guard_view"))
     data = bot_guard.guard_stats()
-    return render_template("admin/bot_guard.html", stats=data, now=datetime.utcnow())
+    return render_template("admin/bot_guard.html", stats=data, now=utcnow())
 
 @admin_bp.route("/announcements", methods=["GET", "POST"])
 @admin_required

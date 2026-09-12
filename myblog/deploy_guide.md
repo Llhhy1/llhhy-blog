@@ -13,8 +13,10 @@
 
 **部署前置条件**（以宝塔面板为例，若已具备可跳过）：
 - ✅ Nginx 1.30.4 已安装
-- ✅ Python 3.13.5 系统级环境已就绪（但**不能直接作为项目环境**，需先基于它创建虚拟环境，见第 2 步）
+- ✅ Python 3.13.5 系统级环境已就绪（但**不能直接作为项目环境**，需先基于它创建虚拟环境，见第 2 步）；**注意 v3.17.14 起 `requirements.txt` 要求 Python ≥3.10**（bleach 6.4.0 / cryptography 50.0.1 的 `requires_python` 下限），低于 3.10 会 `pip install` 失败。本机 3.13.5 满足。
 - ✅ 宝塔 v13 的 Python 项目入口在：左侧「网站」→ 顶部「Python项目」
+
+> ⚠️ **v3.17.14 部署前置**：运行环境最低 **Python 3.10+**。若服务器 Python < 3.10，`pip install -r requirements.txt` 会因 bleach / cryptography / Flask / markdown 的 `requires_python` 下限报错、升级失败。上线前先 `python --version` 确认。
 
 ---
 

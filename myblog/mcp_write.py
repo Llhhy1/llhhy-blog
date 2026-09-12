@@ -33,6 +33,7 @@ from flask import Blueprint, request, jsonify, current_app
 from models import db, Post, Category, AuditLog
 from admin._helpers import create_post_core
 from utils import rate_limit, client_key, get_client_ip, _redis
+from _time import utcnow
 
 # 无 url_prefix：端点就是 /mcp-write（与 /mcp 对称，MCP 客户端按约定路径访问）
 mcp_write_bp = Blueprint("mcp_write", __name__)
@@ -232,7 +233,7 @@ def tool_create_post(args):
     idem_key = (args.get("idempotency_key") or "").strip()
     existing_id = _idem_check(idem_key) if idem_key else None
     if existing_id is None and title:
-        start = datetime.datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+        start = utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
         ex = Post.query.filter(Post.title == title, Post.created_at >= start).order_by(
             Post.created_at.desc()).first()
         if ex is not None:

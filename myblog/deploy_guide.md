@@ -81,7 +81,7 @@
    > - `UPDATE_HMAC_KEY`：可选——为发布包生成 HMAC 签名并在 `update.sh` 校验（增强更新包完整性，见「一键更新」章节）。
    > - `FEED_FETCH_TIMEOUT`：默认 `8`——友链 RSS 聚合抓取 socket 超时（秒）；不可达/超慢源超时只跳过、不卡死 worker。
    > - `TIME_ZONE`：固定 `Asia/Shanghai`（北京时间，UTC+8）；全站时间按此展示，**暂不可经环境变量改**（避免 UI 内部错位）。展示层统一转北京时间，数据库存储仍为 UTC。
-   > - `ENABLED_PLUGINS` / `DISABLED_PLUGINS`：插件启用 / 紧急关停列表（内置插件当前默认全部下线，默认留空；`DISABLED_PLUGINS` 优先级更高，紧急关停单个插件用，重启生效）。
+   > - `ENABLED_PLUGINS` / `DISABLED_PLUGINS`：插件启用 / 紧急关停列表（**v3.18.0 起默认内置 `page_translate` 全站翻译插件**；`DISABLED_PLUGINS` 优先级更高，紧急关停单个插件用，重启生效）。翻译插件的「站点大模型兜底」复用「游戏收录 → ⚙️ LLM 审计配置」，要启用需在后台把该 LLM 开关打开并填好 Base / Key / Model。
 
 4. 点 **「提交」**。等待依赖安装完成（首次约 1-3 分钟，面板会显示进度）。
 5. 项目状态变为 **运行中（绿色）** 即成功。若报错，点项目右侧 **「日志」** 查看原因。

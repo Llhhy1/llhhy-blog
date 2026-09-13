@@ -3,6 +3,17 @@
 > 本文件承载 **历史版本** 记录。README 只保留最新版本与上手信息。
 > 各版本的安全审计结论见 `myblog/SECURITY_AUDIT.md`；功能规划见 `ROADMAP.md`。
 
+## v3.18.0（2026-09-13 · 全站翻译插件化：移除核心中英切换 + 新增 page_translate）
+
+- **移除核心中英切换**（原为「鸡肋」且无法全局生效）：删除 `store.js` 的 `I18N` 词典（仅 17 键）、`t()`、`setLang()`、`initLang()`、`state.lang`，删除 `App.vue` 顶栏与抽屉的语言按钮及 24 处 `t()` 调用（导航文案改固定中文），清理 `global.css` 的 `.lang-toggle`。根因：旧实现只翻译十几个硬编码导航文案，**文章正文 / 各视图 / 动态数据都不在内**，故无法全局生效。
+- **新增插件 `page_translate`（全站翻译）**：以插件框架的**远程预构建组件**形态提供，`slots: []`、不占核心槽位，**前端无需重新构建即可注入**（与旧 `article_toc` 同款机制）。
+  - 前台：左下角浮层「翻译整页 / 显示原文」按钮；点击即**整页翻译**——遍历导航 / 界面 / **文章正文** / 页脚等全部可译文本节点（跳过 `code`/`pre`/脚本/输入框/`data-no-translate`）。
+  - **双引擎**：优先浏览器内置 `Translator` API（免费离线，Chrome/Edge 新版），不可用或失败自动回退后端 `POST /api/plugin/page_translate/translate`（复用站点「游戏收录 / AI 摘要」的 OpenAI 兼容配置 `games_llm_*`，**无需新增密钥**）。
+  - **体验**：译文 `localStorage` 缓存（按目标语言分桶，二次访问零成本）、`WeakMap` 存原文一键还原、`MutationObserver` 适配 SPA 路由与异步内容续译、状态持久化（上次开着则进入自动翻译）、随主题 token 自适应深浅色。
+  - **安全（见 SECURITY_AUDIT R81）**：POST 走全局 CSRF（`X-CSRF-Token`）；按 IP 40 次/分 + 全局 240 次/分**双层限流**（防刷爆 LLM 账单）；目标语言白名单 + 单次 ≤40 段 / ≤4000 字符上限；纯转发**不落库**；译文由前端以 `textContent` 写入（不经 `innerHTML`，无 XSS 面）。
+- **配置**：`ENABLED_PLUGINS` 默认值由空改为 `page_translate`（可经环境变量覆盖；`DISABLED_PLUGINS=page_translate` 可紧急关停，重启生效）。后台「🧩 插件管理」可显隐。
+- **验证**：`113 passed`（99 基线 + 14 新增插件测试）；`node --check widget.js` 通过；前端 `vite build` 通过。
+
 ## v3.17.14（2026-09-12 · 安全：依赖 CVE 修复 + utcnow 弃用清理 + 技术债推进）
 
 - **依赖安全升级（修复 13 条 advisory，覆盖 4 个包）**：经 OSV 全量扫描（R79），将 4 个存在已知漏洞的依赖升至已修复版本——

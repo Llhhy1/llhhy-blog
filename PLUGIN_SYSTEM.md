@@ -501,3 +501,38 @@ M2 的全局 `sidebar` 槽位对**所有非 `/docs` 路由**都渲染（见 `App
 ### 16.3 测试解耦
 `tests/test_plugin_system.py` 改为 **「临时插件驱动」**：用 `pluggy`-free 的 `tmp_path` 现场生成一个临时插件目录，并把 `plugins` 包的 `__path__` 指向它，从而验证「加载 / 槽位 / 事件 / 启停 / 失败隔离」完整链路，**不再依赖任何内置插件**（内置插件一删，测试不红）。
 
+---
+
+## 17. v3.18.0 内置业务插件：`page_translate`（全站翻译）
+
+> 背景：核心原有「中英切换」（`store.js` 的 17 键 `I18N` 词典 + `t()`）只能翻译十几个导航文案，**文章正文 / 各视图 / 动态数据都不在内**，既「鸡肋」又无法全局生效。决策：**从核心移除，改由插件提供整页翻译**。
+
+### 17.1 形态与机制（复用 §15 的远程组件路线）
+- **纯前端远程组件**：`slots: []`，manifest 声明 `remote_components: [{name:"page_translate_widget", url:"/static/plugins/page_translate/widget.js"}]`；宿主 `App.vue` 注入 `<script>` 后由 `window.__pluginRegister(name, def)` 注册，`<component :is>` 渲染。**前端无需重新构建**。
+- 组件用 `window.__vueH`（`h`）写渲染函数（不依赖运行时模板编译器）；`mounted` 注入浮层按钮 + 启动 `MutationObserver`，`unmounted` 清理。
+
+### 17.2 翻译引擎（浏览器优先 + 站点 LLM 兜底）
+| 引擎 | 触发 | 说明 |
+|---|---|---|
+| 浏览器内置 `Translator` API | 可用时优先 | 免费、可离线；新版 Chrome/Edge。语言码用 BCP-47（`zh`→`zh-Hans`/`zh-Hant`） |
+| 站点大模型（`POST /api/plugin/page_translate/translate`） | 浏览器不支持 / 失败时 | 复用 `api.ai._llm_chat`（`games_llm_*` 配置），要求模型返回 JSON 数组，服务端鲁棒解析（容忍 ```json 围栏与前后废话） |
+
+### 17.3 后端端点
+- `GET /api/plugin/page_translate/config`（公开）：`{source, target, llm_on, engine}`，源语言取后台 `site_lang`（默认 `zh`）。
+- `POST /api/plugin/page_translate/translate`：`{target, texts[]}` → `{translations[]}`。
+  - 安全：全局 CSRF（`X-CSRF-Token`）；**双层限流**（IP 40/分 + 全局 240/分）；目标语言白名单；单次 ≤40 段 / ≤4000 字符；LLM 未配置返回 503；**纯转发不落库**。
+
+### 17.4 前端行为
+- 整页遍历可译文本节点（跳过 `code`/`pre`/`script`/`style`/输入控件/`[data-no-translate]`/`.ptr-btn`/`.plugin-remote`）。
+- 译文 `localStorage` 缓存（`page_translate_cache:<target>`，>4000 条保留近半防膨胀）；`WeakMap` 存原文供「显示原文」一键还原。
+- SPA：`MutationObserver` + 350ms 节流，翻译态下增量续译；翻译期间暂停观察避免自触发死循环。
+- 状态：`page_translate_on` 持久化，上次开着则下次进入自动翻译；按钮随主题 token 自适应深浅色。
+
+### 17.5 启用与关停
+- 默认启用（`ENABLED_PLUGINS` 默认值 `page_translate`）；后台「🧩 插件管理」可显隐；`DISABLED_PLUGINS=page_translate` 紧急关停（重启生效）。
+- 关停后仅少一个浮层按钮，核心不受影响（插件失败隔离）。
+
+### 17.6 测试
+- `tests/test_plugin_page_translate.py`（14 例）：加载与同源声明、widget 文件守卫、`/config`、CSRF 403、参数校验（目标/空/非数组/超长）、未配置 LLM 503、成功路径、```json 围栏解析、条数不匹配 502。
+- `tests/test_plugin_system.py` 同步：把「默认无插件」断言改为「默认含 `page_translate`」，并保留「显式置空 → 空列表」用例。
+

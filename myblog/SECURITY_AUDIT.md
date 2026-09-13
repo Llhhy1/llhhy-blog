@@ -2800,3 +2800,31 @@ git diff 计 **70 增 / 70 删**，`tokens.css` 定义**未被改动**。
 - **全部为本地改动，未 push / 未打 tag / 未部署**；`update.sh` 升级 + 重启 + 服务器 Python≥3.9 确认，须在用户显式「发版」口令后执行。
 
 **R80 结论**：**0 遗留（本地）**。R79 四项依赖修复已本地落地并验证；R76/R77 三项技术债：① 已消除（helper）；② premise 不成立、不改；③ 已建安全网、拆分待下一轮。整体待「发版」口令后 push / 部署上线。
+
+---
+
+## R81 · page_translate 全站翻译插件（v3.18.0）
+
+**范围**：新增插件 `myblog/plugins/page_translate/`（后端端点）+ `myblog/static/plugins/page_translate/widget.js`（远程组件）；核心侧为**纯减法**（移除 `store.js` 的 i18n 与 `App.vue` 语言按钮），不新增暴露面。
+
+### 81.1 七维复核
+- **XSS**：插件译文**一律以 `textContent` / `nodeValue` 写入文本节点**，绝不经 `innerHTML` / `v-html`（本插件未使用富文本槽位）；后端只返回纯字符串数组，不拼接 HTML。→ 无新增 XSS 面。
+- **SQL 注入**：插件**不建表、不落库、无 SQL**。
+- **越权**：`/translate` 定位为**面向访客的公开只读型转发**（不读写任何用户数据、不返回他人信息）；`/config` 仅回站点主语言与 LLM 是否配置，无敏感信息。故无需鉴权，但已用限流 + 白名单约束。
+- **SSRF**：出站仅由后端 `_llm_chat` 访问**管理员在后台配置的 LLM Base**（非用户可控 URL），沿用 AI 摘要同一链路；前端外链仅浏览器内置 Translator（本地能力，无网络 URL）。
+- **CSRF**：`POST /api/plugin/page_translate/translate` 落在 `/api/` 前缀 → 受全局 `_csrf_protect` 覆盖，要求 `X-CSRF-Token`（`test_translate_requires_csrf` 锁死 403）。
+- **密钥泄露**：不新增任何密钥；LLM Key 仍走既有 Fernet 加密 Setting（`games_llm_key_enc`）。
+- **资源泄漏 / 成本**：**双层限流**（IP 40/分 + 全局 240/分）防刷爆 LLM 账单；单次 ≤40 段 / ≤4000 字符防超长 payload；上游 `timeout=60`；前端译文缓存避免重复请求。
+- **限流**：同上（`rate_limit` 双 key）；`/config` 为只读 GET、无成本，不额外限流。
+- **文本注入 / 幻觉**：模型输出按 JSON 数组解析，**条数必须与输入一致**否则 502（不把半截/错位译文写页面）；解析失败即报错，不写 DOM。
+
+### 81.2 低风险（已记录）
+- 目标语言白名单为静态 10 种；如需扩展改 `_LANG_NAMES` 即可（无动态注入面）。
+- 前端译文缓存写 `localStorage`（用户本机），不含服务端隐私；>4000 条自动裁剪。
+- 浏览器内置 Translator 属**实验性 API**，仅在受支持浏览器启用，失败自动回退，不影响主流程。
+
+### 81.3 验证
+- `tests/test_plugin_page_translate.py` 14 例全过；`tests/test_plugin_system.py` 全过；全量 **113 passed**。
+- `node --check widget.js` 通过；前端 `vite build` 通过；后端 `py_compile` 通过。
+
+**R81 结论**：**0 遗留**。插件为「公开只读转发 + 纯文本写 DOM」形态，无 XSS / SQLi / SSRF / 越权新面；成本面已用双层限流 + 长度上限约束。

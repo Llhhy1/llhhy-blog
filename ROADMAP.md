@@ -173,7 +173,7 @@
 - **「看了又看」协同过滤**：`/api/post/<slug>/also-viewed`（ReadLog 共现 + 标签/分类相似度加权，冷启动退化为相似推荐）。
 - **访客趋势图**：`stats.compute_trend(days)` + `/api/stats/trend`；`StatsView` 纯 SVG 折线（PV 蓝 / UV 绿）。
 - **RSS 按分类 / 标签**：`/api/rss/category/<slug>`、`/api/rss/tag/<slug>`（复用 `_rss_xml` 助手）。
-- **多语言 i18n**：`store.js` 内置 `I18N` 中英词典 + `t()`/`setLang()`/`initLang()`；导航 + 抽屉 + 部分界面文案随 `state.lang` 切换；后台可设 `site_lang` 默认语言。
+- **多语言 i18n**（⚠️ v3.18.0 已从核心移除，改由插件 `page_translate` 提供整页翻译）：`store.js` 内置 `I18N` 中英词典 + `t()`/`setLang()`/`initLang()`；导航 + 抽屉 + 部分界面文案随 `state.lang` 切换；后台可设 `site_lang` 默认语言。
 - **隐私空间**：`Post.is_private`；`visible_posts_query(user)` 对非超管过滤；`post_detail` 传入当前 user，超管登录可见本人隐私文章，其余人 404。
 - **文章打赏**：`Post.reward_enabled`/`reward_qr`（仅超管编辑时开关）；前台 `PostView` 展示 `post.reward_qr` 或站点 `reward_qr_default`；后台设置可设默认收款码。
 
@@ -858,3 +858,4 @@ v3.1.7 修复 CSRF 隐藏域乱码后，用户反馈「退出登录按钮失效�
 - v3.17.13 **UI 两项**：后台「数据备份」页移动端重构（概览 7 卡 + 备份列表窄屏转卡片，数据由 `backup.py` 新增统计工具算、零新表）；前台导航 13 项统一加 `.nav-emoji` 图标，抽屉与桌面顶栏同步，风格对齐后台侧栏。
   - **后续可做（审查未采纳项）**：① 超长文件拆分（`admin/posts.py` 851 / `utils.py` 784 / `app.py` 771；v3.17.14 先加 5 条 characterization 测试作安全网，正式拆分待排期）。
 - v3.17.14 **安全三项**：依赖 CVE 修复（Flask 3.1.3 / markdown 3.8.1 / bleach 6.4.0 / cryptography 50.0.1，共修 13 条 advisory；根因 `cryptography` 上限 `<47` 卡死，放宽至 `>=50.0.0,<51.0.0`）；`utcnow()` 弃用清理（新增 `myblog/_time.py`，17 处替换，`DeprecationWarning` 清零）；技术债核查——②「84 处裸 `except`」逐文件核查不成立（0 处裸 `except:`，与 R76 一致，**关闭**），③「超大文件拆分」先做前置安全网（5 条 characterization 测试）。**部署前置**：最低 Python 升至 ≥3.10（bleach 6.4.0 / cryptography 50.0.1 决定）。验证 99 passed。
+- v3.18.0 **全站翻译插件化**：移除核心中英切换（`store.js` 的 `I18N`/`t()`/`setLang`/`initLang`/`state.lang` + `App.vue` 24 处 `t()` 与两个语言按钮 + `global.css` 的 `.lang-toggle`）；新增内置插件 `page_translate`（远程组件 `myblog/static/plugins/page_translate/widget.js`，浮层整页翻译含正文，浏览器 Translator 优先 / 站点 LLM 兜底，CSRF + 双层限流 + 目标白名单 + 长度上限，零落库）；`ENABLED_PLUGINS` 默认改为 `page_translate`。验证 113 passed。

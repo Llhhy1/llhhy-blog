@@ -79,15 +79,17 @@ def test_tampered_cache_self_heals(app):
 
 def test_second_visit_hits_cache(app, monkeypatch):
     """第二次访问同一篇文章不应再触发 render_markdown（缓存命中）。"""
-    import utils
+    # v3.18.1：render_post_html 与 render_markdown 同在 utils/render.py，
+    # 补丁须打在「定义模块」上才生效（打 utils.render_markdown 只是 facade 上的名字，不传导）。
+    from utils import render as _render
     calls = {"n": 0}
-    origin = utils.render_markdown
+    origin = _render.render_markdown
 
     def spy(content):
         calls["n"] += 1
         return origin(content)
 
-    monkeypatch.setattr(utils, "render_markdown", spy)
+    monkeypatch.setattr(_render, "render_markdown", spy)
     with app.app_context():
         pid = _make_post(app, "v391-cache-b", "## 二\n\n内容")
         try:

@@ -2828,3 +2828,31 @@ git diff 计 **70 增 / 70 删**，`tokens.css` 定义**未被改动**。
 - `node --check widget.js` 通过；前端 `vite build` 通过；后端 `py_compile` 通过。
 
 **R81 结论**：**0 遗留**。插件为「公开只读转发 + 纯文本写 DOM」形态，无 XSS / SQLi / SSRF / 越权新面；成本面已用双层限流 + 长度上限约束。
+
+---
+
+## R82 · utils.py / admin/posts.py 拆分重构（v3.18.1）
+
+**范围**：纯代码移动（`utils.py` → `myblog/utils/` 包；`admin/posts.py` → 5 个领域模块）。**无逻辑变更、无表结构变更、无新增/删除依赖、无新增环境变量、无路由增删**。
+
+### 82.1 安全面复核（七维）
+- **XSS**：`clean_html` / Markdown 渲染 / `_upgrade_img_avif` 原样移动；白名单常量 `_ALLOWED_TAGS` / `_ALLOWED_ATTRS` 随 `utils/render.py` 迁移，**取值未变**。
+- **SQL 注入**：无 SQL 文本变化，ORM 调用原样。
+- **越权**：26 个后台路由的装饰器（`@login_required` / 超管校验等）随函数一同迁移（`ast.dump` 含装饰器，已证等价）；`admin_bp` 与函数名不变 → 权限口径零变化。
+- **SSRF**：无变化（`utils/net.py` 的可信代理 / 客户端 IP 逻辑原样）。
+- **CSRF**：`generate_csrf_token` / `check_csrf_token` / `_sign_csrf` 原样移至 `utils/security.py`；`app.py` 的豁免清单与校验入口未动。
+- **密钥泄露**：无变化。
+- **资源 / 成本**：`utils/net.py` 的限流（含 Redis 回退）原样；无新增外部调用。
+
+### 82.2 结构性保障（本次采用的可证性手段）
+- **逐名 `ast.dump` 等价性证明**：utils **44/44** 名、posts **31/31** 名，**0 处结构差异**（含装饰器）→ 证明是「纯移动」而非「改写」。
+- **endpoint 守恒**：原 26 条路由函数全部仍在 `app.view_functions`；模板与代码中 **99 处 `url_for('admin.*')` 全部可解析** → 无断链 404/500。
+- **导入面零改动**：`utils/__init__.py` 显式重导出全部 44 个名字（含 `_redis` / `_sign_csrf` 等私有名，5 个测试文件依赖），故 27 个导入点无需改动 → 无遗漏改写面。
+
+### 82.3 低风险（已记录）
+- 拆分后「模块属性补丁」语义有变：`monkeypatch.setattr(utils, "X", ...)` 不再影响 `utils/<mod>.py` 内部的同名自调用（如 `render_post_html` 调用同模块 `render_markdown`）。**仅影响测试打桩**，已同步 `tests/test_render_cache.py` 的补丁目标至 `utils.render.render_markdown`；生产代码无此类动态查找（`grep getattr(utils` **0 命中**）。
+
+### 82.4 验证
+- `113 passed`；`compileall` 通过；`ast.dump` 等价性 + endpoint 守恒 + `url_for` 全解析三项通过。
+
+**R82 结论**：**0 遗留**。纯重构，安全面零变化；以「等价性证明 + endpoint / 导入面守恒」替代常规人工复核，风险压到最低。

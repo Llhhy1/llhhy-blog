@@ -3,7 +3,11 @@
 from ._helpers import *   # 等价于原 admin.py 顶层命名空间（admin_bp / 辅助函数 / 装饰器）
 from . import auth
 from . import comments
-from . import posts
+from . import post_editor   # v3.18.1：posts.py 拆分 → 写作面板（新建/编辑/自动保存/预览）
+from . import post_manage   # v3.18.1：文章管理（列表/批量/发布/置顶/软删除）
+from . import post_trash    # v3.18.1：回收站（列出/还原/彻底清除）
+from . import post_history  # v3.18.1：版本历史（列表/回滚/对比）
+from . import taxonomy      # v3.18.1：分类/标签/系列治理
 from . import settings
 from . import users
 from . import stats

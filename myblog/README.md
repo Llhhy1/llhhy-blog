@@ -2,7 +2,8 @@
 
 llhhy-blog 的后端：Flask + SQLite，服务端渲染前台 + `/api/*` JSON 接口 + Jinja2 管理后台。
 
-- 当前版本：**v3.18.0**
+- 当前版本：**v3.18.1**
+- **v3.18.1：超长文件拆分（纯重构，公共 API 与路由零变更）**——`utils.py`（784 行）拆成 `utils/` 包（timeutil / render / net / slug / text / security / settings / web；`__init__.py` 全量重导出，**27 个导入点零改动**）；`admin/posts.py`（852 行 / 26 路由）拆成 post_editor / post_manage / post_trash / post_history / taxonomy 五个模块（**同一 `admin_bp`、函数名与 URL 不变**）。验证：逐名 `ast.dump` 等价性（44/44 + 31/31 名、0 结构差异）+ endpoint 守恒（26 条全在、99 处 `url_for` 全可解析）+ `113 passed`。最大文件从 852/784 降到 448/294 行。
 - **v3.18.0：全站翻译（插件形态）+ 移除核心中英切换**——新增内置插件 `page_translate`（`myblog/plugins/page_translate/__init__.py` + 远程组件 `myblog/static/plugins/page_translate/widget.js`）：前台左下角浮层「翻译整页 / 显示原文」，整页翻译（导航 + 界面 + **文章正文**）；引擎**浏览器内置 Translator 优先、站点大模型兜底**（复用 `games_llm_*` OpenAI 兼容配置，后端 `POST /api/plugin/page_translate/translate`，CSRF + 双层限流 + 目标语言白名单 + 条数/字符上限）；`GET /api/plugin/page_translate/config` 下发源/目标语言与 LLM 可用性；译文 localStorage 缓存 + WeakMap 原文还原 + MutationObserver 适配 SPA。**核心移除** `store.js` 的 `I18N`/`t()`/`setLang`/`initLang`/`state.lang` 与 `App.vue` 语言按钮（导航文案固定中文）。`ENABLED_PLUGINS` 默认值改为 `page_translate`。
 - **v3.15.1：响应式基座重构**（Grid minmax(0,1fr)/流式字阶/防溢出基线，前后台同步）+ 微信分享卡 OG 收尾；内置游戏调整（撤《就是开车》）。
 - **v3.15.0：游戏平台 + 标签治理 + 分享卡片**——`myblog/builtin_games/` 官方内置游戏两枚（纯静态），`myblog/tools/seed_games.py` 一键收录；后台「🎮 游戏收录」（上传 zip → `games_safety` 安全解包/白名单/静态扫描 → 审核；可选 OpenAI 兼容 LLM 代码审计，Key Fernet 加密）；公开 `/api/games` 与 `/api/game-files/…`（仅 approved + 沙箱响应头）；标签 `_sync_tags` 归一化去重 + 孤儿清理 + 后台一键整理；OG/分享 meta。**新表 `game` 启动自愈创建；无新环境变量**。
@@ -23,10 +24,16 @@ myblog/
 ├── models.py       # 数据模型（文章/评论/用户/系列/公告/留言/订阅者等）
 │                   #   Post.content_html/content_hash = 正文渲染缓存（v3.9.1）
 ├── routes.py       # 前台页面 / 登录注册 / 评论 / 天气 / RSS
+├── utils/          # 通用工具包（v3.18.1 由单文件 utils.py 拆出，公共 API 不变）：
+│                   #   timeutil 时间 / render Markdown 渲染清洗 / net 限流与客户端 IP /
+│                   #   slug / text 文本·UA / security 密码与 CSRF / settings / web
+│                   #   兼容层：`from utils import X` 与 `utils.X` 全部照旧可用
 ├── admin/          # 后台管理包（v3.11.0 由 admin.py 拆出）：_helpers/auth/comments/
-│                   #   posts/settings/users/stats/media/friends/misc/moments/mcp_services
+│                   #   settings/users/stats/media/friends/misc/moments/mcp_services
 │                   #   moments.py = 微动态管理（v3.12.0）；mcp_services.py = MCP 服务面板（v3.13.0）
-│                   #   posts.py/media.py = 写作面板·文章管理·媒体库（v3.14.0）
+│                   #   post_*.py = 文章后台（v3.18.1 由 posts.py 拆分）：post_editor 写作面板 /
+│                   #     post_manage 列表·批量·发布·置顶 / post_trash 回收站 /
+│                   #     post_history 版本历史 / taxonomy 分类·标签·系列；media.py = 媒体库
 ├── api/            # JSON 接口（/api/*，按功能拆分，见 API.md）
 ├── mcp_diag.py     # 只读诊断 MCP 端点 /mcp（v3.10.0，见文末说明）
 ├── mcp_write.py    # 写能力 MCP 端点 /mcp-write（v3.12.2，默认草稿、fail-closed）

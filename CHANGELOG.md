@@ -3,6 +3,18 @@
 > 本文件承载 **历史版本** 记录。README 只保留最新版本与上手信息。
 > 各版本的安全审计结论见 `myblog/SECURITY_AUDIT.md`；功能规划见 `ROADMAP.md`。
 
+## v3.18.1（2026-09-19 · 超长文件拆分：utils.py 与 admin/posts.py，纯重构零行为变更）
+
+- **目标**：了结 v3.17.14 留下的技术债①「超长文件拆分」。**只移动代码、不改逻辑、不改表结构、不夹带功能**。
+- **`utils.py`（784 行）→ `myblog/utils/` 包**：按领域拆成 8 个子模块——`timeutil`（北京时间转换）/ `render`（Markdown 渲染 + HTML 白名单清洗 + 正文缓存指纹）/ `net`（限流 / 可信代理 / 客户端 IP）/ `slug`（slug 生成 + 标签归一 + slug 模板）/ `text`（JS 转义 / 字数 / UA 设备 / 爬虫识别）/ `security`（密码强度 + CSRF）/ `settings`（读 Setting）/ `web`（安全重定向 + @ 提及通知）。`__init__.py` **全量重导出全部 44 个名字（含私有名）**，故 27 个导入点的 `from utils import X` 与 `utils.X` **零改动**。
+- **`admin/posts.py`（852 行 / 26 路由）→ 5 个领域模块**：`post_editor`（写作面板：新建 / 编辑 / 自动保存 / 免登录预览 / 正文预览）、`post_manage`（列表 / 批量 / 定时发布 / 置顶审批 / 软删除）、`post_trash`（回收站）、`post_history`（版本历史 / 回滚 / 对比）、`taxonomy`（分类 / 标签 / 系列治理）。**同一 `admin_bp`、函数名不变 → endpoint 与 `url_for` 完全不受影响**；`admin/__init__.py` 改为导入 5 个新模块，原 `posts.py` 删除。
+- **验证（纯移动的可证性）**：
+  - 逐名 `ast.dump` 等价性证明：utils **44/44** 名、posts **31/31** 名，**0 处结构差异**（含装饰器）→ 确认无代码丢失 / 错位 / 改写；
+  - endpoint 守恒：原 26 条路由全部在位；模板与代码中 **99 处 `url_for('admin.*')` 全部可解析**；
+  - 全量回归 **113 passed**；`compileall` 通过。
+  - 唯一测试适配：`tests/test_render_cache.py` 的补丁目标由 `utils.render_markdown` 改为 `utils.render.render_markdown`（该函数与 `render_post_html` 同在 `render.py`，补丁须打在**定义模块**上才生效；测试意图与断言不变）。
+- **收益**：最大 Python 文件从 **852 / 784 行降到 448（`admin/_helpers.py`）/ 294（`admin/post_editor.py`）行**；`utils/` 内最大 171 行。无新增/删除依赖，无 DB 迁移，无新增环境变量。
+
 ## v3.18.0（2026-09-13 · 全站翻译插件化：移除核心中英切换 + 新增 page_translate）
 
 - **移除核心中英切换**（原为「鸡肋」且无法全局生效）：删除 `store.js` 的 `I18N` 词典（仅 17 键）、`t()`、`setLang()`、`initLang()`、`state.lang`，删除 `App.vue` 顶栏与抽屉的语言按钮及 24 处 `t()` 调用（导航文案改固定中文），清理 `global.css` 的 `.lang-toggle`。根因：旧实现只翻译十几个硬编码导航文案，**文章正文 / 各视图 / 动态数据都不在内**，故无法全局生效。

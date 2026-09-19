@@ -2,9 +2,10 @@
 
 llhhy-blog 的后端：Flask + SQLite，服务端渲染前台 + `/api/*` JSON 接口 + Jinja2 管理后台。
 
-- 当前版本：**v3.18.1**
+- 当前版本：**v3.18.3**
 - **v3.18.1：超长文件拆分（纯重构，公共 API 与路由零变更）**——`utils.py`（784 行）拆成 `utils/` 包（timeutil / render / net / slug / text / security / settings / web；`__init__.py` 全量重导出，**27 个导入点零改动**）；`admin/posts.py`（852 行 / 26 路由）拆成 post_editor / post_manage / post_trash / post_history / taxonomy 五个模块（**同一 `admin_bp`、函数名与 URL 不变**）。验证：逐名 `ast.dump` 等价性（44/44 + 31/31 名、0 结构差异）+ endpoint 守恒（26 条全在、99 处 `url_for` 全可解析）+ `113 passed`。最大文件从 852/784 降到 448/294 行。
-- **v3.18.0：全站翻译（插件形态）+ 移除核心中英切换**——新增内置插件 `page_translate`（`myblog/plugins/page_translate/__init__.py` + 远程组件 `myblog/static/plugins/page_translate/widget.js`）：前台左下角浮层「翻译整页 / 显示原文」，整页翻译（导航 + 界面 + **文章正文**）；引擎**浏览器内置 Translator 优先、站点大模型兜底**（复用 `games_llm_*` OpenAI 兼容配置，后端 `POST /api/plugin/page_translate/translate`，CSRF + 双层限流 + 目标语言白名单 + 条数/字符上限）；`GET /api/plugin/page_translate/config` 下发源/目标语言与 LLM 可用性；译文 localStorage 缓存 + WeakMap 原文还原 + MutationObserver 适配 SPA。**核心移除** `store.js` 的 `I18N`/`t()`/`setLang`/`initLang`/`state.lang` 与 `App.vue` 语言按钮（导航文案固定中文）。`ENABLED_PLUGINS` 默认值改为 `page_translate`。
+- **v3.18.3：移除内置插件 `page_translate` + 恢复核心中英切换**——删除 `myblog/plugins/page_translate/` 与远程组件 `myblog/static/plugins/page_translate/widget.js`，`ENABLED_PLUGINS` 默认值恢复为空；插件框架（加载器 / 失败隔离 / 事件总线 / 后台「🧩 插件管理」/ 前端槽位）全部保留。同时 v3.18.0 移除的核心 i18n **全量恢复**（`store.js` 的 `I18N`/`t()`/`setLang`/`initLang`/`state.lang` + `App.vue` 语言按钮 + `global.css` 的 `.lang-toggle`，逐字节还原 v3.17.14）。验证 `99 passed`。
+- **v3.18.0：全站翻译（插件形态）+ 移除核心中英切换**（⚠️ 该插件已在 v3.18.3 移除）——新增内置插件 `page_translate`（`myblog/plugins/page_translate/__init__.py` + 远程组件 `myblog/static/plugins/page_translate/widget.js`）：前台左下角浮层「翻译整页 / 显示原文」，整页翻译（导航 + 界面 + **文章正文**）；引擎**浏览器内置 Translator 优先、站点大模型兜底**（复用 `games_llm_*` OpenAI 兼容配置，后端 `POST /api/plugin/page_translate/translate`，CSRF + 双层限流 + 目标语言白名单 + 条数/字符上限）；`GET /api/plugin/page_translate/config` 下发源/目标语言与 LLM 可用性；译文 localStorage 缓存 + WeakMap 原文还原 + MutationObserver 适配 SPA。**核心移除** `store.js` 的 `I18N`/`t()`/`setLang`/`initLang`/`state.lang` 与 `App.vue` 语言按钮（导航文案固定中文）。`ENABLED_PLUGINS` 默认值改为 `page_translate`。
 - **v3.15.1：响应式基座重构**（Grid minmax(0,1fr)/流式字阶/防溢出基线，前后台同步）+ 微信分享卡 OG 收尾；内置游戏调整（撤《就是开车》）。
 - **v3.15.0：游戏平台 + 标签治理 + 分享卡片**——`myblog/builtin_games/` 官方内置游戏两枚（纯静态），`myblog/tools/seed_games.py` 一键收录；后台「🎮 游戏收录」（上传 zip → `games_safety` 安全解包/白名单/静态扫描 → 审核；可选 OpenAI 兼容 LLM 代码审计，Key Fernet 加密）；公开 `/api/games` 与 `/api/game-files/…`（仅 approved + 沙箱响应头）；标签 `_sync_tags` 归一化去重 + 孤儿清理 + 后台一键整理；OG/分享 meta。**新表 `game` 启动自愈创建；无新环境变量**。
 - 移动端适配（v3.10.6）：修复后台「统计」长标题与公开站「文档页」移动端长文本横向溢出穿模（窄屏统一换行而非挤压版心）。v3.11.0：引入 Flask-Migrate 基线迁移、运营驾驶舱二期（趋势区间切换 + 评论/新文量曲线 + CSV 导出）、CI 增前端构建校验与双源互证校验脚本。v3.11.1：修复后台侧边栏版本号未注入回归（裸「v」）+ 运营驾驶舱视觉升级（指标卡重做、趋势图加面积填充/网格/抗拉伸描边/悬浮高亮），纯前端无逻辑变更。v3.12.0：新增「💭 微动态」后台管理（列表检索/编辑/删除级联清评论/批量删除，写审计日志，无迁移）。**v3.12.1：UI 设计系统 token 纯度（铲除散点暗色）**——后台 `admin.css` 与前端 `global.css` 的散点硬编码色（hex/rgb）全替换为 `tokens.css` 语义 token，明暗主题像素级零色差；无逻辑变更、无 DB 迁移。v3.13.0：后台「🔌 MCP 服务」面板（内置 /mcp、/mcp-write 一键启停 + 外部 MCP 服务登记 + AI 脱敏接入指令，token Fernet 加密零明文落库，零新表）。v3.13.1：插件重载在应用已处理请求后崩溃的修复。**v3.14.0：写作后台大升级**——写作面板（Markdown 工具栏 / 分屏实时预览 / 云端自动保存 / 未发布稿免登录预览链接）+ 「📄 文章管理」独立页（管理员全站、筛选/排序/分页/批量）+ 就地新建分类/系列 + 「🖼️ 媒体库」+ 版本逐行对比 + 分类/系列改名 + 分类删除可先转移文章；修复图片上传必 500 的遗留 bug（v3.11.0 切片遗失 `_MAGIC_PATTERNS`）。纯后端改动、无 DB 迁移。
@@ -38,7 +39,7 @@ myblog/
 ├── mcp_diag.py     # 只读诊断 MCP 端点 /mcp（v3.10.0，见文末说明）
 ├── mcp_write.py    # 写能力 MCP 端点 /mcp-write（v3.12.2，默认草稿、fail-closed）
 ├── plugins/        # 插件系统 v3.9.0（<slug>/ 目录 + signals.py 事件总线）
-│                   #   内置 page_translate（全站翻译，v3.18.0）；自写插件放目录 + 填 ENABLED_PLUGINS 即启用
+│                   #   v3.10.0 起仓库不再内置插件，放目录 + 填 ENABLED_PLUGINS 即启用
 ├── fts.py          # SQLite FTS5 全文搜索（不可用时降级 LIKE）
 ├── stats.py        # 访问统计与 IP 属地解析
 ├── backup.py       # 数据备份与异地容灾（本地/OSS/SCP/WebDAV）
@@ -95,11 +96,11 @@ python app.py            # http://127.0.0.1:5000
 | `FEED_FETCH_TIMEOUT` | `8` | 友链 RSS 抓取 socket 超时（秒）；坏源超时只跳过、不卡死 worker |
 | `UPDATE_HMAC_KEY` | — | 发布包 HMAC 签名 |
 
-**插件系统（v3.9.0 起；v3.18.0 起内置 page_translate）**
+**插件系统（v3.9.0 起；v3.10.0 起不再内置插件）**
 
 | 变量 | 默认 | 说明 |
 |---|---|---|
-| `ENABLED_PLUGINS` | `page_translate` | 启用插件 slug 列表（逗号分隔）；v3.18.0 起默认内置全站翻译 `page_translate` |
+| `ENABLED_PLUGINS` | 空 | 启用插件 slug 列表（v3.10.0 起默认为空 = 不加载任何插件） |
 | `DISABLED_PLUGINS` | 空 | 紧急关停，优先级高于启用列表 |
 | `PLUGINS_DIR` | `myblog/plugins` | 插件根目录 |
 

@@ -78,18 +78,15 @@ def test_app_boots_and_plugins_endpoint(client):
         assert key in data, f"缺少槽位键：{key}"
 
 
-def test_default_plugin_is_page_translate():
-    """v3.18.0：默认内置 page_translate（全站翻译）；框架本身不依赖任何具体插件。"""
+def test_no_builtin_plugins_by_default():
+    """v3.10.0：默认不内置任何插件（ENABLED_PLUGINS 为空）。"""
     import config as _cfg
-    assert "page_translate" in (_cfg.Config.ENABLED_PLUGINS or "")
+    assert (_cfg.Config.ENABLED_PLUGINS or "").strip() == ""
 
 
-def test_plugins_list_empty_when_nothing_enabled(monkeypatch):
-    """显式置空 ENABLED_PLUGINS 时列表为空，且前端槽位数据也为空（不应报错）。"""
-    import config as _cfg
-    from app import create_app
-    monkeypatch.setattr(_cfg.Config, "ENABLED_PLUGINS", "")
-    data = create_app().test_client().get("/api/plugins").get_json()
+def test_plugins_list_empty_when_nothing_enabled(client):
+    """未启用插件时列表为空，且前端槽位数据也为空（不应报错）。"""
+    data = client.get("/api/plugins").get_json()
     assert data["plugins"] == []
     assert data["footer"] == [] and data["nav"] == [] and data["html"] == []
 

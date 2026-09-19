@@ -2856,3 +2856,25 @@ git diff 计 **70 增 / 70 删**，`tokens.css` 定义**未被改动**。
 - `113 passed`；`compileall` 通过；`ast.dump` 等价性 + endpoint 守恒 + `url_for` 全解析三项通过。
 
 **R82 结论**：**0 遗留**。纯重构，安全面零变化；以「等价性证明 + endpoint / 导入面守恒」替代常规人工复核，风险压到最低。
+
+---
+
+## R83 · 移除内置插件 page_translate + 恢复核心 i18n（v3.18.3）
+
+**范围**：删除 v3.18.0 引入的插件（`myblog/plugins/page_translate/`、`myblog/static/plugins/page_translate/widget.js`、`tests/test_plugin_page_translate.py`），`ENABLED_PLUGINS` 默认值恢复为空。插件框架保留。
+
+### 83.1 安全面影响（净减少）
+- 删除的对外面：`GET /api/plugin/page_translate/config`、`POST /api/plugin/page_translate/translate`、静态资源 `/static/plugins/page_translate/widget.js`。
+- 上述端点原本即「公开只读 / CSRF + 双层限流 + 白名单 + 长度上限 + 零落库」，**移除后攻击面净减少**（少一个对外 JSON 端点与一个静态 JS）。
+- **无新增**端点、依赖、环境变量、表结构；`ENABLED_PLUGINS` 恢复为空 = 不加载任何插件（插件框架的失败隔离与紧急关停能力不变）。
+- 前端：仅少一个浮层按钮，无其他变化（v3.18.0 移除的中英切换不在本次范围）。
+
+### 83.2 验证
+- `99 passed`（113 − 14 条插件测试）；`compileall` 通过；`/api/plugins` 返回空清单。
+
+
+### 83.3 附：核心中英切换恢复（同版）
+- v3.18.0 移除的核心 i18n 已**逐字节还原**（`store.js` 的 `I18N`/`t()`/`setLang`/`initLang`/`state.lang`、`App.vue` 24 处 `t()` 与两个语言按钮、`global.css` 的 `.lang-toggle`）。
+- 安全面：`t()` 的返回值只经 Vue `{{ }}` 文本插值输出（**自动 HTML 转义**），词典为**静态常量**，**无用户输入注入面**；`localStorage` 仅存语言偏好（`lang`），无敏感数据。→ 安全面不变。
+
+**R83 结论**：**0 遗留（对外面净减少）**。

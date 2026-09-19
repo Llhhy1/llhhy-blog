@@ -81,7 +81,7 @@
    > - `UPDATE_HMAC_KEY`：可选——为发布包生成 HMAC 签名并在 `update.sh` 校验（增强更新包完整性，见「一键更新」章节）。
    > - `FEED_FETCH_TIMEOUT`：默认 `8`——友链 RSS 聚合抓取 socket 超时（秒）；不可达/超慢源超时只跳过、不卡死 worker。
    > - `TIME_ZONE`：固定 `Asia/Shanghai`（北京时间，UTC+8）；全站时间按此展示，**暂不可经环境变量改**（避免 UI 内部错位）。展示层统一转北京时间，数据库存储仍为 UTC。
-   > - `ENABLED_PLUGINS` / `DISABLED_PLUGINS`：插件启用 / 紧急关停列表（**v3.18.0 起默认内置 `page_translate` 全站翻译插件**；`DISABLED_PLUGINS` 优先级更高，紧急关停单个插件用，重启生效）。翻译插件的「站点大模型兜底」复用「游戏收录 → ⚙️ LLM 审计配置」，要启用需在后台把该 LLM 开关打开并填好 Base / Key / Model。
+   > - `ENABLED_PLUGINS` / `DISABLED_PLUGINS`：插件启用 / 紧急关停列表（内置插件当前默认全部下线，默认留空；`DISABLED_PLUGINS` 优先级更高，紧急关停单个插件用，重启生效）。
 
 4. 点 **「提交」**。等待依赖安装完成（首次约 1-3 分钟，面板会显示进度）。
 5. 项目状态变为 **运行中（绿色）** 即成功。若报错，点项目右侧 **「日志」** 查看原因。
@@ -378,7 +378,7 @@ supervisorctl status
 
 > **v3.18.1（超长文件拆分，纯重构）升级要点**：后端内部结构重组 —— `utils.py` → `myblog/utils/` 包（timeutil / render / net / slug / text / security / settings / web）、`admin/posts.py` → `post_editor` / `post_manage` / `post_trash` / `post_history` / `taxonomy`。**公共 API、路由 URL、endpoint、环境变量、依赖、表结构全部不变**（已用逐名 AST 等价性 + 26 条路由守恒 + 99 处 `url_for` 全解析 + 113 passed 验证）。**只需覆盖后端包** + gunicorn「停止 → 启动」；前端包无变化（可不必覆盖）。⚠️ 因内部模块被删除（`utils.py` / `admin/posts.py`），升级务必**整体覆盖** `myblog-backend.zip`（勿只增量拷单个文件）。验证：后台左下角 v3.18.1，各后台页与文章页正常。
 
-> **v3.18.0（全站翻译插件化 + 移除核心中英切换）升级要点**：**前后端包都要覆盖**（前端 `App.vue` / `store.js` / `global.css` 移除了语言切换按钮与 i18n 字典）。新增内置插件 `page_translate`（后端 `myblog/plugins/page_translate/` + 前端远程组件 `myblog/static/plugins/page_translate/widget.js`），`ENABLED_PLUGINS` 默认值改为 `page_translate`——**若服务器环境变量曾显式设过 `ENABLED_PLUGINS`（含空串），需改成含 `page_translate` 才会加载**。**无迁移、无新依赖**；翻译兜底引擎复用「游戏收录 → ⚙️ LLM 审计配置」。验证：前台左下角出现「翻译整页」浮层按钮，点击整页变英文；后台「🧩 插件管理」可见 `page_translate`；后台左下角 v3.18.0。
+> **v3.18.3（移除内置插件 page_translate + 恢复核心中英切换）升级要点**：**前后端包都要覆盖**——前端 `App.vue` / `store.js` / `global.css` 恢复了语言切换按钮与 i18n 字典（若只覆盖后端包，前台**看不到**语言按钮）；后端删除插件目录（`myblog/plugins/page_translate/`）与前端远程组件（`myblog/static/plugins/page_translate/`），`ENABLED_PLUGINS` 默认值恢复为空。⚠️ 覆盖式部署**不会删服务器上的旧插件文件**，升级后建议手动删除 `myblog/plugins/page_translate/` 与 `myblog/static/plugins/page_translate/`（含 `__pycache__`）保持整洁——因 `ENABLED_PLUGINS` 已为空，残留文件**不会被加载**、无功能影响。**无迁移、无新依赖、无新增环境变量。**验证：前台顶栏恢复「中 / EN」语言按钮（点击切英文，抽屉底部亦有）；前台**不再**出现「翻译整页」浮层；后台「🧩 插件管理」不再列出 `page_translate`；后台左下角 v3.18.3。
 
 > **v3.17.13（后台备份页移动端重构 + 前台导航图标统一）升级要点**：后端包 + **前端包都需覆盖**（`vue-frontend-dist.zip` 更新了 `App.vue` 导航与 `global.css` 的 `.nav-emoji`）；无迁移、无新增依赖。`backup.py` 新增 4 个统计工具（`fmt_size`/`file_size`/`dir_stat`/`backup_stamp`），`admin/settings.py` 装配 `summary` 给备份页模板。
 

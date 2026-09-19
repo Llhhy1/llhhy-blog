@@ -3,6 +3,14 @@
 > 本文件承载 **历史版本** 记录。README 只保留最新版本与上手信息。
 > 各版本的安全审计结论见 `myblog/SECURITY_AUDIT.md`；功能规划见 `ROADMAP.md`。
 
+## v3.18.3（2026-09-19 · 移除内置插件 page_translate + 恢复核心中英切换）
+
+- **移除**：删除 v3.18.0 引入的内置插件 `page_translate`（`myblog/plugins/page_translate/`、前端远程组件 `myblog/static/plugins/page_translate/widget.js`、`tests/test_plugin_page_translate.py`），`myblog/static/plugins/` 目录一并移除。
+- **配置**：`ENABLED_PLUGINS` 默认值由 `page_translate` **恢复为空**（回到 v3.10.0 起的约定：仓库不内置插件，装自写插件才填 slug）。
+- **保留**：插件框架（加载器 / 失败隔离 / 事件总线 / 后台「🧩 插件管理」/ 前端 nav·sidebar·footer·html·remote_components 槽位 / `/api/plugins`）**全部保留**。`tests/test_plugin_system.py` 两处断言恢复为「默认无插件」。
+- **恢复核心中英切换**：v3.18.0 移除的核心 i18n **全量恢复**（自 v3.17.14 逐字节还原）——`store.js` 的 `I18N` 词典 / `t()` / `setLang()` / `initLang()` / `state.lang`、`App.vue` 的 24 处 `t()` 调用与顶栏·抽屉两个语言按钮、`global.css` 的 `.lang-toggle`；后台 `site_lang` 重新生效（优先级：本地选择 > `site_lang` > 默认中文）。
+- **验证**：`99 passed`（113 − 14 条插件测试）；`compileall` 通过；`/api/plugins` 返回空清单。
+
 ## v3.18.1（2026-09-19 · 超长文件拆分：utils.py 与 admin/posts.py，纯重构零行为变更）
 
 - **目标**：了结 v3.17.14 留下的技术债①「超长文件拆分」。**只移动代码、不改逻辑、不改表结构、不夹带功能**。

@@ -8,19 +8,19 @@
       <button class="drawer-close" type="button" aria-label="关闭菜单" @click="drawerOpen = false">×</button>
     </div>
     <nav class="drawer-nav">
-      <router-link to="/" @click="drawerOpen = false"><span class="nav-emoji">🏠</span>首页</router-link>
-      <router-link to="/archive" @click="drawerOpen = false"><span class="nav-emoji">🗂️</span>归档</router-link>
-      <router-link to="/stats" @click="drawerOpen = false"><span class="nav-emoji">📊</span>统计</router-link>
+      <router-link to="/" @click="drawerOpen = false"><span class="nav-emoji">🏠</span>{{ t('home') }}</router-link>
+      <router-link to="/archive" @click="drawerOpen = false"><span class="nav-emoji">🗂️</span>{{ t('archive') }}</router-link>
+      <router-link to="/stats" @click="drawerOpen = false"><span class="nav-emoji">📊</span>{{ t('stats') }}</router-link>
       <router-link to="/annual" @click="drawerOpen = false"><span class="nav-emoji">📅</span>回顾</router-link>
-      <router-link to="/about" @click="drawerOpen = false"><span class="nav-emoji">ℹ️</span>关于</router-link>
-      <router-link to="/links" @click="drawerOpen = false"><span class="nav-emoji">🤝</span>友链</router-link>
-      <router-link to="/square" @click="drawerOpen = false"><span class="nav-emoji">💬</span>广场</router-link>
+      <router-link to="/about" @click="drawerOpen = false"><span class="nav-emoji">ℹ️</span>{{ t('about') }}</router-link>
+      <router-link to="/links" @click="drawerOpen = false"><span class="nav-emoji">🤝</span>{{ t('links') }}</router-link>
+      <router-link to="/square" @click="drawerOpen = false"><span class="nav-emoji">💬</span>{{ t('square') }}</router-link>
       <router-link to="/social" @click="drawerOpen = false"><span class="nav-emoji">🔗</span>社交</router-link>
-      <router-link to="/series" @click="drawerOpen = false"><span class="nav-emoji">📚</span>系列</router-link>
+      <router-link to="/series" @click="drawerOpen = false"><span class="nav-emoji">📚</span>{{ t('series') }}</router-link>
       <router-link to="/games" @click="drawerOpen = false"><span class="nav-emoji">🎮</span>游戏</router-link>
-      <router-link to="/tags/hot" @click="drawerOpen = false"><span class="nav-emoji">🔥</span>热门标签</router-link>
-      <router-link to="/docs" @click="drawerOpen = false"><span class="nav-emoji">📖</span>文档</router-link>
-      <router-link to="/guestbook" @click="drawerOpen = false"><span class="nav-emoji">📝</span>留言墙</router-link>
+      <router-link to="/tags/hot" @click="drawerOpen = false"><span class="nav-emoji">🔥</span>{{ t('hot_tags') }}</router-link>
+      <router-link to="/docs" @click="drawerOpen = false"><span class="nav-emoji">📖</span>{{ t('docs') }}</router-link>
+      <router-link to="/guestbook" @click="drawerOpen = false"><span class="nav-emoji">📝</span>{{ t('guestbook') }}</router-link>
       <!-- v3.9.0 M2：插件导航入口（结构化 <a>，不用 v-html） -->
       <template v-for="ni in pluginNav" :key="'drawer-' + ni.label">
         <a :href="ni.href || ni.to" class="plugin-nav-link" @click="drawerOpen = false"><span v-if="ni.icon" class="nav-emoji">{{ ni.icon }}</span>{{ ni.label }}</a>
@@ -38,6 +38,7 @@
         <router-link class="drawer-link" to="/register" @click="drawerOpen = false">注册</router-link>
       </template>
       <button class="drawer-link drawer-theme" type="button" @click="toggleTheme(); drawerOpen = false">主题：{{ themeIcon }}</button>
+      <button class="drawer-link drawer-lang" type="button" @click="toggleLang(); drawerOpen = false">{{ state.lang === 'en' ? '中文' : 'EN' }}</button>
     </div>
   </aside>
 
@@ -46,19 +47,19 @@
       <button class="hamburger" type="button" aria-label="打开菜单" @click="drawerOpen = true">☰</button>
       <router-link class="logo" to="/" @click="drawerOpen = false">{{ state.site.site_name || state.site.site_title }}</router-link>
       <nav>
-        <router-link to="/"><span class="nav-emoji">🏠</span>首页</router-link>
-        <router-link to="/archive"><span class="nav-emoji">🗂️</span>归档</router-link>
-        <router-link to="/stats"><span class="nav-emoji">📊</span>统计</router-link>
+        <router-link to="/"><span class="nav-emoji">🏠</span>{{ t('home') }}</router-link>
+        <router-link to="/archive"><span class="nav-emoji">🗂️</span>{{ t('archive') }}</router-link>
+        <router-link to="/stats"><span class="nav-emoji">📊</span>{{ t('stats') }}</router-link>
         <router-link to="/annual"><span class="nav-emoji">📅</span>回顾</router-link>
-        <router-link to="/about"><span class="nav-emoji">ℹ️</span>关于</router-link>
-        <router-link to="/links"><span class="nav-emoji">🤝</span>友链</router-link>
-        <router-link to="/square"><span class="nav-emoji">💬</span>广场</router-link>
+        <router-link to="/about"><span class="nav-emoji">ℹ️</span>{{ t('about') }}</router-link>
+        <router-link to="/links"><span class="nav-emoji">🤝</span>{{ t('links') }}</router-link>
+        <router-link to="/square"><span class="nav-emoji">💬</span>{{ t('square') }}</router-link>
         <router-link to="/social"><span class="nav-emoji">🔗</span>社交</router-link>
-        <router-link to="/series"><span class="nav-emoji">📚</span>系列</router-link>
+        <router-link to="/series"><span class="nav-emoji">📚</span>{{ t('series') }}</router-link>
         <router-link to="/games"><span class="nav-emoji">🎮</span>游戏</router-link>
-        <router-link to="/tags/hot"><span class="nav-emoji">🔥</span>热门标签</router-link>
-        <router-link to="/docs"><span class="nav-emoji">📖</span>文档</router-link>
-        <router-link to="/guestbook"><span class="nav-emoji">📝</span>留言墙</router-link>
+        <router-link to="/tags/hot"><span class="nav-emoji">🔥</span>{{ t('hot_tags') }}</router-link>
+        <router-link to="/docs"><span class="nav-emoji">📖</span>{{ t('docs') }}</router-link>
+        <router-link to="/guestbook"><span class="nav-emoji">📝</span>{{ t('guestbook') }}</router-link>
         <!-- v3.9.0 M2：插件导航入口（结构化 <a>，不用 v-html） -->
         <template v-for="ni in pluginNav" :key="'desk-' + ni.label">
           <a :href="ni.href || ni.to" class="plugin-nav-link"><span v-if="ni.icon" class="nav-emoji">{{ ni.icon }}</span>{{ ni.label }}</a>
@@ -85,12 +86,13 @@
               <p v-else class="notif-empty">暂无通知</p>
             </div>
           </div>
-          <a href="#" @click.prevent="doLogout">退出</a>
+          <a href="#" @click.prevent="doLogout">{{ t('logout') }}</a>
         </template>
         <template v-else>
-          <router-link to="/login">登录</router-link>
-          <router-link to="/register">注册</router-link>
+          <router-link to="/login">{{ t('login') }}</router-link>
+          <router-link to="/register">{{ t('register') }}</router-link>
         </template>
+        <button class="lang-toggle" type="button" @click="toggleLang" :title="t('theme')">{{ state.lang === 'en' ? '中' : 'EN' }}</button>
         <button class="theme-toggle" type="button" aria-label="切换亮暗主题" @click="toggleTheme">{{ themeIcon }}</button>
       </nav>
     </div>
@@ -161,7 +163,7 @@
 <script setup>
 import { onMounted, onBeforeUnmount, ref, h, reactive } from "vue";
 import { useRouter } from "vue-router";
-import { state, initSite, logout, applyActiveTheme } from "./store.js";
+import { state, initSite, logout, t, setLang, applyActiveTheme } from "./store.js";
 import { toast } from "./lib/toast.js";
 import { apiPost, apiGet } from "./lib/api.js";
 import { sanitizeHtml } from "./lib/sanitize.js";
@@ -311,6 +313,11 @@ function watchSystemTheme() {
   };
   if (_darkMq.addEventListener) _darkMq.addEventListener("change", handler);
   else if (_darkMq.addListener) _darkMq.addListener(handler);
+}
+
+// v3.0.0 功能11：中英语言切换
+function toggleLang() {
+  setLang(state.lang === "en" ? "zh" : "en");
 }
 
 function scrollTop() { window.scrollTo({ top: 0, behavior: "smooth" }); }

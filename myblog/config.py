@@ -12,7 +12,7 @@ os.makedirs(DATA_DIR, exist_ok=True)
 
 # 应用版本号：与 GitHub Release 标签保持一致（vX.Y.Z）。
 # 后台侧边栏左下角会显示该版本，用于确认服务器安装的代码是否为最新。
-APP_VERSION = "3.18.1"
+APP_VERSION = "3.18.3"
 
 
 class Config:
@@ -148,13 +148,12 @@ class Config:
     # Referrer-Policy / CSP（同源受限，允许内联样式/脚本，放宽 img 与 connect）。
     SECURITY_HEADERS = os.environ.get("SECURITY_HEADERS", "true").lower() != "false"
 
-    # ===== 插件系统（v3.9.0 起）=====
-    # 启用清单：逗号分隔的插件 slug；置空 = 不加载任何插件。
+    # ===== 插件系统（v3.9.0 起；v3.10.0 起不再内置任何插件）=====
+    # 启用清单：逗号分隔的插件 slug；置空 = 不加载任何插件（v3.10.0 起的默认值）。
     # 紧急关停：DISABLED_PLUGINS 内的 slug 即使出现在 ENABLED_PLUGINS 也会被跳过（重启生效）。
     # 插件目录默认 myblog/plugins/（随代码一起发版，不做运行时热加载）。
-    # 内置插件 page_translate（全站翻译，v3.18.0）默认启用；自带插件请把目录放进
-    # myblog/plugins/<slug>/ 并把 slug 追加到这里（逗号分隔）。
-    ENABLED_PLUGINS = os.environ.get("ENABLED_PLUGINS", "page_translate")
+    # 自带插件请把目录放进 myblog/plugins/<slug>/ 并把 slug 填到这里（逗号分隔）。
+    ENABLED_PLUGINS = os.environ.get("ENABLED_PLUGINS", "")
     DISABLED_PLUGINS = os.environ.get("DISABLED_PLUGINS", "")
     PLUGINS_DIR = os.path.join(BASE_DIR, "plugins")
 

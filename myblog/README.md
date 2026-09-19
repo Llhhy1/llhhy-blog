@@ -2,8 +2,9 @@
 
 llhhy-blog 的后端：Flask + SQLite，服务端渲染前台 + `/api/*` JSON 接口 + Jinja2 管理后台。
 
-- 当前版本：**v3.18.3**
+- 当前版本：**v3.18.4**
 - **v3.18.1：超长文件拆分（纯重构，公共 API 与路由零变更）**——`utils.py`（784 行）拆成 `utils/` 包（timeutil / render / net / slug / text / security / settings / web；`__init__.py` 全量重导出，**27 个导入点零改动**）；`admin/posts.py`（852 行 / 26 路由）拆成 post_editor / post_manage / post_trash / post_history / taxonomy 五个模块（**同一 `admin_bp`、函数名与 URL 不变**）。验证：逐名 `ast.dump` 等价性（44/44 + 31/31 名、0 结构差异）+ endpoint 守恒（26 条全在、99 处 `url_for` 全可解析）+ `113 passed`。最大文件从 852/784 降到 448/294 行。
+- **v3.18.4：补齐核心 i18n**——导航 `回顾` / `社交` / `游戏` 三项接入词典（原先硬编码 → 导航不再中英混排）；抽屉与顶栏（后台 / 写文章 / 退出 / 登录 / 注册 / 主题）、通知面板、回到顶部与各 `aria-label` 全部接入；消除 `admin` / `write` / `search_placeholder` 3 个死键；修正语言按钮 tooltip 错绑（`t('theme')` → `t('switch_lang')`）。词典 **17 → 31 键**（实际使用 = 31，无死键 / 缺失）。范围限导航与公共部件，内容页文案仍中文。验证 `99 passed`。
 - **v3.18.3：移除内置插件 `page_translate` + 恢复核心中英切换**——删除 `myblog/plugins/page_translate/` 与远程组件 `myblog/static/plugins/page_translate/widget.js`，`ENABLED_PLUGINS` 默认值恢复为空；插件框架（加载器 / 失败隔离 / 事件总线 / 后台「🧩 插件管理」/ 前端槽位）全部保留。同时 v3.18.0 移除的核心 i18n **全量恢复**（`store.js` 的 `I18N`/`t()`/`setLang`/`initLang`/`state.lang` + `App.vue` 语言按钮 + `global.css` 的 `.lang-toggle`，逐字节还原 v3.17.14）。验证 `99 passed`。
 - **v3.18.0：全站翻译（插件形态）+ 移除核心中英切换**（⚠️ 该插件已在 v3.18.3 移除）——新增内置插件 `page_translate`（`myblog/plugins/page_translate/__init__.py` + 远程组件 `myblog/static/plugins/page_translate/widget.js`）：前台左下角浮层「翻译整页 / 显示原文」，整页翻译（导航 + 界面 + **文章正文**）；引擎**浏览器内置 Translator 优先、站点大模型兜底**（复用 `games_llm_*` OpenAI 兼容配置，后端 `POST /api/plugin/page_translate/translate`，CSRF + 双层限流 + 目标语言白名单 + 条数/字符上限）；`GET /api/plugin/page_translate/config` 下发源/目标语言与 LLM 可用性；译文 localStorage 缓存 + WeakMap 原文还原 + MutationObserver 适配 SPA。**核心移除** `store.js` 的 `I18N`/`t()`/`setLang`/`initLang`/`state.lang` 与 `App.vue` 语言按钮（导航文案固定中文）。`ENABLED_PLUGINS` 默认值改为 `page_translate`。
 - **v3.15.1：响应式基座重构**（Grid minmax(0,1fr)/流式字阶/防溢出基线，前后台同步）+ 微信分享卡 OG 收尾；内置游戏调整（撤《就是开车》）。

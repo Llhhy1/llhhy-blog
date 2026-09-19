@@ -21,6 +21,11 @@ const I18N = {
     "guestbook": "留言墙", "login": "登录", "register": "注册", "logout": "退出",
     "admin": "后台", "write": "写文章", "theme": "主题",
     "search_placeholder": "搜索文章…",
+    "annual": "回顾", "social": "社交", "games": "游戏",
+    "notifications": "通知", "unread": "未读", "all_read": "全部已读", "no_notifications": "暂无通知",
+    "blog": "博客", "back_to_top": "回到顶部",
+    "open_menu": "打开菜单", "close_menu": "关闭菜单", "nav_menu": "导航菜单",
+    "toggle_theme": "切换亮暗主题", "switch_lang": "切换语言",
   },
   en: {
     "home": "Home", "archive": "Archive", "stats": "Stats", "about": "About", "docs": "Docs",
@@ -28,6 +33,11 @@ const I18N = {
     "guestbook": "Guestbook", "login": "Login", "register": "Register", "logout": "Logout",
     "admin": "Admin", "write": "Write", "theme": "Theme",
     "search_placeholder": "Search posts…",
+    "annual": "Review", "social": "Social", "games": "Games",
+    "notifications": "Notifications", "unread": "unread", "all_read": "Mark all read", "no_notifications": "No notifications",
+    "blog": "Blog", "back_to_top": "Back to top",
+    "open_menu": "Open menu", "close_menu": "Close menu", "nav_menu": "Navigation",
+    "toggle_theme": "Toggle dark mode", "switch_lang": "Switch language",
   },
 };
 

@@ -2,7 +2,7 @@
 
 前后端分离的个人博客：**Flask** 后端（SSR + JSON API + 管理后台）+ **Vue3** 前端（SPA）。单仓库托管前后端代码、部署文档与安全报告。
 
-- 当前版本：**v3.18.3**
+- 当前版本：**v3.18.4**
 - **超长文件拆分（v3.18.1 · 纯重构，公共 API 与路由零变更）**：`myblog/utils.py`（784 行）拆成 `utils/` 包（`timeutil` / `render` / `net` / `slug` / `text` / `security` / `settings` / `web`，`__init__.py` 全量重导出，导入点零改动）；`admin/posts.py`（852 行 / 26 路由）拆成 `post_editor` / `post_manage` / `post_trash` / `post_history` / `taxonomy`（同一蓝图、URL 不变）。验证：逐名 `ast.dump` 等价性 + endpoint 守恒（99 处 `url_for` 全可解析）+ `113 passed`；最大文件 852/784 → 448/294 行。
 - **游戏平台（v3.15.0）**：前台「🎮 游戏」卡片厅 + 沙箱内播放（`iframe sandbox` + CSP，拿不到本站 Cookie/登录态/API，禁外联）；后台「游戏收录」上传 zip → 安全解包 + 静态扫描 → 审核上架，可配置 OpenAI 兼容大模型做代码安全审计（Key 加密）；内置官方《就是按一下》《就是开车》两枚荒谬马拉松；开发者接入文档 `/games/dev`。
 - **标签治理（v3.15.0）**：保存文章自动去重（中英文逗号/顿号/大小写/空白变体归一复用）、自动清理 0 使用标签；后台一键整理（合并重复 + 清理未使用）。

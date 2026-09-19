@@ -378,6 +378,8 @@ supervisorctl status
 
 > **v3.18.1（超长文件拆分，纯重构）升级要点**：后端内部结构重组 —— `utils.py` → `myblog/utils/` 包（timeutil / render / net / slug / text / security / settings / web）、`admin/posts.py` → `post_editor` / `post_manage` / `post_trash` / `post_history` / `taxonomy`。**公共 API、路由 URL、endpoint、环境变量、依赖、表结构全部不变**（已用逐名 AST 等价性 + 26 条路由守恒 + 99 处 `url_for` 全解析 + 113 passed 验证）。**只需覆盖后端包** + gunicorn「停止 → 启动」；前端包无变化（可不必覆盖）。⚠️ 因内部模块被删除（`utils.py` / `admin/posts.py`），升级务必**整体覆盖** `myblog-backend.zip`（勿只增量拷单个文件）。验证：后台左下角 v3.18.1，各后台页与文章页正常。
 
+> **v3.18.4（补齐核心 i18n）升级要点**：**只需覆盖前端包**（`vue-frontend-dist.zip` —— 改的是 `App.vue` / `store.js` / `components/Sidebar.vue`）；后端仅版本号变化（覆盖亦可）。覆盖后**硬刷新（Ctrl+F5）**。**无迁移、无新依赖、无新增环境变量。**验证：点顶栏「EN」后**导航栏 13 项全英文**（含 回顾→Review / 社交→Social / 游戏→Games）；抽屉里 后台 / 写文章 / 退出 / 登录 / 注册 / 主题 均随语言切换；通知面板（通知 / 全部已读 / 暂无通知）与「回到顶部」亦切换；悬停语言按钮 tooltip 显示「切换语言」。
+
 > **v3.18.3（移除内置插件 page_translate + 恢复核心中英切换）升级要点**：**前后端包都要覆盖**——前端 `App.vue` / `store.js` / `global.css` 恢复了语言切换按钮与 i18n 字典（若只覆盖后端包，前台**看不到**语言按钮）；后端删除插件目录（`myblog/plugins/page_translate/`）与前端远程组件（`myblog/static/plugins/page_translate/`），`ENABLED_PLUGINS` 默认值恢复为空。⚠️ 覆盖式部署**不会删服务器上的旧插件文件**，升级后建议手动删除 `myblog/plugins/page_translate/` 与 `myblog/static/plugins/page_translate/`（含 `__pycache__`）保持整洁——因 `ENABLED_PLUGINS` 已为空，残留文件**不会被加载**、无功能影响。**无迁移、无新依赖、无新增环境变量。**验证：前台顶栏恢复「中 / EN」语言按钮（点击切英文，抽屉底部亦有）；前台**不再**出现「翻译整页」浮层；后台「🧩 插件管理」不再列出 `page_translate`；后台左下角 v3.18.3。
 
 > **v3.17.13（后台备份页移动端重构 + 前台导航图标统一）升级要点**：后端包 + **前端包都需覆盖**（`vue-frontend-dist.zip` 更新了 `App.vue` 导航与 `global.css` 的 `.nav-emoji`）；无迁移、无新增依赖。`backup.py` 新增 4 个统计工具（`fmt_size`/`file_size`/`dir_stat`/`backup_stamp`），`admin/settings.py` 装配 `summary` 给备份页模板。

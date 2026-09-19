@@ -3,7 +3,7 @@
     <div class="widget">
       <h3>站内搜索</h3>
       <form class="search-box" @submit.prevent="doSearch">
-        <input type="text" v-model="q" placeholder="搜索文章…" />
+        <input type="text" v-model="q" :placeholder="t('search_placeholder')" />
         <button type="submit">搜索</button>
       </form>
     </div>
@@ -79,6 +79,7 @@
 import { onMounted, ref, computed } from "vue";
 import { useRouter } from "vue-router";
 import { apiGet, apiPost } from "../lib/api.js";
+import { t } from "../store.js";
 import WeatherWidget from "./WeatherWidget.vue";
 
 const router = useRouter();

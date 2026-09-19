@@ -3,6 +3,15 @@
 > 本文件承载 **历史版本** 记录。README 只保留最新版本与上手信息。
 > 各版本的安全审计结论见 `myblog/SECURITY_AUDIT.md`；功能规划见 `ROADMAP.md`。
 
+## v3.18.4（2026-09-19 · 补齐 i18n：导航 3 项 + 抽屉/顶栏文案 + 死键接线 + tooltip 纠正）
+
+- **导航栏补全**：`回顾`(/annual)、`社交`(/social)、`游戏`(/games) 三项原先硬编码中文（点 EN 后导航中英混排）→ 新增 `annual`/`social`/`games` 键并接入 `t()`；导航栏现在 **100% 随语言切换**（含移动抽屉与桌面顶栏）。
+- **抽屉与顶栏文案**：抽屉的 `后台` / `写文章` / `退出登录` / `登录` / `注册` / `主题：`，顶栏用户区的 `后台` / `写文章`，通知面板（`通知（N 未读）` / `全部已读` / `暂无通知`），`回到顶部`，以及汉堡与抽屉的 `aria-label`（打开菜单 / 关闭菜单 / 导航菜单）与主题按钮 `aria-label` 全部接入词典。
+- **消除 3 个死键**：`admin`（「后台」）、`write`（「写文章」）、`search_placeholder`（侧栏搜索框占位符）原先定义了却**从未接线** → 现已接入。词典 **17 → 31 键**，且**实际使用 = 31 键（0 死键、0 缺失）**。
+- **修复 tooltip 错绑**：语言按钮 `:title="t('theme')"` 导致悬停显示「主题 / Theme」→ 改为 `t('switch_lang')`（切换语言 / Switch language）。
+- **范围说明**：本轮只补**导航与公共部件**；各内容页与组件（`CommentForm` / `Sidebar` / `PostView` / `StatsView` / `DocsView` 等）的界面文案仍为中文——正文与内容的翻译需翻译服务，不在界面 i18n 范围。
+- **验证**：词典键 zh/en 完全一致；实际使用数 = 词典数（0 死键 / 0 缺失）；前端 `vite build` 通过；`99 passed`。
+
 ## v3.18.3（2026-09-19 · 移除内置插件 page_translate + 恢复核心中英切换）
 
 - **移除**：删除 v3.18.0 引入的内置插件 `page_translate`（`myblog/plugins/page_translate/`、前端远程组件 `myblog/static/plugins/page_translate/widget.js`、`tests/test_plugin_page_translate.py`），`myblog/static/plugins/` 目录一并移除。

@@ -2,22 +2,22 @@
   <div class="reading-progress" id="reading-progress"></div>
   <!-- v2.6.0 mobile 抽屉式导航 -->
   <div class="drawer-mask" :class="{show: drawerOpen}" @click="drawerOpen = false"></div>
-  <aside class="drawer" :class="{open: drawerOpen}" aria-label="导航菜单">
+  <aside class="drawer" :class="{open: drawerOpen}" :aria-label="t('nav_menu')">
     <div class="drawer-head">
-      <router-link class="drawer-logo" to="/" @click="drawerOpen = false">{{ state.site.site_name || state.site.site_title || '博客' }}</router-link>
-      <button class="drawer-close" type="button" aria-label="关闭菜单" @click="drawerOpen = false">×</button>
+      <router-link class="drawer-logo" to="/" @click="drawerOpen = false">{{ state.site.site_name || state.site.site_title || t('blog') }}</router-link>
+      <button class="drawer-close" type="button" :aria-label="t('close_menu')" @click="drawerOpen = false">×</button>
     </div>
     <nav class="drawer-nav">
       <router-link to="/" @click="drawerOpen = false"><span class="nav-emoji">🏠</span>{{ t('home') }}</router-link>
       <router-link to="/archive" @click="drawerOpen = false"><span class="nav-emoji">🗂️</span>{{ t('archive') }}</router-link>
       <router-link to="/stats" @click="drawerOpen = false"><span class="nav-emoji">📊</span>{{ t('stats') }}</router-link>
-      <router-link to="/annual" @click="drawerOpen = false"><span class="nav-emoji">📅</span>回顾</router-link>
+      <router-link to="/annual" @click="drawerOpen = false"><span class="nav-emoji">📅</span>{{ t('annual') }}</router-link>
       <router-link to="/about" @click="drawerOpen = false"><span class="nav-emoji">ℹ️</span>{{ t('about') }}</router-link>
       <router-link to="/links" @click="drawerOpen = false"><span class="nav-emoji">🤝</span>{{ t('links') }}</router-link>
       <router-link to="/square" @click="drawerOpen = false"><span class="nav-emoji">💬</span>{{ t('square') }}</router-link>
-      <router-link to="/social" @click="drawerOpen = false"><span class="nav-emoji">🔗</span>社交</router-link>
+      <router-link to="/social" @click="drawerOpen = false"><span class="nav-emoji">🔗</span>{{ t('social') }}</router-link>
       <router-link to="/series" @click="drawerOpen = false"><span class="nav-emoji">📚</span>{{ t('series') }}</router-link>
-      <router-link to="/games" @click="drawerOpen = false"><span class="nav-emoji">🎮</span>游戏</router-link>
+      <router-link to="/games" @click="drawerOpen = false"><span class="nav-emoji">🎮</span>{{ t('games') }}</router-link>
       <router-link to="/tags/hot" @click="drawerOpen = false"><span class="nav-emoji">🔥</span>{{ t('hot_tags') }}</router-link>
       <router-link to="/docs" @click="drawerOpen = false"><span class="nav-emoji">📖</span>{{ t('docs') }}</router-link>
       <router-link to="/guestbook" @click="drawerOpen = false"><span class="nav-emoji">📝</span>{{ t('guestbook') }}</router-link>
@@ -29,34 +29,34 @@
     <div class="drawer-foot">
       <template v-if="state.user">
         <span class="drawer-user">👤 {{ state.user.username }}</span>
-        <a v-if="state.user.is_admin" class="drawer-link" href="/admin" @click="drawerOpen = false">🛠️ 后台</a>
-        <a v-else class="drawer-link" href="/admin/post/new" @click="drawerOpen = false">✏️ 写文章</a>
-        <a class="drawer-link" href="#" @click.prevent="doLogout(); drawerOpen = false">退出登录</a>
+        <a v-if="state.user.is_admin" class="drawer-link" href="/admin" @click="drawerOpen = false">🛠️ {{ t('admin') }}</a>
+        <a v-else class="drawer-link" href="/admin/post/new" @click="drawerOpen = false">✏️ {{ t('write') }}</a>
+        <a class="drawer-link" href="#" @click.prevent="doLogout(); drawerOpen = false">{{ t('logout') }}</a>
       </template>
       <template v-else>
-        <router-link class="drawer-link" to="/login" @click="drawerOpen = false">登录</router-link>
-        <router-link class="drawer-link" to="/register" @click="drawerOpen = false">注册</router-link>
+        <router-link class="drawer-link" to="/login" @click="drawerOpen = false">{{ t('login') }}</router-link>
+        <router-link class="drawer-link" to="/register" @click="drawerOpen = false">{{ t('register') }}</router-link>
       </template>
-      <button class="drawer-link drawer-theme" type="button" @click="toggleTheme(); drawerOpen = false">主题：{{ themeIcon }}</button>
+      <button class="drawer-link drawer-theme" type="button" @click="toggleTheme(); drawerOpen = false">{{ t('theme') }}：{{ themeIcon }}</button>
       <button class="drawer-link drawer-lang" type="button" @click="toggleLang(); drawerOpen = false">{{ state.lang === 'en' ? '中文' : 'EN' }}</button>
     </div>
   </aside>
 
   <header class="site-header">
     <div class="container header-inner">
-      <button class="hamburger" type="button" aria-label="打开菜单" @click="drawerOpen = true">☰</button>
+      <button class="hamburger" type="button" :aria-label="t('open_menu')" @click="drawerOpen = true">☰</button>
       <router-link class="logo" to="/" @click="drawerOpen = false">{{ state.site.site_name || state.site.site_title }}</router-link>
       <nav>
         <router-link to="/"><span class="nav-emoji">🏠</span>{{ t('home') }}</router-link>
         <router-link to="/archive"><span class="nav-emoji">🗂️</span>{{ t('archive') }}</router-link>
         <router-link to="/stats"><span class="nav-emoji">📊</span>{{ t('stats') }}</router-link>
-        <router-link to="/annual"><span class="nav-emoji">📅</span>回顾</router-link>
+        <router-link to="/annual"><span class="nav-emoji">📅</span>{{ t('annual') }}</router-link>
         <router-link to="/about"><span class="nav-emoji">ℹ️</span>{{ t('about') }}</router-link>
         <router-link to="/links"><span class="nav-emoji">🤝</span>{{ t('links') }}</router-link>
         <router-link to="/square"><span class="nav-emoji">💬</span>{{ t('square') }}</router-link>
-        <router-link to="/social"><span class="nav-emoji">🔗</span>社交</router-link>
+        <router-link to="/social"><span class="nav-emoji">🔗</span>{{ t('social') }}</router-link>
         <router-link to="/series"><span class="nav-emoji">📚</span>{{ t('series') }}</router-link>
-        <router-link to="/games"><span class="nav-emoji">🎮</span>游戏</router-link>
+        <router-link to="/games"><span class="nav-emoji">🎮</span>{{ t('games') }}</router-link>
         <router-link to="/tags/hot"><span class="nav-emoji">🔥</span>{{ t('hot_tags') }}</router-link>
         <router-link to="/docs"><span class="nav-emoji">📖</span>{{ t('docs') }}</router-link>
         <router-link to="/guestbook"><span class="nav-emoji">📝</span>{{ t('guestbook') }}</router-link>
@@ -67,15 +67,15 @@
         <template v-if="state.user">
           <span class="nav-user">
             👤 {{ state.user.username }}
-            <span v-if="state.user.is_admin"><a href="/admin">后台</a></span>
-            <span v-else><a href="/admin/post/new">✏️ 写文章</a></span>
+            <span v-if="state.user.is_admin"><a href="/admin">{{ t('admin') }}</a></span>
+            <span v-else><a href="/admin/post/new">✏️ {{ t('write') }}</a></span>
           </span>
           <div class="nav-bell" @click="toggleNotifPanel">
             🔔<span v-if="notifUnread" class="bell-badge">{{ notifUnread > 99 ? '99+' : notifUnread }}</span>
             <div v-if="showNotifPanel" class="notif-panel">
               <div class="notif-head">
-                <span>通知（{{ notifUnread }} 未读）</span>
-                <a v-if="notifUnread" href="#" @click.prevent="markAllNotifRead">全部已读</a>
+                <span>{{ t('notifications') }}（{{ notifUnread }} {{ t('unread') }}）</span>
+                <a v-if="notifUnread" href="#" @click.prevent="markAllNotifRead">{{ t('all_read') }}</a>
               </div>
               <div v-if="notifList.length" class="notif-list">
                 <a v-for="n in notifList" :key="n.id" class="notif-item" :class="{unread: !n.is_read}" :href="n.link || '#'" @click.prevent="openNotif(n)">
@@ -83,7 +83,7 @@
                   <span class="notif-text">{{ n.content }}</span>
                 </a>
               </div>
-              <p v-else class="notif-empty">暂无通知</p>
+              <p v-else class="notif-empty">{{ t('no_notifications') }}</p>
             </div>
           </div>
           <a href="#" @click.prevent="doLogout">{{ t('logout') }}</a>
@@ -92,8 +92,8 @@
           <router-link to="/login">{{ t('login') }}</router-link>
           <router-link to="/register">{{ t('register') }}</router-link>
         </template>
-        <button class="lang-toggle" type="button" @click="toggleLang" :title="t('theme')">{{ state.lang === 'en' ? '中' : 'EN' }}</button>
-        <button class="theme-toggle" type="button" aria-label="切换亮暗主题" @click="toggleTheme">{{ themeIcon }}</button>
+        <button class="lang-toggle" type="button" @click="toggleLang" :title="t('switch_lang')">{{ state.lang === 'en' ? '中' : 'EN' }}</button>
+        <button class="theme-toggle" type="button" :aria-label="t('toggle_theme')" @click="toggleTheme">{{ themeIcon }}</button>
       </nav>
     </div>
   </header>
@@ -157,7 +157,7 @@
     </div>
   </div>
 
-  <button id="back-to-top" title="回到顶部" aria-label="回到顶部" @click="scrollTop">↑</button>
+  <button id="back-to-top" :title="t('back_to_top')" :aria-label="t('back_to_top')" @click="scrollTop">↑</button>
 </template>
 
 <script setup>

@@ -17,16 +17,12 @@ from flask import Response, request, jsonify
 from sqlalchemy import func
 
 from .common import api_bp
-from models import db, Post, Comment, Category, Tag, VisitLog
+from models import db, Post, Comment, Category, Tag, VisitLog, visible_posts_query
 from _time import utcnow
 
-
-def _visible_posts():
-    now = utcnow()
-    return Post.query.filter(
-        Post.published.is_(True),
-        db.or_(Post.scheduled_at.is_(None), Post.scheduled_at <= now),
-    )
+# v3.18.5：本模块原自建 _visible_posts()，只过滤 published + scheduled_at，
+# 漏了 in_trash / is_private → 隐私空间与回收站文章的标题、slug 可被匿名枚举。
+# 已删除该副本，全部改用 models.visible_posts_query()（全站可见性唯一真相源）。
 
 
 @api_bp.route("/review/annual")
@@ -37,7 +33,7 @@ def annual_review():
         year = utcnow().year
     ymd = str(year)
 
-    posts = _visible_posts().filter(func.strftime("%Y", Post.created_at) == ymd).all()
+    posts = visible_posts_query().filter(func.strftime("%Y", Post.created_at) == ymd).all()
     post_count = len(posts)
     view_count = sum((p.views or 0) for p in posts)
     word_count = sum((p.word_count or 0) for p in posts)
@@ -95,7 +91,7 @@ def annual_review():
         visitors = 0
 
     try:
-        years = sorted({p.created_at.year for p in _visible_posts().all() if p.created_at},
+        years = sorted({p.created_at.year for p in visible_posts_query().all() if p.created_at},
                        reverse=True)
     except Exception:
         years = [year]
@@ -120,7 +116,7 @@ def annual_review():
 @api_bp.route("/milestones")
 def milestones():
     """v3.17.2：站点里程碑 / 成就徽章（公开只读，纯聚合，无表结构变更、无新依赖）。"""
-    posts = _visible_posts().all()
+    posts = visible_posts_query().all()
     post_count = len(posts)
     views = sum((p.views or 0) for p in posts)
     try:

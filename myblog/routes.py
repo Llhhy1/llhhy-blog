@@ -74,7 +74,11 @@ def register():
             u.set_password(password)
             db.session.add(u)
             db.session.commit()
+            # v3.18.5：必须同时写入 session_version，否则 app.py 的 enforce_session_version
+            # 会把 (缺失→0) 与用户真实版本比对，任何改过密码/被踢过的用户在**前台**登录后
+            # 下一个请求即被判失效（旧实现只在后台 admin/auth.py 里写了这一项）。
             session["user_id"] = u.id
+            session["session_version"] = u.session_version or 0
             flash("注册成功，欢迎你！")
             return redirect(url_for("main.index"))
     return render_template("register.html",
@@ -96,9 +100,14 @@ def login():
         u = User.query.filter_by(username=username).first()
         if u and u.check_password(password):
             log_login_attempt(username, True)
+            # v3.18.5：同注册——前台登录也必须写入 session_version（见 admin/auth.py 的正确实现）
             session["user_id"] = u.id
+            session["session_version"] = u.session_version or 0
             flash(f"欢迎回来，{u.username}！")
-            nxt = safe_redirect(request.args.get("next"), url_for("main.index"))
+            # 登录表单 POST 时 next 在 query string（login.html 的 action 已带上），
+            # 兼容放在表单体里的写法，两处都取一次。
+            nxt = safe_redirect(request.args.get("next") or request.form.get("next"),
+                                url_for("main.index"))
             return redirect(nxt)
         log_login_attempt(username, False)
         flash("用户名或密码错误")

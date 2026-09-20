@@ -1,0 +1,6 @@
+{% extends "_error_base.html" %}
+{% block err_title %}{{ error_code }} · {{ error_text }}{% endblock %}
+{% block err_actions %}
+<a href="/">返回首页</a>
+<a class="ghost" href="javascript:history.back()">回到上一页</a>
+{% endblock %}

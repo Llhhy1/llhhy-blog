@@ -9,15 +9,24 @@ import os
 # ---------- HTML 清理（防 XSS）----------
 # 文章/关于页的 Markdown 渲染结果会直接 innerHTML/v-html 进页面，
 # 必须经过白名单清理，剥离 <script>、on* 事件属性、javascript: 等危险内容。
+# v3.18.5：补齐表格标签——render_markdown 已开启 markdown 的 "tables" 扩展，
+# 但白名单原先不含 table 系标签，strip=True 会把整张表格的标签连同排版一起剥掉
+# （不报错，所以长期没被发现）。改本白名单必须同步 bump _RENDER_VERSION。
 _ALLOWED_TAGS = {
     "p", "br", "strong", "em", "u", "s", "code", "pre", "blockquote",
     "ul", "ol", "li", "a", "h1", "h2", "h3", "h4", "img", "hr", "span", "del",
+    "table", "thead", "tbody", "tfoot", "tr", "th", "td", "caption",
+    "colgroup", "col",
 }
 _ALLOWED_ATTRS = {
     "a": ["href", "title", "target", "rel"],
     "img": ["src", "alt", "title"],
     "code": ["class"],
     "span": ["class"],
+    "th": ["colspan", "rowspan", "align", "scope"],
+    "td": ["colspan", "rowspan", "align"],
+    "col": ["span"],
+    "colgroup": ["span"],
     "*": ["class"],
 }
 
@@ -94,7 +103,8 @@ def render_markdown(content):
 # 缓存自动失效，无需在保存文章的各处手工清理。
 # 渲染版本号：若将来调整 Markdown 扩展或 clean_html 白名单，把 _RENDER_VERSION
 # +1 即可让全部历史缓存一次性失效，避免旧 HTML 与新的白名单不一致。
-_RENDER_VERSION = "2"
+# v3.18.5：2 → 3（白名单新增表格标签，必须让历史表格文章的旧缓存失效后重渲染）。
+_RENDER_VERSION = "3"
 
 
 def content_digest(content, html=""):

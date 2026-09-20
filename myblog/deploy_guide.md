@@ -376,6 +376,13 @@ supervisorctl status
 
 > ⚠️ **服务器上的 `update.sh` / `deploy.sh` 也务必与最新 Release 同版**：脚本经历过「假成功不覆盖 / 校验误报 / 无法自动重启」多轮加固，升级前先从最新 Release 覆盖一次脚本，再跑一键更新。
 
+> **v3.18.5（第三方独立审计 P0 批次：8 项真实缺陷修复）升级要点**：**纯后端改动，只需覆盖后端包**（`vue-frontend/` 一字未动，前端包无变化、可不必覆盖）。覆盖 `myblog-backend.zip` → gunicorn「停止 → 启动」即生效；**无表结构变更、无新依赖、无新增环境变量、无新 Nginx 规则**。
+> - **新增文件**（务必整体覆盖，勿只增量拷单文件）：`myblog/templates/_error_base.html`、`404.html`、`403.html`、`500.html`、`error.html`（统一错误页）。
+> - **⚠️ 正文渲染缓存会整体失效**：`_RENDER_VERSION` 由 `2` 提升到 `3`（Markdown 表格白名单修复的必然结果）——升级后**首次访问每篇文章会重新渲染一次**（属正常，稍后恢复缓存速度；渲染结果会通过独立连接写回 `post.content_html`）。
+> - **行为变化（预期内）**：① 会话失效（改密 / 被踢下线 / 闲置超时）访问非 `/api/` 页面现在**跳登录页**，此前是 500；② 前台表单登录现在正确记录会话版本，**改过密码的用户首次需重新登录一次**（属正常）；③ `/api/review/annual`、`/api/ai/summary/<slug>` 不再返回隐私空间与回收站文章的数据；④ 后台「🤖 AI 摘要」页**仅超级管理员可见**（普通管理员访问 403，侧栏入口对普通管理员隐藏）；⑤ 接口 404 等错误现在返回 JSON（`{"error": "…"}`）而不是 HTML 错误页；⑥ 浏览器路径的 404/500 走新的品牌错误页。
+> - **验证清单**：后台左下角 = **v3.18.5**；访问一个不存在的 `/api/xxx` 应返回 JSON 且 `Content-Type: application/json`；浏览器访问一个不存在的路径应看到「页面不存在」错误页（非 Werkzeug 默认页）；任一含 Markdown 表格的文章**表格结构正常显示**；后台「访问统计」页正常；`/api/review/annual` 与 `/api/games` 正常 200。
+> - **无需操作**：`myblog/data/blog.db` 不受影响（测试库隔离只作用于本地 pytest，生产无影响）。
+
 > **v3.18.1（超长文件拆分，纯重构）升级要点**：后端内部结构重组 —— `utils.py` → `myblog/utils/` 包（timeutil / render / net / slug / text / security / settings / web）、`admin/posts.py` → `post_editor` / `post_manage` / `post_trash` / `post_history` / `taxonomy`。**公共 API、路由 URL、endpoint、环境变量、依赖、表结构全部不变**（已用逐名 AST 等价性 + 26 条路由守恒 + 99 处 `url_for` 全解析 + 113 passed 验证）。**只需覆盖后端包** + gunicorn「停止 → 启动」；前端包无变化（可不必覆盖）。⚠️ 因内部模块被删除（`utils.py` / `admin/posts.py`），升级务必**整体覆盖** `myblog-backend.zip`（勿只增量拷单个文件）。验证：后台左下角 v3.18.1，各后台页与文章页正常。
 
 > **v3.18.4（补齐核心 i18n）升级要点**：**只需覆盖前端包**（`vue-frontend-dist.zip` —— 改的是 `App.vue` / `store.js` / `components/Sidebar.vue`）；后端仅版本号变化（覆盖亦可）。覆盖后**硬刷新（Ctrl+F5）**。**无迁移、无新依赖、无新增环境变量。**验证：点顶栏「EN」后**导航栏 13 项全英文**（含 回顾→Review / 社交→Social / 游戏→Games）；抽屉里 后台 / 写文章 / 退出 / 登录 / 注册 / 主题 均随语言切换；通知面板（通知 / 全部已读 / 暂无通知）与「回到顶部」亦切换；悬停语言按钮 tooltip 显示「切换语言」。

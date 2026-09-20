@@ -3,6 +3,26 @@
 > 本文件承载 **历史版本** 记录。README 只保留最新版本与上手信息。
 > 各版本的安全审计结论见 `myblog/SECURITY_AUDIT.md`；功能规划见 `ROADMAP.md`。
 
+## v3.18.5（2026-09-20 · 第三方独立审计 P0 批次：8 项真实缺陷修复 + 测试库隔离）
+
+> 起因：一份对 tag `v3.18.4` 的第三方独立静态审计报告（8 章 / 240 文件 / 17,490 行 Python）指出「不是可以更好，是现在是坏的」的 8 项缺陷。本轮**全部核对复现并修复**，另附带修 3 项同源的连带缺陷。安全审计见 `SECURITY_AUDIT.md` **R85**。
+
+- **① 会话失效即 500（`redirect` 未导入）**：`app.py` 三处 `return redirect("/login?next=" + …)` 中 `redirect` 从未导入 → 「账号不存在 / session_version 不符（改密或被踢）/ 闲置超时」命中且访问非 `/api/` 路径时 `NameError` → 500。现补导入，并统一改为 `redirect(safe_redirect(url_for("main.login", next=request.path)))`（顺带做 URL 编码与站内白名单）；`admin/_helpers.py` 的 `login_required`/`admin_required` 两处同类手拼路径一并收口。
+- **② 前台登录不写 `session_version` → 改密后被永久踢出**：`routes.py` 注册/登录只写 `session["user_id"]`，而 `app.py` 会比对 `session_version`；任何改过密码或被踢过线的用户（`session_version >= 1`）从前台登录后**下一个请求即判失效**（叠加 ① 表现为 500）。现两处均补写（正确实现本就在 `admin/auth.py`）；API 登录路径（`api/common.py`）原本已正确。
+- **③ `return app` 之后的 CLI 死代码**：`flask seed` 定义在 `return app`（`app.py:730`）之后，永不注册；`init_db_command` 更是连装饰器都没有。现将 `seed` 注册移到 `return` 之前，删除无用的 `init_db_command` 与第二个不可达 `return app`。
+- **④ 年度回顾泄露隐私空间 + 回收站文章**：`api/review.py` 自建的 `_visible_posts()` 只过滤 `published` + `scheduled_at`，缺 `in_trash` / `is_private` → 超管只要把文章设为「隐私 + 已发布」，其**标题与 slug 就会被公网匿名枚举**（`/api/review/annual` 的 `hot_posts`）。现删除本地副本，统一改用 `models.visible_posts_query()`（全站可见性唯一真相源）。`SECURITY_AUDIT.md` R70-1 关于该接口「无敏感数据」的结论**已更正为假**。
+- **⑤ AI 摘要接口无可见性过滤**：`GET /api/ai/summary/<slug>` 原为 `Post.query.filter_by(slug=slug)`，不含任何可见性判定 → 任意 slug（草稿/回收站/隐私）都能读到 `ai_summary_<id>`。现改走 `visible_posts_query(user=当前用户)`。同时把后台「AI 摘要」管理页（`admin/ai_summary.py` 的 5 个路由）从 `@admin_required` **提权为 `@super_required`**——它会调用管理员自设的 LLM Base 并外发正文，与备份 / MCP / SMTP 同级敏感；导航链接同步移入超管可见区（普通管理员访问返回 403）。
+- **⑥ Markdown 表格被 sanitize 静默剥空**：`render_markdown` 开启了 markdown 的 `tables` 扩展，但 `clean_html` 的 bleach 白名单**不含任何 table 系标签**，`strip=True` 把整张表格的标签连同排版一起剥掉（不报错，因此长期未被发现）。现补齐 `table/thead/tbody/tfoot/tr/th/td/caption/colgroup/col` 与 `colspan/rowspan/align/scope`，并 **`_RENDER_VERSION` 2 → 3** 让历史文章的旧渲染缓存失效后重渲染。
+- **⑦ 零错误处理器**：全仓 `@app.errorhandler` 计数为 **0**，`first_or_404()`（12 处 JSON 路由）对 JSON 客户端返回 Werkzeug **HTML** 错误页 → 前端 `resp.json()` 解析失败，用户只看到「网络错误」。现注册 `400/403/404/405/422/500`：`/api/*` 与 MCP 端点返回统一 `{"error": …}` JSON，其余返回模板页；新增 `templates/404.html`、`403.html`、`500.html`、`error.html`（共用 `_error_base.html`），并在渲染失败时兜底纯 HTML。
+- **⑧ 测试直接读写开发库**：`tests/conftest.py` 的 `app` fixture 是裸 `create_app()`，`DATABASE_URL` 未覆盖 → 本地 `pytest` 在**真实开发库** `myblog/data/blog.db` 上建表/删数据（如 `test_mcp_write.py` 的 `Post.title.like("MCPW%").delete()`）；CI 上是新库故「碰巧干净」掩盖了问题。现改为固定临时库（`%TEMP%/llhhy-blog-pytest`，每轮开始先清空）+ **`create_app(enable_scheduler=False)`**（原先 99 个测试最多起 99 个定时线程**）。验收：全量测试跑完后 `myblog/data/blog.db` 的 **sha256 与 mtime 均不变**。
+- **附带修复（同源真实缺陷）**：
+  - **审计日志 IP 可任意伪造**：`admin/_helpers.py` 的 `log_audit` / `log_login_attempt` 直接取 `X-Forwarded-For` **最左段**（全站其余路径早已统一走 `utils.net.get_client_ip()`）。现两处改走 `get_client_ip()`，爆破者无法再往审计日志写任意 IP。R41-2「已修复」结论**对该路径为假**，已更正。
+  - **`/admin/?category_id=abc` → 500**：`int(cat_id)` 未捕获 `ValueError`，现非法值按「不筛选」处理。
+  - **未鉴权接口回显异常详情**：`/api/stats/dashboard` 出错时回显 `str(e)`（可泄露路径/库结构），现只写日志、对外返回不透明错误码。
+  - 删除无用残留：`app.config["ADMIN_HASH"]`（全仓无读取方，每次启动白算一次 scrypt）、`app.py` 的 `_orig_after` 死赋值与 `re` / `render_template` 等未用导入。
+- **验证**：**112 passed**（99 基线 + 13 条新增 P0 回归测试 `tests/test_p0_regressions.py`，修复前逐一失败、修复后全绿）；`compileall` 通过；开发库 sha256 与 mtime **零变化**。本轮**未改任何表结构、未新增依赖、未改前端产物**。
+- **未纳入本轮（审计报告第 2~8 章，见 `ROADMAP.md`）**：在线更新链 fail-open（报告判为最高风险，需引入分离物签名与密钥托管决策）、索引/查询/缓存性能批次、阻塞调用挪出请求路径、可观测性、双前端结构（Nginx 让 `/post/*` 永远收不到流量，SEO 对国内引擎实际失效）等。这些改动面大、可回归风险高，按报告建议**逐批投喂**，不在一个补丁版里混做。
+
 ## v3.18.4（2026-09-19 · 补齐 i18n：导航 3 项 + 抽屉/顶栏文案 + 死键接线 + tooltip 纠正）
 
 - **导航栏补全**：`回顾`(/annual)、`社交`(/social)、`游戏`(/games) 三项原先硬编码中文（点 EN 后导航中英混排）→ 新增 `annual`/`social`/`games` 键并接入 `t()`；导航栏现在 **100% 随语言切换**（含移动抽屉与桌面顶栏）。

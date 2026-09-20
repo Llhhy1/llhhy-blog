@@ -3,12 +3,12 @@
 {% block content %}
   <div class="auth-box">
     <h1 class="page-title">登录</h1>
-    <form method="post" action="{{ url_for('main.login') }}">
+    <form method="post" action="{{ url_for('main.login', next=request.args.get('next')) }}">
           {{ csrf_input() }}
-      <label>用户名</label>
-      <input type="text" name="username" required>
-      <label>密码</label>
-      <input type="password" name="password" required>
+      <label for="login-username">用户名</label>
+      <input id="login-username" type="text" name="username" required>
+      <label for="login-password">密码</label>
+      <input id="login-password" type="password" name="password" required>
       <button type="submit">登录</button>
     </form>
     <p class="auth-tip">还没有账号？<a href="{{ url_for('main.register') }}">注册一个</a></p>

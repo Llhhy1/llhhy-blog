@@ -1,0 +1,7 @@
+{% extends "_error_base.html" %}
+{% block err_title %}404 · 页面不存在{% endblock %}
+{% block err_text %}这个页面不存在，可能已被删除，或者链接有误。{% endblock %}
+{% block err_actions %}
+<a href="/">返回首页</a>
+<a class="ghost" href="javascript:history.back()">回到上一页</a>
+{% endblock %}

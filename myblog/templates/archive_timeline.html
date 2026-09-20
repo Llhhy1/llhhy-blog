@@ -10,7 +10,7 @@
         {% for p in month.posts %}
           <div class="tl-item">
             <a href="{{ url_for('main.post', slug=p.slug) }}">{{ p.title }}</a>
-            <span class="tl-date">{{ p.created_at.strftime('%m-%d') }}</span>
+            <span class="tl-date">{{ p.created_at | bj('%m-%d') }}</span>
           </div>
         {% endfor %}
       {% endfor %}

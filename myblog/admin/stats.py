@@ -26,7 +26,12 @@ def dashboard():
     elif status == "pinned":
         query = query.filter(Post.is_pinned == True)
     if cat_id:
-        query = query.filter(Post.category_id == int(cat_id))
+        # v3.18.5：原写法 int(cat_id) 直接抛 ValueError → 500（?category_id=abc）。
+        # 非法值一律按「不筛选」处理。
+        try:
+            query = query.filter(Post.category_id == int(cat_id))
+        except (TypeError, ValueError):
+            pass
     pagination = query.order_by(Post.is_pinned.desc(), Post.created_at.desc()).paginate(
         page=page, per_page=per_page, error_out=False)
     pending = Comment.query.filter_by(approved=False).count()

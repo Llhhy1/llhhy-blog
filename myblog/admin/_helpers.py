@@ -13,7 +13,8 @@ from models import (db, Post, Category, Tag, Comment, FriendLink, Setting,
                     Series, Announcement, Guestbook, Subscriber,
                     AuditLog, RecycleBin, LinkApplication, PostHistory,
                     Moment, MomentComment)
-from utils import make_slug, count_words, validate_password, apply_slug_template, fmt_bj, BEIJING_TZ
+from utils import (make_slug, count_words, validate_password, apply_slug_template,
+                   fmt_bj, BEIJING_TZ, get_client_ip, safe_redirect)
 from config import APP_VERSION
 import stats as stats_mod
 import fts
@@ -57,7 +58,7 @@ def login_required(view):
         user = db.session.get(User, uid) if uid else None
         if not user:
             # 未登录：去前台统一登录页，登录后按 next 回到原页面
-            return redirect("/login?next=" + request.path)
+            return redirect(safe_redirect(url_for("main.login", next=request.path)))
         # 首次进入后台：超级管理员还没设置过账号密码 → 强制去设置页
         if user.is_super and user.must_change_password:
             return redirect(url_for("admin.setup"))
@@ -71,7 +72,7 @@ def admin_required(view):
         uid = session.get("user_id")
         user = db.session.get(User, uid) if uid else None
         if not user:
-            return redirect("/login?next=" + request.path)
+            return redirect(safe_redirect(url_for("main.login", next=request.path)))
         if not user.is_admin_role:
             # 普通用户没有管理权限：引导到「写文章」（他们能用的功能）
             return redirect(url_for("admin.new_post"))
@@ -126,8 +127,13 @@ def log_audit(action, target="", target_id=None, detail="", user=None, ip="", su
         if user is None:
             uid = session.get("user_id")
             user = db.session.get(User, uid) if uid else None
-        ip = ip or (request.headers.get("X-Forwarded-For", "").split(",")[0].strip()
-                    or request.remote_addr or "")
+        # v3.18.5：审计日志的 IP 必须走 get_client_ip()（与 stats/mcp_write/client_key
+        # 同一收口）——原先直接取 X-Forwarded-For 最左段，爆破者可在审计日志里写入
+        # 任意 IP（含内网/他人 IP），导致事件追溯与人工封禁决策失效。
+        try:
+            ip = ip or get_client_ip()
+        except Exception:
+            ip = ""
         db.session.add(AuditLog(
             user_id=user.id if user else None,
             username=user.username if user else "",
@@ -147,8 +153,8 @@ def log_login_attempt(username, success, ip=""):
     """
     if not ip:
         try:
-            ip = (request.headers.get("X-Forwarded-For", "").split(",")[0].strip()
-                  or request.remote_addr or "")
+            # v3.18.5：同 log_audit——不再信任 XFF 最左段（可伪造），走统一收口。
+            ip = get_client_ip()
         except Exception:
             ip = ""
     try:

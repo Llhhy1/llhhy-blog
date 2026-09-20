@@ -2893,3 +2893,59 @@ git diff 计 **70 增 / 70 删**，`tokens.css` 定义**未被改动**。
 
 **R84 结论**：**0 遗留**。纯文案接线，安全面零变化。
 
+---
+
+## R85 · 第三方独立审计 P0 批次（v3.18.5）
+
+**背景**：2026-09-20 收到一份针对 tag `v3.18.4` 的第三方独立静态审计报告（8 章 / 240 文件 / 17,490 行 Python）。报告列出 8 项「现在就是坏的」缺陷，并指出 3 处既有审计轮次的**结论失真**。本轮**逐条打开对应文件核对复现**后全部修复，另附带修 3 项同源缺陷。**本轮未改任何表结构、未新增依赖、未改前端产物。**
+
+### 85.1 修复清单（含对既有轮次结论的更正）
+
+| 编号 | 级别 | 问题 | 位置 | 状态 |
+|---|---|---|---|---|
+| R85-1 | Critical | `redirect` 未导入 → 会话失效命中非 `/api/` 路径时 `NameError` 500 | `app.py` 三处 | ✅ 已修（补导入 + `redirect(safe_redirect(url_for(...)))`） |
+| R85-2 | Critical | 前台注册/登录不写 `session_version` → 改密用户登录后即失效 | `routes.py` 2 处 | ✅ 已修（`admin/auth.py` 原为正确实现） |
+| R85-3 | Critical | `return app` 之后定义 CLI → `flask seed` 从未注册 | `app.py` | ✅ 已修（注册上移，删死函数与不可达 `return`） |
+| R85-4 | Critical | `/api/review/annual` 泄露隐私空间 + 回收站文章的标题/slug | `api/review.py` | ✅ 已修（改走 `visible_posts_query()`） |
+| R85-5 | Critical | `/api/ai/summary/<slug>` 无可见性过滤 → 可读任意文章摘要 | `api/ai.py` | ✅ 已修（`visible_posts_query(user=…)`） |
+| R85-6 | Critical | Markdown 表格被 bleach 白名单静默剥空 | `utils/render.py` | ✅ 已修（补表格标签 + `_RENDER_VERSION` 2→3） |
+| R85-7 | High | 零 `errorhandler` → `first_or_404()` 对 JSON 客户端返回 HTML | `app.py` | ✅ 已修（400/403/404/405/422/500 + 4 个模板） |
+| R85-8 | High | 测试直接在真实开发库 `myblog/data/blog.db` 上增删数据 | `tests/conftest.py` | ✅ 已修（隔离临时库 + `enable_scheduler=False`） |
+| R85-9 | High | 审计日志来源 IP 取 XFF **最左段** → 可任意伪造 | `admin/_helpers.py` 2 处 | ✅ 已修（改走 `get_client_ip()`） |
+| R85-10 | Medium | 后台「AI 摘要」页仅 `@admin_required`，却会外发正文到自设 LLM Base | `admin/ai_summary.py` | ✅ 已提权 `@super_required`（导航同步移入超管区） |
+| R85-11 | Low | `/admin/?category_id=abc` → `ValueError` 500 | `admin/stats.py` | ✅ 已修（非法值按不筛选处理） |
+| R85-12 | Low | 未鉴权的 `/api/stats/dashboard` 回显 `str(e)` | `api/stats.py` | ✅ 已修（详情只写日志） |
+| R85-13 | Low | 残留 `app.config["ADMIN_HASH"]`（无读取方）+ `_orig_after` 死赋值 + 未用导入 | `app.py` | ✅ 已删 |
+| R85-14 | High | 文档称「全站时间统一北京时间」，但 7 处 Jinja 模板 + `/api/games` 仍打 naive UTC | 模板 ×7、`api/games.py` | ✅ 已修（统一 `bj` 过滤器 / `fmt_bj`） |
+
+**对既有轮次结论的更正（原结论为假）**：
+- **R70-1**：`/api/review` 标注「公开只读，无敏感数据」→ 实际泄露隐私空间 + 回收站文章的标题与 slug（R85-4）。
+- **R41-2**：审计 IP 标注「✅ 修复（纵深防御正确）」→ 对 `log_audit` / `log_login_attempt` 两条路径为假，仍取 XFF 最左段（R85-9）。
+- **跨轮次**：README 声称「后台表格手机端可浏览全文」「硬编码颜色已统一替换为 token」「全站时间统一北京时间」——前两条经本轮复核**仍不成立**（详见下节未修项），第三条已在本轮代码层修复。
+
+### 85.2 七维复核（本轮改动）
+
+- **XSS**：错误页模板（`404/403/500/error` + `_error_base`）只输出 `error_code`（int）与 `error_text`（**服务端常量字典**，非用户输入）；`_render_error_page` 的兜底分支用 `%d`/`%s` 拼的是同一组常量。表格标签白名单**新增的是结构标签**，未放行 `style` / `on*` / `href`；`colspan/rowspan/align/scope` 均为非脚本属性；`srcset` 未放行（`<picture>` 由 `_upgrade_img_avif` 在清洗**之后**注入，路径仍受 `/static/` 前缀与磁盘存在性双重限制）。→ **无新增 XSS 面**。
+- **越权**：本轮**净收紧**两处——`/api/ai/summary/<slug>` 加可见性过滤；后台 AI 摘要页由「管理员」提权为「超管」。`visible_posts_query(user=user)` 的隐私放行条件为 `user.is_super`，与 `models.py` 既有约定一致。
+- **敏感信息外泄**：`/api/stats/dashboard` 不再回显 `str(e)`；审计日志 IP 改走 `get_client_ip()`（不再信任可伪造的 XFF 左段）；`session_version` 写入使「改密销毁旧会话」在前台登录路径真正生效（原先该路径下失效判定错误地作用于**所有**改密用户，属可用性缺陷，修复后行为与文档一致）。
+- **CSRF / SSRF / SQLi / 限流 / 密钥**：本轮未新增任何写端点、未新增出站请求、未新增 SQL 拼接（`visible_posts_query` 为既有 ORM 查询）、未新增/变更密钥来源。→ 五维无变化。
+- **资源与降级**：`get_client_ip()` 包在独立 `try/except` 内，取 IP 失败仍写审计（不因取 IP 失败丢日志）；错误页渲染失败有纯 HTML 兜底（防止「500 处理器自身再抛错」造成二次故障）。
+
+### 85.3 验证
+
+- **`112 passed`**（99 基线 + **13 条新增回归** `tests/test_p0_regressions.py`：每条断言在修复前逐一失败、修复后全绿）。
+  - 其中 ① `test_session_version_mismatch_redirects_instead_of_500` 在开发过程中**真的抓到了一次自引入缺陷**：最初把 `redirect(...)` 误写成直接 `return safe_redirect(...)`（字符串），Flask 会将其转为 **200 文本响应**而非 302——测试立刻暴露，已改回 `redirect(safe_redirect(...))`。
+- `compileall -q myblog` 通过。
+- **`myblog/data/blog.db` 的 sha256 与 mtime 在全量测试前后完全一致**（修复前 pytest 会写该库）。
+- 无表结构变更、无新增依赖、无新增环境变量、**前端产物零变化**。
+
+### 85.4 未纳入本轮（已记入 ROADMAP，按报告建议分批）
+
+报告第 2~8 章中**改动面大或需要外部决策**的部分**故意不在本补丁版内混做**：
+- **2.1 在线更新链 fail-open**（报告判为全仓最高风险，等价 RCE 通道）：需要引入分离物签名与**签名私钥托管**决策、公钥内置、发布工作流改造；属基础设施级变更。
+- **3 双前端结构**：Nginx 使 `/post/*` 等 9 个 SSR 路由收不到流量，README 的 SEO 能力对国内引擎实际失效——涉及产品决策（退役 SSR vs 预渲染）。
+- **4 索引 / 查询 / 缓存**、**4.6 请求内同步外网调用**、**6.3 可观测性（零 errorhandler 之外的日志/指标）**、**5 前端 a11y / SEO 细节**、**6.1 CI 工程化**、**文档瘦身（SECURITY_AUDIT 342KB / CHANGELOG 134KB / ROADMAP 116KB）**。
+
+**R85 结论**：**0 遗留（本批次范围内）**。8 项 P0 全部核对复现并修复，3 处文档失真已更正，报告第 2~8 章明确延后并登记。
+
+

@@ -32,7 +32,7 @@
         <tr>
           <td>
             <a href="{{ url_for('admin.edit_post', post_id=r.p.id) }}" target="_blank" rel="noopener">{{ r.p.title }}</a>
-            <div class="stats-tip">{{ r.p.slug }} · {{ r.p.created_at and r.p.created_at.strftime('%Y-%m-%d') }}</div>
+            <div class="stats-tip">{{ r.p.slug }} · {{ r.p.created_at | bj('%Y-%m-%d') }}</div>
           </td>
           <td class="ai-sum-cell">
             {% if r.summary %}

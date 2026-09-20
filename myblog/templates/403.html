@@ -1,0 +1,7 @@
+{% extends "_error_base.html" %}
+{% block err_title %}403 · 没有访问权限{% endblock %}
+{% block err_text %}你没有访问这个页面的权限，可能是尚未登录，或账号权限不足。{% endblock %}
+{% block err_actions %}
+<a href="/login">去登录</a>
+<a class="ghost" href="/">返回首页</a>
+{% endblock %}

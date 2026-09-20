@@ -89,9 +89,80 @@
 
 ## 五、后续可做（未实现，按需提出）
 
-- **A4 @ 通知增强**：评论/动态 @ 某人时除站内通知外，可加「被@后邮件提醒」（复用现有 SMTP）。
-- **评论/留言内容审核增强**：支持先审后发（已有开关）+ 敏感词过滤、图片验证码。
-- **多语言 / PWA / 离线缓存**：锦上添花，暂无计划。
+> **来源**：v3.10.6 期（`87827c0`，2026-08-31）三份手记——《UI 与运营升级清单》§5/§10/§11、《代码评审报告》、《综合落地方案》。
+> 2026-09-20 逐条对照 v3.18.4 代码筛除已落地项后并入本节。原手记已从仓库根移除，存底：`.workbuddy/archive/20260920-ewr-sessions/`。
+> **已落地、不再重复**：Phase 0/1 设计 token（v3.12.1）、运营驾驶舱（v3.11.0）、评论分页与「加载更多」（UI清单 10.1，`api/posts.py::post_comments`）、Flask-Migrate（`myblog/migrations/`）、`admin.py` 拆分（v3.18.1，现 `myblog/admin/` 20 模块）、CI（`.github/workflows/ci.yml`）、社交分享按钮（`SharePanel.vue`，Web Share API）、站内 @ 通知、备份 verify/restore/恢复前快照/滚动保留、测试补足（现 16 文件 / 99 passed）。
+
+### 5.1 运营与分发（P1）
+
+- **HTML 富文本邮件模板**：`mail_notify.py:_build_mail()` 的纯文本拼接改为服务端渲染 Jinja 模板（封面 / 摘要 / 阅读按钮 / 退订链接）。沿用 `clean_html` 白名单防 XSS，保留 `_fill_unsub` 退订 token 逻辑。
+- **A4 补强 · 被 @ 后邮件提醒**：站内 @ 通知已实现（`api/posts.py` `notify_mentioned`），缺的是叠加一封邮件（复用现有 SMTP）。
+- **周报 / 月报 Digest**：新增 `myblog/tasks/digest.py` + 后台「Digest 设置」（频率 / 开关）；复用现有后台线程模型聚合近 7/30 天热门文章群发，**不引 celery**；SMTP 未配置则跳过（降级范式）。
+- **送达 / 退订追踪**：发送结果落库（成功 / 失败 / 退订事件），驾驶舱展示送达率与退订率。**需新表 → 走 Flask-Migrate**。
+- **推送编排（多渠道 + 重试）**：把邮件并入 `notify_new_post()` 同一「发布编排」入口，发布时 TG + 企微 + 邮件三渠道并行；`try/except 静默跳过` 升级为指数退避重试 3 次，全失败才记日志；送达状态与上一项打通。红线：外部请求走限流，Webhook / Token 只走环境变量、绝不入明文。
+
+### 5.2 统计深度（P1）
+
+- **趋势环比**：PV / UV / 评论 / 订阅按日 / 周 / 月聚合 + 前端对比图。
+- **来源渠道**：记录并展示 `referer`（仅存字符串，不涉及 SSRF）。
+- **设备 / 浏览器分布**：复用 `utils.parse_device`。
+- **实时在线**：基于最近 N 分钟活跃会话（沿用 `visit_log`）。
+- **导出 CSV**：后台统计页加「导出」，沿用审计日志 CSV 的公式注入防护（对 `= + - @` 前缀单元格加前缀）。
+
+### 5.3 互动与留存（P2）
+
+- **读者积分 / 勋章 + 月度读者榜**：新增 `UserPoint` / `Medal` 表 + 行为触发（评论 / 留言 / 连续访问），前台勋章墙与榜单。**需新表**。（注：现有「成就徽章」在年度回顾页 `AnnualView.vue` 内，与此不是一回事。）
+- **评论精选 / 置顶**：评论加 `featured` 字段，详情页置顶展示「精选评论」。
+- **评论排序切换 + 嵌套深度封顶**：排序支持「时间 / 点赞数」；嵌套默认 4 层，超出折叠为「继续回复」。（分页已落地，本项为余下部分。）
+- **评论 / 留言内容审核增强**：敏感词过滤、图片验证码（「先审后发」已有开关）。
+- **搜索历史**：前端 `localStorage` 记最近 N 条搜索词，搜索框下拉展示；不入库、不跨设备。
+
+### 5.4 SEO / 拉新（P2）
+
+- **新文自动 ping**：发布时 ping 百度 / Google / Bing，复用 `feed_agg` 的 SSRF 防护与超时机制，禁止内网。
+- **结构化数据增强**：JSON-LD 增补 FAQ、Breadcrumb（在现有 JSON-LD 基础上扩展）。
+- **Canonical URL + 自动元描述**：补 `<link rel="canonical">`；`seo_description` 留空时自动截取正文前 N 字，不覆盖手动填写。
+- **分享卡片模板库**：多平台 OG 模板（微信 / 微博 / X）可选。
+- **Atom feed**：补 `/feed.atom`（RSS 2.0 已有 `/feed.xml` 与 `/feed/comments`）。
+
+### 5.5 内容运营（P2）
+
+- **内容日历**：基于已有 `scheduled_at` 定时发布能力，前端加「日历视图」编排草稿发布计划（纯前端聚合 `/api/posts?status=draft|scheduled`），不引新后端逻辑，仅可视化。
+- **内容多语言**：同一 slug 维护 zh / en 两版正文（**内容**多语言；界面 zh / en 切换已实现，勿混淆）。需新表。
+- **图片 CDN**：新增可配置 `CDN_BASE_URL`，上传转码后回写带前缀的 URL；未配置则走本地（现为本地存储 + WebP 转码，`app.py:maybe_convert_webp`）。
+
+### 5.6 工程 / 运维 / 安全（P2）
+
+- **两步验证 2FA**：TOTP（`pyotp`，可选依赖，未安装则后台「安全设置」隐藏该项）；登录二次校验，不影响现有会话范式。
+- **第三方登录 OAuth（GitHub / Google）**：**不得破坏**现有会话 / CSRF / 限流 / 验证码范式；未配置 ClientID / Secret 时不显示该按钮。
+- **运维可观测**：可选 APM（如 Pyroscope）、日志聚合、错误跟踪（Sentry 类），未配置则跳过；存活监控见 `UPTIME_MONITOR.md`。
+- **备份自动巡检**：`backup.py verify` 与恢复前快照已有，缺「定时自动校验可恢复性」。（滚动保留已由 `RETENTION_DAYS` 实现。）
+- **配置版本控制**：`log_audit` 已记变更，可扩展为配置快照并支持回滚到历史配置。
+- **骨架屏 / 首屏预加载**：补 `UiSkeleton`（列表 / 文章页骨架占位）；首屏关键 CSS 与头图加 `preload`。
+- **前端组件库（UI清单 Phase 2–4）**：前后台统一 class 的 `UiButton` / `UiCard` / …、视觉升级、后台组件化重写——按需，非当前重点。
+- **PWA / 离线缓存**：锦上添花，暂无计划。
+
+### 5.7 落地原则（本节所有条目前置约束）
+
+- 新依赖必须**可选 + 不可用时静默退化**，不引硬依赖（PostgreSQL / ES / Celery / Redis 一律排除；Redis 缓存已于 v3.10.7 用数据否决并回滚）。
+- 涉及新表先走 Flask-Migrate，不手写 `_migrate_*`。
+- 数据库表结构能不改就不改，能走 `log_audit` 优先走审计表。
+
+### 5.8 第三方独立审计延后批次（2026-09-20 · 基线 v3.18.4）
+
+> 来源：一份针对 tag `v3.18.4` 的第三方独立静态审计报告（8 章 / 240 文件 / 17,490 行 Python）。
+> **第 1 章 8 项 P0 已于 v3.18.5 全部修复**（见 `CHANGELOG.md` v3.18.5 与 `SECURITY_AUDIT.md` R85）。
+> 下列为报告第 2~8 章中**改动面大或需外部决策**的部分——按报告自身建议「逐批投喂」，不混进补丁版。
+
+- **更新链完整性校验 fail-open（报告判为全仓最高风险，等价 RCE 通道）**：`sha256.txt` 与 zip 走同一 `gh_fetch` 通道（且会自动降级到 `ghfast.top` / `gh-proxy.com` 等第三方镜像），四处 `⚠️ + return 0` 的 fail-open 任一处即可静默关掉校验，HMAC 还只在首行以 `HMAC ` 开头时才校验（删首行即关闭签名），「双源互证」与 zip 同源属自指。**需先决策**签名私钥托管方式（minisign / cosign / gitsign）与发布工作流改造，再动脚本。
+- **双前端结构**：生产 Nginx 只反代 `/api/` `/admin` `/static/` 与 feed/sitemap/robots，其余走 `try_files … /index.html` → `routes.py` 的 9 个公共 SSR 页面（含服务端 JSON-LD/OG）**永远收不到流量**，README 宣传的 SEO 能力对百度/搜狗/微信等不执行 JS 的抓取等于不存在。**需产品决策**：退役公共 SSR（保留 `/login` 与 feed/sitemap/robots）还是给 `/post/*` 做构建期预渲染。
+- **性能批次**：`post` / `comment` / `notification` / `visit_log` 等热表**零索引**（全模型仅 1 条显式 `db.Index` + 10 处 `index=True`，且全在日志表）；`joinedload|selectinload|load_only` 全仓 **0 次**、`.all()` 85 处；`inject_globals` 每次模板渲染固定 8 条查询；全站无 ETag / Cache-Control。
+- **请求路径内的同步外网调用**：Telegram 推送（保存文章固定慢 6~12s）、游戏 LLM 审计（120s）、`/api/weather`（7s/5s 串行）、地域 JSON（30s）、RSS 聚合（12s × N 源串行）、图片转码、`scp`/`curl` 备份（300s）。叠加默认 **sync worker** → 两三个慢请求即整站 502；`gunicorn_conf.py` 缺失、`/static/` 经 Flask 出且无 gzip/expires。
+- **运维可观测性**：`print(` 87 处 vs `import logging` 1 个文件；`except Exception` 235 处（约 84 处只 `pass`）；无 `request_id` / Sentry / 指标 / `/health` 端点；`diagnostics.py` 是人工触发的拉取式体检、无历史无告警。
+- **前端质量 / a11y / SEO 细节**：全站零 `aria-live`、无 skip-link、每页 2 个 `<main>`、灯箱无 `role="dialog"`、表单 placeholder-only 无 `label`；4 组 token 对比度 < 4.5:1 且 `derive_dark` 无 WCAG 校验；`v-html` 未统一 `sanitizeHtml`（hljs 复写 innerHTML 后无二次清洗）；IntersectionObserver 与 scroll/resize 监听器未清理；22 个后台表格模板仅 2 个写了 `data-label`；`vite.config.js` 只有 `outDir`、构建目录名与版本号耦合（`_vite_build30`）。
+- **工程化**：CI 只有 `test + build`（无 lint / 覆盖率 / CVE 扫描 / CodeQL / gitleaks / dependabot / release 工作流）；`npm install` 未改 `npm ci`；无 `pyproject.toml` / `ruff` / `mypy`（**第 1 章一半缺陷 ruff 一条规则即可拦住**）；Python 单版本无矩阵；`verify_package_checksums.py` 与 `tools/check_i18n.py` 从未在 CI 跑。
+- **文档与仓库卫生**：文档 760 KB 入库（`SECURITY_AUDIT.md` 342 KB / `CHANGELOG.md` 134 KB / `ROADMAP.md` 116 KB）会吃光 LLM 上下文；版本号 5+ 处复制且 `update.sh` 用正则强绑 `APP_VERSION = "x.y.z"` 字面写法；3 份一次性审查文档常驻；`LICENSE` ×3；`deploy_guide.md` 让执行 `python tools/seed_games.py`（实际在 `myblog/tools/`）；311 处 `v3.x.y` 注释版本戳。
+- **结构**：`create_app()` 373 行上帝函数；`admin/_helpers.py` 用 `globals()` 拼 `__all__` + `import *` 全量灌命名空间（静态检查看不见）；调度线程随 gunicorn worker 数翻倍（N worker = N 线程，同一篇定时文章并发发布 + N 倍推送）；Alembic 基线是假的（`upgrade()` 直接 `db.create_all()`）+ 9 个手写 `_migrate_*` → **两份 schema 真相源**；`Setting` KV 被 UGC 当表用（每条评论一行 `react_<id>`）却有 6 处全表加载；226 处函数级 import 硬扛循环依赖。
 
 ---
 
@@ -862,3 +933,4 @@ v3.1.7 修复 CSRF 隐藏域乱码后，用户反馈「退出登录按钮失效�
 - v3.18.1 **超长文件拆分（纯重构，公共 API 与路由零变更）**：`utils.py`（784 行）→ `myblog/utils/` 包（timeutil / render / net / slug / text / security / settings / web，`__init__.py` 全量重导出 44 名含私有名 → 27 个导入点零改动）；`admin/posts.py`（852 行 / 26 路由）→ post_editor / post_manage / post_trash / post_history / taxonomy（同一 `admin_bp`、函数名不变 → endpoint 与 `url_for` 不受影响）。验证：逐名 `ast.dump` 等价性（44/44 + 31/31，0 结构差异）+ endpoint 守恒（26 条全在、99 处 `url_for` 可解析）+ 113 passed。最大文件 852/784 → 448/294 行。**技术债① 关闭**。
 - v3.18.3 **移除内置插件 `page_translate` + 恢复核心中英切换**：删除插件后端目录与前端远程组件，`ENABLED_PLUGINS` 默认值恢复为空（插件框架全保留）；同时把 v3.18.0 移除的核心 i18n 逐字节还原（`store.js` / `App.vue` / `global.css`）。验证 99 passed。
 - v3.18.4 **补齐核心 i18n**：导航 `回顾/社交/游戏` 三项接入词典（原先硬编码 → 导航不再中英混排）；抽屉/顶栏（后台·写文章·退出·登录·注册·主题）、通知面板、回到顶部与各 `aria-label` 全部接入；消除 `admin`/`write`/`search_placeholder` 3 个死键；修正语言按钮 tooltip 错绑。词典 **17 → 31 键（实际使用=31，0 死键/0 缺失）**。范围限导航与公共部件。验证 99 passed。
+- v3.18.5 **第三方独立审计 P0 批次**：修复 8 项「现在就是坏的」缺陷（`redirect` 未导入致会话失效 500 / 前台登录不写 `session_version` / `cli` 命令在 `return app` 后成死代码 / `/api/review/annual` 泄露隐私与回收站文章 / `/api/ai/summary` 无可见性过滤 / Markdown 表格被 bleach 剥空 / 零错误处理器 / 测试污染真实开发库），附带修审计 IP 可伪造、`?category_id=abc` 500、未鉴权接口回显 `str(e)`，并把全站时间展示口径落实到 7 处 Jinja 模板与 `/api/games`。安全审计见 SECURITY_AUDIT **R85**。验证 **112 passed**（+13 条回归），开发库零变化，前端产物零变化。

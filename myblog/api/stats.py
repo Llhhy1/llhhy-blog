@@ -2,7 +2,7 @@
 """
 
 
-from flask import request, jsonify
+from flask import request, jsonify, current_app
 
 from .common import (api_bp, rate_limit, client_key, Post)
 import stats  # 顶层 stats 模块（myblog/stats.py）：record_visit / record_search / record_read / compute_summary / compute_trend / client_ip
@@ -123,8 +123,14 @@ def stats_dashboard():
         if range_days not in (7, 30, 90):
             range_days = 30
         return jsonify(stats.compute_dashboard(range_days=range_days))
-    except Exception as e:
-        return jsonify({"error": "dashboard_failed", "detail": str(e)}), 500
+    except Exception:
+        # v3.18.5：本接口未鉴权，原实现把 str(e) 回给调用方属信息泄露
+        # （可暴露库结构/文件路径）。异常详情只写日志，对外给不透明错误码。
+        try:
+            current_app.logger.exception("stats dashboard 聚合失败")
+        except Exception:
+            pass
+        return jsonify({"error": "dashboard_failed"}), 500
 
 
 @api_bp.route("/stats/trend")

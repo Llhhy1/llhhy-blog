@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="robots" content="noindex">
+  <title>{% block err_title %}{{ error_code }} · {{ error_text }}{% endblock %}</title>
+  <style>
+    :root { color-scheme: light dark; }
+    body { margin: 0; min-height: 100vh; display: flex; align-items: center; justify-content: center;
+           font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+           background: #f7f8fa; color: #1f2328; }
+    .err-wrap { text-align: center; padding: 32px 24px; max-width: 460px; }
+    .err-code { font-size: 72px; font-weight: 700; line-height: 1; color: #1a73e8; margin: 0 0 12px; }
+    .err-text { font-size: 17px; margin: 0 0 24px; color: #4a5056; }
+    .err-actions { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
+    .err-actions a { display: inline-block; padding: 9px 18px; border-radius: 8px; text-decoration: none;
+                     background: #1a73e8; color: #fff; font-size: 14px; }
+    .err-actions a.ghost { background: transparent; color: #1a73e8; border: 1px solid #c8d2e0; }
+    @media (prefers-color-scheme: dark) {
+      body { background: #1d2025; color: #e6e8eb; }
+      .err-text { color: #a9b0b8; }
+      .err-actions a.ghost { border-color: #3a3f46; }
+    }
+  </style>
+</head>
+<body>
+  <div class="err-wrap">
+    <p class="err-code">{% block err_code %}{{ error_code }}{% endblock %}</p>
+    <p class="err-text">{% block err_text %}{{ error_text }}{% endblock %}</p>
+    <div class="err-actions">
+      {% block err_actions %}
+      <a href="/">返回首页</a>
+      <a class="ghost" href="javascript:history.back()">回到上一页</a>
+      {% endblock %}
+    </div>
+  </div>
+</body>
+</html>

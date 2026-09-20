@@ -17,6 +17,7 @@ from flask import jsonify, request, current_app, send_file
 
 from .common import api_bp, db
 from models import Game
+from utils import fmt_bj
 
 GAMES_ROOT = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data", "games")
 
@@ -45,7 +46,9 @@ def _game_json(g, detail=False):
         "slug": g.slug, "title": g.title, "cover": g.cover,
         "entry": g.entry, "author": g.author, "version": g.version,
         "description": g.description or "",
-        "updated": (g.updated_at or g.created_at).strftime("%Y-%m-%d"),
+        # v3.18.5：原为 .strftime()，直接把库里存的 naive UTC 打给前台（游戏更新时间差 8 小时）。
+        # 统一走全站口径 fmt_bj（北京时间；空值返回空串，不再可能 AttributeError）。
+        "updated": fmt_bj(g.updated_at or g.created_at, "%Y-%m-%d"),
     }
     if detail:
         d["size"] = g.size

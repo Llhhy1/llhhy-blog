@@ -18,7 +18,7 @@
   <article class="post-detail">
     <h1>{{ post.title }}</h1>
     <div class="post-meta">
-      <span>{{ post.created_at.strftime('%Y-%m-%d %H:%M') }}</span>
+      <span>{{ post.created_at | bj('%Y-%m-%d %H:%M') }}</span>
       {% if post.category %}<span>· <a href="{{ url_for('main.category', slug=post.category.slug) }}">{{ post.category.name }}</a></span>{% endif %}
       <span>· {{ post.views }} 阅读</span>
     </div>
@@ -42,7 +42,7 @@
       <div class="comment">
         <div class="comment-meta">
           {% if c.email_hash %}<img src="https://cn.cravatar.com/avatar/{{ c.email_hash }}?d=mp&s=40" class="comment-avatar" alt="" style="width:40px;height:40px;border-radius:50%;vertical-align:middle;margin-right:6px;">{% endif %}
-          <strong>{{ c.author }}</strong> · <span>{{ c.created_at.strftime('%Y-%m-%d %H:%M') }}</span>
+          <strong>{{ c.author }}</strong> · <span>{{ c.created_at | bj('%Y-%m-%d %H:%M') }}</span>
         </div>
         <p>{{ c.content }}</p>
       </div>

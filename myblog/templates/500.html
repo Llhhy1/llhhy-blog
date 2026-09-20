@@ -1,0 +1,7 @@
+{% extends "_error_base.html" %}
+{% block err_title %}500 · 服务器内部错误{% endblock %}
+{% block err_text %}服务器出了点问题，这次访问已记入日志。请稍后重试。{% endblock %}
+{% block err_actions %}
+<a href="/">返回首页</a>
+<a class="ghost" href="javascript:location.reload()">重新加载</a>
+{% endblock %}

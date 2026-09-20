@@ -4,13 +4,15 @@
 - 列出全部已发布文章的摘要状态；单篇生成 / 重新生成 / 手动编辑 / 清除；批量补齐（限 3 篇/次，防请求超时）。
 - LLM 复用「游戏收录」的 OpenAI 兼容配置（games_llm_*），本页只读展示状态；提示词与 API 共用同一常量。
 - 摘要仍存 Setting KV（ai_summary_<id> / ai_tags_<id>），前台展示逻辑不变、零表结构变更。
-- 全部写操作 admin_required + log_audit。
+- 全部写操作 super_required + log_audit。
+  v3.18.5：本页从 @super_required 提权为 @super_required——它会调用管理员自设的
+  LLM Base 并外发正文，属敏感配置（与备份 / MCP / SMTP 同级），普通管理员不应触及。
 """
 from flask import request, render_template, redirect, url_for, flash
 
 from models import db, Post, Setting
 from utils import get_setting
-from ._helpers import admin_bp, admin_required, log_audit, _current_user_or_none
+from ._helpers import admin_bp, super_required, log_audit, _current_user_or_none
 from api.ai import _llm_chat, _setting_get, _setting_set, AI_SUMMARY_SYSTEM, AI_SUMMARY_USER_TMPL
 
 
@@ -47,7 +49,7 @@ def _generate_for(post):
 
 
 @admin_bp.route("/ai-summary")
-@admin_required
+@super_required
 def ai_summary():
     posts = Post.query.filter_by(published=True).order_by(Post.id.desc()).all()
     rows = [{"p": p, "summary": _summary_of(p.id), "tags": _tags_of(p.id)} for p in posts]
@@ -63,7 +65,7 @@ def ai_summary():
 
 
 @admin_bp.route("/ai-summary/generate/<int:post_id>", methods=["POST"])
-@admin_required
+@super_required
 def ai_summary_generate(post_id):
     p = db.session.get(Post, post_id)
     if not p:
@@ -78,7 +80,7 @@ def ai_summary_generate(post_id):
 
 
 @admin_bp.route("/ai-summary/batch", methods=["POST"])
-@admin_required
+@super_required
 def ai_summary_batch():
     """批量补齐：每次最多 3 篇（LLM 同步调用，防请求超时）；多次点击直至全覆盖。"""
     posts = Post.query.filter_by(published=True).order_by(Post.id.desc()).all()
@@ -104,7 +106,7 @@ def ai_summary_batch():
 
 
 @admin_bp.route("/ai-summary/save/<int:post_id>", methods=["POST"])
-@admin_required
+@super_required
 def ai_summary_save(post_id):
     text = (request.form.get("summary") or "").strip()
     tags = (request.form.get("tags") or "").strip()
@@ -118,7 +120,7 @@ def ai_summary_save(post_id):
 
 
 @admin_bp.route("/ai-summary/clear/<int:post_id>", methods=["POST"])
-@admin_required
+@super_required
 def ai_summary_clear(post_id):
     n = 0
     for k in ("ai_summary_%d" % post_id, "ai_tags_%d" % post_id):

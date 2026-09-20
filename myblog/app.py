@@ -3,18 +3,17 @@
 - app = create_app(): 模块加载时直接创建实例，方便 `flask run` / gunicorn 启动
 """
 import os
-import re
 import datetime
 
-from flask import Flask, render_template, request, session, jsonify
-from werkzeug.security import generate_password_hash
+from flask import (Flask, render_template, request, session, jsonify,
+                   redirect, url_for)
 
 from models import (db, Post, Category, Tag, Comment, FriendLink, Setting, User,
                    ROLE_SUPER, Moment, MomentComment, SocialAccount,
                    Series, Announcement, Guestbook, Subscriber, Notification,
                    AuditLog, RecycleBin, LinkApplication, PostHistory,
                    visible_posts_query)
-from utils import make_slug
+from utils import make_slug, safe_redirect
 from routes import main_bp
 from admin import admin_bp
 from api import api_bp
@@ -399,7 +398,38 @@ def _ensure_super_admin(app):
     print(f"已创建唯一超级管理员账号: {username}（首次登录后台需设置新用户名/密码）")
 
 
-def create_app():
+_HTTP_ERROR_TEXT = {
+    400: "请求参数有误",
+    403: "没有访问权限",
+    404: "页面或资源不存在",
+    405: "请求方法不被允许",
+    422: "请求内容无法处理",
+    500: "服务器内部错误",
+}
+
+
+def _http_error_text(code):
+    """把 HTTP 状态码翻成面向用户的中文短句（错误页与 JSON 信封共用）。"""
+    return _HTTP_ERROR_TEXT.get(code, "请求失败")
+
+
+def _is_json_client():
+    """当前请求是否应返回 JSON 错误而非 HTML 错误页。
+
+    - `/api/*` 与 MCP 端点（`/mcp`、`/mcp-write`）：客户端本来就是 JSON 协议；
+    - 其他路径仅在显式只接受 JSON（Accept 含 application/json 且不含 text/html）时。
+    """
+    try:
+        path = request.path or ""
+    except Exception:
+        return False
+    if path.startswith("/api/") or path in ("/mcp", "/mcp-write"):
+        return True
+    acc = (request.headers.get("Accept") or "").lower()
+    return "application/json" in acc and "text/html" not in acc
+
+
+def create_app(enable_scheduler=True):
     app = Flask(__name__)
     app.config.from_object("config.Config")
 
@@ -415,8 +445,9 @@ def create_app():
             "  export ADMIN_PASSWORD=$(python -c 'import secrets;print(secrets.token_hex(16))')"
         )
 
-    # 把管理员密码预先哈希，登录时比对哈希值（不存明文）——旧版兼容保留
-    app.config["ADMIN_HASH"] = generate_password_hash(app.config["ADMIN_PASSWORD"])
+    # v3.18.5：删除残留的 app.config["ADMIN_HASH"]。它全仓无任何读取方，且每次启动
+    # 白算一次 scrypt；密码校验一律走 User.check_password()。ADMIN_PASSWORD 仍由
+    # _ensure_super_admin() 在建库首次创建超管时使用，故保留在 config 中。
 
     # v3.9.1：SQLite WAL + busy_timeout（必须在建连/建表之前装好监听）
     _install_sqlite_pragmas()
@@ -463,7 +494,6 @@ def create_app():
     # v3.1.6：安全响应头（X-Frame-Options / CSP / X-Content-Type-Options / Referrer-Policy）
     if app.config.get("SECURITY_HEADERS", True):
         from security import security_headers as _sec_headers
-        _orig_after = app.after_request_funcs.get(None)
         @app.after_request
         def add_security_headers(resp):
             _sec_headers(resp)
@@ -538,13 +568,13 @@ def create_app():
             session.clear()
             if request.path.startswith("/api/"):
                 return jsonify({"error": "账号不存在，请重新登录"}), 401
-            return redirect("/login?next=" + request.path)
+            return redirect(safe_redirect(url_for("main.login", next=request.path)))
         sess_ver = session.get("session_version", 0)
         if sess_ver != (u.session_version or 0):
             session.clear()
             if request.path.startswith("/api/"):
                 return jsonify({"error": "登录已失效（密码已更改或已被管理员踢下线），请重新登录"}), 401
-            return redirect("/login?next=" + request.path)
+            return redirect(safe_redirect(url_for("main.login", next=request.path)))
         return None
 
     # v3.1.6：闲置会话超时（可选）——SESSION_IDLE_MINUTES 分钟内无活动则清除登录态。
@@ -568,7 +598,7 @@ def create_app():
                 session.clear()
                 if request.path.startswith("/api/"):
                     return jsonify({"error": "会话已超时，请重新登录"}), 401
-                return redirect("/login?next=" + request.path)
+                return redirect(safe_redirect(url_for("main.login", next=request.path)))
         session["last_active"] = now.isoformat()
         return None
 
@@ -723,18 +753,7 @@ def create_app():
                 # 单轮异常不致命，下一轮继续；打印便于排查
                 print("[定时发布线程] 异常（已忽略，继续下一轮）:", e)
 
-    import threading as _threading
-    _sched_thread = _threading.Thread(target=_scheduler_loop, name="scheduled-publish", daemon=True)
-    _sched_thread.start()
-
-    return app
-    def init_db_command():
-        """初始化数据库：flask init-db"""
-        db.create_all()
-        _ensure_settings(app)
-        _ensure_super_admin(app)
-        print("数据库已初始化。")
-
+    # v3.18.5：CLI 命令必须在 return 之前注册，否则永不生效（此处曾是 return 之后的死代码）。
     @app.cli.command("seed")
     def seed_command():
         """插入示例数据：flask seed（仅首次演示用）"""
@@ -770,6 +789,50 @@ def create_app():
         db.session.add(FriendLink(name="WorkBuddy", url="https://www.workbuddy.cn", description="你的 AI 助手", sort=0))
         db.session.commit()
         print("已插入示例文章、分类、标签和一条友情链接。")
+
+    # v3.18.5：统一错误处理——/api/ 前缀返回 JSON 信封，其余返回模板页。
+    # 修复前全仓 0 个 errorhandler，first_or_404() 对 JSON 客户端返回 Werkzeug
+    # 默认 HTML 错误页，前端 resp.json() 解析失败，用户只看到「网络错误」。
+    def _render_error_page(code):
+        """渲染错误页；模板渲染本身再失败（如上下文处理器因库故障抛错）时兜底纯 HTML。"""
+        text = _http_error_text(code)
+        tpl = {404: "404.html", 403: "403.html", 500: "500.html"}.get(code, "error.html")
+        try:
+            return render_template(tpl, error_code=code, error_text=text), code
+        except Exception:
+            return ("<!doctype html><html lang=\"zh-CN\"><meta charset=\"utf-8\">"
+                    "<title>%d</title><h1>%d</h1><p>%s</p>"
+                    "<p><a href=\"/\">返回首页</a></p></html>"
+                    % (code, code, text)), code
+
+    @app.errorhandler(400)
+    @app.errorhandler(403)
+    @app.errorhandler(404)
+    @app.errorhandler(405)
+    @app.errorhandler(422)
+    def _handle_client_error(e):
+        code = getattr(e, "code", 500) or 500
+        if _is_json_client():
+            return jsonify({"error": _http_error_text(code)}), code
+        return _render_error_page(code)
+
+    @app.errorhandler(500)
+    def _handle_server_error(e):
+        # 原始异常交给 Flask 记录（含 traceback），对外只回不透明信息，避免泄露内部细节。
+        try:
+            app.logger.exception("未捕获的服务端异常: %s", e)
+        except Exception:
+            pass
+        if _is_json_client():
+            return jsonify({"error": "服务器内部错误，请稍后重试"}), 500
+        return _render_error_page(500)
+
+    # v3.18.5：测试可传 enable_scheduler=False 关掉定时发布线程
+    # （原实现每个 create_app() 都起一个守护线程 → 99 个测试最多 99 个后台线程）。
+    if enable_scheduler:
+        import threading as _threading
+        _sched_thread = _threading.Thread(target=_scheduler_loop, name="scheduled-publish", daemon=True)
+        _sched_thread.start()
 
     return app
 

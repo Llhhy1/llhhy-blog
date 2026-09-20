@@ -23,7 +23,7 @@
           <td>{{ { 'pending':'待审','approved':'已上架','rejected':'已驳回','removed':'已下架' }.get(g.status, g.status) }}</td>
           <td>{{ g.audit_score if g.audit_score is not none else '-' }}</td>
           <td>{{ g.file_count }}</td>
-          <td>{{ (g.created_at.strftime('%Y-%m-%d %H:%M') if g.created_at else '') }}</td>
+          <td>{{ g.created_at | bj('%Y-%m-%d %H:%M') }}</td>
           <td>
             <div class="row-ops">
             {% if g.status == 'pending' %}

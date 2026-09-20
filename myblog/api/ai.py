@@ -15,7 +15,7 @@ import urllib.request
 from flask import request, jsonify, session
 
 from .common import api_bp
-from models import db, Post, Setting, User
+from models import db, Post, Setting, User, visible_posts_query
 from utils import get_setting, rate_limit
 from backup_settings import decrypt_secret
 
@@ -83,7 +83,14 @@ def _llm_chat(system, user, timeout=90):
 
 @api_bp.route("/ai/summary/<slug>", methods=["GET"])
 def ai_summary_get(slug):
-    p = Post.query.filter_by(slug=slug).first()
+    # v3.18.5：可见性过滤。原实现是 Post.query.filter_by(slug=slug)，
+    # 不含 published / in_trash / is_private 任何判定 → 任意 slug（含草稿、
+    # 回收站、隐私空间）都能读到 ai_summary_<id> / ai_tags_<id>，
+    # 构成「普通管理员/匿名访客读取超管私密文章摘要」的信息泄露通道。
+    # 现统一走全站唯一真相源：匿名与普通用户看不到隐私文章，超管可见。
+    uid = session.get("user_id")
+    user = db.session.get(User, uid) if uid else None
+    p = visible_posts_query(user=user).filter_by(slug=slug).first()
     if not p:
         return jsonify({"error": "文章不存在"}), 404
     return jsonify({

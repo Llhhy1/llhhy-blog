@@ -376,6 +376,12 @@ supervisorctl status
 
 > ⚠️ **服务器上的 `update.sh` / `deploy.sh` 也务必与最新 Release 同版**：脚本经历过「假成功不覆盖 / 校验误报 / 无法自动重启」多轮加固，升级前先从最新 Release 覆盖一次脚本，再跑一键更新。
 
+> **v3.18.8（修复 v3.18.7 的验签顺序缺陷）升级要点**：**仍需先覆盖部署脚本再做更新**（本轮改的依然是 `update.sh`）。
+> - **必须用本 Release 的 `deploy_scripts_v3188fix.zip`**，不要用 v3.18.7 的那个——v3.18.7 的脚本有个顺序缺陷：工作目录 `/tmp/llhhy_update` 跨轮复用且不清校验清单，会把上一轮遗留的 `sha256.txt` 跟本轮的 `sha256.txt.sig` 配对比对，**必然验签失败**（实测首次跑就 BAD；站点不会受影响，脚本在覆盖代码前就被拦住）。
+> - 若你从未覆盖过 v3.18.7 的脚本（即服务器上一直是旧版 update.sh），直接用本 Release 的 `deploy_scripts_v3188fix.zip` 覆盖即可，一步到位。
+> - **本次更新前后的行为差异**：脚本会自动清理工作目录里的旧清单与旧包，无需你手动 `rm -rf /tmp/llhhy_update`（想手动清也无害）。
+> - 其余（签名机制、`RELEASE_PUBKEY` / `ALLOW_UNSIGNED` / `ALLOW_DOWNGRADE` / `GH_MIRROR`、自建发布者流程）同 v3.18.7，见上一节。
+
 > **v3.18.7（更新链 fail-closed + Ed25519 发布物签名）升级要点**：**本轮改的是部署脚本自身**，而 `update.sh` / `deploy.sh` **不在** `myblog-backend.zip` 里 —— 必须**先单独覆盖脚本**。
 > - **升级顺序**：① 从本 Release 下载 `deploy_scripts_v3187fix.zip`，解压覆盖 `/www/wwwroot/myblog/update.sh` 与 `deploy.sh`（保持 **LF 行尾**，`chmod +x`）；② 再跑 `bash /www/wwwroot/myblog/update.sh`。顺序反了**不会坏**——旧脚本仍能装上 v3.18.7 的后端代码，只是那一刻生效的仍是旧（fail-open）校验；覆盖脚本后下次更新才走新逻辑。
 > - **行为变化（预期内）**：更新**默认要求 Release 带 `sha256.txt.sig` 且验签通过**，否则**终止更新**；不再自动兜底第三方公共镜像（ghfast / gh-proxy / ghproxy）——若你的服务器访问不了 GitHub，请**显式**设 `GH_MIRROR="https://你自己的代理/"`；远端版本不高于本地时不再重复覆盖（同版本收工，更低版本需 `ALLOW_DOWNGRADE=1`）。

@@ -81,6 +81,21 @@ def test_deploy_sh_is_thin_delegate():
         assert p not in s, "deploy.sh 出现 fail-open 措辞：%r" % p
 
 
+def test_stale_workdir_files_are_cleaned():
+    """v3.18.8：$WORK 跨轮复用，旧的 sha256.txt 必须清掉。
+
+    实测教训：v3.18.7 上线时，第一轮更新遗留的 `/tmp/llhhy_update/sha256.txt` 被拿来
+    跟新一版的 `sha256.txt.sig` 配对比对 → 必然验签失败（虽然 fail-closed 正确地拦住了
+    安装，站点未受影响，但更新被无谓地阻断）。所以「先清旧清单再下载」必须固化。
+    """
+    s = _read(UPDATE_SH)
+    assert 'rm -f "$WORK"/sha256.txt' in s, "缺少工作目录里旧清单的清理（会导致跨轮验签失败）"
+    assert "rm -f sha256.txt sha256.txt.sig" in s, "验签前未丢弃旧清单"
+    # 验签函数内部必须自己下载清单（不能依赖调用方先下载）
+    assert 'gh_fetch "$CHECKSUM_URL" "sha256.txt"' in s
+    assert 'gh_fetch "$SIG_URL" "sha256.txt.sig"' in s
+
+
 def test_scripts_are_lf_only():
     """服务器上 CRLF 的 bash 脚本会直接语法报错（历史事故）。"""
     for p in (UPDATE_SH, DEPLOY_SH):

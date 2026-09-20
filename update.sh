@@ -71,6 +71,9 @@ cd "$WORK"
 # 清理历史残留解压目录（尽力而为；v3.4.4 起解压目录带 $TS 唯一后缀，不再复用固定名）
 rm -rf "$WORK"/backend_extract "$WORK"/frontend_extract \
        "$WORK"/backend_extract_* "$WORK"/frontend_extract_* 2>/dev/null || true
+# v3.18.8：工作目录跨轮复用，**校验清单与包也必须清掉**——否则上一轮遗留的 sha256.txt
+# 会与本轮的 sha256.txt.sig 配对比对，导致必然验签失败（v3.18.7 首次上线实测踩到）。
+rm -f "$WORK"/sha256.txt "$WORK"/sha256.txt.sig "$WORK"/backend.zip "$WORK"/frontend.zip 2>/dev/null || true
 
 log(){ echo "[$(date '+%F %T')] $*"; }
 
@@ -268,6 +271,17 @@ verify_release_signature() {
   if [ -z "${SIG_URL:-}" ]; then
     fail_exit "❌ 该 Release 未附带 sha256.txt.sig（发布物签名）。拒绝安装未经签名的包。若这是自建发布链，请用 v3.18.7+ 的 package.py 重新打包，或临时设 ALLOW_UNSIGNED=1。"
   fi
+  if [ -z "${CHECKSUM_URL:-}" ]; then
+    fail_exit "❌ 该 Release 未附带 sha256.txt，无法验签，拒绝安装。"
+  fi
+  # ⚠️ v3.18.8 修复：必须先**丢弃工作目录里的旧清单**再重新下载两者。
+  #    $WORK（/tmp/llhhy_update）在多轮更新之间是复用的，而脚本原先只清解压目录，
+  #    于是上一轮遗留的 sha256.txt 会跟这一轮的 sha256.txt.sig 配对比对 → 必然验签失败。
+  #    （v3.18.7 上线首次实测即踩到：第一次跑就 BAD。该次更新在覆盖代码**之前**就被拒绝，
+  #      站点未受任何影响——正是 fail-closed 应有的行为。）
+  rm -f sha256.txt sha256.txt.sig
+  gh_fetch "$CHECKSUM_URL" "sha256.txt" 2>/dev/null || \
+    fail_exit "❌ 校验清单 sha256.txt 下载失败，无法验签，拒绝继续。"
   gh_fetch "$SIG_URL" "sha256.txt.sig" 2>/dev/null || \
     fail_exit "❌ 签名文件 sha256.txt.sig 下载失败。拒绝继续。"
   [ -f sha256.txt ] || fail_exit "❌ 未取到 sha256.txt，无法验签。"

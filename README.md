@@ -2,7 +2,7 @@
 
 前后端分离的个人博客：**Flask** 后端（SSR + JSON API + 管理后台）+ **Vue3** 前端（SPA）。单仓库托管前后端代码、部署文档与安全报告。
 
-- 当前版本：**v3.18.7**
+- 当前版本：**v3.18.8**
 - **架构：单前端（v3.18.6）**。生产只有一套渲染器——**Vue SPA**。Nginx 只把 `/api/` `/admin` `/static/` `/mcp*` 与 `feed.xml` / `sitemap.xml` / `robots.txt` / `feed/comments` 反代给 Flask，其余路径由 SPA 兜底；`routes.py` 里原有的 8 个「页面级」SSR 路由（`/`、`/post/<slug>`、`/category/<slug>`、`/tag/<slug>`、`/search`、`/about`、`/links`、`/archive`）**已退役为 410 Gone**，7 个对应模板已删除（顶层模板只剩认证与错误页）。endpoint 名保留（`base.html` 的 `url_for` 依赖它们）；`/login` `/register` `/logout` 仍是 SSR，`/post/<slug>/comment` 与 `/post/<slug>/like` 两个 POST 入口保留。
 - **超长文件拆分（v3.18.1 · 纯重构，公共 API 与路由零变更）**：`myblog/utils.py`（784 行）拆成 `utils/` 包（`timeutil` / `render` / `net` / `slug` / `text` / `security` / `settings` / `web`，`__init__.py` 全量重导出，导入点零改动）；`admin/posts.py`（852 行 / 26 路由）拆成 `post_editor` / `post_manage` / `post_trash` / `post_history` / `taxonomy`（同一蓝图、URL 不变）。验证：逐名 `ast.dump` 等价性 + endpoint 守恒（99 处 `url_for` 全可解析）+ `113 passed`；最大文件 852/784 → 448/294 行。
 - **游戏平台（v3.15.0）**：前台「🎮 游戏」卡片厅 + 沙箱内播放（`iframe sandbox` + CSP，拿不到本站 Cookie/登录态/API，禁外联）；后台「游戏收录」上传 zip → 安全解包 + 静态扫描 → 审核上架，可配置 OpenAI 兼容大模型做代码安全审计（Key 加密）；内置官方《就是按一下》《就是开车》两枚荒谬马拉松；开发者接入文档 `/games/dev`。

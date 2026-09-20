@@ -2948,4 +2948,24 @@ git diff 计 **70 增 / 70 删**，`tokens.css` 定义**未被改动**。
 
 **R85 结论**：**0 遗留（本批次范围内）**。8 项 P0 全部核对复现并修复，3 处文档失真已更正，报告第 2~8 章明确延后并登记。
 
+---
+
+## R86 · 退役公共 SSR（v3.18.6）
+
+**范围**：`myblog/routes.py` 的 8 个页面级 SSR 路由改为 410 Gone（保留 endpoint 名）；删除 7 个死模板；`app.py` 的 `_HTTP_ERROR_TEXT` 增加 410 并注册 `errorhandler(410)`；清理 `routes.py` 6 个随之失效的导入。**无表结构变更、无新增依赖、无新增环境变量、前端未动。**
+
+### 86.1 七维复核
+
+- **攻击面（净减少）**：退役的 8 个路由原本承载大量 DB 查询与模板渲染（首页分页、文章页 + 评论全量加载 + JSON-LD/OG 拼装、分类/标签筛选、搜索 LIKE 查询、归档分组）。它们在生产从未被外部访问到（Nginx 不反代），因此退役**不改变线上暴露面**，但**移除了 8 个「一旦将来有人给这些路径加反代就会立刻生效」的未加固入口**——尤其 `/search` 的 `LIKE %q%` 全表扫描（无 FTS、无限流、无最小长度约束），以及文章页 `p.comments.filter_by(approved=True).all()` 的无分页全量加载（v3.18.5 修的是 API 侧分页，SSR 侧从未修）。
+- **信息泄露（净减少）**：文章页 SSR 会向匿名访客输出作者名、发布时间、评论者昵称与地域；退役后这些出口消失。JSON-LD/OG 的拼装代码一并移除，不再有 `seo_description`/`summary` 被写入结构化数据的路径。
+- **XSS**：退役后的 `/` 等路径走 `error.html`（只输出 `error_code`（int）与 `error_text`（服务端常量字典），无用户输入）；`base.html` / `login.html` / `register.html` 未改动；`DocsView.vue` 未改动。**无新增 XSS 面。**
+- **CSRF / 越权 / SQLi / SSRF / 密钥 / 限流**：未新增任何写端点、未新增出站请求、未新增 SQL 拼接、未新增密钥。保留的两个 POST 入口（`/post/<slug>/comment`、`/post/<slug>/like`）原本就有限流 + 验证码（comment）/ 限流（like），**未做任何放宽**。
+- **可用性风险（已核并规避）**：不能直接删路由——`base.html`（仍被 `/login`、`/register` 使用）里有 8 处 `url_for('main.post'|'main.archive'|…)`，删路由会让**登录页渲染 `BuildError`**，等于把用户锁在站外。故采用「路由保留、只换响应」。不做 302 → SPA 也是刻意的：Flask 路径与 SPA 路径同名，302 会让直接访问 `:8686` 的客户端自环。
+
+### 86.2 验证
+- **119 passed**（112 基线 + 7 条新增 `tests/test_ssr_retirement.py`）：8 个路径均 410；8 个 endpoint 名 `url_for` 恒等；`/login` `/register` 仍 200 且含中文文案；`/feed.xml` `/sitemap.xml` `/robots.txt` `/feed/comments` 仍 200；`/api/` 404 仍为 JSON；退役模板确已删除、认证与错误页未被误删。
+- `compileall -q myblog` 通过；`git status` 确认无 `data/`、`*.zip`、临时脚本混入。
+
+**R86 结论**：**0 遗留**。纯路由退役 + 死代码删除，安全面净减少，可用性风险（登录页 BuildError）已在设计阶段识别并规避。
+
 

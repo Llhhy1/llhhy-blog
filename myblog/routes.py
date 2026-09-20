@@ -9,10 +9,9 @@ from flask import (Blueprint, render_template, request, redirect, url_for,
                    abort, flash, current_app, Response, jsonify, session)
 from markupsafe import escape
 
-from models import db, Post, Category, Tag, Comment, Setting, User, ROLE_USER, visible_posts_query
-from utils import (make_slug, render_post_html, safe_redirect, rate_limit,
-                   client_key, validate_password, get_setting,
-                   fmt_bj, to_beijing, BEIJING_TZ, setting_bool as _setting_bool)
+from models import db, Post, Comment, Setting, User, ROLE_USER, visible_posts_query
+from utils import (safe_redirect, rate_limit, client_key, validate_password,
+                   get_setting, fmt_bj, setting_bool as _setting_bool)
 # v3.1.0：登录审计（log_login_attempt 定义于 admin 模块，admin 不依赖 routes，无循环）
 from admin import log_login_attempt
 
@@ -36,6 +35,26 @@ def _bot_guard_before():
 
 
 # ---------- 用户注册 / 登录 / 登出 ----------
+# ---------- 公共 SSR 页面退役（v3.18.6）----------
+# 生产 Nginx 只把 /api/ /admin /static/ /mcp* 与 feed.xml / sitemap.xml / robots.txt
+# /feed/comments 反代给 Flask；其余路径全部由 Vue SPA 兜底（location / → try_files → index.html）。
+# 因此下面这些「页面级」SSR 路由在生产**从未被访问**——它们是死代码，并且与 SPA 的同名页面
+# 各自演化（v3.18.5 修的「模板时间打 UTC」就只存在于这些死模板里）。
+#
+# 退役方式：**保留 endpoint 名**，只把「渲染模板」换成 410 Gone。
+#   - 不能直接删路由：base.html（仍被 /login 与 /register 使用）里有
+#     url_for('main.post') / url_for('main.archive') 等，删了会让登录页渲染直接 BuildError；
+#   - 不做 302 → SPA：Flask 路由路径与 SPA 路径同名，直接访问 :8686 会自环。
+# 保留不动：/login /register /logout（认证页）、/post/<slug>/comment 与 /post/<slug>/like
+#   （DocsView 公开文档里的 API，且不渲染模板）、/api/weather、feed / sitemap / robots。
+_RETIRED_PAGE = "该页面已由前端 SPA 渲染，服务端不再输出 HTML"
+
+
+def _retired():
+    """退役的公共 SSR 页面：410 Gone（endpoint 保留，仅供 url_for 生成链接）。"""
+    abort(410)
+
+
 @main_bp.route("/register", methods=["GET", "POST"])
 def register():
     """前台注册：任何人可注册普通用户，注册后自动登录。"""
@@ -162,68 +181,20 @@ def _captcha_fail(scope):
     return "请先完成验证码校验"
 
 
-def _render(post):
-    """把文章的 Markdown 正文渲染成 HTML（已做 XSS 白名单清理），挂到 post.html 上。
-
-    v3.9.1：走渲染缓存（post.content_html），正文未变时不再重复渲染。
-    """
-    post.html = render_post_html(post)
-    return post
-
-
 @main_bp.route("/")
 def index():
-    page = request.args.get("page", 1, type=int)
-    per_page = current_app.config["POSTS_PER_PAGE"]
-    pagination = (
-        visible_posts_query()
-        .order_by(Post.is_pinned.desc(), Post.created_at.desc())
-        .paginate(page=page, per_page=per_page, error_out=False)
-    )
-    posts = [_render(p) for p in pagination.items]
-    return render_template("index.html", posts=posts, pagination=pagination)
+    """v3.18.6 退役：首页由 Vue SPA 的 `/` 渲染。"""
+    _retired()
 
 
 @main_bp.route("/post/<slug>")
 def post(slug):
-    p = visible_posts_query().filter_by(slug=slug).first_or_404()
-    # 阅读量 +1（防刷：同 IP 24h 内只计一次真实阅读）
-    from app import count_unique_view
-    from stats import client_ip
-    if count_unique_view(p.id, client_ip()):
-        p.views += 1
-        db.session.commit()
-    _render(p)
-    comments = p.comments.filter_by(approved=True).order_by(Comment.created_at.asc()).all()
-    # SEO：JSON-LD 结构化数据 + Open Graph（v3.8.0）
-    base = (current_app.config.get("SITE_URL") or request.url_root.rstrip("/")).rstrip("/")
-    author_name = (p.author.username if p.author
-                   else get_setting("site_name", current_app.config.get("SITE_TITLE", "我的博客")))
-    json_ld = {
-        "@context": "https://schema.org",
-        "@type": "BlogPosting",
-        "headline": p.title,
-        "datePublished": to_beijing(p.created_at).isoformat(),
-        "dateModified": to_beijing(p.updated_at or p.created_at).isoformat(),
-        "author": {"@type": "Person", "name": author_name},
-        "publisher": {"@type": "Organization",
-                      "name": current_app.config.get("SITE_TITLE", "我的博客")},
-        "description": (p.seo_description or p.summary or "")[:200],
-        "url": f"{base}/post/{p.slug}",
-        "mainEntityOfPage": {"@type": "WebPage", "@id": f"{base}/post/{p.slug}"},
-    }
-    if p.cover:
-        json_ld["image"] = [p.cover]
-    og = {
-        "title": p.title,
-        "description": (p.seo_description or p.summary or "")[:200],
-        "url": f"{base}/post/{p.slug}",
-        "image": p.cover or "",
-        "type": "article",
-    }
-    return render_template("post.html", post=p, comments=comments, json_ld=json_ld, og=og,
-                           comment_captcha_on=_captcha_required("comment"),
-                           comment_email_required=_setting_bool("comment_email_required", False))
+    """v3.18.6 退役：文章页由 Vue SPA 的 `/post/:slug` 渲染。
+
+    爬虫不受影响——Nginx 的 bot 规则会把 `/post/*` 改写为 `/api/og/post/<slug>`
+    （OG meta 页），该通道独立于本路由。
+    """
+    _retired()
 
 
 @main_bp.route("/post/<slug>/comment", methods=["POST"])
@@ -295,58 +266,38 @@ def like_post(slug):
 
 @main_bp.route("/category/<slug>")
 def category(slug):
-    cat = Category.query.filter_by(slug=slug).first_or_404()
-    posts = [_render(p) for p in visible_posts_query().filter_by(category_id=cat.id).order_by(Post.is_pinned.desc(), Post.created_at.desc()).all()]
-    return render_template("archive.html", title=cat.name, posts=posts, kind="分类")
+    """v3.18.6 退役：分类页由 Vue SPA 的 `/category/:slug` 渲染。"""
+    _retired()
 
 
 @main_bp.route("/tag/<slug>")
 def tag(slug):
-    t = Tag.query.filter_by(slug=slug).first_or_404()
-    posts = [_render(p) for p in visible_posts_query().filter(Post.tags.any(id=t.id)).order_by(Post.is_pinned.desc(), Post.created_at.desc()).all()]
-    return render_template("archive.html", title=t.name, posts=posts, kind="标签")
+    """v3.18.6 退役：标签页由 Vue SPA 的 `/tag/:slug` 渲染。"""
+    _retired()
 
 
 @main_bp.route("/search")
 def search():
-    q = (request.args.get("q") or "").strip()
-    results = []
-    if q:
-        like = f"%{q}%"
-        rows = (
-            visible_posts_query().filter(db.or_(Post.title.like(like), Post.content.like(like)))
-            .order_by(Post.is_pinned.desc(), Post.created_at.desc())
-            .all()
-        )
-        results = [_render(p) for p in rows]
-    return render_template("search.html", q=q, results=results)
+    """v3.18.6 退役：搜索页由 Vue SPA 的 `/search` 渲染（走 `/api/search`）。"""
+    _retired()
 
 
 @main_bp.route("/about")
 def about():
-    return render_template("about.html")
+    """v3.18.6 退役：关于页由 Vue SPA 的 `/about` 渲染。"""
+    _retired()
 
 
 @main_bp.route("/links")
 def links():
-    return render_template("links.html")
+    """v3.18.6 退役：友链页由 Vue SPA 的 `/links` 渲染。"""
+    _retired()
 
 
 @main_bp.route("/archive")
 def archive():
-    """归档时间线：全部已发布文章按「年 → 月」分组倒序展示。"""
-    posts = visible_posts_query().order_by(Post.is_pinned.desc(), Post.created_at.desc()).all()
-    groups = {}  # {年份: {月份: [文章...]}}
-    for p in posts:
-        groups.setdefault(p.created_at.year, {}).setdefault(p.created_at.month, []).append(p)
-    timeline = []
-    for y in sorted(groups.keys(), reverse=True):
-        months = [
-            {"month": m, "posts": groups[y][m]}
-            for m in sorted(groups[y].keys(), reverse=True)
-        ]
-        timeline.append({"year": y, "months": months})
-    return render_template("archive_timeline.html", timeline=timeline, total=len(posts))
+    """v3.18.6 退役：归档页由 Vue SPA 的 `/archive` 渲染。"""
+    _retired()
 
 
 # 天气代码 → 中文描述（Open-Meteo WMO 编码）

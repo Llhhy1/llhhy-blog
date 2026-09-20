@@ -3,6 +3,18 @@
 > 本文件承载 **历史版本** 记录。README 只保留最新版本与上手信息。
 > 各版本的安全审计结论见 `myblog/SECURITY_AUDIT.md`；功能规划见 `ROADMAP.md`。
 
+## v3.18.6（2026-09-20 · 退役公共 SSR：8 个页面路由改 410 + 删 7 个死模板）
+
+> 起因：v3.18.5 的独立审计确认「双前端并存」——生产 Nginx 只把 `/api/` `/admin` `/static/` `/mcp*` 与 `feed.xml` / `sitemap.xml` / `robots.txt` / `feed/comments` 反代给 Flask，**其余路径全部由 Vue SPA 兜底**，于是 `routes.py` 里 8 个「页面级」SSR 路由在生产从未被访问。它们不只是死代码：还会和 SPA 的同名页面各自漂移（v3.18.5 修的「模板时间打 UTC」bug 就只存在于这些死模板里，改了两遍才发现生产根本用不到）。
+
+- **8 个公共 SSR 页面退役为 410 Gone**：`/`（首页）、`/post/<slug>`（文章页）、`/category/<slug>`、`/tag/<slug>`、`/search`、`/about`、`/links`、`/archive`。这些页面的渲染逻辑（含 `_render()` 辅助、每页的 DB 查询、文章页的 JSON-LD/OG 拼装）一并移除。
+- **保留了 endpoint 名，没有直接删路由**——这是硬约束：`base.html`（仍被 `/login` 与 `/register` 使用）里有 `url_for('main.post')` / `url_for('main.archive')` 等 8 处引用，删除路由会让**登录页渲染直接 `BuildError`**。故改为「路由仍在、只返回 410」，`url_for` 照常生成链接（浏览器访问这些链接时由 Nginx 交给 SPA，用户无感）。
+- **不做 302 → SPA**：Flask 路由路径与 SPA 路径同名（如 `/post/x`），302 会让直接访问 `:8686` 的客户端自环。410 语义也更准确：「该资源在此不再提供」。
+- **删除 7 个死模板**：`index.html` / `post.html` / `archive.html` / `archive_timeline.html` / `about.html` / `links.html` / `search.html`。`myblog/templates/` 顶层现在只剩认证与错误页 8 个文件（`base.html` / `login.html` / `register.html` / `403` / `404` / `500` / `error` / `_error_base`）。→ **从根上消灭「SSR 模板与 SPA 各自漂移」这类问题**。
+- **明确保留不动**：`/login` `/register` `/logout`（认证页 SSR——`app.py` 的会话失效跳转依赖 `url_for("main.login")`）、`/post/<slug>/comment` 与 `/post/<slug>/like`（两个 POST 入口，是 `DocsView` 公开文档里的 API，且不渲染模板）、`/api/weather`（在 `/api/` 前缀下，Nginx 反代）、`feed.xml` / `sitemap.xml` / `robots.txt` / `feed/comments`。
+- **SEO 现状（更正 v3.18.5 的表述）**：`/post/*` **有**聚合通道——Nginx 的 bot 规则会把匹配爬虫 UA 的请求改写为 `/api/og/post/<slug>`（服务端渲染 OG meta 的文章页），该通道不依赖已退役的 SSR 路由；但**只有 OG、没有 JSON-LD**，而 JSON-LD 原本只存在于已退役的 SSR 文章页 → **现在彻底没有了**。`/`、`/archive`、`/category/*`、`/tag/*`、`/about`、`/links` 仍是 SPA 空壳，**无任何服务端 meta**。
+- **验证**：**119 passed**（112 基线 + 7 条新增 `tests/test_ssr_retirement.py`：8 个路径 410、endpoint 名守恒、认证页仍 200、机器接口仍 200、退役模板确已删除且认证/错误页未被误删）；`compileall` 通过。**无表结构变更、无新依赖、无新增环境变量、前端产物零变化**（前端未动）。
+
 ## v3.18.5（2026-09-20 · 第三方独立审计 P0 批次：8 项真实缺陷修复 + 测试库隔离）
 
 > 起因：一份对 tag `v3.18.4` 的第三方独立静态审计报告（8 章 / 240 文件 / 17,490 行 Python）指出「不是可以更好，是现在是坏的」的 8 项缺陷。本轮**全部核对复现并修复**，另附带修 3 项同源的连带缺陷。安全审计见 `SECURITY_AUDIT.md` **R85**。

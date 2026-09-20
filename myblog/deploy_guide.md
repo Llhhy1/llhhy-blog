@@ -376,6 +376,12 @@ supervisorctl status
 
 > ⚠️ **服务器上的 `update.sh` / `deploy.sh` 也务必与最新 Release 同版**：脚本经历过「假成功不覆盖 / 校验误报 / 无法自动重启」多轮加固，升级前先从最新 Release 覆盖一次脚本，再跑一键更新。
 
+> **v3.18.6（退役公共 SSR：8 个页面路由改 410 + 删 7 个死模板）升级要点**：**纯后端改动，只需覆盖后端包**（`vue-frontend/` 未动，前端包无变化）。覆盖 `myblog-backend.zip` → gunicorn「停止 → 启动」；**无表结构变更、无新依赖、无新增环境变量、无新 Nginx 规则**。
+> - **⚠️ 必须整体覆盖后端包**（本轮**删除了 7 个文件**）：`myblog/templates/` 下的 `index.html` / `post.html` / `archive.html` / `archive_timeline.html` / `about.html` / `links.html` / `search.html` 已删除。覆盖式部署**不会删服务器上的旧文件** → 升级后建议手动清理这 7 个残留模板（不清理也无功能影响：已无任何路由渲染它们）。
+> - **行为变化（预期内）**：直接访问 Flask 端口（`:8686`）上的 `/`、`/post/xxx`、`/archive`、`/category/xxx`、`/tag/xxx`、`/search`、`/about`、`/links` 现在返回 **410 Gone**（此前返回 SSR HTML）。**公网无感**——这些路径在 Nginx 下本来就由 Vue SPA 兜底，升级前后用户看到的都是 SPA 页面。
+> - **不受影响**：`/login` `/register` `/logout`（SSR 认证页）、`/post/<slug>/comment` 与 `/post/<slug>/like`（POST 入口）、`/api/*`、`/admin/*`、`/mcp`、`/feed.xml`、`/feed/comments`、`/sitemap.xml`、`/robots.txt`。
+> - **验证清单**：后台左下角 = **v3.18.6**；公网首页/文章页/归档页正常（SPA 渲染）；`curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8686/` = **410**（预期）；`/login` 直接访问 Flask 仍 200；`/api/site`、`/feed.xml`、`/sitemap.xml`、`/robots.txt` 均 200。
+
 > **v3.18.5（第三方独立审计 P0 批次：8 项真实缺陷修复）升级要点**：**纯后端改动，只需覆盖后端包**（`vue-frontend/` 一字未动，前端包无变化、可不必覆盖）。覆盖 `myblog-backend.zip` → gunicorn「停止 → 启动」即生效；**无表结构变更、无新依赖、无新增环境变量、无新 Nginx 规则**。
 > - **新增文件**（务必整体覆盖，勿只增量拷单文件）：`myblog/templates/_error_base.html`、`404.html`、`403.html`、`500.html`、`error.html`（统一错误页）。
 > - **⚠️ 正文渲染缓存会整体失效**：`_RENDER_VERSION` 由 `2` 提升到 `3`（Markdown 表格白名单修复的必然结果）——升级后**首次访问每篇文章会重新渲染一次**（属正常，稍后恢复缓存速度；渲染结果会通过独立连接写回 `post.content_html`）。

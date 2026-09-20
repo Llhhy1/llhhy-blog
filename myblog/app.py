@@ -404,6 +404,7 @@ _HTTP_ERROR_TEXT = {
     404: "页面或资源不存在",
     405: "请求方法不被允许",
     422: "请求内容无法处理",
+    410: "该页面已由前端 SPA 渲染，服务端不再输出 HTML",
     500: "服务器内部错误",
 }
 
@@ -809,6 +810,7 @@ def create_app(enable_scheduler=True):
     @app.errorhandler(403)
     @app.errorhandler(404)
     @app.errorhandler(405)
+    @app.errorhandler(410)
     @app.errorhandler(422)
     def _handle_client_error(e):
         code = getattr(e, "code", 500) or 500

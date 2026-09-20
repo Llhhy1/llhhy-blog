@@ -29,8 +29,14 @@ dist/
 _vite_build*/
 dist_v3*/
 
-# 项目内存目录（本地数据，不入版本库）
-.workbuddy/memory/
+# 项目本地数据目录（本地数据，不入版本库）：memory/ 项目记忆、tools/ 助手脚本、blog_venv/ 测试环境
+# 说明：仓库已于 2026-09-20 迁至 E:\WR\llhhy-blog，工作区数据统一收进本目录。
+.workbuddy/
+
+# 本地资料（手记 / 评审报告 / 落地方案，放仓库根但不入版本库）
+UI与运营升级清单.md
+llhhy-blog-评审报告.md
+综合落地方案-llhhy-blog.md
 
 # 临时 CRLF 修复包（不入库）
 deploy_scripts_crlf_fix.zip

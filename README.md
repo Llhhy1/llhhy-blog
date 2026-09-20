@@ -2,7 +2,7 @@
 
 前后端分离的个人博客：**Flask** 后端（SSR + JSON API + 管理后台）+ **Vue3** 前端（SPA）。单仓库托管前后端代码、部署文档与安全报告。
 
-- 当前版本：**v3.18.6**
+- 当前版本：**v3.18.7**
 - **架构：单前端（v3.18.6）**。生产只有一套渲染器——**Vue SPA**。Nginx 只把 `/api/` `/admin` `/static/` `/mcp*` 与 `feed.xml` / `sitemap.xml` / `robots.txt` / `feed/comments` 反代给 Flask，其余路径由 SPA 兜底；`routes.py` 里原有的 8 个「页面级」SSR 路由（`/`、`/post/<slug>`、`/category/<slug>`、`/tag/<slug>`、`/search`、`/about`、`/links`、`/archive`）**已退役为 410 Gone**，7 个对应模板已删除（顶层模板只剩认证与错误页）。endpoint 名保留（`base.html` 的 `url_for` 依赖它们）；`/login` `/register` `/logout` 仍是 SSR，`/post/<slug>/comment` 与 `/post/<slug>/like` 两个 POST 入口保留。
 - **超长文件拆分（v3.18.1 · 纯重构，公共 API 与路由零变更）**：`myblog/utils.py`（784 行）拆成 `utils/` 包（`timeutil` / `render` / `net` / `slug` / `text` / `security` / `settings` / `web`，`__init__.py` 全量重导出，导入点零改动）；`admin/posts.py`（852 行 / 26 路由）拆成 `post_editor` / `post_manage` / `post_trash` / `post_history` / `taxonomy`（同一蓝图、URL 不变）。验证：逐名 `ast.dump` 等价性 + endpoint 守恒（99 处 `url_for` 全可解析）+ `113 passed`；最大文件 852/784 → 448/294 行。
 - **游戏平台（v3.15.0）**：前台「🎮 游戏」卡片厅 + 沙箱内播放（`iframe sandbox` + CSP，拿不到本站 Cookie/登录态/API，禁外联）；后台「游戏收录」上传 zip → 安全解包 + 静态扫描 → 审核上架，可配置 OpenAI 兼容大模型做代码安全审计（Key 加密）；内置官方《就是按一下》《就是开车》两枚荒谬马拉松；开发者接入文档 `/games/dev`。
@@ -33,6 +33,7 @@
 - **写作后台（v3.14.0）**：写作面板带 Markdown 工具栏与分屏实时预览（走后端同一渲染管线）、云端自动保存、未发布草稿一键「🔗 复制免登录预览链接」（HMAC 签名 + 24h 有效）；「📄 文章管理」独立成页（管理员看全站，关键词 / 状态 / 分类 / 系列筛选 + 多列排序 + 批量发布·转草稿·移分类·移回收站）；写文章时可就地**新建分类 / 系列**无需退出页面（同名自动复用）；「🖼️ 媒体库」浏览 / 复制 URL / 删除（带引用提示）；版本历史支持逐行对比；分类 / 系列可改名（slug 自动保持唯一）、删除分类可先把文章转移到目标分类；修复后台上传图片必 500 的遗留 bug（v3.11.0 切片遗失魔数表）
 - **运营**：邮件订阅与新文推送、Telegram / 企业微信推送、站点公告、Open Graph 分享卡片
 - **运维**：访问统计（区域 / 热读 / 热搜 / 时段）、数据备份与异地容灾（本地 / OSS / SCP / WebDAV）、后台一键在线更新、全站健康体检（11 维）、运营驾驶舱（趋势区间切换 / 评论·新文量曲线 / CSV 导出）
+- **一键在线更新的完整性（v3.18.7 · 对所有人开箱可用）**：更新包用 **Ed25519 分离签名**——`sha256.txt` 由发布者私钥签名，**验签公钥内置在 `update.sh` 里**，所以任何人 clone 这份仓库部署都无需任何配置即可获得签名保护；校验**默认 fail-closed**（签名缺失/验签失败/清单查不到文件/注释双源互证失败，一律终止更新，不再「静默跳过」），**不再自动兜底第三方公共镜像**（清单与产物同通道，公共代理可同时改写）。自建发布者（fork 后自己发版）用 `python package.py --gen-key` 生成自己的密钥对，把公钥填进 `update.sh` 的 `BUILTIN_RELEASE_PUBKEY` 或部署侧设 `RELEASE_PUBKEY` 即可；调试期可用 `ALLOW_UNSIGNED=1` 显式放行（会打醒目警告）。另有版本单调性（默认拒绝降级覆盖，`ALLOW_DOWNGRADE=1` 可放行）。本地可用 `python verify_package_checksums.py` 跑**三链互证**（整文件哈希 / zip 注释内容区哈希 / 发布物签名）。
 - **插件（框架保留，v3.10.0 起无内置插件）**：`myblog/plugins/` 可扩展插件框架 + 后台「🧩 插件管理」+ 事件总线与前端槽位；仓库不再内置插件，装自写插件只需放目录 + 填 `ENABLED_PLUGINS`
 - **性能（v3.9.1）**：文章正文渲染结果落库缓存（`Post.content_html`，正文一改自动失效，长文 `87ms → 2.7ms`）+ SQLite WAL（读不阻塞写，解决并发 `database is locked`）
 - **数据库迁移（v3.11.0）**：引入 Flask-Migrate / Alembic 基线迁移，与现有 `db.create_all()` 自动迁移并存；新库 `flask db upgrade`、存量库 `flask db stamp head` 即可对齐 v3.10.6 基线，后续模型变更可自动生成迁移（无缝升级）

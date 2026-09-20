@@ -1,6 +1,8 @@
 # 部署产物
 *.zip
 sha256.txt
+# v3.18.7：发布物签名（package.py 的产物，随 Release 上传，不入库）
+sha256.txt.sig
 
 # 数据库与运行时数据
 data/

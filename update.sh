@@ -43,10 +43,26 @@ RESTART_CMD=""                           # 手动指定重启命令时填（优�
 #   留空则仅校验 zip 注释内嵌哈希 + sha256.txt 列表（无签名校验，向后兼容）。
 UPDATE_HMAC_KEY="${UPDATE_HMAC_KEY:-}"
 
-# ===== 网络镜像（国内服务器可选）=====
-# 若服务器无法直连 GitHub，可设 GH_MIRROR，如：
-#   GH_MIRROR="https://ghfast.top/"  （脚本也会自动尝试 ghfast/gh-proxy/ghproxy 兜底）
+# ===== 网络镜像（国内服务器可选 · v3.18.7 起改为「必须显式配置」）=====
+# 若服务器无法直连 GitHub，自行设置一个你信任的代理前缀，例如：
+#   GH_MIRROR="https://your-own-proxy/"
+# ⚠️ 脚本**不再**自动兜底任何第三方公共镜像——校验清单（sha256.txt）与它描述的产物
+#    走同一条通道，公共代理可同时改写两者，使完整性校验形同虚设。该代理的可信度由你承担。
 GH_MIRROR="${GH_MIRROR:-}"
+
+# ===== 发布物签名校验（v3.18.7 新增 · 默认强制）=====
+# 发布侧用 Ed25519 对 Release 的 sha256.txt 做**分离签名**，产出资产 sha256.txt.sig。
+# 验签公钥**内置在本脚本里** → 任何人 clone 这份仓库部署，开箱即用、无需额外配置。
+# 自建发布者（自己改代码自己发版）：用 `python package.py --gen-key` 生成自己的密钥对，
+#   然后把公钥填到环境变量 RELEASE_PUBKEY（或直接改下面的 BUILTIN_RELEASE_PUBKEY）。
+BUILTIN_RELEASE_PUBKEY="jolSxBuRPpVlwGWQGbYU7iLus4NIBT0nh0LPx1abzho="
+RELEASE_PUBKEY="${RELEASE_PUBKEY:-$BUILTIN_RELEASE_PUBKEY}"
+# 逃生舱（仅调试 / 自建发布链过渡期）：必须**显式**设 ALLOW_UNSIGNED=1 才允许跳过验签，
+#   且会打醒目警告。默认 0 = 缺签名直接终止更新。
+ALLOW_UNSIGNED="${ALLOW_UNSIGNED:-0}"
+# 显式允许降级安装（默认禁止把站点覆盖成更旧的版本）。
+ALLOW_DOWNGRADE="${ALLOW_DOWNGRADE:-0}"
+
 
 WORK="/tmp/llhhy_update"
 TS=$(date +%Y%m%d_%H%M%S)
@@ -203,11 +219,11 @@ gh_fetch() {  # gh_fetch <url> <outfile|->
   if [ -n "$GH_MIRROR" ]; then
     try_urls+=("${GH_MIRROR}${url}")
   fi
-  case "$url" in
-    *"//github.com/"*)
-      try_urls+=("https://ghfast.top/${url}" "https://gh-proxy.com/${url}" "https://ghproxy.net/${url}")
-      ;;
-  esac
+  # v3.18.7：**不再自动兜底第三方镜像**（ghfast / gh-proxy / ghproxy）。
+  #   理由：sha256.txt（校验清单）与它描述的产物走**同一条通道**，第三方代理可同时改写
+  #   两者，使「双源互证」形同虚设——等价一条远程代码执行通道。
+  #   若服务器确实访问不了 GitHub，请**显式**设置 GH_MIRROR（例如 GH_MIRROR="https://your-proxy/"），
+  #   并自行承担该代理的可信度。
   for tu in "${try_urls[@]}"; do
     attempt=0
     while [ $attempt -lt 2 ]; do
@@ -222,6 +238,69 @@ gh_fetch() {  # gh_fetch <url> <outfile|->
     done
   done
   return 1
+}
+
+# ===== 发布物签名校验（v3.18.7）=====
+# 找可用于验签的 python：优先项目虚拟环境（有 cryptography），其次系统 python3。
+find_verify_python() {
+  local c
+  for c in "${APP_PY:-}" "/www/server/pyporject_evn/blog_env/bin/python" python3 python; do
+    [ -n "$c" ] || continue
+    if command -v "$c" >/dev/null 2>&1 || [ -x "$c" ]; then
+      if "$c" -c "import cryptography" >/dev/null 2>&1; then printf '%s' "$c"; return 0; fi
+    fi
+  done
+  return 1
+}
+
+# 对 sha256.txt 做 Ed25519 分离签名校验；通过返回 0，否则 fail_exit。
+verify_release_signature() {
+  [ -n "${_SIG_VERIFIED:-}" ] && return 0          # 两个包共用一次校验
+  if [ "$ALLOW_UNSIGNED" = "1" ]; then
+    log "   🚨 已显式设置 ALLOW_UNSIGNED=1 —— 跳过发布物签名校验。"
+    log "      这意味着本次更新**不校验发布者身份**，仅在调试或自建发布链过渡期使用。"
+    _SIG_VERIFIED=1
+    return 0
+  fi
+  if [ -z "$RELEASE_PUBKEY" ]; then
+    fail_exit "❌ 未配置发布签名公钥（RELEASE_PUBKEY / BUILTIN_RELEASE_PUBKEY 均为空），拒绝安装未经校验的包。"
+  fi
+  if [ -z "${SIG_URL:-}" ]; then
+    fail_exit "❌ 该 Release 未附带 sha256.txt.sig（发布物签名）。拒绝安装未经签名的包。若这是自建发布链，请用 v3.18.7+ 的 package.py 重新打包，或临时设 ALLOW_UNSIGNED=1。"
+  fi
+  gh_fetch "$SIG_URL" "sha256.txt.sig" 2>/dev/null || \
+    fail_exit "❌ 签名文件 sha256.txt.sig 下载失败。拒绝继续。"
+  [ -f sha256.txt ] || fail_exit "❌ 未取到 sha256.txt，无法验签。"
+  local py res
+  py=$(find_verify_python) || \
+    fail_exit "❌ 找不到带 cryptography 的 python，无法校验发布物签名。请确认项目虚拟环境（requirements.txt 含 cryptography）已安装依赖。"
+  res=$("$py" -c "
+import base64, sys
+try:
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
+except Exception as e:
+    print('NOLIB ' + str(e)[:80]); sys.exit(0)
+try:
+    pub = base64.b64decode(sys.argv[1].strip())
+    sig = base64.b64decode(open(sys.argv[3], 'rb').read().strip())
+    data = open(sys.argv[2], 'rb').read()
+    Ed25519PublicKey.from_public_bytes(pub).verify(sig, data)
+    print('OK')
+except Exception as e:
+    print('BAD ' + str(e)[:120])
+" "$RELEASE_PUBKEY" "sha256.txt" "sha256.txt.sig" 2>&1) || true
+  case "$res" in
+    OK*)
+      log "   ✅ 发布物签名校验通过（sha256.txt 由持有对应私钥的发布者签名）。"
+      _SIG_VERIFIED=1
+      ;;
+    NOLIB*)
+      fail_exit "❌ 验签环境缺少 cryptography：$res"
+      ;;
+    *)
+      fail_exit "❌ 发布物签名校验失败（拒绝安装）：$res —— 可能是包被篡改、发布者密钥与本地公钥不匹配，或 Release 不是本项目的官方产物。自建发布者请把公钥配到 RELEASE_PUBKEY。"
+      ;;
+  esac
 }
 
 # ===== 进程存活探测（本项目的 gunicorn master）=====
@@ -401,11 +480,16 @@ install_deps() {
 # ===== 校验（v3.1.6 双源互证 + HMAC 可选）=====
 verify_checksum() {  # verify_checksum <file> <expected_name>
   local f="$1" expect_name="$2" want got
+  # ---- 0) 发布物签名（v3.18.7 强制，唯一的「信任锚」；先于一切哈希比对）----
+  verify_release_signature
+  # ---- 1) 哈希清单必须取到 ----
   if [ -z "$CHECKSUM_URL" ]; then
-    log "   ⚠️ Release 未附带 sha256.txt，跳过哈希校验（建议发布时附带）。"
-    return 0
+    fail_exit "❌ 该 Release 未附带 sha256.txt，无法校验完整性，拒绝安装。"
   fi
-  gh_fetch "$CHECKSUM_URL" "sha256.txt" 2>/dev/null || { log "   ⚠️ 校验文件下载失败，跳过哈希校验。"; return 0; }
+  if [ ! -f sha256.txt ]; then
+    gh_fetch "$CHECKSUM_URL" "sha256.txt" 2>/dev/null || \
+      fail_exit "❌ 校验文件 sha256.txt 下载失败，拒绝在无校验的情况下安装。"
+  fi
   # ① HMAC 签名校验（仅当首行是 HMAC 且配置了密钥时强制）
   local first_line
   first_line=$(head -1 sha256.txt 2>/dev/null | tr -d '\r')
@@ -422,17 +506,16 @@ verify_checksum() {  # verify_checksum <file> <expected_name>
           fi
           log "   ✅ HMAC 签名校验通过（sha256.txt 未被篡改）。"
         else
-          log "   ⚠️ 无 python3，跳过 HMAC 校验（仅靠哈希列表比对）。"
+          fail_exit "❌ sha256.txt 带 HMAC 签名但本机无 python3，无法校验。拒绝继续。"
         fi
       else
-        log "   ⚠️ sha256.txt 带 HMAC 签名但未配置 UPDATE_HMAC_KEY，跳过签名校验（如有疑虑请配置密钥）。"
+        log "   ℹ️ sha256.txt 带 HMAC 签名，但未配置 UPDATE_HMAC_KEY → 该层跳过（完整性已由 Ed25519 发布物签名保证）。"
       fi
       ;;
   esac
   want=$(tr -d '\r' < sha256.txt | grep -E "(^| )$expect_name\$" | awk '{print $1}' | head -1)
   if [ -z "$want" ]; then
-    log "   ⚠️ sha256.txt 中未找到 $expect_name 的记录，跳过校验。"
-    return 0
+    fail_exit "❌ sha256.txt 中没有 $expect_name 的记录，无法校验该文件完整性，拒绝安装。"
   fi
   got=$(sha256sum "$f" 2>/dev/null | awk '{print $1}')
   if [ "$got" != "$want" ]; then
@@ -478,14 +561,14 @@ except Exception:
         fail_exit "❌ $expect_name 的 zip 注释内嵌 SHA256 与包内容不一致：包或注释可能被单独篡改。已终止更新。"
         ;;
       NO|ERR)
-        log "   ⚠️ $expect_name 无法完成 zip 注释双源校验（无注释或读取异常），仅靠哈希列表比对。"
+        fail_exit "❌ $expect_name 缺少 zip 注释内嵌哈希或读取异常（双源互证② 无法完成），拒绝安装。"
         ;;
       *)
-        log "   ⚠️ $expect_name 的 zip 注释校验无输出，已降级为仅靠哈希列表比对。"
+        fail_exit "❌ $expect_name 的 zip 注释校验无输出，拒绝安装。"
         ;;
     esac
   else
-    log "   ⚠️ 无 python3，跳过 zip 注释双源校验（仅靠哈希列表比对）。"
+    fail_exit "❌ 无 python3，无法完成 zip 注释双源校验（双源互证②），拒绝安装。"
   fi
   log "   ✅ $expect_name 校验完成。"
 }
@@ -506,10 +589,34 @@ TAG=$(echo "$LATEST_JSON" | grep -o '"tag_name": *"[^"]*"' | sed 's/.*"\([^"]*\)
 BACKEND_URL=$(echo "$LATEST_JSON" | grep -o '"browser_download_url": *"[^"]*myblog-backend.zip"' | sed 's/.*"\(http[^"]*\)".*/\1/' | head -1)
 FRONT_URL=$(echo "$LATEST_JSON" | grep -o '"browser_download_url": *"[^"]*vue-frontend-dist.zip"' | sed 's/.*"\(http[^"]*\)".*/\1/' | head -1)
 CHECKSUM_URL=$(echo "$LATEST_JSON" | grep -o '"browser_download_url": *"[^"]*sha256.txt"' | sed 's/.*"\(http[^"]*\)".*/\1/' | head -1)
+# v3.18.7：发布物分离签名资产（sha256.txt.sig）。注意正则里的 \. 与结尾的 .sig——
+# 若写成 [^"]*sha256.txt，会先匹配到 sha256.txt.sig 这一条（同样的前缀）。
+SIG_URL=$(echo "$LATEST_JSON" | grep -o '"browser_download_url": *"[^"]*sha256\.txt\.sig"' | sed 's/.*"\(http[^"]*\)".*/\1/' | head -1)
 if [ -z "$TAG" ] || [ -z "$BACKEND_URL" ]; then
   fail_exit "未找到最新 Release 部署包（tag=$TAG），请稍后重试"
 fi
 log "   最新版本：$TAG"
+
+# 1b. 版本单调性（v3.18.7）：默认拒绝用更旧的版本覆盖现有站点（报告 §2 建议）。
+#     同版本 → 直接收工；远端更低 → 需显式 ALLOW_DOWNGRADE=1 才继续。
+LOCAL_VER=$(grep -o 'APP_VERSION *= *"[^"]*"' "$APP_DIR/config.py" 2>/dev/null | sed 's/.*"\([^"]*\)".*/\1/' | head -1)
+if [ -n "$LOCAL_VER" ]; then
+  _local_no_v="${LOCAL_VER#v}"
+  _remote_no_v="${TAG#v}"
+  _newest=$(printf '%s\n%s\n' "$_local_no_v" "$_remote_no_v" | sort -V | tail -1)
+  if [ "$_remote_no_v" = "$_local_no_v" ]; then
+    log "   ℹ️ 本地已是 $TAG（最新），无需更新。"
+    set_status "success" "已是最新版本 $TAG"
+    exit 0
+  fi
+  if [ "$_remote_no_v" != "$_newest" ]; then
+    if [ "$ALLOW_DOWNGRADE" = "1" ]; then
+      log "   🚨 远端 $TAG 低于本地 v$LOCAL_VER，但已显式设置 ALLOW_DOWNGRADE=1 —— 继续降级安装。"
+    else
+      fail_exit "❌ 远端最新版本 $TAG 低于本地 v$LOCAL_VER，默认拒绝降级覆盖。确需回退请设 ALLOW_DOWNGRADE=1 后重跑。"
+    fi
+  fi
+fi
 
 # 2. 下载
 log "② 下载部署包..."

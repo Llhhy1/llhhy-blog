@@ -376,6 +376,26 @@ supervisorctl status
 
 > ⚠️ **服务器上的 `update.sh` / `deploy.sh` 也务必与最新 Release 同版**：脚本经历过「假成功不覆盖 / 校验误报 / 无法自动重启」多轮加固，升级前先从最新 Release 覆盖一次脚本，再跑一键更新。
 
+> **v3.18.7（更新链 fail-closed + Ed25519 发布物签名）升级要点**：**本轮改的是部署脚本自身**，而 `update.sh` / `deploy.sh` **不在** `myblog-backend.zip` 里 —— 必须**先单独覆盖脚本**。
+> - **升级顺序**：① 从本 Release 下载 `deploy_scripts_v3187fix.zip`，解压覆盖 `/www/wwwroot/myblog/update.sh` 与 `deploy.sh`（保持 **LF 行尾**，`chmod +x`）；② 再跑 `bash /www/wwwroot/myblog/update.sh`。顺序反了**不会坏**——旧脚本仍能装上 v3.18.7 的后端代码，只是那一刻生效的仍是旧（fail-open）校验；覆盖脚本后下次更新才走新逻辑。
+> - **行为变化（预期内）**：更新**默认要求 Release 带 `sha256.txt.sig` 且验签通过**，否则**终止更新**；不再自动兜底第三方公共镜像（ghfast / gh-proxy / ghproxy）——若你的服务器访问不了 GitHub，请**显式**设 `GH_MIRROR="https://你自己的代理/"`；远端版本不高于本地时不再重复覆盖（同版本收工，更低版本需 `ALLOW_DOWNGRADE=1`）。
+> - **可用的环境变量（全部可选）**：`RELEASE_PUBKEY`（换成自建发布者的公钥）、`ALLOW_UNSIGNED=1`（仅调试/过渡期，跳过验签并打警告）、`ALLOW_DOWNGRADE=1`（允许降级覆盖）、`GH_MIRROR`（显式镜像前缀）。
+> - **验签依赖**：需要 `cryptography`（本就在 `requirements.txt` 里，无需额外安装）。脚本会优先用项目虚拟环境的 python 验签，找不到带 `cryptography` 的解释器时**终止更新**并提示。
+> - **无迁移、无新增必填环境变量、前端产物零变化**（前端未动）。验证：后台左下角 = **v3.18.7**；`bash -n update.sh` 无输出（语法 OK）。
+
+### 自己发版（fork / 自建发布链）怎么用签名
+```bash
+# 1) 生成（或查看）你自己的发布密钥对；公钥会打印出来
+python package.py --gen-key
+# 2) 把公钥填进 update.sh 的 BUILTIN_RELEASE_PUBKEY（或部署侧设环境变量 RELEASE_PUBKEY）
+# 3) 正常打包（会自动签名，产出 sha256.txt.sig）
+python package.py
+# 4) 本地三链自检（整文件哈希 / zip 注释内容区哈希 / 发布物签名）
+python verify_package_checksums.py
+```
+> 私钥默认在 `~/.workbuddy/llhhy_release_key`（0600）。**请备份**：私钥丢失后无法再为同一公钥补签名，只能换公钥并同步更新部署侧。
+> 换密钥路径：设环境变量 `RELEASE_SIGNING_KEY=<私钥文件路径>`；只想本地调试不签名：`python package.py --no-sign`（这样打出的包会被新版 `update.sh` 拒绝，属预期）。
+
 > **v3.18.6（退役公共 SSR：8 个页面路由改 410 + 删 7 个死模板）升级要点**：**纯后端改动，只需覆盖后端包**（`vue-frontend/` 未动，前端包无变化）。覆盖 `myblog-backend.zip` → gunicorn「停止 → 启动」；**无表结构变更、无新依赖、无新增环境变量、无新 Nginx 规则**。
 > - **⚠️ 必须整体覆盖后端包**（本轮**删除了 7 个文件**）：`myblog/templates/` 下的 `index.html` / `post.html` / `archive.html` / `archive_timeline.html` / `about.html` / `links.html` / `search.html` 已删除。覆盖式部署**不会删服务器上的旧文件** → 升级后建议手动清理这 7 个残留模板（不清理也无功能影响：已无任何路由渲染它们）。
 > - **行为变化（预期内）**：直接访问 Flask 端口（`:8686`）上的 `/`、`/post/xxx`、`/archive`、`/category/xxx`、`/tag/xxx`、`/search`、`/about`、`/links` 现在返回 **410 Gone**（此前返回 SSR HTML）。**公网无感**——这些路径在 Nginx 下本来就由 Vue SPA 兜底，升级前后用户看到的都是 SPA 页面。

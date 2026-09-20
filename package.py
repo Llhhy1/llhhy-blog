@@ -3,13 +3,29 @@
 """
 llhhy-blog 发布打包脚本。
 
-生成两个 zip（与 update.sh 约定一致）：
+生成（与 update.sh 约定一致）：
   - myblog-backend.zip : 顶层为 myblog/ ，排除 data/ 与 __pycache__/*.pyc
   - vue-frontend-dist.zip : 顶层为 index.html + assets/ + favicon.svg （即前端构建产物）
+  - sha256.txt : 两个 zip 的「整文件」哈希清单（可附 HMAC 首行）
+  - sha256.txt.sig : 对 sha256.txt 的 Ed25519 **分离签名**（v3.18.7 新增）
+
+关于签名（v3.18.7 · 让「一键在线更新」对所有人开箱可用）：
+  为什么必须有它——`sha256.txt` 与它描述的 zip 走**同一条下载通道**，若二者被同一个
+  中间人同时改写，哈希比对必然自洽（原「双源互证」退化为自指）。能打破这个环的只有
+  **签名**：私钥在发布者手里，公钥内置在 `update.sh` 里。
+  怎么用——
+    * 发布者（默认用法）：直接 `python package.py`。首次运行会**自动生成**密钥对到
+      `~/.workbuddy/llhhy_release_key`（权限 0600）并打印公钥。
+    * 自建发布者（fork 后自己发版）：同样直接跑，然后把打印出的公钥填进 `update.sh`
+      的 `BUILTIN_RELEASE_PUBKEY`，或在部署侧设环境变量 `RELEASE_PUBKEY`。
+    * 换密钥：设 `RELEASE_SIGNING_KEY=<私钥路径>`；或 `python package.py --gen-key` 重新生成。
+    * 不签名（仅本地调试）：`--no-sign`。这样打出的包**新版 update.sh 会拒绝安装**。
 
 用法：
   python package.py                 # 默认读取 vue-frontend/_vite_buildN（最新），回退 dist/
   python package.py --front-dir vue-frontend/_vite_build9
+  python package.py --gen-key       # 只生成/查看发布签名密钥对，不打包
+  python package.py --no-sign       # 打包但不签名（调试用）
 
 校验：
   - 后端 zip 必须含 myblog/config.py 且 APP_VERSION 与目标一致
@@ -19,6 +35,7 @@ llhhy-blog 发布打包脚本。
 import os
 import re
 import sys
+import base64
 import hashlib
 import zipfile
 
@@ -258,11 +275,79 @@ def verify_zip_comment(path, expected_hex):
         return False
 
 
+# ===== 发布物签名（v3.18.7）=====
+def _signing_key_path():
+    p = (os.environ.get("RELEASE_SIGNING_KEY") or "").strip()
+    if p:
+        return p
+    return os.path.join(os.path.expanduser("~"), ".workbuddy", "llhhy_release_key")
+
+
+def load_or_create_signing_key():
+    """读取（或首次自动生成）Ed25519 私钥。返回 (private_key, created)。
+
+    自动生成是刻意的：让 clone 这份仓库的任何人跑 `python package.py` 就能出**可被
+    一键更新接受的签名包**，而不是因为「没配密钥」而卡住。首次生成后请备份私钥。
+    """
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+    from cryptography.hazmat.primitives import serialization
+    path = _signing_key_path()
+    if os.path.exists(path):
+        seed = base64.b64decode(open(path, encoding="utf-8").read().strip())
+        return Ed25519PrivateKey.from_private_bytes(seed), False
+    os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
+    key = Ed25519PrivateKey.generate()
+    seed = key.private_bytes(
+        encoding=serialization.Encoding.Raw,
+        format=serialization.PrivateFormat.Raw,
+        encryption_algorithm=serialization.NoEncryption())
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(base64.b64encode(seed).decode())
+    try:
+        os.chmod(path, 0o600)
+    except Exception:
+        pass          # Windows 上 chmod 语义有限，失败不阻断
+    return key, True
+
+
+def public_key_b64(key):
+    """公钥的 base64（raw 32 字节）——update.sh 里内置的就是这个字符串。"""
+    from cryptography.hazmat.primitives import serialization
+    return base64.b64encode(key.public_key().public_bytes(
+        encoding=serialization.Encoding.Raw,
+        format=serialization.PublicFormat.Raw)).decode()
+
+
+def sign_checksum(txt_path):
+    """对 sha256.txt 做 Ed25519 分离签名 → sha256.txt.sig（base64 单行）。"""
+    key, created = load_or_create_signing_key()
+    if created:
+        print("  [sign] 首次运行已生成发布签名密钥: %s" % _signing_key_path())
+        print("         ⚠️ 请备份该私钥：丢失后无法再为同一密钥补签名（只能换公钥）。")
+    with open(txt_path, "rb") as f:
+        sig = key.sign(f.read())
+    out = txt_path + ".sig"
+    with open(out, "w", encoding="utf-8") as f:
+        f.write(base64.b64encode(sig).decode() + "\n")
+    print("  [sign] %s" % out)
+    print("  [sign] 发布公钥（应与 update.sh 的 BUILTIN_RELEASE_PUBKEY 一致）：")
+    print("         %s" % public_key_b64(key))
+    return out
+
+
 def main():
     explicit = None
     if "--front-dir" in sys.argv:
         i = sys.argv.index("--front-dir")
         explicit = sys.argv[i + 1]
+
+    if "--gen-key" in sys.argv:
+        key, created = load_or_create_signing_key()
+        print("私钥: %s (%s)" % (_signing_key_path(), "本次新生成" if created else "已存在，复用"))
+        print("公钥: %s" % public_key_b64(key))
+        print("→ 填进 update.sh 的 BUILTIN_RELEASE_PUBKEY，或在部署侧设环境变量 RELEASE_PUBKEY。")
+        return
+
     version = expected_version()
     if not version:
         raise SystemExit("无法从 config.py 解析 APP_VERSION")
@@ -272,8 +357,12 @@ def main():
     print("打包前端 ...")
     frontend = package_frontend(find_front_dir(explicit))
     print("生成校验文件 ...")
-    write_checksums([backend, frontend])
-    print("完成。两个 zip + sha256.txt 已生成在项目根目录（已被 .gitignore 忽略）。")
+    txt = write_checksums([backend, frontend])
+    if "--no-sign" in sys.argv:
+        print("  [sign] 已跳过（--no-sign）：新版 update.sh 会拒绝安装未签名的包。")
+    else:
+        sign_checksum(txt)
+    print("完成。两个 zip + sha256.txt(+.sig) 已生成在项目根目录（已被 .gitignore 忽略）。")
 
 
 if __name__ == "__main__":

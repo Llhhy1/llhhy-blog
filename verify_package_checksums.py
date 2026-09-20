@@ -16,13 +16,18 @@
 三件事：
   1. 对每个 zip 用精确口径重算内容区 SHA256，与注释内嵌 SHA256= 比对（双源互证 ②）；
   2. 对 sha256.txt 的整文件哈希用标准 sha256sum 重算比对（双源互证 ①）；
-  3. --self-test 构造带注释的 zip，演示「精确口径 != 错误口径」，固化踩坑教训。
+  3. **发布物签名**（v3.18.7 新增，双源互证 ③）：用 `update.sh` 里内置的公钥验证
+     `sha256.txt.sig`。这一条是唯一能打破「清单与产物同通道」自指的一环——前缀 ①②
+     都只证明「文件与清单一致」，无法证明「清单是发布者写的」。
+  4. --self-test 构造带注释的 zip，演示「精确口径 != 错误口径」，固化踩坑教训。
 
 全部通过输出 OK；任一失败输出 FAIL 并以退出码 1 结束。脚本只读、不发布、不篡改任何文件。
 """
+import base64
 import hashlib
 import io
 import os
+import re
 import sys
 import tempfile
 import zipfile
@@ -112,6 +117,39 @@ def verify_checksums_txt():
     return True, "sha256.txt 全部整文件哈希一致（双源互证 ① 成立）"
 
 
+def verify_release_sig():
+    """双源互证 ③（v3.18.7）：sha256.txt.sig 必须能被 update.sh 内置公钥验签通过。
+
+    公钥**从 update.sh 里读**（而不是另存一份）——保证本地校验用的和部署时实际生效的是
+    同一个字符串，避免两处漂移。
+    """
+    txt = os.path.join(ROOT, "sha256.txt")
+    sig = txt + ".sig"
+    sh = os.path.join(ROOT, "update.sh")
+    if not os.path.isfile(txt):
+        return False, "sha256.txt 不存在（先跑 package.py）"
+    if not os.path.isfile(sig):
+        return False, "sha256.txt.sig 不存在（package.py 会签名；用了 --no-sign 就会缺）"
+    if not os.path.isfile(sh):
+        return False, "update.sh 不存在，无法读取内置公钥"
+    m = re.search(r'BUILTIN_RELEASE_PUBKEY="([^"]*)"',
+                  open(sh, encoding="utf-8").read())
+    if not m:
+        return False, "update.sh 中未找到 BUILTIN_RELEASE_PUBKEY"
+    if not m.group(1).strip():
+        return False, "update.sh 的 BUILTIN_RELEASE_PUBKEY 为空"
+    try:
+        from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
+        pub = Ed25519PublicKey.from_public_bytes(base64.b64decode(m.group(1)))
+        with open(sig, "rb") as f:
+            signature = base64.b64decode(f.read().strip())
+        with open(txt, "rb") as f:
+            pub.verify(signature, f.read())
+    except Exception as e:
+        return False, "验签失败（%s: %s）——签名与 update.sh 内置公钥不匹配" % (type(e).__name__, e)
+    return True, "sha256.txt.sig 验签通过，公钥与 update.sh 内置一致（双源互证 ③ 成立）"
+
+
 def self_test():
     """构造带注释的 zip，证明「精确口径 != 错误口径」，固化踩坑教训。"""
     buf = io.BytesIO()
@@ -160,6 +198,9 @@ def main():
         all_ok = all_ok and ok
     ok, msg = verify_checksums_txt()
     print(("OK   " if ok else "FAIL ") + "sha256.txt" + "：" + msg)
+    all_ok = all_ok and ok
+    ok, msg = verify_release_sig()
+    print(("OK   " if ok else "FAIL ") + "sha256.txt.sig" + "：" + msg)
     all_ok = all_ok and ok
     sys.exit(0 if all_ok else 1)
 

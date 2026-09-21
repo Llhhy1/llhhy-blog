@@ -12,7 +12,7 @@ def load_mail_config():
     返回 dict：{host, port, username, password, from, use_ssl, site_url}
     """
     from flask import current_app
-    from utils import get_setting
+    from utils import get_setting, site_base
     # 环境变量为兜底默认
     host = current_app.config.get("SMTP_HOST", "") or ""
     port = current_app.config.get("SMTP_PORT", 465)
@@ -20,7 +20,10 @@ def load_mail_config():
     pwd = current_app.config.get("SMTP_PASSWORD", "") or ""
     sender = current_app.config.get("SMTP_FROM", "") or user
     use_ssl = current_app.config.get("SMTP_USE_SSL", True)
-    site_url = current_app.config.get("MAIL_SITE_URL") or current_app.config.get("SITE_URL", "") or ""
+    # v3.18.9：站点对外地址统一收敛到 utils.site_base()（DB site_url → env SITE_URL → 空串），
+    # 不再单独读 SITE_URL，避免邮件里的链接与 sitemap/canonical 不一致。
+    # MAIL_SITE_URL 保留为邮件专用的显式覆盖（例如邮件要走另一个对外域名）。
+    site_url = current_app.config.get("MAIL_SITE_URL") or site_base() or ""
     # Setting 表覆盖（后台配置优先）：主机/端口/用户名/发件人/SSL 仍库值优先（便于后台调整）
     host = get_setting("mail_host", host) or host
     port = int(get_setting("mail_port", str(port)) or str(port))

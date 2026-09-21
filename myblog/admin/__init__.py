@@ -19,4 +19,5 @@ from . import mcp_services  # v3.13.0：MCP 服务管理面板（内置启停/�
 from . import games        # v3.15.0：游戏平台（收录/审核/LLM 审计）
 from . import theme_center  # v3.16.0：主题中心（预设包 + 实时预览 + 自定义导入/导出）
 from . import ai_summary   # v3.17.7：AI 摘要管理（列表/生成/编辑/清除/批量补齐）
+from . import seo          # v3.19.0：收录控制台（主动推送 + 通道自检 + sitemap/robots 预览）
 

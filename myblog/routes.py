@@ -11,7 +11,8 @@ from markupsafe import escape
 
 from models import db, Post, Comment, Setting, User, ROLE_USER, visible_posts_query
 from utils import (safe_redirect, rate_limit, client_key, validate_password,
-                   get_setting, fmt_bj, setting_bool as _setting_bool)
+                   get_setting, fmt_bj, setting_bool as _setting_bool,
+                   site_base as _site_base_impl)
 # v3.1.0：登录审计（log_login_attempt 定义于 admin 模块，admin 不依赖 routes，无循环）
 from admin import log_login_attempt
 
@@ -191,8 +192,10 @@ def index():
 def post(slug):
     """v3.18.6 退役：文章页由 Vue SPA 的 `/post/:slug` 渲染。
 
-    爬虫不受影响——Nginx 的 bot 规则会把 `/post/*` 改写为 `/api/og/post/<slug>`
-    （OG meta 页），该通道独立于本路由。
+    爬虫/社交抓取不受影响——Nginx 的 UA 分流规则会把它们的 `/post/*` 请求
+    rewrite 到 `/api/og/post/<slug>?seo=1`（服务端壳页，带正文 + canonical +
+    JSON-LD），**该规则必须手工配在 Nginx 里**，原文见 `deploy_guide.md`
+    「第 4b 步：SEO 爬虫通道」。缺这条规则时 SP 文章页对爬虫只是空壳。
     """
     _retired()
 
@@ -452,8 +455,13 @@ def api_weather():
 
 
 def _site_base():
-    """返回站点对外绝对地址前缀（去尾部斜杠）。"""
-    return (current_app.config.get("SITE_URL") or request.url_root.rstrip("/")).rstrip("/")
+    """站点对外绝对地址前缀（v3.18.9：统一收敛到 utils.site_base()）。
+
+    历史问题：这里曾回退 `request.url_root`，即由请求方提供的 Host 决定
+    我们对外声明的 URL（`Host: evil.example.com` 可诱导 canonical 指向外部域名）。
+    现已删除该回退——未配置 `site_url` 时返回空串，由调用方输出相对路径。
+    """
+    return _site_base_impl()
 
 
 @main_bp.route("/feed.xml")

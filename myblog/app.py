@@ -270,19 +270,23 @@ def _migrate_new_tables_v3():
 
     新增：audit_log（审计日志）、recycle_bin（回收站）、link_application（友链申请）、
     post_history（文章版本历史）。旧库升级时自动补建，无需手动 SQL。
+
+    v3.19.0 追加：seo_submission（主动推送收录记录）。该表同样**只靠本函数 + 
+    db.create_all() 自愈创建，不走 Alembic**——原因见 models.SeoSubmission docstring。
     """
     from sqlalchemy import inspect
-    from models import (AuditLog, RecycleBin, LinkApplication, PostHistory)
+    from models import (AuditLog, RecycleBin, LinkApplication, PostHistory,
+                        SeoSubmission)
     ins = inspect(db.engine)
     existing = set(ins.get_table_names())
-    new_tables = [AuditLog, RecycleBin, LinkApplication, PostHistory]
+    new_tables = [AuditLog, RecycleBin, LinkApplication, PostHistory, SeoSubmission]
     need = [t for t in new_tables if t.__tablename__ not in existing]
     if need:
         try:
             db.create_all()
-            print("已迁移：新建 v3.0.0 数据表（" + ", ".join(t.__tablename__ for t in need) + "）")
+            print("已迁移：新建数据表（" + ", ".join(t.__tablename__ for t in need) + "）")
         except Exception as e:
-            print("v3.0.0 建表失败（可忽略，下次启动重试）:", e)
+            print("建表失败（可忽略，下次启动重试）:", e)
 
 
 def count_unique_view(post_id, ip):

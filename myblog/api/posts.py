@@ -9,7 +9,7 @@ from markupsafe import escape
 
 from .common import (api_bp, db, Post, Category, Tag, Comment, ReadLog, Setting, User, visible_posts_query, _current_user_or_none, _post_summary, _is_visible, _comment, _render_html, rate_limit, client_key)
 import stats  # myblog/stats.py：client_ip / cached_region（浏览量去重与评论归属地）
-from utils import fmt_bj, to_beijing, BEIJING_TZ
+from utils import fmt_bj, to_beijing, BEIJING_TZ, site_base
 from _time import utcnow
 
 # ---------- 文章列表（分页 + 搜索）----------
@@ -169,7 +169,7 @@ def rss_category(slug):
     c = Category.query.filter_by(slug=slug).first_or_404()
     posts = visible_posts_query().filter_by(category_id=c.id)\
         .order_by(Post.is_pinned.desc(), Post.created_at.desc()).limit(20).all()
-    base = (current_app.config.get("SITE_URL") or request.url_root.rstrip("/")).rstrip("/")
+    base = site_base()
     return _rss_xml(posts, f"{c.name} - RSS", f"{c.name} 分类文章更新", base)
 
 
@@ -179,7 +179,7 @@ def rss_tag(slug):
     t = Tag.query.filter_by(slug=slug).first_or_404()
     posts = visible_posts_query().filter(Post.tags.any(id=t.id))\
         .order_by(Post.is_pinned.desc(), Post.created_at.desc()).limit(20).all()
-    base = (current_app.config.get("SITE_URL") or request.url_root.rstrip("/")).rstrip("/")
+    base = site_base()
     return _rss_xml(posts, f"{t.name} - RSS", f"标签「{t.name}」相关文章更新", base)
 # ---------- 归档时间线 ----------
 @api_bp.route("/archive")

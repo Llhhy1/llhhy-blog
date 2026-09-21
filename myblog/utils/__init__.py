@@ -45,6 +45,13 @@ from .text import (  # noqa: F401
     parse_device,
     detect_bot,
 )
+from .seo_shell import (  # noqa: F401
+    SEARCH_BOT_UA,
+    seo_shell_ua,
+    is_search_engine_ua,
+    is_human_navigation,
+    is_internal_referer,
+)
 from .security import (  # noqa: F401
     _WEAK_PASSWORDS,
     _UPPER_RE,
@@ -59,6 +66,8 @@ from .security import (  # noqa: F401
 from .settings import (  # noqa: F401
     get_setting,
     setting_bool,
+    site_base,
+    abs_url,
 )
 from .web import (  # noqa: F401
     safe_redirect,

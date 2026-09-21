@@ -3,6 +3,157 @@
 > 本文件承载 **历史版本** 记录。README 只保留最新版本与上手信息。
 > 各版本的安全审计结论见 `myblog/SECURITY_AUDIT.md`；功能规划见 `ROADMAP.md`。
 
+## v3.19.0（2026-09-21 · 后台「🔍 收录」控制台：主动推送 + 通道自检）
+
+> **背景**：v3.18.9 把爬虫通道接通了（爬虫能拿到带正文的壳页、微信卡片能用），但**「接通」不等于「被收录」**——SEO 的另一半是**主动告诉搜索引擎「我更新了」**。此前站点只能被动等爬虫、以及在 robots.txt 里屏蔽坏 Bot，缺「主动推送」这一环。
+>
+> 本版按实施清单阶段 2 建后台收录页。**边界很明确**：UA 分类、搜索引擎限流豁免、坏 Bot 屏蔽、sitemap/robots 生成**全都已经存在**，本页只做两件真正缺的事——**主动推送 + 通道自检**，其余一律给跳转链接，不复制控件。
+
+### 1. 数据模型：`SeoSubmission`（新表，**不用 Setting KV**）
+推送状态是「每篇 × 每引擎」的行，必须建表。写成 `Setting(key="baidu_push_<post_id>")` 是**明确的错误**：`Setting` 全表 `query.all()` 在 6 处被调用（含 `app.py::inject_globals` 的**每次模板渲染**），按文章写长 KV 会把它变成 O(n) 负担。
+
+```python
+class SeoSubmission(db.Model):
+    post_id    # FK post.id，index
+    engine     # "baidu" | "indexnow"
+    status     # pending|ok|fail|quota
+    submitted_at
+    response   # 截断存（含返回码）
+    __table_args__ = (db.Index("ix_seo_sub_post_engine", "post_id", "engine", unique=True),)
+```
+
+**迁移策略已明确记录（清单要求「别两边各写一半」）**：本表**暂由 `app.py::_migrate_new_tables_v3()` + `db.create_all()` 自愈创建，不走 Alembic**。理由：`migrations/versions/*` 的基线本身就是假迁移（stamp 出来的 `db.create_all()`），此时单为一张新表引入真实迁移脚本会造成两套体系并行。模型 docstring 里写明了这一点与日后补 baseline 迁移的条件。
+
+### 2. 推送引擎（`myblog/seo_push.py` 新增）
+- **百度主动推送**：`POST http://data.zz.baidu.com/urls?site=<域名>&token=<token>`，body 是换行分隔的绝对 URL，返回 `success`/`remaining`/`error,message`。
+  - ⚠️ **这是本项目唯一必须显式允许 http 的出站目标**（官方地址就是 http，没有 https）。因此白名单**精确比对 host**：`http` 仅当 host **等于** `data.zz.baidu.com` 才放行。刻意不做后缀匹配——`http://data.zz.baidu.com.evil.com/` 与 `http://data.zz.baidu.com@evil.com/` 都必须被拒（已写成测试）。
+- **Bing / IndexNow**：`POST https://api.bing.com/indexnow`，`{host, key, keyLocation, urlList}`；需站点根放 key 文件。
+  - **IndexNow key 做规范校验**（8–128 位、仅 `[A-Za-z0-9-]`）。这不是洁癖：key 会被拼进 `keyLocation` URL，不校验就能塞 `/`、`..`、空格，把 `keyLocation` 指向站内任意路径。非法值**拒绝保存**并提示。
+- **Google 不做自动推送**：Google 没有通用推送 API（Indexing API 仅对 `JobPosting`/`Recipe` 生效且要服务账号）。页面只给 sitemap 地址 + GSC 入口链接，**不造一个假的「提交成功」按钮**。
+
+**两条纪律**：
+1. **URL 一律 `site_base() + "/post/" + slug`**，绝不来自用户输入或 `request.host`（延续 v3.18.9 的 Host 注入修复）。
+2. **推送必须异步**：入口只「写 pending 行 → 起 daemon 线程 → 立即返回」，外发全在后台（照抄 `mail_notify.notify_subscribers_async()` 的模式）。附 `timeout=10s`、单次 500 条上限、失败**不自动重试**（避免无效请求吃掉配额），由页面手动重推。
+
+### 3. 批量语义：**按批一次请求**，不是每篇一发
+百度与 IndexNow 都接受换行 / `urlList` 批量提交。逐篇发等于把配额和带宽都浪费掉。批失败时整批落同一状态，页面显示截断后的响应供判断（token 错 vs 网络问题）。
+
+### 4. `quota` 单独成一档（**一个会误导人的顺序坑**）
+百度在配额耗尽时返回 `{"success":0,"remaining":0}`——**既没有 `error` 字段，`success` 也是 0**。若按「有 `success` 就 ok」的朴素顺序判断，这种情况会被记成绿色的「已推送」，实际一条也没推成功。因此判定顺序固定为：**先 `error` → 再 `remaining == 0` → 最后 `success`**，且 `success == 0` 归 `fail`。已写成测试钉死。
+
+### 5. 凭据存储（**不照抄 `mail_password` 的错误做法**）
+token / key 走 `backup_settings.encrypt_secret()`（PBKDF2-HMAC-SHA256 200k + Fernet，`bkenc$` 前缀）。`admin/settings.py` 里 `mail_password` 是**明文落库**的反例，本页刻意不照抄。另外：
+- **留空 = 保持不变**，清除需显式勾选（否则「编辑页面时浏览器自动清空密码框」会静默抹掉凭据）；
+- 页面只回显掩码（`••••••`），**明文绝不上屏**；
+- **响应清洗会抹掉 token**——百度可能把带 token 的请求 URL 回显在错误里，直接落库/上屏就等于泄露密钥（`_clean` 里 `.replace(token, "***")`，有测试）；
+- 审计日志**只记「改了哪个键」，不记值**。
+
+### 6. 安全与权限
+- 全部 6 条路由（`/admin/seo` 及 5 个子接口）`@super_required`；普通管理员一律 403（有测试）。
+- 全部写操作带 CSRF（模板 `csrf_input()` + 全局 `_csrf_protect` 兜底，缺 token 403 有测试）。
+- **不可见文章拒绝推送**：草稿/隐私/回收站/未到点定时的文章**单篇推送直接拒绝**并写审计（`seo_push_reject`）。理由：给搜索引擎送 404 会浪费配额并拉低站点质量评分。批量推送的候选也走 `visible_posts_query()`。
+
+### 7. 后台页面（`/admin/seo`，侧栏「🔍 收录」）
+① **通道自检**：服务端跑 4 身份闸门判定（Baiduspider / MicroMessenger / **QQ 内置浏览器真人** / Chrome），另给「真机验证」按钮直达阶段 1 的 `/api/seo/shell-check`（走完整 nginx 链路）。**两个真人用例必须显示「拿到 SPA」**——只测爬虫照不出真人误伤。
+② **推送凭据**表单（掩码回显 + 显式清除 + IndexNow key 校验 + key 文件放置说明）。
+③ **批量/单篇推送**（选引擎 + 选「最近 N 篇未推送」；已 ok 的不重发以省配额；接口立即返回，页面 3 秒轮询）。
+④ **文章列表**（每篇显示百度/Bing 状态 + 失败响应摘要 + 单篇推送按钮）。
+⑤ **sitemap/robots 只读预览**（**直接复用既有视图**，不重写生成逻辑，防预览与实际输出漂移）+ GSC / Bing / 百度站长入口链接。
+
+- **验证**：**171 passed**（142 基线 + **29 条新增** `tests/test_seo_push.py`）；`ruff --select F821,E9` 全绿。
+- 新增测试覆盖：token 密文存储（断言 `bkenc$` 前缀且能解回原文）/ 页面无明文 / IndexNow key 校验（5 种非法值）/ 留空不改写 / 非超管 403（5 条路由）/ 匿名非 200 / 缺 CSRF 403（推送与凭据各一条）/ **推送不阻塞请求**（把 `_http_post` 打成「命中即抛错」的替身，请求线程内不得被调用）/ enqueue 起 daemon 线程 / **出站白名单精确性**（4 种绕过手法）/ 白名单外不发请求 / URL 来自 `site_base()` 而非 Host / `site_base()` 缺失时全批 fail 且不发请求 / 不可见四态拒绝 / **响应回显抹 token** / `quota` 独立成档（含 `success:0,remaining:0` 那个坑）/ remaining 解析 / 页面渲染（有无 site_url 两种情况）/ 状态接口 / 预览复用既有视图。
+- **本轮未 commit / push / tag / 未建 Release**（等显式发版口令）。改动了 `deploy_guide.md` 但**未动** `update.sh`/`deploy.sh` → 不需要 `deploy_scripts_*.zip`。
+
+### 8. 顺带：字体入库（关闭 v3.18.9 遗留的待决策项）
+`myblog/static/fonts/` 补入 **文泉驿微米黑**（`wqy-microhei.ttc`，5,177,387 B，sha256 `e4bca8df…c88212`）。选它是因为在候选里体积最小（Noto Sans SC VF 17.77 MB / Source Han Sans CN 8.04 MB / LXGW WenKai Lite 13.23 MB）。
+
+- **许可**：GPL v2 + **字体嵌入例外条款**（**不是 OFL**，`FONTS.md` 里明确写明，不可声称 OFL）。换 OFL 字体需同步改说明，且 Noto CJK 单字约 20 MB 是其 4 倍。
+- **顺带修掉一个真缺陷**：`og_image.py::_cjk_candidates()` 原先只对 `.ttf`/`.otf` 做字重命名匹配，**`.ttc` 不参与** → 放进仓库的 `*-Bold.ttc` / `*-Regular.ttc` **永远不会被优先选中**（静默用回任意字体）。已补 `.ttc`。
+- **降级路径不再静默（可观测性）**：`og_image.py` 此前三处降级全无日志——Pillow 不可用、**找不到中文字体**、渲染异常——这正是「`.png` 分享卡恒返回兜底图」能潜伏整整一个版本周期而无人察觉的原因。现三处均加 `logger.warning`（含字体目录与 `_PIL_OK` 状态），运维可直接从日志定位。**不改任何行为，只补痕迹**，无测试破坏（171 passed 保持不变）。
+- `package.py` **无需改动**（`add_tree()` 递归 `myblog/`，`static/fonts/` 自动入包，已模拟验证）。
+- `FONTS.md` 记录了「为什么必须打包」（静默降级潜伏了一个版本周期的教训）与**改完必须清两处缓存**（后端 `data/og_cache/` + nginx `proxy_cache_dir`）。
+
+
+
+## v3.18.9（2026-09-21 · SEO 爬虫通道修复：从「接通即拒收」到真正可收录）
+
+> **背景（阶段 0 真机自查结论）**：线上 nginx **早有一条手工配置的爬虫规则**（`location ~ ^/post/` 里的 `if ($http_user_agent ~* "(bot|spider|crawl|…")` → `rewrite … /api/og/post/$1`），但它**从未入库到 `deploy_guide.md`**——`routes.py` 的注释声称「Nginx 有 bot 规则」，而部署文档里 0 命中。更糟的是后端那个页面的行为：
+>
+> ```bash
+> # 实测（修复前）
+> curl -sSI -A "Baiduspider" https://域名/post/post-8   # → 200 + x-robots-tag: noindex,nofollow
+> #                                                    #   + canonical: https://域名/api/og/post/post-8
+> curl -sS  -A "MicroMessenger/8.0.40" https://域名/post/post-8  # → SPA 空壳（og:image 命中 1 次，
+> #                                                    #    来自 index.html 里写死的默认值）
+> ```
+>
+> 即：**百度能被引导进来，进来后立刻被告知「请勿收录」，且 canonical 指向 API 地址**——等于主动放弃收录。微信根本进不来（`detect_bot()` 认不出 `MicroMessenger`）。本版把通道做成真正可用的东西。
+
+### 1. 出口语义（`myblog/api/og.py` 重做，三种互斥出口）
+| 条件 | 响应 | 理由 |
+| --- | --- | --- |
+| 文章不可见 | **404** + `noindex,nofollow` + 站点级兜底文案 | 不透露该 slug 任何信息 |
+| 经通道（`?seo=1`）且判定为抓取方 | **200** 壳页 + **`index,follow`** + canonical=公开地址 | 正式出口，**允许收录** |
+| 其余（真人 / 直敲 API） | **302** → `/post/<slug>` | 真人回到能跑 JS 的 SPA；不留下「可索引但 canonical 指向自己」的页面 |
+
+- **`X-Robots-Tag` 不再恒发 `noindex`**（修复前那行接通通道即杀死收录）。仅「不可见」与「非通道直敲的兜底」给 noindex。
+- **canonical / og:url / twitter:url 全部改为 `site_base() + /post/<slug>`**，不再用 `request.url`（修复前会生成 `…/api/og/post/<slug>`）。
+- 三种出口都带 **`Vary: User-Agent, Sec-Fetch-Mode, Accept, Referer`**（同一 URL 三种结果，不声明会被 CDN/共享缓存串味）。
+
+### 2. 通道闸门（`myblog/utils/seo_shell.py` 新增，**独立于 `detect_bot()`**）
+两条实测结论决定了它不能复用 `detect_bot()`：
+- `detect_bot("…MicroMessenger/8.0.40")` → `(False, "", "")`：**微信 UA 里没有 bot 字样**，任何 `== "search"` 闸门都必然让微信卡片失效。
+- `detect_bot()` 把社交抓取器与 Ahrefs/curl **混在同一个 `tool` 类**里 → 只放行 `search` 微信失效、整体放行 `tool` 等于给第三方 SEO 蜘蛛送全文入口。
+
+因此闸门做成**两层**：① 放行候选（搜索引擎 ∨ 社交/IM 预览抓取器，各自独立 UA 表）；② **真人否决**——命中 `Sec-Fetch-Mode: navigate` 或 `Accept: text/html` 或站内 Referer 即一律否决，即使第一层命中。
+
+> ⚠️ **这一层是防生产事故的关键**：QQ 内置浏览器里的真人 UA 常带 `QQ/9.7.x`（如 `…MQQBrowser/13.0 QQ/9.7.10.43400`），会被第一层命中；没有第二层否决，真人就会看到一张几乎空白的壳页。**爬虫侧测试全绿也照不出这一类。**
+
+限流 `rate_limit(client_key("og_shell"), limit=120, window=60)` **豁免正规搜索引擎**（把 Google/Baidu 正常抓取 429 掉等于自废收录）。
+
+### 3. 可见性漏判修复（`[安全红线]`，两个入口都漏）
+`og.py` 的 meta 页与 `.png` 分享卡**各自手写** `filter_by(slug, published=True, in_trash=False)` 再补 `if post.is_private`——**两处都漏 `scheduled_at`**。未到发布时间的文章标题既能被 meta 页读到，也会被**画进那张对外可取的 PNG 图**。现统一改走 `visible_posts_query().filter_by(slug=slug).first()`，删掉手工 `is_private` 判断，并修正模块 docstring（原文声称「只读 visible_posts_query」与实现相反）。
+
+### 4. 壳页带正文 + 结构化数据（百度对 JS 最不友好，只有 meta 时 rankings 弱）
+- 正文**复用 `Post.content_html` 缓存列**（`render_post_html`，命中时几乎零成本），不新写渲染逻辑 → 不引入与正文页不一致的白名单/XSS 差异。
+- 加 **`BlogPosting` + `BreadcrumbList` JSON-LD**（`</` 显式转义防 `</script>` 提前闭合）。
+- 壳页无 CSS、无脚本；`<article>` 包正文。
+
+### 5. 站点地址收敛为唯一真相源（`utils/settings.py::site_base()`）
+此前 canonical / og:url / sitemap / feed / 邮件链接 / MCP 指令各自取值（有的只读 DB、有的回退 `request.url_root`）。现统一为 **DB `site_url` → env `SITE_URL` → 空串**，并**删除 `request.url_root` / `request.host` 回退**——那等于让请求方提供的 Host 决定我们对外声明的 URL（`Host: evil.example.com` 可诱导 canonical 指向外部域名，首轮审计 2.9 遗留项）。未配置时输出相对路径，诊断页红字提示。
+
+改动点：`api/og.py`、`routes.py`（`_site_base` / feed / sitemap / comments_feed）、`diagnostics.py`（站点配置 + SEO 两节，并新增**爬虫通道路由存在性检查**）、`mail_notify.py`、`api/posts.py`（分类/标签 RSS）、`admin/mcp_services.py`。
+
+### 6. Nginx 配置**入库**（`deploy_guide.md` 新增「第 4b 步：SEO 爬虫通道」）
+- 用 `map $http_user_agent $seo_shell` + `location /post/` 内 `rewrite …?seo=1 last`（`last` 会重新匹配 location 从而命中既有的 `location /api/` 反代；避开在 `if` 里写 `proxy_pass`）。
+- **明确写入两条禁令**：绝不加 `QQBrowser` / `MQQBrowser`（那是真人）；绝不写成宽泛的 `bot|spider|crawl`（会把 Ahrefs/Semrush 放进通道）。
+- 附完整的验证命令（爬虫/真人/QQ 内真人三种视角）。
+- **线上已按此更新并 reload**（`nginx -t` 通过；原配置备份在 `/root/html_www.llhhy.cn.conf.bak-v3189`）。
+- `routes.py` 里那条「Nginx 的 bot 规则会把 /post/* 改写」的注释**改为指向 `deploy_guide.md` 的实际章节**（原文声称有规则而文档里没有 = 重装即丢）。
+
+### 6b. 顺带查出并修复：分享卡 `.png` 自 v3.16.0 起**一直**返回兜底图（三层叠加故障）
+
+真机验收时发现 `https://域名/api/og/post/<slug>.png` 恒返回 966 B 兜底图，且与站点根目录的 `og-default.png` **sha256 逐字节相同**。逐层剥开是**三个独立故障叠在一起**，缺任何一层都不会是这个症状：
+
+| 层 | 故障 | 处置 |
+| --- | --- | --- |
+| ① 字体 | `og_image.py` 文档声称「仓库内打包开源字体」，但 `myblog/static/fonts/` **在仓库与服务器都不存在**，服务器也无任何 CJK 字体 → `_find_font()` 返回 `None` → `render_og_image()` 返回 `None` → **静默**降级成兜底图（全程不报错，所以潜伏了一个版本周期） | 服务器 `apt-get install -y fonts-noto-cjk`；`render_og_image` 立即恢复输出 1200×630 真实卡片 |
+| ② nginx | 宝塔默认 `location ~ .*\.(gif\|jpg\|jpeg\|png\|bmp\|swf)$` 是**正则 location**，优先级高于 `location ^~ /api/`，把 `/api/og/**/*.png` 从反代上抢走 | 新增 `location ^~ /api/og/ { proxy_pass …; }`（`^~` 之间按最长前缀取胜，命中即跳过正则） |
+| ③ 缓存 | 宝塔 `proxy.conf` **全局** `proxy_cache cache_one;`，把①时期吐出的那张兜底图**长期缓存**了；客户端发 `Cache-Control: no-cache` **无法**绕过 | `find /www/server/nginx/proxy_cache_dir -type f -delete` |
+
+- **定位手法（可复用）**：① 分层——`curl` 直打 `127.0.0.1:8686` 确认后端正确、再经域名复现外部症状，**问题必在中间层**；② `Content-Disposition: inline; filename=og-default.png` 与 `etag` 格式指认响应来源；③ **加唯一 query 参数**（`?v=2`）能绕开静态/缓存命中，是「快速判断是否被缓存层截胡」的可靠手段；④ 在 nginx 各候选 location 里临时 `add_header X-Which …` / `return 418` 直接问出**实际命中的是哪个 location**（本次据此证明 nginx 层修复已生效、病灶在缓存层）。
+- **文档同步**：`deploy_guide.md`「第 4b 步」新增 ③（`^~ /api/og/` 原文 + 判据）与 ④（`proxy_cache` 清缓存），验证命令补上分享卡一条。
+- ⚠️ **仓库侧仍待决策**：`myblog/static/fonts/` 是否补入 OFL 可分发 CJK 字体（避免换服务器后重新降级），涉及包体积与 `package.py` 收录范围，**本轮未擅自改动**。
+
+### 7. 后台「通道自检」接口（`/api/seo/shell-check`）
+按需自测本端点在 **4 种身份**下的真实响应（Baiduspider / MicroMessenger / **QQ 内置浏览器真人** / Chrome），返回三盏灯：是否拿到服务端 HTML、canonical 是否等于 `/post/<slug>`、是否 `index,follow`；并检查 `site_base()` 是否已配置。**两个真人身份必须显示「拿到 SPA」**——这一项才是防事故的关键，只测爬虫是不够的。
+
+- **验证**：**142 passed**（126 + 16 条新增，`tests/test_seo_shell.py`）；`ruff --select F821,E9` 全绿。
+- 新增测试覆盖清单的 **7 条判定表**（百度→壳 / 微信抓取器→壳 / 微信真人→302 / QQ 真人→302 / Chrome→302 / Ahrefs&curl→不给 / 站内 Referer→不给）+ **隐私·回收站·定时未到 三态 × meta页·png 两入口** + Host 头不得进 canonical + `Vary` + JSON-LD/转义。
+- 做了**变异测试**验证这些断言真的能抓回归：① 把 `index,follow` 回退成恒 `noindex` → 2 条红；② 删掉第二层真人否决 → 2 条红（微信/QQ 真人变 200）。
+
+
+
 ## v3.18.8（2026-09-21 · 修复 v3.18.7 上线实测发现的验签顺序缺陷：工作目录旧清单未清）
 
 > **v3.18.7 上线首次实测即失败**，但**站点未受任何影响**——新的 fail-closed 逻辑在「覆盖代码之前」就拒绝了安装（这正是它该有的行为）。根因是 v3.18.7 自身的一个顺序缺陷，本版修复。

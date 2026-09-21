@@ -2,13 +2,17 @@
 
 前后端分离的个人博客：**Flask** 后端（SSR + JSON API + 管理后台）+ **Vue3** 前端（SPA）。单仓库托管前后端代码、部署文档与安全报告。
 
-- 当前版本：**v3.18.8**
+- 当前版本：**v3.19.0**
+- **SEO 收录闭环（v3.18.9 + v3.19.0）**：爬虫通道 + 主动推送两层。
+  - **v3.18.9（通道）**：`/post/<slug>` 对爬虫/社交抓取器返回**带正文的服务端壳页**（三出口：不可见→404+`noindex`；经通道且判定为抓取方→200+**`index,follow`**+公开 canonical；真人→302 回 SPA），壳页含 **`BlogPosting`/`BreadcrumbList` JSON-LD**（补上 v3.18.6 SSR 退役后彻底缺失的那块）。闸门独立于 `detect_bot()`（它认不出微信、且把社交抓取与 Ahrefs 混在一类），改为「搜索引擎/社交预览双 UA 表 + **真人信号否决**」两层——**防 QQ 内置浏览器里的真人（UA 带 `QQ/9.7.x`）被误伤看到空白壳页**。站点地址收敛为 `utils.site_base()` 唯一真相源（**删除 `request.host` 回退**，关闭 Host 注入遗留项）。**Nginx 配置原文入库** `deploy_guide.md`「第 4b 步」（缺它 = 重装后爬虫变回空壳）。另修复**分享卡 `.png` 自 v3.16.0 起一直返回兜底图**的三层叠加故障（字体缺失 → 宝塔图片正则压过 `^~ /api/` → 全局 `proxy_cache` 把兜底图缓存了）。
+  - **v3.19.0（推送）**：后台「🔍 收录」控制台——主动推送给**百度**（主动推送 API）与 **Bing/IndexNow**，凭据 Fernet 加密存储、推送**全异步**（接口立即返回 + 页面轮询）、**不可见文章拒绝推送**、sitemap/robots 只读预览、GSC/Bing/百度站长入口。**Google 不做自动推送**（无通用推送 API，不造假的「提交成功」按钮）。
+  - 详细缺口与后续方案（`/`、`/category/*` 等仍是 SPA 空壳）见 `ROADMAP.md` §5.8。
 - **架构：单前端（v3.18.6）**。生产只有一套渲染器——**Vue SPA**。Nginx 只把 `/api/` `/admin` `/static/` `/mcp*` 与 `feed.xml` / `sitemap.xml` / `robots.txt` / `feed/comments` 反代给 Flask，其余路径由 SPA 兜底；`routes.py` 里原有的 8 个「页面级」SSR 路由（`/`、`/post/<slug>`、`/category/<slug>`、`/tag/<slug>`、`/search`、`/about`、`/links`、`/archive`）**已退役为 410 Gone**，7 个对应模板已删除（顶层模板只剩认证与错误页）。endpoint 名保留（`base.html` 的 `url_for` 依赖它们）；`/login` `/register` `/logout` 仍是 SSR，`/post/<slug>/comment` 与 `/post/<slug>/like` 两个 POST 入口保留。
 - **超长文件拆分（v3.18.1 · 纯重构，公共 API 与路由零变更）**：`myblog/utils.py`（784 行）拆成 `utils/` 包（`timeutil` / `render` / `net` / `slug` / `text` / `security` / `settings` / `web`，`__init__.py` 全量重导出，导入点零改动）；`admin/posts.py`（852 行 / 26 路由）拆成 `post_editor` / `post_manage` / `post_trash` / `post_history` / `taxonomy`（同一蓝图、URL 不变）。验证：逐名 `ast.dump` 等价性 + endpoint 守恒（99 处 `url_for` 全可解析）+ `113 passed`；最大文件 852/784 → 448/294 行。
 - **游戏平台（v3.15.0）**：前台「🎮 游戏」卡片厅 + 沙箱内播放（`iframe sandbox` + CSP，拿不到本站 Cookie/登录态/API，禁外联）；后台「游戏收录」上传 zip → 安全解包 + 静态扫描 → 审核上架，可配置 OpenAI 兼容大模型做代码安全审计（Key 加密）；内置官方《就是按一下》《就是开车》两枚荒谬马拉松；开发者接入文档 `/games/dev`。
 - **标签治理（v3.15.0）**：保存文章自动去重（中英文逗号/顿号/大小写/空白变体归一复用）、自动清理 0 使用标签；后台一键整理（合并重复 + 清理未使用）。
 - **分享卡片（v3.15.0）**：站点级 OG/twitter meta + 文章页动态 OG（绝对图址 / 无封面自动回退），微信/QQ 分享不再只是裸链接。
-  > ⚠️ **口径更正（v3.18.5 / 细化于 v3.18.6）**：文章页的「动态 OG」实现在 **Vue 客户端**（`PostView.vue` 注入 meta）。服务端侧只有一条**爬虫专用通道**：Nginx 把匹配爬虫 UA 的 `/post/*` 改写为 `/api/og/post/<slug>`（服务端渲染 OG meta 的页面），所以**主流搜索/社交爬虫确实能拿到文章级 OG**；但**只有 OG、没有 JSON-LD**（JSON-LD 原本只存在于 v3.18.6 已退役的 SSR 文章页，现在彻底没有）。`/`、`/archive`、`/category/*`、`/tag/*`、`/about`、`/links` 仍是 SPA 空壳，**无任何服务端 meta**。补 meta 的具体方案见 `ROADMAP.md` §5.8。
+  > ⚠️ **口径更正（v3.18.5 / 细化于 v3.18.6 / 部分已修复于 v3.18.9）**：文章页的「动态 OG」实现在 **Vue 客户端**（`PostView.vue` 注入 meta）。服务端侧有一条**爬虫专用通道**：Nginx 按 UA 把爬虫/社交抓取器的 `/post/*` 改写为 `/api/og/post/<slug>?seo=1`。**v3.18.9 已修复这条通道并补齐 JSON-LD**——现在服务端壳页带正文 + `BlogPosting`/`BreadcrumbList`，且明确输出 `index,follow`（修复前恒发 `noindex` 且 canonical 指向 `/api/…`，等于接通即拒收）。`/`、`/archive`、`/category/*`、`/tag/*`、`/about`、`/links` 仍是 SPA 空壳，**无任何服务端 meta**。补 meta 的具体方案见 `ROADMAP.md` §5.8。
 - **主题中心（v3.16.0）**：后台「🎨 主题中心」——14 套预设主题包（OKLCH 感知色彩空间，亮色单源 / 暗色自动推导），实时预览网格 + 自定义 JSON 导入/导出，一键应用全站整体换肤（前后台共用同一套 token）；写操作仅超管 + 全局 CSRF，无 DB 迁移。
   > ⚠️ **口径更正（v3.18.5）**：`derive_dark` 只做明度（L）钳制，**没有 WCAG 相对亮度校验环**；抽查已发现 4 组 token 组合对比度 < 4.5:1（如浅色 `--text-faint #9aa0a6` on `#fff` ≈ 2.6:1），风险面覆盖 14 套主题。补校验环见 `ROADMAP.md` §5.8。
 - **分享卡重做（v3.16.0）**：文章页 SVG 图标分享面板（微博 / QQ / 微信 / X / Telegram / Facebook / LinkedIn）、动态 OG 图（Pillow 绘制 1200×630 + 磁盘缓存）、文章二维码（站点二维码 SVG）、图片灯箱 / 代码复制 / 阅读时长等阅读体验增强。

@@ -31,7 +31,7 @@ from sqlalchemy import text
 
 from models import (db, Post, Comment, User, FriendLink, Guestbook,
                     LinkApplication, Subscriber, Notification)
-from utils import get_setting, setting_bool, fmt_bj, to_beijing, BEIJING_TZ
+from utils import get_setting, setting_bool, fmt_bj, to_beijing, BEIJING_TZ, site_base
 from _time import utcnow
 
 
@@ -206,7 +206,7 @@ def check_config():
         notes.append("未配置 SMTP，订阅确认邮件、通知邮件等不会发送（不影响站内功能）。")
         status = "warn" if status == "ok" else status
 
-    site_url = get_setting("site_url") or current_app.config.get("SITE_URL")
+    site_url = site_base()
     items.append({"label": "站点 URL (site_url)", "value": (site_url or "未设置"), "level": "ok" if site_url else "warn"})
     if not site_url:
         notes.append("未设置 site_url，sitemap/feed 中的绝对链接、分享卡片可能不完整。")
@@ -324,9 +324,9 @@ def check_backup():
 # ---------------------------------------------------------------------------
 def check_seo():
     items, notes, status = [], [], "ok"
-    site_url = get_setting("site_url") or current_app.config.get("SITE_URL")
+    site_url = site_base()
     items.append({"label": "站点 URL", "value": (site_url or "未设置"), "level": "ok" if site_url else "warn"})
-    # 路由存在性（代码内已知；这里只确认关键端点已注册）
+    # v3.18.9：爬虫通道自检（本轮新增，见 deploy_guide.md 的 map $http_user_agent $seo_shell）
     from flask import current_app as app
     routes = {str(r) for r in app.url_map.iter_rules()}
     for path in ("/robots.txt", "/sitemap.xml", "/feed.xml", "/feed/comments"):
@@ -335,8 +335,17 @@ def check_seo():
         if not has:
             status = "error"
             notes.append(f"缺少 {path} 路由，SEO/订阅源不完整。")
+    # 爬虫通道（/api/og/post/<slug>）是本轮 SEO 的正式出口，缺了等于文章对爬虫不可见
+    has_og_shell = any("/api/og/post/" in r for r in routes)
+    items.append({"label": "路由 /api/og/post/<slug>（爬虫通道）",
+                  "value": "存在" if has_og_shell else "缺失",
+                  "level": "ok" if has_og_shell else "error"})
+    if not has_og_shell:
+        status = "error"
+        notes.append("缺少爬虫通道路由，搜索引擎/微信拿不到文章服务端 HTML（只剩 SPA 空壳）。")
     if not site_url:
-        notes.append("site_url 未设置会影响 sitemap/feed 绝对链接与分享卡片。")
+        notes.append("site_url 未设置会影响 sitemap/feed 绝对链接与分享卡片；"
+                     "爬虫通道的 canonical/og:url 也会退化成相对路径，微信卡片取不到图。")
         status = "warn" if status == "ok" else status
     return {"key": "seo", "title": "搜索引擎 SEO", "status": status, "items": items, "notes": notes}
 

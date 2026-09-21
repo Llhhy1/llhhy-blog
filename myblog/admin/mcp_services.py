@@ -28,7 +28,7 @@ from flask import render_template, request, redirect, url_for, flash, jsonify, c
 
 from models import db, Setting
 from ._helpers import admin_bp, super_required, log_audit
-from utils import get_setting, setting_bool
+from utils import get_setting, setting_bool, site_base
 from backup_settings import encrypt_secret, decrypt_secret
 
 # ---------------------------------------------------------------------------
@@ -84,11 +84,17 @@ def _get_ext_token(sid):
 
 
 def _base_url():
-    """指令里的对外域名：面板显式配置优先，否则用当前访问域名。"""
+    """MCP 指令里展示的对外域名（v3.18.9：收敛到 site_base()）。
+
+    优先级：面板显式配置（KEY_BASE_URL）→ site_base()（DB site_url → env SITE_URL）。
+    删除了 `request.host_url` 回退——它由请求方 Host 决定，未配置时会生成
+    `Host: evil.example.com` 的假域名指令（复制出去必然连不上，也属 Host 注入）。
+    都没有时返回空串，调用方输出相对路径。
+    """
     configured = (get_setting(KEY_BASE_URL) or "").strip().rstrip("/")
     if configured:
         return configured
-    return request.host_url.rstrip("/")
+    return site_base()
 
 
 # ---------------------------------------------------------------------------

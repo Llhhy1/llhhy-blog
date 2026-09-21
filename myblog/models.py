@@ -434,3 +434,32 @@ class Game(db.Model):
     created_at = db.Column(db.DateTime, default=utcnow)
     updated_at = db.Column(db.DateTime, default=utcnow, onupdate=utcnow)
     approved_at = db.Column(db.DateTime, nullable=True)
+
+
+class SeoSubmission(db.Model):
+    """主动推送收录记录（v3.19.0）——每篇 × 每引擎一行。
+
+    为什么单独建表而不是 Setting KV：Setting 全表 query.all() 在 6 处被调用
+    （含 app.py inject_globals 每次模板渲染），按文章写 <引擎>_push_<post_id>
+    长 KV 会把它变成 O(n) 负担。这里改为「一行一提交结果」的关系表。
+
+    迁移策略（明确记录，避免两边各写一半）：
+        本表**暂由 app.py 的 db.create_all() 自愈创建**（随 _migrate_new_tables_v3
+        一并生效），不走 Alembic。理由：当前 migrations/versions/* 的基线本身就是
+        假迁移（stamp 出来的 db.create_all()），此时单为一张新表引入真实迁移脚本会
+        造成两套体系并行。若日后启用真实 Alembic 迁移，本表需补一条 baseline 迁移。
+
+    字段语义：
+        engine  baidu / indexnow
+        status  pending 待推送（未发送或已在队列）| ok 成功 | fail 失败 | quota 配额耗尽
+    """
+    id = db.Column(db.Integer, primary_key=True)
+    post_id = db.Column(db.Integer, db.ForeignKey("post.id"), nullable=False, index=True)
+    engine = db.Column(db.String(16), nullable=False)          # "baidu" | "indexnow"
+    status = db.Column(db.String(16), default="pending")       # pending|ok|fail|quota
+    submitted_at = db.Column(db.DateTime, default=utcnow)
+    response = db.Column(db.Text, default="")                  # 截断存，含返回码
+    __table_args__ = (db.Index("ix_seo_sub_post_engine", "post_id", "engine", unique=True),)
+
+    def __repr__(self):
+        return f"<SeoSubmission post={self.post_id} {self.engine}={self.status}>"

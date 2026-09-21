@@ -1,0 +1,260 @@
+{% extends "admin/base.html" %}
+{% block title %}收录控制台{% endblock %}
+{% block content %}
+  <h1 class="page-title">🔍 收录控制台 <span class="stats-tip">主动推送 · 通道自检</span></h1>
+
+  {% if get_flashed_messages() %}
+    {% for m in get_flashed_messages() %}<p class="stats-tip" style="color:#d93025;">{{ m }}</p>{% endfor %}
+  {% endif %}
+
+  {# ============ 1. 通道自检 ============ #}
+  <div class="section-box" style="margin-bottom:16px;">
+    <h2 style="margin-top:0;font-size:16px;">① 爬虫通道自检</h2>
+    {% if not site_base %}
+      <p style="color:#d93025;font-weight:600;margin:6px 0;">
+        ⚠️ 站点对外地址（site_url）未配置：canonical / og:url 会退化成相对路径，
+        微信分享卡片拿不到图，sitemap 也没有域名。<a href="{{ url_for('admin.settings') }}">前往「站点设置」填写</a>。
+      </p>
+    {% else %}
+      <p class="stats-tip" style="margin:6px 0;">对外地址：<code>{{ site_base }}</code> · 样本文章：<code>{{ sample_slug or '（暂无已发布文章）' }}</code></p>
+    {% endif %}
+
+    <p class="stats-tip" style="margin:8px 0 4px;">
+      闸门判定自检（服务端纯函数，不发起网络请求）：
+      <button type="button" class="btn small" onclick="runSelfCheck()">▶︎ 跑一遍</button>
+      <a class="btn small" href="/api/seo/shell-check{% if sample_slug %}?slug={{ sample_slug }}{% endif %}" target="_blank" rel="noopener">真机验证（走完整 nginx 链路）</a>
+    </p>
+    <div id="selfcheck-out"><span class="stats-tip">未运行。</span></div>
+    <p class="stats-tip" style="margin-top:10px;">
+      ⚙️ 相关既有开关（本页不重复提供控件）：
+      <a href="{{ url_for('admin.settings') }}">站点设置</a> 里的
+      「robots.txt 屏蔽坏 Bot」＝<code>{{ block_bots or '（未设置）' }}</code>；
+      搜索引擎限流豁免＝
+      {% if search_whitelist == '1' %}<b style="color:#188038;">已开启</b>{% else %}<b style="color:#d93025;">已关闭（会把 Google/Baidu 正常抓取 429 掉）</b>{% endif %}。
+    </p>
+  </div>
+
+  {# ============ 2. 推送凭据 ============ #}
+  <div class="section-box" style="margin-bottom:16px;">
+    <h2 style="margin-top:0;font-size:16px;">② 推送凭据（加密存储，页面与日志不回显明文）</h2>
+    <form method="post" action="{{ url_for('admin.seo_save_token') }}">
+      {{ csrf_input() }}
+      <p style="margin:8px 0 2px;"><b>百度主动推送 token</b>
+        <span class="stats-tip">当前：{% if has_baidu_token %}<span style="color:#188038;">已配置 {{ baidu_token_mask }}</span>{% else %}<span style="color:#d93025;">未配置</span>{% endif %}
+        · 取法：百度搜索资源平台 → 普通收录 → API 提交</span>
+      </p>
+      <input type="password" name="baidu_token" autocomplete="new-password"
+             placeholder="留空 = 保持不变" style="width:min(520px,100%);">
+      <label class="stats-tip" style="display:inline-block;margin-left:8px;">
+        <input type="checkbox" name="clear_baidu_token" value="1"> 清除
+      </label>
+
+      <p style="margin:14px 0 2px;"><b>IndexNow key</b>（Bing / Yandex 等，配额宽松，建议优先）
+        <span class="stats-tip">当前：{% if has_indexnow_key %}<span style="color:#188038;">已配置 {{ indexnow_key_mask }}</span>{% else %}<span style="color:#d93025;">未配置</span>{% endif %}</span>
+      </p>
+      <input type="password" name="indexnow_key" autocomplete="new-password"
+             placeholder="8–128 位字母/数字/短横线；留空 = 保持不变" style="width:min(520px,100%);">
+      <label class="stats-tip" style="display:inline-block;margin-left:8px;">
+        <input type="checkbox" name="clear_indexnow_key" value="1"> 清除
+      </label>
+
+      <p class="stats-tip" style="margin:10px 0 6px;">
+        配置后<b>必须在站点根放一个可公开访问的 key 文件</b>：
+        <code>{{ site_base or 'https://你的域名' }}/<i>&lt;key&gt;</i>.txt</code>，文件内容就是 key 本身——
+        否则 Bing 校验失败，请求会被拒。此文件必须能直接访问、不被 robots.txt 拦。
+      </p>
+      <button type="submit" class="btn">💾 保存凭据</button>
+    </form>
+  </div>
+
+  {# ============ 3. 推送 ============ #}
+  <div class="section-box" style="margin-bottom:16px;">
+    <h2 style="margin-top:0;font-size:16px;">③ 主动推送</h2>
+    <p class="stats-tip" style="margin:6px 0;">
+      已成功：百度 <b>{{ pushed_baidu }}</b> 篇 · Bing/IndexNow <b>{{ pushed_bing }}</b> 篇
+      （对访客可见的文章共 {{ total_visible }} 篇）
+      {% if baidu_quota %}· 百度当日剩余配额：<b>{{ baidu_quota }}</b>{% endif %}
+      <button type="button" class="btn small" onclick="refreshStatus()">🔄 刷新状态</button>
+      <span id="push-counts" class="stats-tip"></span>
+    </p>
+
+    <form method="post" action="{{ url_for('admin.seo_push_now') }}" style="display:inline-block;margin:0 8px 0 0;">
+      {{ csrf_input() }}
+      <select name="engine">
+        <option value="indexnow">Bing / IndexNow（建议）</option>
+        <option value="baidu">百度主动推送</option>
+      </select>
+      <select name="batch">
+        {% for n in batch_choices %}<option value="{{ n }}">最近 {{ n }} 篇未推送</option>{% endfor %}
+      </select>
+      <button type="submit" class="btn">🚀 批量推送</button>
+    </form>
+    <span class="stats-tip">接口立即返回（外发在后台线程），点完刷新即可看结果。</span>
+
+    <p class="stats-tip" style="margin-top:10px;">
+      ℹ️ 不可见文章不会被推送，也推不了：草稿 {{ hidden.草稿 }} 篇 · 隐私 {{ hidden.隐私 }} 篇 · 回收站 {{ hidden.回收站 }} 篇。
+      给搜索引擎送 404 会浪费配额并拉低站点质量评分，所以单篇推送对这类文章会直接拒绝。
+    </p>
+    <p class="stats-tip">
+      Google <b>不做自动推送</b>——Google 没有通用推送 API（Indexing API 仅对 JobPosting/Recipe 生效）。
+      对 Google 请用下方 sitemap + GSC 入口，不要指望一个「提交成功」按钮。
+    </p>
+  </div>
+
+  {# ============ 4. 文章列表 ============ #}
+  <div class="section-box" style="margin-bottom:16px;">
+    <h2 style="margin-top:0;font-size:16px;">④ 文章推送状态</h2>
+    <form method="get" action="{{ url_for('admin.seo_console') }}" style="margin-bottom:10px;">
+      <input type="text" name="q" value="{{ q }}" placeholder="按标题搜索" style="width:min(280px,100%);">
+      <button type="submit" class="btn small">搜索</button>
+      {% if q %}<a class="btn small" href="{{ url_for('admin.seo_console') }}">清空</a>{% endif %}
+    </form>
+    <div class="admin-table">
+      <table>
+        <thead>
+          <tr>
+            <th style="width:38%;">文章</th>
+            <th style="width:120px;">百度</th>
+            <th style="width:120px;">Bing</th>
+            <th style="width:200px;">操作</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for r in rows %}
+          <tr>
+            <td>
+              <a href="/post/{{ r.p.slug }}" target="_blank" rel="noopener">{{ r.p.title }}</a>
+              <div class="stats-tip">{{ r.p.slug }} · {{ r.p.created_at | bj('%Y-%m-%d') }}</div>
+            </td>
+            {% for cell in (r.baidu, r.indexnow) %}
+            <td>
+              {% if not cell %}
+                <span class="stats-tip">— 未推送</span>
+              {% elif cell.status == 'ok' %}
+                <span style="color:#188038;">✓ 已推送</span>
+              {% elif cell.status == 'pending' %}
+                <span style="color:#b06000;">⏳ 排队中</span>
+              {% elif cell.status == 'quota' %}
+                <span style="color:#d93025;">⚠️ 配额耗尽</span>
+              {% else %}
+                <span style="color:#d93025;">✗ 失败</span>
+              {% endif %}
+              {% if cell and cell.response %}
+                <div class="stats-tip" title="{{ cell.response }}">{{ cell.response[:60] }}{% if cell.response|length > 60 %}…{% endif %}</div>
+              {% endif %}
+              {% if cell and cell.submitted_at %}
+                <div class="stats-tip">{{ cell.submitted_at | bj('%m-%d %H:%M') }}</div>
+              {% endif %}
+            </td>
+            {% endfor %}
+            <td>
+              <form method="post" action="{{ url_for('admin.seo_push_now') }}" style="display:inline;">
+                {{ csrf_input() }}
+                <input type="hidden" name="post_id" value="{{ r.p.id }}">
+                <input type="hidden" name="engine" value="baidu">
+                <button type="submit" class="btn small">推百度</button>
+              </form>
+              <form method="post" action="{{ url_for('admin.seo_push_now') }}" style="display:inline;">
+                {{ csrf_input() }}
+                <input type="hidden" name="post_id" value="{{ r.p.id }}">
+                <input type="hidden" name="engine" value="indexnow">
+                <button type="submit" class="btn small">推 Bing</button>
+              </form>
+            </td>
+          </tr>
+          {% else %}
+          <tr><td colspan="4" class="stats-tip">没有匹配的文章。</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  {# ============ 5. sitemap / robots 只读预览 ============ #}
+  <div class="section-box" style="margin-bottom:16px;">
+    <h2 style="margin-top:0;font-size:16px;">⑤ sitemap / robots 只读预览</h2>
+    <p style="margin:6px 0;">
+      <button type="button" class="btn small" onclick="loadPreview('sitemap')">看 sitemap.xml</button>
+      <button type="button" class="btn small" onclick="loadPreview('robots')">看 robots.txt</button>
+      <a class="btn small" href="/sitemap.xml" target="_blank" rel="noopener">打开 /sitemap.xml</a>
+      <a class="btn small" href="/robots.txt" target="_blank" rel="noopener">打开 /robots.txt</a>
+    </p>
+    <pre id="preview-out" style="max-height:320px;overflow:auto;background:var(--surface-2,#f6f7f9);padding:10px;border-radius:8px;font-size:12px;white-space:pre-wrap;word-break:break-all;">（点上方按钮加载）</pre>
+
+    <p style="margin-top:12px;"><b>向搜索引擎提交：</b></p>
+    <ul class="stats-tip" style="margin:4px 0;line-height:1.9;">
+      <li>Google Search Console：
+        <a href="https://search.google.com/search-console" target="_blank" rel="noopener">打开</a>
+        → Sitemaps 提交 <code>{{ site_base or 'https://你的域名' }}/sitemap.xml</code>
+      </li>
+      <li>Bing Webmaster：
+        <a href="https://www.bing.com/webmasters" target="_blank" rel="noopener">打开</a>
+        （也可用 IndexNow 自动推）
+      </li>
+      <li>百度搜索资源平台：
+        <a href="https://ziyuan.baidu.com/site/index" target="_blank" rel="noopener">打开</a>
+        → 普通收录 → API 提交（拿上面的 token）
+      </li>
+      <li>Google Indexing API <b>不适用于博客文章</b>（仅 JobPosting / Recipe），别被教程误导。</li>
+    </ul>
+  </div>
+
+  <script>
+    function runSelfCheck() {
+      var out = document.getElementById('selfcheck-out');
+      out.innerHTML = '<span class="stats-tip">运行中…</span>';
+      fetch('{{ url_for("admin.seo_selfcheck") }}', {credentials: 'same-origin'})
+        .then(function (r) { return r.json(); })
+        .then(function (d) {
+          var html = '<table class="admin-table" style="margin-top:8px;"><thead><tr>'
+            + '<th>身份</th><th>期望</th><th>实际</th><th>结果</th></tr></thead><tbody>';
+          d.checks.forEach(function (c) {
+            var want = c.expect === 'shell' ? '服务端 HTML' : 'SPA（真人）';
+            var got  = c.got === 'shell' ? '服务端 HTML' : 'SPA（真人）';
+            html += '<tr><td>' + c.label + '</td><td>' + want + '</td><td>' + got
+              + '</td><td>' + (c.ok ? '<span style="color:#188038;">✓ 正确</span>'
+                                    : '<span style="color:#d93025;">✗ 不符</span>') + '</td></tr>';
+          });
+          html += '</tbody></table>';
+          if (!d.configured) {
+            html = '<p style="color:#d93025;">⚠️ site_url 未配置，先填了再测。</p>' + html;
+          } else if (!d.all_ok) {
+            html += '<p style="color:#d93025;">⚠️ 有身份判定不符——若「真人」那两行是「服务端 HTML」，'
+              + '说明闸门会误伤真人，必须先修 nginx 与闸门逻辑再上线。</p>';
+          }
+          out.innerHTML = html;
+        })
+        .catch(function (e) { out.innerHTML = '<span style="color:#d93025;">自检失败：' + e + '</span>'; });
+    }
+
+    function loadPreview(kind) {
+      var out = document.getElementById('preview-out');
+      out.textContent = '加载中…';
+      fetch('{{ url_for("admin.seo_preview") }}?kind=' + kind, {credentials: 'same-origin'})
+        .then(function (r) { return r.json(); })
+        .then(function (d) { out.textContent = d.error || d.body; })
+        .catch(function (e) { out.textContent = '加载失败：' + e; });
+    }
+
+    function refreshStatus() {
+      fetch('{{ url_for("admin.seo_status") }}', {credentials: 'same-origin'})
+        .then(function (r) { return r.json(); })
+        .then(function (d) {
+          var c = d.counts || {};
+          var s = '（当前：排队 ' + (c.pending || 0) + ' · 成功 ' + (c.ok || 0)
+                + ' · 失败 ' + (c.fail || 0) + ' · 配额 ' + (c.quota || 0) + '）';
+          if (d.quota) s += ' 百度剩余配额 ' + d.quota;
+          document.getElementById('push-counts').textContent = s;
+        })
+        .catch(function () {});
+    }
+    refreshStatus();
+    // 有排队中的任务时自动刷新几次，避免用户手动点
+    (function () {
+      var n = 0, t = setInterval(function () {
+        refreshStatus(); n++;
+        if (n >= 6) clearInterval(t);
+      }, 3000);
+    })();
+  </script>
+{% endblock %}

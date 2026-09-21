@@ -15,7 +15,14 @@
 """
 import glob
 import hashlib
+import logging
 import os
+
+# v3.19.0：降级不再静默。
+# 历史教训——v3.18.9 真机验收时才发现 `.png` 分享卡长期恒返回兜底图，
+# 根因是「找不到中文字体 → 静默 return None」，整条降级链一个日志都不打，
+# 于是缺陷潜伏了整整一个版本周期而无人察觉。可观测性成本极低、收益极大。
+logger = logging.getLogger(__name__)
 
 # Pillow 缺失（理论上不会，requirements 已声明）时整体降级
 try:
@@ -23,6 +30,7 @@ try:
     _PIL_OK = True
 except Exception:  # pragma: no cover
     _PIL_OK = False
+    logger.warning("og_image: Pillow 不可用，分享卡将全程降级为兜底图")
 
 W, H = 1200, 630
 PAD = 72
@@ -40,12 +48,17 @@ _CACHE_MAX = 300       # 缓存上限，超出清理最旧的一批
 def _cjk_candidates(bold=False):
     """按优先级返回中文字体候选路径（打包字体优先，其次系统字体）。"""
     cands = []
-    # 1) 仓库内打包的开源字体（OFL 可分发，保证跨服务器一致）
+    # 1) 仓库内打包的开源字体（保证跨服务器一致。
+    #    当前入库的是文泉驿微米黑：GPL v2 + 字体嵌入例外条款，
+    #    可随站点分发；详见 static/fonts/FONTS.md —— 不要写成 OFL。）
     if os.path.isdir(_FONT_DIR):
+        # 三轮：① 指定字重命名（*Bold* / *Regular*）② 仓库内任意字体 ③ 兜底
+        # 注意 .ttc 也要参与字重命名匹配——v3.18.9 前只匹配 .ttf/.otf，
+        # 导致放进去的 *-Bold.ttc 永远不会被优先选中（静默用回任意字体）。
         pats = ["*Bold*", "*bold*"] if bold else ["*Regular*", "*regular*"]
-        for p in pats:
-            cands += sorted(glob.glob(os.path.join(_FONT_DIR, p + ".ttf")))
-            cands += sorted(glob.glob(os.path.join(_FONT_DIR, p + ".otf")))
+        for ext in (".ttf", ".otf", ".ttc"):
+            for p in pats:
+                cands += sorted(glob.glob(os.path.join(_FONT_DIR, p + ext)))
         # 没有 Regular/Bold 命名时，退而求其次用目录里任意一个字体文件
         cands += sorted(glob.glob(os.path.join(_FONT_DIR, "*.ttf")))
         cands += sorted(glob.glob(os.path.join(_FONT_DIR, "*.otf")))
@@ -265,7 +278,14 @@ def render_og_image(*, title, desc="", site_name="", accent="#4f7cff",
         return None
     f_title = _find_font(64, bold=True) or _find_font(64)
     if f_title is None:
-        return None  # 无中文字体 → 降级
+        # 降级信号。这条日志是 v3.18.9 之后补的——之前这里静默 return None，
+        # 导致「服务器缺中文字体」表现为「分享卡悄悄变成兜底图」，排查成本极高。
+        logger.warning(
+            "og_image: 未找到任何可用中文字体，分享卡降级为兜底图"
+            "（字体目录=%s，PIL=%s）。请确认 myblog/static/fonts/ 已随包部署。",
+            _FONT_DIR, _PIL_OK,
+        )
+        return None
     f_desc = _find_font(30) or f_title
     f_meta = _find_font(26) or f_title
 
@@ -352,6 +372,8 @@ def og_png_bytes(*, slug, stamp="", **kw):
     try:
         img = render_og_image(**kw)
     except Exception:
+        # 同样不再静默：渲染期异常（坏封面、Pillow 版本差异等）也要留痕。
+        logger.warning("og_image: 渲染分享卡失败，降级为兜底图 (slug=%s)", slug, exc_info=True)
         return None, False
     if img is None:
         return None, False

@@ -182,6 +182,108 @@
 5. 点 **「保存」** → 再点 **「重载配置」**（或重启 Nginx）。
 6. 浏览器访问 `http://你的域名`，应能看到博客首页（文章列表 + 右侧边栏 + 天气）。
 
+### 第 4b 步：SEO 爬虫通道（v3.18.9 新增，**不加则文章对搜索引擎是空壳**）
+
+本站前台是 Vue SPA（`<div id="app"></div>`），**不执行 JS 的爬虫拿不到任何文章内容**——
+百度、微信、QQ 链接预览看到的都是一张空白壳页。这一段就是给它们开的服务端通道：
+把爬虫/社交抓取 UA 的 `/post/<slug>` 请求改写给后端的 `/api/og/post/<slug>`，
+由后端渲染带正文、canonical 与 JSON-LD 的服务端 HTML；真人照旧走 SPA。
+
+**① 在 `http { }` 块内、所有 `server { }` 之前**加这段 `map`（已有同名 `map` 就合并，不要声明两次）：
+
+```nginx
+# SEO 爬虫通道：判定哪些 UA 走服务端壳页（粗筛，后端有第二层真人否决）
+map $http_user_agent $seo_shell {
+    default                                0;
+    # 搜索引擎
+    ~*(Googlebot|Bingbot|Baiduspider|Sogou|360Spider|Bytespider|YisouSpider|YandexBot|DuckDuckBot|Applebot|PetalBot|Naverbot|Google-InspectionTool) 1;
+    # 社交/IM 链接预览抓取器：UA 里不含 bot 字样，后端 detect_bot() 也识别不出，必须列全
+    ~*(MicroMessenger|weixin|QQ\/|qqtool|Weibo|Twitterbot|facebookexternalhit|TelegramBot|LinkedInBot|SlackBot|WhatsApp|SkypeURIPreview|Discordbot) 1;
+}
+```
+
+> ⚠️ **绝对不要把 `QQBrowser` / `MQQBrowser` 写进上面的列表** —— 那是 QQ 内置浏览器里的
+> **真人**（会执行 JS）。注意即便不写，真人的 UA 里也可能带 `QQ/9.7.x` 命中规则，
+> 所以**后端必须有第二层否决**（`Sec-Fetch-Mode: navigate` / `Accept: text/html`），
+> nginx 这层只是粗筛。见 `myblog/utils/seo_shell.py`。
+> ⚠️ 也**不要**偷懒写成 `bot|spider|crawl` 这类宽泛词——那会把 Ahrefs/Semrush 等第三方
+> SEO 蜘蛛一并放进服务端通道，等于给出一个批量抓取全文的入口。
+
+**② 在 `server { }` 块内、`location / { }` 之前**加这段（`$seo_shell` 命中才 rewrite，
+`last` 会重新匹配 location 从而命中已有的 `location /api/` 反代；避开在 `if` 里写 `proxy_pass`）：
+
+```nginx
+    # 爬虫/社交抓取访问文章页 → 走服务端壳页（真人本 UA 不命中 → 落到下面的 try_files 走 SPA）
+    # ?seo=1 是「我是经 Nginx 正式通道进来的」标记，后端据此决定是否允许索引；
+    # 同时它让「真人被误判」时后端能 302 回 /post/<slug> 而不会成环。
+    location /post/ {
+        if ($seo_shell) { rewrite ^/post/([^/?#]+)/?$ /api/og/post/$1?seo=1 last; }
+        try_files $uri $uri/ /index.html;
+    }
+```
+
+**③ 在 `server { }` 块内、图片正则 `location ~ .*\.(gif|jpg|jpeg|png|bmp|swf)$` 之前**加这段
+（**v3.18.9 补充，漏了它分享卡永远是兜底图**）：
+
+```nginx
+    # 【必须】/api/og/ 必须比图片正则优先，否则分享卡 .png 永远拿不到后端渲染结果。
+    # nginx 优先级：`=` 精确 → `^~` 前缀（命中即停止正则）→ 正则 ~ / ~*（先于普通前缀）。
+    # 宝塔默认的 `location ~ .*\.(png|jpg|...)$` 是正则，会压过 `location ^~ /api/`，
+    # 把 /api/og/post/<slug>.png 从反代上抢走 → 落到 SPA 静态根里的 og-default.png。
+    # 用更长的 ^~ 前缀（^~ 之间按最长前缀取胜）抢回给 Flask。
+    location ^~ /api/og/ {
+        proxy_pass http://127.0.0.1:8686;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+```
+
+> ⚠️ 常见误区：`location ^~ /api/` **挡不住** 图片正则——`^~` 只在**最长前缀**命中时才跳过正则，
+> 而 `/api/og/x.png` 的最长前缀就是 `^~ /api/`（也带 `^~`）……但**宝塔站点配置里图片正则在
+> `^~ /api/` 之前出现时**，一旦图片正则先被匹配就轮不到它。显式加一条更长的 `^~ /api/og/`
+> 是唯一稳妥的写法。判据：`curl -D- .../post/x.png` 若出现
+> `Content-Disposition: inline; filename=og-default.png`，或与站点根目录 `og-default.png`
+> **sha256 完全相同**，就是被这层截了。
+
+**④【重要】宝塔 `proxy.conf` 全局开了 `proxy_cache`** —— `nginx.conf` 顶层 `include proxy.conf`，
+其中 `proxy_cache cache_one;` 会**缓存所有反代响应**。若某次后端降级（字体缺失、文章当时不可见）
+吐出了兜底图，这张图会被**长期缓存**，之后即使代码修好，客户端也一直拿到旧图——
+**并且客户端发 `Cache-Control: no-cache` 无法绕过**（需 `proxy_cache_bypass`）。
+修完分享卡相关代码后，必须清一次：
+
+```bash
+find /www/server/nginx/proxy_cache_dir -type f -delete && nginx -s reload
+```
+
+**⑤ 保存 → `nginx -t` 通过 → 重载配置**（不要跳过语法检查，改错会导致全站 502）。
+
+**验证**（把 `<slug>` 换成你站上真实文章的 slug）：
+
+```bash
+# 爬虫视角：应有 <title>、og:title、canonical 指向 /post/<slug>、且不含 noindex
+curl -sS -A "Mozilla/5.0 (compatible; Baiduspider/2.0)" "https://你的域名/post/<slug>" \
+  | grep -oE "<title>[^<]*|og:title' content='[^']*|canonical' href='[^']*"
+
+# 真人视角：应仍是 SPA（首行含 id="app"）
+curl -sS -A "Mozilla/5.0 (Windows NT 10.0; Win64) Chrome/120" "https://你的域名/post/<slug>" | head -c 200
+
+# 【最容易做错的一条】QQ 内置浏览器里的真人：必须是 302 回 /post/<slug>，不能被留在壳页
+curl -sSI -A "Mozilla/5.0 (Linux; U; Android 12) MQQBrowser/13.0 QQ/9.7.10.43400" \
+  -H "Accept: text/html" "https://你的域名/api/og/post/<slug>?seo=1" | grep -iE "^HTTP|^location"
+
+# 分享卡（v3.18.9 补充）：必须是 1200×630 真实卡片，不是 966B 兜底图
+curl -sS -o /tmp/og.png "https://你的域名/api/og/post/<slug>.png"
+ls -l /tmp/og.png            # 正常应 >100KB（约 120KB）；966B = 仍被截胡
+# 与站点根目录静态兜底图对比，sha256 必须不同：
+sha256sum /tmp/og.png /www/wwwroot/你的站点根/og-default.png
+```
+
+> 后台「系统诊断」的 **搜索引擎 SEO** 一节会检查爬虫通道路由是否存在；
+> 站内若配了 `site_url` 且通道正常，收录页的「通道自检」会同时给出 4 种身份的实测结果。
+
+
 ## 第 5 步：开启 HTTPS（强烈推荐）
 
 1. 站点 **「设置」** → 左侧 **「SSL」** → 选 **Let's Encrypt** → 勾选你的域名 → 点 **「申请」**（约 30 秒-1 分钟）。
@@ -375,6 +477,20 @@ supervisorctl status
 7. **环境变量**：只覆盖文件 + 重启，环境变量原样保留，无需重填；**若误删 Python 项目重建，必须重填 `SECRET_KEY` / `ADMIN_PASSWORD`**（缺失拒绝启动）。改 `SECRET_KEY` 会让已登录用户需要重新登录，属正常现象。
 
 > ⚠️ **服务器上的 `update.sh` / `deploy.sh` 也务必与最新 Release 同版**：脚本经历过「假成功不覆盖 / 校验误报 / 无法自动重启」多轮加固，升级前先从最新 Release 覆盖一次脚本，再跑一键更新。
+
+> **v3.19.0（后台「🔍 收录」控制台：主动推送 + 通道自检）升级要点**：**纯后端改动，只需覆盖后端包**（`vue-frontend/` 未动，前端包无变化、可不必覆盖）。**无需补 Nginx 配置**——本版不含任何 Nginx 变更，通道配置仍以 v3.18.9 的「第 4b 步」为准。
+> - **覆盖 `myblog-backend.zip` → gunicorn「停止 → 启动」**；**无新依赖、无新增必填环境变量**。
+> - **⚠️ 新表 `seo_submission` 启动时由 `create_all` 自愈创建，无需 `flask db`**（与 `game` 表同一机制，见 `models.SeoSubmission` docstring 记录的迁移策略）。首次启动日志可见「已迁移：新建数据表（seo_submission）」。
+> - **新增一个出网站点**：本版起后台可主动向**百度**（`http://data.zz.baidu.com`）与 **IndexNow / Bing**（`https://api.bing.com`）推送文章 URL。这是本项目**唯一允许 http 的出站目标**，且**仅当 host 精确等于 `data.zz.baidu.com`** 才放行（精确比对，非后缀匹配）。**若服务器有出站防火墙/安全组白名单，需放行 `data.zz.baidu.com:80` 与 `api.bing.com:443`**；未放行时推送会记为 `fail`（响应 `blocked-host` 或超时），**不影响站点本身运行**。
+> - **⚠️ 字体已随包入库**：`myblog/static/fonts/wqy-microhei.ttc`（5.2 MB，文泉驿微米黑，GPL v2 + 字体嵌入例外）。这修复了 v3.16.0 以来「服务器无中文字体 → 分享卡静默降级成兜底图」的隐患。**升级后必须清两处缓存**，否则仍看到旧兜底图：① 后端 `myblog/data/og_cache/` 全删；② Nginx 代理缓存 `find /www/server/nginx/proxy_cache_dir -type f -delete && nginx -s reload`（宝塔全局 `proxy_cache` 会长期缓存兜底结果，客户端 `Cache-Control: no-cache` 绕不过）。
+> - **推送凭据需在后台自行配置**（不随包分发）：进「🔍 收录」页 → 填百度推送 token（百度搜索资源平台获取）与/或 IndexNow key。凭据以 Fernet 密文存 `Setting` 表，**不入包、不入库明文、不回显**。
+> - **升级后自检**：后台左下角 `v3.19.0`；侧栏出现「🔍 收录」；进页面点「通道自检」应见 4 个身份判定（其中 **QQ 内置浏览器真人** 与 **Chrome** 两盏灯必须是「拿到 SPA」）；`.png` 分享卡应返回真实卡片而非兜底图。
+
+> **v3.18.9（SEO 爬虫通道修复）升级要点**：**纯后端改动 + 一段 Nginx 配置**（`vue-frontend/` 未动，前端包无变化）。
+> - **覆盖 `myblog-backend.zip` → gunicorn「停止 → 启动」**；**无表结构变更、无新依赖、无新增必填环境变量**。
+> - **⚠️ 必须补 Nginx 配置，否则本轮改动等于没做**：见上文 **「第 4b 步：SEO 爬虫通道」**。若你的服务器此前**已**手工配过一条爬虫规则（`if ($http_user_agent ~* "(bot|spider|crawl|…")` → `rewrite … /api/og/post/$1`），**请用「第 4b 步」的版本替换它**——旧规则有两个问题：① 含宽泛的 `bot`/`spider`/`crawl`，会把 Ahrefs/Semrush 等第三方 SEO 蜘蛛一并放进服务端通道；② 不带 `?seo=1`，后端无法区分「经通道」与「直敲」，会对所有访问者（含百度）下发 `noindex` 并输出指向 API 地址的 canonical → **接通通道反而杀死收录**。替换后记得 `nginx -t` 再 reload，原配置先备份。
+> - **行为变化（预期内，且是本轮修复的重点）**：爬虫/社交抓取访问 `/post/<slug>` 从「拿到 `noindex` 的 meta 页」变为「拿到 `index,follow` 的完整壳页（含正文 + canonical + JSON-LD）」；微信 UA 首次能拿到服务端 HTML（此前是 SPA 空壳）；第三人 SEO 蜘蛛不再获得壳页；真人（含 QQ/微信内置浏览器）行为完全不变，仍走 SPA。
+> - **升级后自检**：后台「系统诊断」→「搜索引擎 SEO」应显示爬虫通道路由存在；或直接按「第 4b 步」末尾的 4 条 `curl` 命令验证。
 
 > **v3.18.8（修复 v3.18.7 的验签顺序缺陷）升级要点**：**仍需先覆盖部署脚本再做更新**（本轮改的依然是 `update.sh`）。
 > - **必须用本 Release 的 `deploy_scripts_v3188fix.zip`**，不要用 v3.18.7 的那个——v3.18.7 的脚本有个顺序缺陷：工作目录 `/tmp/llhhy_update` 跨轮复用且不清校验清单，会把上一轮遗留的 `sha256.txt` 跟本轮的 `sha256.txt.sig` 配对比对，**必然验签失败**（实测首次跑就 BAD；站点不会受影响，脚本在覆盖代码前就被拦住）。

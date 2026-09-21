@@ -3060,4 +3060,99 @@ v3.18.7 发布后按「先覆盖脚本、再跑一键更新」的顺序在服务
 
 **R88 结论**：**0 遗留**。缺陷为我方实现顺序问题，已修复并加测试固化；fail-closed 保护在真实坏情况下得到验证。
 
+---
+
+## R89 · SEO 爬虫通道（v3.18.9 · 阶段 1）
+
+**范围**：`myblog/utils/seo_shell.py`（新增）、`myblog/utils/settings.py`（新增 `site_base`/`abs_url`）、`myblog/api/og.py`（重写为三出口）、`myblog/routes.py`、`myblog/diagnostics.py`、`myblog/mail_notify.py`、`myblog/api/posts.py`、`myblog/admin/mcp_services.py`、`myblog/deploy_guide.md`、`myblog/config.py`；新增 `tests/test_seo_shell.py`（16 条）。**线上 nginx 配置同步更新并 reload。**
+
+### 89.1 阶段 0 真机自查（先证伪再动手）
+
+清单指出代码注释与部署文档**互相矛盾**（`routes.py` 声称有 Nginx bot 规则，`deploy_guide.md` 里 0 命中）。实测结论：
+
+| 检查 | 实测 |
+| --- | --- |
+| `nginx -T \| grep og/post` | **命中**：`location ~ ^/post/` 内 `if ($http_user_agent ~* "(bot\|spider\|crawl\|…)") { rewrite … /api/og/post/$1 last; }` |
+| 百度爬虫访问真实文章 | `200` + **`x-robots-tag: noindex,nofollow`** + canonical 指向 `/api/og/post/<slug>` |
+| 微信 UA | `200` 但**是 SPA 空壳**（`og:image` 命中 1 次来自 `index.html` 里写死的默认值） |
+| 直接敲 API（带/不带 `?seo=1`） | 两者都 `200` + `noindex` |
+| QQ 内置浏览器真人 | 侥幸拿到 SPA（UA 里 `QQ/` 未命中该宽泛正则） |
+| AhrefsBot | **拿到壳页**（`bot` 宽泛词命中） |
+
+**结论**：通道**早已存在但行为是坏的**——百度能被引导进来后被明确拒绝收录，微信完全进不来，第三方 SEO 蜘蛛反而被放进来。这正是清单 1.1 描述的「接通通道反而杀死收录」。
+
+### 89.2 安全维度
+
+| 维度 | 结论 |
+| --- | --- |
+| **越权/信息泄露（本轮最重要）** | `og.py` 的 meta 页与 `.png` 分享卡**各自手写** `filter_by(slug, published=True, in_trash=False)` + `if post.is_private`，**两处都漏 `scheduled_at`** → 未到发布时间的文章标题可被 meta 页读到、并被**画进对外可取的 PNG**。现统一 `visible_posts_query().filter_by(slug=slug).first()`，删除手工判断。**与首轮 `api/review.py` / `api/ai.py` 同一出错模式（自建过滤器漏项）——这是本项目第三次栽在「不走真相源」上**，已在测试中锁死三态 × 两入口。 |
+| **真人误伤（可用性/生产事故）** | UA 分流天然会误伤：**QQ 内置浏览器里的真人 UA 带 `QQ/9.7.x`**，会被社交预览 UA 表命中。若只看 UA，真人会看到近乎空白的壳页。已加**第二层否决**（`Sec-Fetch-Mode: navigate` / `Sec-Fetch-Date: document` / `Accept: text/html` / 站内 Referer），并选择**宁可错杀爬虫也不误伤真人**的不对称策略（爬虫少收一篇 vs 真人看到空白页）。8 条判定 + 4 种身份自检接口覆盖。 |
+| **Host 注入（首轮 2.9 遗留）** | 修复前 `_site_base()` 回退 `request.url_root`、`og.py` 直接用 `request.url` → `Host: evil.example.com` 可诱导 canonical/og:url 指向外部域名。现已全部收敛到 `site_base()`（DB → env → 空串），**删除 `request.url_root`/`request.host` 回退**，并加测试断言 `evil.example.com` 不出现在响应体。 |
+| **限流绕过** | 通道**豁免正规搜索引擎**（否则把 Google/Baidu 正常抓取 429 掉 = 自废收录），其余走 `rate_limit(client_key("og_shell"), 120/60s)`。UA 可伪造，故豁免仅影响限流、**不影响可见性**（可见性恒走真相源）。 |
+| **XSS** | 壳页所有字段经 `html.escape`；正文复用既有 `render_post_html`（bleach 白名单管线，**不新写渲染逻辑**从而不引入白名单差异）；JSON-LD 显式转义 `</` 防 `</script>` 提前闭合。测试覆盖 `<script>alert(1)</script>` 标题被转义。 |
+| **SSRF** | 通道本身不出网；`_og_default_response` 只读本地文件。新增的 `/api/seo/shell-check` **只请求 `site_base()` 推导出的本站地址**（不接收任意 URL 参数），且需登录后台。 |
+| **缓存串味** | 同 URL 三种结果，已加 `Vary: User-Agent, Sec-Fetch-Mode, Accept, Referer`（缺失会被 CDN 把爬虫/真人结果互相串通）。 |
+| **CSRF / 鉴权** | 本轮新增接口均为只读 GET；无新增写面。 |
+| **表结构 / 依赖 / 环境变量** | **零变更**。 |
+
+### 89.3 验证
+- **142 passed**（126 + 16 条新增 `tests/test_seo_shell.py`）；`ruff --select F821,E9 myblog/ tests/` **All checks passed**。
+- **变异测试**（证明断言真的能抓回归，不是"看起来对"）：
+  - ① 把抓取方出口的 `index,follow` 回退成恒 `noindex` → **2 条红**（`test_baidu_gets_indexable_shell`、`test_wechat_crawler_gets_shell`）；
+  - ② 删掉第二层真人否决 → **2 条红**（微信真人、QQ 真人变 `200`）。
+- 线上 nginx：`nginx -t` 通过后 reload；原配置备份 `/root/html_www.llhhy.cn.conf.bak-v3189`。
+- 文档同步：`CHANGELOG.md`、`README.md`、`myblog/README.md`、`myblog/deploy_guide.md`（新增「第 4b 步：SEO 爬虫通道」，含配置原文与验证命令）、`routes.py` 失真注释修正。
+
+**R89 结论**：**0 遗留**。本轮修复的是「通道存在但行为相反」的隐性故障，且顺带关闭了首轮审计 2.9 的 Host 注入遗留项。**注意**：`scheduled_at` 漏判暴露了「可见性必须走 `visible_posts_query()`」这条纪律在本项目已被违反三次，建议后续新增任何公开只读接口时把「是否调用真相源」列为评审必查项。
+
+---
+
+## R90 · 后台「🔍 收录」控制台（v3.19.0 · 阶段 2）
+
+**范围**：`myblog/seo_push.py`（新增，推送引擎）、`myblog/admin/seo.py`（新增，收录页蓝图）、`myblog/templates/admin/seo.html`（新增）、`myblog/models.py`（新增 `SeoSubmission`）、`myblog/app.py`（`_migrate_new_tables_v3` 纳入新表）、`myblog/admin/__init__.py`、`myblog/templates/admin/base.html`（侧栏入口）、`myblog/og_image.py`（`.ttc` 字重匹配修复 + 三处降级日志）、`myblog/static/fonts/`（新字体 + `FONTS.md`）、`myblog/config.py`；新增 `tests/test_seo_push.py`（29 条）。
+
+### 90.1 本轮唯一的「新增出网面」及其处置
+
+本版是**近几版里唯一新增对外网络调用的版本**（此前项目没有统一出网守卫，各调用点各自 `urlopen` + 固定 host）。因此把出网约束做成了模块级硬约束，而不是散在各处的约定：
+
+| 维度 | 结论 |
+| --- | --- |
+| **出站目标白名单** | `_is_allowed_url()` **精确比对 host**（不做后缀匹配）。`http` 仅放行 host **等于** `data.zz.baidu.com`（百度官方地址就是 http，无 https——这是本项目唯一必须允许 http 的出站目标）。 |
+| **绕过手法已覆盖** | `http://data.zz.baidu.com.evil.com/`（后缀拼接）、`http://data.zz.baidu.com@evil.com/`（userinfo 混淆）、`http://evil.com/http://data.zz.baidu.com`（路径伪装）、`http://api.bing.com/`（非百度走 http）、`ftp://` —— **全部拒绝，且拒绝时返回 `blocked-host` 而非放行**。测试逐条钉死；另有测试断言「白名单外目标不得调用 `urlopen`」。 |
+| **SSRF** | 推送目标**恒为常量**（`BAIDU_ENDPOINT` / `INDEXNOW_ENDPOINT`），**不接受任何用户输入作为 URL**；被推送的正文 URL 恒由 `site_base() + /post/<slug>` 拼出。 |
+| **Host 注入（延续 2.9）** | 推送 URL 不读 `request.host`。测试 `test_push_urls_use_site_base_not_request_host` 直接断言生成结果等于 `site_base()` 拼出的值、且不含伪造型 Host。 |
+| **凭据泄露（最重要）** | ① 存储走 `encrypt_secret()`（**不照抄 `mail_password` 的明文落库反例**），测试断言 `bkenc$` 前缀且能解回原文；② 页面只回显掩码，测试断言明文不出现在 HTML；③ **响应清洗会抹掉 token**——百度可能把带 token 的请求 URL 回显在错误里，`_clean()` 做 `.replace(token, "***")`，测试注入含 token 的回显并断言已抹除；④ 审计日志只记「改了哪个键」，不记值。 |
+| **URL 注入（IndexNow key）** | key 会被拼进 `keyLocation`（`https://<host>/<key>.txt`）。若不做校验，可塞 `/`、`..`、空格把 `keyLocation` 指向站内任意路径。已加规范校验（8–128 位、仅 `[A-Za-z0-9-]`），非法值**拒绝保存**并提示。测试覆盖 5 种非法值。 |
+| **鉴权 / CSRF** | 6 条路由（`/admin/seo` + 5 子接口）**全部 `@super_required`**（普通管理员 403，有测试）；全部写操作带 CSRF token（模板 `csrf_input()` + 全局 `_csrf_protect` 兜底），推送与凭据保存缺 token 均 403（各有测试）。 |
+| **阻塞请求（首轮 4.6 同类）** | 推送是阻塞网络调用，**绝不跑在请求线程里**。入口只「写 pending → 起 daemon 线程 → 立即返回」。测试把最底层出网口 `_http_post` 替换成「命中即 `AssertionError`」，验证请求线程内不被命中；另有测试断言确实启动了 **daemon** 线程。 |
+| **配额滥用** | 单次上限 500 条（百度 2000 / IndexNow 10000，取保守值）；`timeout=10s`；失败**不自动重试**（避免无效请求吃掉配额），由页面手动重推；已成功的不重复推送。 |
+| **不可见文章** | 单篇推送先过 `visible_posts_query()`，草稿/隐私/回收站/未到点定时**一律拒绝**并写 `seo_push_reject` 审计；批量候选同样走真相源。理由：给搜索引擎送 404 浪费配额且拉低站点质量评分。测试覆盖四态 + 审计留痕。 |
+| **XSS** | 页面渲染的 `response` 一律经 Jinja 自动转义；JS 侧只写入 `textContent` / 拼接固定标签，不 `innerHTML` 注入后端文本。 |
+| **表结构 / 依赖 / 环境变量** | 新增 1 张表 `seo_submission`（**明确记录由 `create_all` 自愈创建、不走 Alembic**，理由见模型 docstring）；**零新增依赖**（标准库 `urllib`）、**零新增环境变量**。 |
+
+### 90.2 顺带修复：`og_image.py` 的 `.ttc` 字重匹配缺陷 + 降级不再静默
+
+**（a）`.ttc` 不参与字重匹配**：`_cjk_candidates()` 原先只对 `.ttf`/`.otf` 做 `*Bold*`/`*Regular*` 命名匹配，**`.ttc` 不参与** → 放进 `static/fonts/` 的 `*-Bold.ttc` / `*-Regular.ttc` **永远不会被优先选中**，会静默回落到「任意一个字体文件」。已补 `.ttc`。
+
+**（b）降级路径不再静默（本轮关闭 90.4 待办①）**：`og_image.py` 原有三处降级**全无日志**——① Pillow 不可用（模块导入期）、② `render_og_image()` 找不到中文字体、③ `og_png_bytes()` 渲染抛异常。这正是「`.png` 分享卡恒返回兜底图」能潜伏**整整一个版本周期**而无人察觉的直接原因：调用方只看到「返回 None」，日志里查不到任何线索。
+
+现三处均加 `logger.warning`：① 记 Pillow 不可用；② 记**字体目录路径 + `_PIL_OK` 状态**（运维据此可直接判断是「包里没字体」还是「字体路径不对」）；③ 带 `exc_info=True` 并记 slug。
+
+**安全属性**：改动**只加日志、不改任何行为**（无新依赖、无新出网、无新输入路径），全量测试 **171 passed 保持不变**。日志内容**不含 token**（该路径根本不接触凭据），不引入日志注入面（`slug` 经 `%s` 参数化，非字符串拼插）。
+
+这一条与 R89 的字体静默降级是同一类问题：**降级不报错，所以没人发现**。
+
+### 90.3 验证
+- **171 passed**（142 基线 + 29 条新增 `tests/test_seo_push.py`）；`ruff --select F821,E9 myblog/` **All checks passed**。
+- 全量测试前后 `myblog/data/blog.db` 的 **sha256 与 mtime 双查零变化**（`9e1f92a4…cf6b9` / `1789310851.2362475`）。
+- 文档同步：`CHANGELOG.md`（v3.19.0）、`myblog/README.md`、`myblog/static/fonts/FONTS.md`（新增）、`myblog/config.py`（版本号）。
+- **未 commit / push / tag / 未建 Release**（等显式发版口令）。本轮改了 `deploy_guide.md`（v3.18.9 期间）但**未动** `update.sh`/`deploy.sh` → 不需要 `deploy_scripts_*.zip`。
+
+**R90 结论**：**0 遗留**。本轮新增的出网面按「常量目标 + 精确 host 白名单 + 用户输入不参与 URL + 凭据加密 + 响应抹密钥」五条收口，并有 29 条测试覆盖。`og_image` 静默降级已在 90.2(b) 关闭。
+
+> **待办建议（非本版缺陷）**：
+> 1. `migrations/versions/*` 的 Alembic 基线仍是假的 `db.create_all()`，若日后要真正启用迁移体系，需为 `seo_submission`（及 `game`）补 baseline 迁移。
+> 2. **发版安全快检时发现的既有项（非本轮引入，如实记录）**：`myblog/api/og.py::qr_image`（`GET /api/qr`，v3.16.0 引入）在 `site_url` **未配置**时，会用 `request.host_url`（第 145 行）与 `request.host`（第 140 行）拼装对外二维码内容，即「让请求方提供 Host 决定我们对外声明什么」。**当前生产已配置 `site_url`（`site_base()` 有值）→ 该分支不生效，实测无风险**；但它与首轮审计 2.9 / R89 确立的「对外地址只走 `site_base()`」原则不一致。该接口另有 host 白名单（`allowed` 集合，仅站内 host 或 `site_url` host 可通过）与 30 次/60s 限流，影响面限于「未配置 `site_url` 的部署」。**处置建议**：下版本把该分支改为「`site_url` 为空时返回 400 并提示先配置站点地址」，与 v3.18.9 对 `_abs()` 的处理保持一致。**本版不改**（属既有行为，改它需回归二维码功能，不适合夹在收录控制台版本里）。
+> 3. `myblog/utils/seo_shell.py::_is_same_site_referer`（第 111-118 行）在 `site_base()` 为空时用 `request.host` 作比对基准 — 这是**判据用途而非对外声明用途**（只用于回答「这个 Referer 是不是自己家」），代码注释已说明，**不构成 Host 注入**，无需修改。
+
 

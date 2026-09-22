@@ -15,9 +15,11 @@
 
 因此本模块的闸门是**两层**：
 - 第一层（放行候选）：搜索引擎 UA ∨ 社交/IM 预览抓取器 UA。
-- 第二层（真人否决）：只要出现**真人信号**就一律否决，即使第一层命中。
-  真人信号 = `Sec-Fetch-Mode: navigate`（现代浏览器导航必送）或
-              `Accept` 含 `text/html`（浏览器文档请求必送；抓取器一般不送）。
+- 第二层（真人否决）：**按桶区分作用域**（v3.19.1 修正，别再把两者混用）：
+  * `Sec-Fetch-Mode: navigate` / `Sec-Fetch-Dest: document`：浏览器专有头，
+    搜索引擎不送 → **两类桶都否决**。
+  * `Accept` 含 `text/html`：**搜索引擎正常也会送**（Googlebot 就送），
+    所以**只对社交桶否决**；对搜索引擎用它否决会与 nginx 的 UA 粗筛组成 302 环。
 - 另有**来源否决**：站内 Referer（站内跳转一定是真人在站内点链接，不是抓取器）。
 
 判定结果只用于「能否把服务端壳页给出去」。UA 完全可以伪造，所以调用方
@@ -49,12 +51,22 @@ _NAV_FETCH_MODES = ("navigate",)
 
 # 明确不给通道的「第三方 SEO 蜘蛛 / 脚本客户端」——它们能索引即可，
 # 不该被当成「社交预览」享受壳页；且给它们壳页等于提供批量抓取入口。
+# （`seo_shell_ua()` 里这条判定最优先，即便 UA 同时混了 bot 词也不放行。）
 _TOOL_BOT_UA = re.compile(
     r"ahrefsbot|semrushbot|mj12bot|dotbot|dataforseo|blexbot|serpstatbot"
     r"|python-requests|python-urllib|aiohttp|httpx|axios|curl/|wget"
     r"|go-http-client|java/|okhttp|scrapy|libwww-perl|httpclient",
     re.I,
 )
+
+# 真人否决的**原因集合**——单一真相源。
+# 调用方据此分流处置（见 `api/og.py` 出口 3b）：
+#   * 在集合内（真人）→ 给**可读的 noindex 页**（人需要看到内容）
+#   * 不在集合内（tool-bot / not-crawler / no-ua）→ **不给正文**
+# 两类都不得 3xx（经通道 3xx = nginx 再 rewrite = 302 环）。
+HUMAN_VETO_REASONS = frozenset({
+    "human-fetch-metadata", "human-accept", "internal-referer",
+})
 
 
 def _header(name):
@@ -66,28 +78,36 @@ def _header(name):
         return ""
 
 
-def is_human_navigation():
-    """是否存在**真人导航信号**（第二层否决的依据）。
+def has_fetch_metadata_signal():
+    """**浏览器专有**的 Fetch Metadata 头 → 真人导航信号。
 
-    - `Sec-Fetch-Mode: navigate`：Chrome/Edge/Safari 等现代浏览器发起页面导航时必送。
-      微信/QQ 内置浏览器（X5/系统 WebView）同样会送。
-    - `Accept` 含 `text/html`：浏览器文档请求必送；纯抓取器（curl/爬虫库）一般只送 `*/*`。
-    - `Sec-Fetch-Dest: document`：与 navigate 同源的另一个强信号。
-
-    任一命中即认定为真人 → 通道必须放他回 SPA。
+    `Sec-Fetch-Mode: navigate` / `Sec-Fetch-Dest: document` 是现代浏览器发起
+    页面导航时必送的头，**搜索引擎抓取器一律不送**。因此它对两类桶都是可靠否决依据。
     """
     mode = _header("Sec-Fetch-Mode").strip().lower()
     if mode in _NAV_FETCH_MODES:
         return True
-    if _header("Sec-Fetch-Dest").strip().lower() == "document":
-        return True
-    accept = _header("Accept").lower()
-    if "text/html" in accept:
-        # ⚠️ 这一条会把「curl -H 'Accept: text/html'」也判成真人，宁可错杀：
-        # 误判成真人的代价 = 爬虫拿不到壳页（少收录一篇）；
-        # 误判成爬虫的代价 = 真人在微信里看到空白页（生产事故）。两者不对称。
-        return True
-    return False
+    return _header("Sec-Fetch-Dest").strip().lower() == "document"
+
+
+def has_html_accept():
+    """`Accept` 含 `text/html`。
+
+    ⚠️ **搜索引擎抓取器正常也会送这个头**（Googlebot 送
+    `text/html,application/xhtml+xml,…`），所以它**只能对社交桶作否决依据**，
+    绝不能用来否决搜索引擎——见 `seo_shell_ua()` 里那段说明。
+    """
+    return "text/html" in _header("Accept").lower()
+
+
+def is_human_navigation():
+    """是否存在**任一**真人导航信号（两个信号的并集）。
+
+    ⚠️ **不要拿这个函数当单一闸门**：它把 `Accept: text/html` 也算作真人信号，
+    而搜索引擎抓取器会送该头。给搜索引擎套用它 = 与 nginx 的 UA 粗筛组成 302 环。
+    正确用法见 `seo_shell_ua()`——按桶区分作用域。
+    """
+    return has_fetch_metadata_signal() or has_html_accept()
 
 
 def is_internal_referer():
@@ -142,8 +162,26 @@ def seo_shell_ua():
         return False, "not-crawler"
 
     # ===== 第二层：真人否决（必须在 UA 命中之后判，否则真人 UA 不会走到这里）=====
-    if is_human_navigation():
-        return False, "human-navigation"
+    #
+    # ⚠️ **两个信号的否决作用域必须分开**（v3.19.1 修复的线上事故）：
+    #
+    # v3.19.0 把「任一真人信号」无差别地套在两类桶上。结果与 nginx 的 UA 粗筛
+    # 组成一个 302 环：nginx 只按 UA rewrite（看不到请求头），后端却因
+    # `Accept: text/html` 否决 → 302 回 /post/<slug> → nginx 又按同一个 UA
+    # rewrite → 无限循环。线上实测：Googlebot / Baiduspider / QQ 内置浏览器真人
+    # **三者都在 12 次重定向后仍是 302**——搜索引擎彻底抓不到正文（收录归零），
+    # QQ 用户看到 `ERR_TOO_MANY_REDIRECTS`。
+    #
+    # 根因是把「社交桶的歧义」外推到了搜索引擎：社交桶（尤其 QQ/微信内置浏览器）
+    # 的 UA 与自家抓取器**无法用 UA 区分**，才需要 `Accept` 来兜；而
+    # **搜索引擎的 UA 是自证的**（`Baiduspider` 不会是浏览器），抓取器送
+    # `Accept: text/html` 属正常行为，不该否决。
+    if has_fetch_metadata_signal():
+        # Sec-Fetch-* 是浏览器专有头，搜索引擎不送 → 两类桶都否决
+        return False, "human-fetch-metadata"
+    if is_social and has_html_accept():
+        # Accept 只对社交桶否决（搜索引擎送它是正常的）
+        return False, "human-accept"
     if is_internal_referer():
         return False, "internal-referer"
 

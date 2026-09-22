@@ -18,6 +18,7 @@ from datetime import timedelta
 
 # ---------- UA 与请求头常量（照清单 1.0 判定表）----------
 UA_BAIDU = "Mozilla/5.0 (compatible; Baiduspider/2.0; +http://www.baidu.com/search/spider.html)"
+UA_GOOGLEBOT = "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)"
 UA_WX_CRAWL = "Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) MicroMessenger/8.0.40"
 # 微信内置浏览器里的真人：会送 Sec-Fetch-Mode: navigate
 UA_WX_HUMAN = ("Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15 "
@@ -107,80 +108,108 @@ def test_wechat_crawler_gets_shell(app, client):
             _cleanup([slug])
 
 
-def test_wechat_human_browser_gets_redirect(app, client):
-    """微信内置浏览器里的真人（Sec-Fetch-Mode: navigate）→ 302 回 /post/<slug>。
+def test_wechat_human_browser_gets_noindex_page(app, client):
+    """微信内置浏览器里的真人（Sec-Fetch-Mode: navigate）→ 200 + noindex **可读页**。
 
-    这是**防生产事故**的关键断言：真人必须回到能执行 JS 的 SPA。
+    **v3.19.1 修正（原 `test_wechat_human_browser_gets_redirect`）**：
+    v3.19.0 此处返回 302 回 `/post/<slug>`，但 nginx 的 map 同样按
+    `MicroMessenger` 粗筛，会把这个真人再 rewrite 回来 → **无限 302 环**。
+    线上实测：12 次重定向后仍是 302，真人看到 `ERR_TOO_MANY_REDIRECTS`。
+    经通道的请求**绝不能 3xx**；改为 noindex 可读页——人能读到正文，索引不被污染。
     """
     with app.app_context():
         p = _mkpost()
         slug = p.slug
     try:
         r = _get(client, slug, UA_WX_HUMAN, HUMAN_HDRS)
-        assert r.status_code == 302, "微信内真人必须被放回 SPA，实得 %s" % r.status_code
-        assert r.headers["Location"].endswith("/post/%s" % slug)
+        assert r.status_code == 200, "经通道不得 3xx（会成环），实得 %s" % r.status_code
+        robots = r.headers.get("X-Robots-Tag") or ""
+        assert "noindex" in robots, "被否决的真人页必须 noindex"
+        assert "index,follow" not in robots
+        assert "SEO 通道测试文章" in r.get_data(as_text=True), \
+            "真人必须能读到正文（否则等于空白页事故）"
     finally:
         with app.app_context():
             _cleanup([slug])
 
 
-def test_qq_inapp_human_browser_gets_redirect(app, client):
-    """QQ 内置浏览器里的真人（UA 带 QQ/9.7.x，Accept: text/html）→ 302 回公开地址。
+def test_qq_inapp_human_browser_gets_noindex_page(app, client):
+    """QQ 内置浏览器里的真人（UA 带 `QQ/9.7.x`）→ 200 + noindex 可读页。
 
-    UA 里含 `QQ/` 会被闸门第一层命中（社交预览表），若没有第二层否决，
-    这位真人就会看到一张几乎空白的壳页——本文件最重要的一条断言。
+    UA 含 `QQ/` 会被闸门第一层命中（社交预览表），靠第二层否决救回。
+    **v3.19.1 修正**：原实现返回 302 会成环（同上），改为给 noindex 可读页。
     """
     with app.app_context():
         p = _mkpost()
         slug = p.slug
     try:
         r = _get(client, slug, UA_QQ_HUMAN, HUMAN_HDRS)
-        assert r.status_code == 302, "QQ 内真人被误判留在壳页（生产事故）"
-        assert r.headers["Location"].endswith("/post/%s" % slug)
+        assert r.status_code == 200, "QQ 内真人被留在 3xx 环里（生产事故）"
+        robots = r.headers.get("X-Robots-Tag") or ""
+        assert "noindex" in robots
+        assert "index,follow" not in robots
     finally:
         with app.app_context():
             _cleanup([slug])
 
 
-def test_plain_chrome_is_redirected(app, client):
-    """Chrome 真人直接访问 → 302 回 SPA（不该拿到壳页）。"""
+def test_plain_chrome_gets_nothing_on_channel(app, client):
+    """Chrome **带** `?seo=1`（非正常路径）→ 404 不给正文，且不 3xx。
+
+    生产上 Chrome 的 UA 不命中 nginx 的 map，不会带 `?seo=1` 进来；但该标记
+    任何人都能手拼，所以仍须断言「不给内容、不 3xx」。
+    正常路径（不带标记）→ 302 回 SPA，见
+    `test_direct_api_hit_without_seo_flag_redirects`。
+    """
     with app.app_context():
         p = _mkpost()
         slug = p.slug
     try:
         r = _get(client, slug, UA_CHROME, HUMAN_HDRS)
-        assert r.status_code == 302
-        assert r.headers["Location"].endswith("/post/%s" % slug)
+        assert r.status_code == 404, "非通道候选不该拿到壳页，实得 %s" % r.status_code
+        assert "SEO 通道测试文章" not in r.get_data(as_text=True)
     finally:
         with app.app_context():
             _cleanup([slug])
 
 
 def test_third_party_seo_bot_gets_nothing(app, client):
-    """Ahrefs/Semrush 类第三方 SEO 蜘蛛与 curl → 不给壳页（否则等于批量抓取入口）。"""
+    """Ahrefs/Semrush 类第三方 SEO 蜘蛛与 curl → **不给正文**，且不 3xx。
+
+    v3.19.0 此处是 302。改为 404 的理由：经通道返回 3xx 就是 302 环的前兆
+    （只要 nginx 的 map 误把某个 UA 放进来就会成环）。404 既不给内容也不成环。
+    """
     with app.app_context():
         p = _mkpost()
         slug = p.slug
     try:
         for ua in (UA_AHREFS, UA_CURL):
             r = _get(client, slug, ua)
-            assert r.status_code == 302, "第三方 SEO 蜘蛛/脚本不该拿到壳页：%s" % ua
+            assert r.status_code == 404, \
+                "第三方 SEO 蜘蛛/脚本不该拿到壳页也不该 3xx：%s（实得 %s）" % (ua, r.status_code)
+            assert "SEO 通道测试文章" not in r.get_data(as_text=True), \
+                "第三方蜘蛛不得读到正文：%s" % ua
     finally:
         with app.app_context():
             _cleanup([slug])
 
 
 def test_internal_referer_not_served_shell(app, client):
-    """站内 Referer 跳来的微信 UA → 不给壳页（站内跳转必然是真人在点链接）。"""
+    """站内 Referer 跳来的微信 UA → 不给**可索引**壳页（站内跳转必然是真人在点链接）。"""
     with app.app_context():
         p = _mkpost()
         slug = p.slug
     try:
+        # 外部 Referer 不算站内 → 仍应给可索引壳页
         r = _get(client, slug, UA_WX_CRAWL, {"Referer": "https://example.com/some/page"})
-        # site_base() 未配置时退用请求 Host（localhost）比对；此处 Referer 是外部域名 → 不算站内
-        # 仍应给壳页（外部来源的社交抓取）。真正的站内 Referer 用同 Host 验证：
+        assert r.status_code == 200
+        assert "index" in (r.headers.get("X-Robots-Tag") or "")
+
+        # 站内 Referer → 判为真人 → 200 + noindex（不得 3xx，见环说明）
         r2 = _get(client, slug, UA_WX_CRAWL, {"Referer": "http://localhost/post/other"})
-        assert r2.status_code == 302, "站内 Referer 的请求应被放回 SPA"
+        assert r2.status_code == 200, "站内 Referer 不得 3xx（会成环），实得 %s" % r2.status_code
+        assert "noindex" in (r2.headers.get("X-Robots-Tag") or ""), \
+            "站内 Referer 判为真人 → 必须 noindex"
     finally:
         with app.app_context():
             _cleanup([slug])
@@ -341,8 +370,74 @@ def test_shell_and_redirect_carry_vary(app, client):
         vary = r_shell.headers.get("Vary", "")
         assert "User-Agent" in vary and "Sec-Fetch-Mode" in vary and "Accept" in vary
 
-        r_redir = _get(client, slug, UA_CHROME, HUMAN_HDRS)
+        # 302 只出现在「不带 ?seo=1 的直敲」路径上（v3.19.1 起经通道不再 302）
+        r_redir = _get(client, slug, UA_CHROME, HUMAN_HDRS, seo=False)
         assert r_redir.status_code == 302
+        assert "User-Agent" in (r_redir.headers.get("Vary") or "")
+    finally:
+        with app.app_context():
+            _cleanup([slug])
+
+
+# ===========================================================================
+# 五b、302 环回归（v3.19.1 修的线上事故）
+# ===========================================================================
+def test_search_engine_with_accept_html_still_gets_indexable_shell(app, client):
+    """**环回归**：搜索引擎带 `Accept: text/html` 仍须拿到 index,follow 壳页。
+
+    这是 v3.19.1 修的线上事故本体。v3.19.0 把「真人否决」无差别套在搜索引擎上，
+    而真实 Googlebot / Baiduspider **会送** `Accept: text/html`，于是经通道的
+    请求被 302 回 `/post/<slug>`，nginx 再按同一个 UA rewrite → 无限环。
+    线上实测 12 次重定向后仍是 302 → 搜索引擎彻底抓不到正文（收录归零）。
+    """
+    with app.app_context():
+        p = _mkpost()
+        slug = p.slug
+    try:
+        for ua in (UA_BAIDU, UA_GOOGLEBOT):
+            r = _get(client, slug, ua, {"Accept": "text/html,application/xhtml+xml,*/*;q=0.8"})
+            assert r.status_code == 200, \
+                "%s 带 Accept: text/html 不得被 302（会成环），实得 %s" % (ua, r.status_code)
+            robots = r.headers.get("X-Robots-Tag") or ""
+            assert "index" in robots and "noindex" not in robots, \
+                "%s 必须拿到 index,follow，否则接通通道反而杀死收录" % ua
+            assert "SEO 通道测试文章" in r.get_data(as_text=True)
+    finally:
+        with app.app_context():
+            _cleanup([slug])
+
+
+def test_channel_never_returns_3xx(app, client):
+    """**环不变量**：凡是带 `?seo=1`（经 nginx 通道）的请求，一律不得返回 3xx。
+
+    这是比「逐条断言某个 UA 的结果」更结实的一条：nginx 的 map 只按 UA 粗筛，
+    任何被它 rewrite 的 UA 若拿到 3xx，浏览器/爬虫就会回到 `/post/<slug>`
+    被再次 rewrite → 无限环。所以「经通道不得 3xx」是环的安全不变量。
+
+    覆盖全部闸门分支：搜索引擎 / 社交抓取 / 社交桶真人 / 工具蜘蛛 / 普通浏览器 /
+    空 UA，以及「带 Accept」与「带 Sec-Fetch」两种真人信号。
+    """
+    with app.app_context():
+        p = _mkpost()
+        slug = p.slug
+    matrix = [
+        ("搜索引擎", UA_BAIDU, {"Accept": "text/html"}),
+        ("搜索引擎(无头)", UA_GOOGLEBOT, None),
+        ("社交抓取", UA_WX_CRAWL, None),
+        ("社交桶真人", UA_QQ_HUMAN, HUMAN_HDRS),
+        ("工具蜘蛛", UA_AHREFS, None),
+        ("脚本客户端", UA_CURL, None),
+        ("普通浏览器", UA_CHROME, HUMAN_HDRS),
+        ("站内 Referer", UA_WX_CRAWL, {"Referer": "http://localhost/post/x"}),
+    ]
+    try:
+        for label, ua, hdr in matrix:
+            r = _get(client, slug, ua, hdr)          # seo=True → 走通道
+            assert r.status_code not in (301, 302, 303, 307, 308), (
+                "经通道返回了 %s（%s）——nginx 会按同一个 UA 再 rewrite，"
+                "这就是无限 302 环" % (r.status_code, label))
+            assert r.status_code in (200, 404), \
+                "%s 经通道只允许 200（给内容）或 404（不给内容），实得 %s" % (label, r.status_code)
     finally:
         with app.app_context():
             _cleanup([slug])

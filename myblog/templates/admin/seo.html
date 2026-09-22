@@ -200,31 +200,81 @@
   </div>
 
   <script>
+    // 三种判定结果 → 中文（v3.19.1：出口 3b 起「不给内容」是 404，不再是 SPA）
+    function outcomeLabel(v) {
+      if (v === 'shell') return '可索引壳页';
+      if (v === 'noindex') return '可读但不索引';
+      return '不给内容（404）';
+    }
+
+    function clearNode(el) {
+      while (el.firstChild) el.removeChild(el.firstChild);
+    }
+
     function runSelfCheck() {
       var out = document.getElementById('selfcheck-out');
-      out.innerHTML = '<span class="stats-tip">运行中…</span>';
+      var loading = document.createElement('span');
+      loading.className = 'stats-tip';
+      loading.textContent = '运行中…';
+      clearNode(out);
+      out.appendChild(loading);
       fetch('{{ url_for("admin.seo_selfcheck") }}', {credentials: 'same-origin'})
         .then(function (r) { return r.json(); })
         .then(function (d) {
-          var html = '<table class="admin-table" style="margin-top:8px;"><thead><tr>'
-            + '<th>身份</th><th>期望</th><th>实际</th><th>结果</th></tr></thead><tbody>';
-          d.checks.forEach(function (c) {
-            var want = c.expect === 'shell' ? '服务端 HTML' : 'SPA（真人）';
-            var got  = c.got === 'shell' ? '服务端 HTML' : 'SPA（真人）';
-            html += '<tr><td>' + c.label + '</td><td>' + want + '</td><td>' + got
-              + '</td><td>' + (c.ok ? '<span style="color:#188038;">✓ 正确</span>'
-                                    : '<span style="color:#d93025;">✗ 不符</span>') + '</td></tr>';
+          // 用 DOM 构造 + textContent 写入，**不拼 innerHTML**：
+          // 服务端返回的 label / reason 一律当纯文本，杜绝注入面。
+          var table = document.createElement('table');
+          table.className = 'admin-table';
+          table.style.marginTop = '8px';
+          var thead = document.createElement('thead');
+          var hr = document.createElement('tr');
+          ['身份', '期望', '实际', '结果'].forEach(function (t) {
+            var th = document.createElement('th');
+            th.textContent = t;
+            hr.appendChild(th);
           });
-          html += '</tbody></table>';
+          thead.appendChild(hr);
+          table.appendChild(thead);
+          var tbody = document.createElement('tbody');
+          (d.checks || []).forEach(function (c) {
+            var tr = document.createElement('tr');
+            [c.label, outcomeLabel(c.expect), outcomeLabel(c.got)].forEach(function (t) {
+              var td = document.createElement('td');
+              td.textContent = t;
+              tr.appendChild(td);
+            });
+            var td4 = document.createElement('td');
+            var span = document.createElement('span');
+            span.style.color = c.ok ? '#188038' : '#d93025';
+            span.textContent = c.ok ? '✓ 正确' : '✗ 不符';
+            td4.appendChild(span);
+            tr.appendChild(td4);
+            tbody.appendChild(tr);
+          });
+          table.appendChild(tbody);
+
+          clearNode(out);
           if (!d.configured) {
-            html = '<p style="color:#d93025;">⚠️ site_url 未配置，先填了再测。</p>' + html;
+            var p1 = document.createElement('p');
+            p1.style.color = '#d93025';
+            p1.textContent = '⚠️ site_url 未配置，先填了再测。';
+            out.appendChild(p1);
           } else if (!d.all_ok) {
-            html += '<p style="color:#d93025;">⚠️ 有身份判定不符——若「真人」那两行是「服务端 HTML」，'
-              + '说明闸门会误伤真人，必须先修 nginx 与闸门逻辑再上线。</p>';
+            var p2 = document.createElement('p');
+            p2.style.color = '#d93025';
+            p2.textContent = '⚠️ 有身份判定不符。「真人」两行若显示「可索引壳页」= 会误伤真人；'
+              + '任何一行若是 3xx = 会与 nginx 组成 302 环。都必须先修再上线。';
+            out.appendChild(p2);
           }
-          out.innerHTML = html;
+          out.appendChild(table);
         })
-        .catch(function (e) { out.innerHTML = '<span style="color:#d93025;">自检失败：' + e + '</span>'; });
+        .catch(function (e) {
+          var sp = document.createElement('span');
+          sp.style.color = '#d93025';
+          sp.textContent = '自检失败：' + e;
+          clearNode(out);
+          out.appendChild(sp);
+        });
     }
 
     function loadPreview(kind) {

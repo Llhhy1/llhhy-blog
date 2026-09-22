@@ -169,6 +169,47 @@
 
 ---
 
+### 5.9 第三轮复审延后批次（2026-09-22 · 基线 v3.19.0）
+
+> **来源**：第三轮第三方复审报告。其 §3 指出的「首审第 4–7 章仍零改动」经复验**属实**，与 **§5.8 同源**。v3.19.1 只修了该报告的 §2（3 High / 5 Medium / 4 Low，已全部关闭，见 `SECURITY_AUDIT.md` R91）；**性能 / 前端 / 可观测性 / CI 四章按纪律不夹进补丁版**，在此登记。
+
+**A. 性能（建议作为下一批，优先级最高）**
+- `post` / `comment` **主表仍零索引**（`index=True`/`db.Index` 全仓 13 处，全在次要表）。先按真实慢查询补索引，不要凭想象加。
+- `eager loading` 全仓命中 **0**（`joinedload`/`selectinload`/`load_only`）→ 列表页 N+1 风险。
+- `app.py::inject_globals` **每次模板渲染**都做多次 `Setting` 查询 → 可加进程内缓存 + 失效钩子。
+- `notify.py` 同步外网推送仍在请求路径上（`mail_notify.py` 已有异步样板可抄）。
+- **`gunicorn_conf.py` 未入库**（线上由宝塔生成，`workers=4, threads=2` → gunicorn 自动升级 gthread）：建议把推荐配置写进 `deploy_guide.md` 并考虑入库，避免重建站点时丢失。
+
+**B. 前端质量 / a11y / 对比度**
+- 零 `aria-live`、无 skip-link、每页 2 个 `<main>`、灯箱无 `role="dialog"`、表单 placeholder-only 无 `label`。
+- 4 组 token 对比度 < 4.5:1，`derive_dark` 无 WCAG 校验。
+- `v-html` 未统一 `sanitizeHtml`（hljs 复写 `innerHTML` 后无二次清洗）。
+- `IntersectionObserver` 与 scroll/resize 监听器未清理（泄漏）。
+- 22 个后台表格模板仅 2 个写了 `data-label`（窄屏卡片化不全）。
+- `vue-frontend/src/styles/tokens.css` 与 `myblog/static/tokens.css` 是**手工复制的两份**，非单一来源。
+
+**C. 可观测性**
+- `print(` 与裸 `except Exception: pass` 仍大量存在（`import logging` 覆盖极少）。**v3.19.1 已把 `og_image` 三处降级、`seo_push` 的线程异常与审计失败改为 `logger.warning`/`exception`**，可作为后续统一改造的样板。
+- 无 `request_id` / Sentry / 指标 / `/health` 端点；`diagnostics.py` 是人工触发的拉取式体检，无历史无告警。
+
+**D. 工程化 / CI**
+- CI 只有 `test + build`：无 lint / 覆盖率 / CVE 扫描 / CodeQL / gitleaks / dependabot。
+- `npm install` 未改 `npm ci`；无 `pyproject.toml` / `ruff` 配置（**首审第 1 章一半缺陷 ruff 一条规则即可拦住**）。
+- `verify_package_checksums.py` 与 `tools/check_i18n.py` 从未在 CI 跑。
+
+**E. 仓库卫生**
+- 文档体量偏大（`SECURITY_AUDIT.md` / `CHANGELOG.md` / `ROADMAP.md` 合计 > 500 KB）会吃 LLM 上下文 → 建议把历史轮次归档到 `docs/`。
+- 版本号多处复制；`update.sh` 用正则强绑 `APP_VERSION = "x.y.z"` 字面写法（改格式会静默失配）。
+- `create_app()` 是 373 行上帝函数；226 处函数级 import 硬扛循环依赖（v3.18.1 拆包后仍有）。
+- Alembic 基线仍是假的（`upgrade()` 直接 `db.create_all()`）+ 手写 `_migrate_*` → **两份 schema 真相源**；若启用真迁移需为 `seo_submission` / `game` 补 baseline。
+
+**F. 已在本轮关闭（记一笔，避免重复登记）**
+- ✅ `og_image` 字体/渲染降级静默（R90 待办① → v3.19.1 关闭）
+- ✅ 302 环、出站 SSRF、自检放大面、线程静默失败、配额无限流、脱敏顺序、孤儿行（R91 全部关闭）
+- ⏳ `/api/qr` 未配 `site_url` 时用 `request.host`（R90 待办②，仍开放；本版未动）
+
+---
+
 ## 六、v2.6.x UI 打磨迭代记录（存档）
 
 > 以下功能均为前端/静态资源与 UI 调整，无新增后端接口、环境变量或数据库迁移；发版后覆盖代码 + 重启 + 强刷即可。

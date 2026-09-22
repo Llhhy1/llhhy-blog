@@ -195,12 +195,23 @@
 # SEO 爬虫通道：判定哪些 UA 走服务端壳页（粗筛，后端有第二层真人否决）
 map $http_user_agent $seo_shell {
     default                                0;
-    # 搜索引擎
-    ~*(Googlebot|Bingbot|Baiduspider|Sogou|360Spider|Bytespider|YisouSpider|YandexBot|DuckDuckBot|Applebot|PetalBot|Naverbot|Google-InspectionTool) 1;
+    # 搜索引擎 —— 与 utils/seo_shell.py::SEARCH_BOT_UA 对齐
+    ~*(Googlebot|Bingbot|Baiduspider|Sogou|360Spider|Bytespider|YisouSpider|Yandex|DuckDuckBot|Applebot|PetalBot|Naver|QwantBot|SeznamBot|Google-InspectionTool|ShenmaSpider|ToutiaoSpider) 1;
     # 社交/IM 链接预览抓取器：UA 里不含 bot 字样，后端 detect_bot() 也识别不出，必须列全
-    ~*(MicroMessenger|weixin|QQ\/|qqtool|Weibo|Twitterbot|facebookexternalhit|TelegramBot|LinkedInBot|SlackBot|WhatsApp|SkypeURIPreview|Discordbot) 1;
+    # —— 与 utils/seo_shell.py::_SOCIAL_PREVIEW_UA 对齐
+    ~*(MicroMessenger|weixin|QQ\/|qqtool|Weibo|Twitterbot|facebookexternalhit|Facebot|TelegramBot|LinkedInBot|SlackBot|WhatsApp|SkypeURIPreview|Discordbot|Embedly|Pinterest|Vkshare|W3C_Validator|Outbrain|Nuzzel|BitlyBot|Line-Poker) 1;
 }
 ```
+
+> ⚠️ **这份 map 是「粗筛」，不是唯一真相源**：权威判定在
+> `myblog/utils/seo_shell.py`（它有请求头可看，nginx 没有）。两处的 token 列表
+> **应保持「nginx ⊆ 后端」**——即 nginx 放行的每个 UA，后端都认得。
+> 若 nginx 放行了后端不认识的 UA，后端会判 `not-crawler` 并返回 404
+> （v3.19.1 起**不再 302**，所以不会成环，但那个抓取方也拿不到内容）。
+> 反过来（后端有、nginx 漏）方向更安全：那个抓取方拿到 SPA 空壳，不致命。
+> v3.19.1 补齐了原先漏掉的 `ShenmaSpider`/`ToutiaoSpider`/`QwantBot`/`SeznamBot`/
+> `Embedly`/`Pinterest`/`Vkshare`/`W3C_Validator`/`Outbrain`/`Nuzzel`/`BitlyBot`/
+> `Line-Poker`/`Facebot` 等（此前这些抓取方只能拿到 SPA 空壳）。
 
 > ⚠️ **绝对不要把 `QQBrowser` / `MQQBrowser` 写进上面的列表** —— 那是 QQ 内置浏览器里的
 > **真人**（会执行 JS）。注意即便不写，真人的 UA 里也可能带 `QQ/9.7.x` 命中规则，
@@ -477,6 +488,24 @@ supervisorctl status
 7. **环境变量**：只覆盖文件 + 重启，环境变量原样保留，无需重填；**若误删 Python 项目重建，必须重填 `SECRET_KEY` / `ADMIN_PASSWORD`**（缺失拒绝启动）。改 `SECRET_KEY` 会让已登录用户需要重新登录，属正常现象。
 
 > ⚠️ **服务器上的 `update.sh` / `deploy.sh` 也务必与最新 Release 同版**：脚本经历过「假成功不覆盖 / 校验误报 / 无法自动重启」多轮加固，升级前先从最新 Release 覆盖一次脚本，再跑一键更新。
+
+> **v3.19.1（第三轮复审修复：302 环 + 出站 SSRF + 自检放大面）升级要点**：**纯后端改动，只需覆盖后端包**（`vue-frontend/` 未动，前端包无变化、可不必覆盖）。**本版不强制改 Nginx**（见下第 3 条）。
+> - **⚠️ 本版修的是一个正在发生的线上事故，上线后必须复验**：v3.19.0 让**带 `Accept: text/html` 的搜索引擎**与**QQ/微信内置浏览器真人**在 `/post/<slug>` 陷入**无限 302 环**（实测 Googlebot / Baiduspider / QQ 真人 12 次重定向后仍是 302）→ 搜索引擎抓不到正文、真人看到 `ERR_TOO_MANY_REDIRECTS`。复验命令（三者都应 `200` 且 `num_redirects=0`）：
+>   ```bash
+>   curl -s -o /dev/null -L --max-redirs 12 -w '%{http_code} %{num_redirects}\n' \
+>     -A "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)" \
+>     -H "Accept: text/html,application/xhtml+xml,*/*;q=0.8" https://<你的域名>/post/<真实slug>
+>   curl -s -o /dev/null -L --max-redirs 12 -w '%{http_code} %{num_redirects}\n' \
+>     -A "Mozilla/5.0 (Linux; U; Android 12) AppleWebKit/537.36 Chrome/100.0 Mobile Safari/537.36 MQQBrowser/13.0 QQ/9.7.10.43400" \
+>     -H "Accept: text/html" -H "Sec-Fetch-Mode: navigate" https://<你的域名>/post/<真实slug>
+>   ```
+>   预期：Googlebot 得 `200`（可索引壳页）；QQ 真人得 `200`（noindex 可读页，能看到正文）。
+> - **行为变化（预期内）**：真人经通道时**不再是 302**，而是拿到 **200 + `noindex,nofollow` 的可读页**（微信/QQ 内置浏览器里的正文照常可读，只是没有 SPA 交互）。这是断掉 302 环的唯一办法；**不影响正常浏览器**（Chrome/Safari 的 UA 不命中 nginx 的 `map`，根本不进通道）。
+> - **3. Nginx 可选更新**：核心修复在后端，**不改 nginx 也已生效**。若要顺带补齐抓取方覆盖，把 `map` 更新为上文「第 4b 步」的最新版本（新增 `ShenmaSpider`/`ToutiaoSpider`/`QwantBot`/`SeznamBot`/`Embedly`/`Pinterest`/`Vkshare`/`W3C_Validator`/`Outbrain`/`Nuzzel`/`BitlyBot`/`Line-Poker`/`Facebot`），然后 `nginx -t && nginx -s reload`。**必须保持「nginx 的 UA 集合 ⊆ 后端」**：nginx 放行了后端不认识的 UA 时后端判 `not-crawler` 返回 404（不会成环，但那个抓取方拿不到内容）。
+> - **新增限流**：后台「🔍 收录」的**推送**最多 3 次 / 5 分钟，且同引擎有排队批次时拒绝新推送（**百度当日配额用完不可逆**）。批量/单篇连点会被拒，属预期。
+> - **自检页变化**：`/admin/seo` 的「通道自检」现在需要**超管登录**（原先匿名可调），判定显示**三档**（可索引壳页 / 可读但不索引 / 不给内容），并在出现 3xx 时明确报警。
+> - **⚠️ 服务器 worker 类型的既有事实（记录备查，避免后人误判）**：宝塔面板生成的 `gunicorn_conf.py` 里是 `workers = 4` + `threads = 2` + `worker_class = 'sync'`；**gunicorn 22.0.0 会在 `threads > 1` 时自动把 worker 升级为 `gthread`**（启动日志可见 `Using worker: gthread`，每个 worker 4 个线程）→ 实际并发槽为 **4 × 2 = 8**。排查「自请求/慢请求占满 worker」类问题时，请按 gthread 而非 sync 判断。
+> - 无需 `flask db`（无新表）；无新增依赖、无新增环境变量。
 
 > **v3.19.0（后台「🔍 收录」控制台：主动推送 + 通道自检）升级要点**：**纯后端改动，只需覆盖后端包**（`vue-frontend/` 未动，前端包无变化、可不必覆盖）。**无需补 Nginx 配置**——本版不含任何 Nginx 变更，通道配置仍以 v3.18.9 的「第 4b 步」为准。
 > - **覆盖 `myblog-backend.zip` → gunicorn「停止 → 启动」**；**无新依赖、无新增必填环境变量**。

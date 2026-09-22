@@ -66,6 +66,16 @@ def purge_post(rid):
                 fts.delete_post(post.id)
             except Exception:
                 pass
+            # 清掉这篇的收录推送记录（v3.19.1）。
+            # SQLite 默认不启用外键（未设 PRAGMA foreign_keys=ON），
+            # 所以 seo_submission 的 FK 不会级联——不显式删就留下 post_id 悬空行。
+            try:
+                from models import db as _db, SeoSubmission
+                SeoSubmission.query.filter_by(post_id=post.id).delete(
+                    synchronize_session=False)
+                _db.session.flush()
+            except Exception:
+                pass
             db.session.delete(post)
     db.session.delete(rb)
     db.session.commit()

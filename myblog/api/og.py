@@ -23,11 +23,13 @@ v3.18.9 修正——此前 meta 页与 .png 两处手写过滤都漏了 ``schedu
 import html
 import json
 import os
+import re
 from flask import request, Response, send_file
 
 from .common import api_bp
 from models import visible_posts_query
-from utils import get_setting, fmt_bj, site_base, abs_url, seo_shell_ua, is_search_engine_ua
+from utils import (get_setting, fmt_bj, site_base, abs_url, seo_shell_ua,
+                   is_search_engine_ua, HUMAN_VETO_REASONS)
 from og_image import og_png_bytes
 
 
@@ -47,6 +49,26 @@ def _public_url(slug):
     与真实公开页 `/post/<slug>` 不一致。
     """
     return abs_url("/post/%s" % slug)
+
+
+def _plain_preview(text, n=120):
+    """Markdown → 纯文本预览（v3.19.1，`og:description` 兜底用）。
+
+    不引入渲染依赖，只剥「语法噪音」：图片整段丢弃、链接留文字、代码反引号去掉、
+    标题/引用/列表符号去掉、HTML 标签丢弃，最后压平空白。
+
+    修的是纯观感问题：此前兜底直接 `post.content[:120]`，`## ` 和 `![图](…)`
+    这类源码痕迹会原样进分享卡文案。
+    """
+    s = str(text or "")
+    s = re.sub(r"!\[[^\]]*\]\([^)]*\)", "", s)        # 图片：整段丢弃
+    s = re.sub(r"\[([^\]]*)\]\([^)]*\)", r"\1", s)    # 链接：只留文字
+    s = re.sub(r"`{1,3}", "", s)                      # 行内 / 围栏代码反引号
+    s = re.sub(r"<[^>]+>", "", s)                     # HTML 标签
+    s = re.sub(r"^\s{0,3}(#{1,6}|>|[-*+]|\d+\.)\s+", "", s, flags=re.M)  # 行首标记
+    s = re.sub(r"[*_~]{1,}", "", s)                   # 强调符号
+    s = " ".join(s.split())
+    return s[:n]
 
 
 def _varied(headers=None):
@@ -251,12 +273,20 @@ def og_post(slug):
     出口判定顺序（**不可调换**）：
       1. 文章不可见（不存在/草稿/隐私/回收站/定时未到）→ 404 + noindex，不透露信息
       2. 经通道（?seo=1）且闸门判定为抓取方 → 200 壳页 + index,follow + 公开 canonical
-      3. 其余（真人、直接敲 API 地址）→ 302 回 /post/<slug>
+      3. 其余 → 见下面两小类（v3.19.1 拆分）
 
-    为什么「直敲 API 地址」要 302 而不是给 noindex 壳页：那会永久停着一个
-    「可访问但 canonical 指向自己」的页面，与真实公开页争规范页；
-    302 回公开地址后由 nginx 带上 ?seo=1 再裁定，**不成环**（真人 302 后
-    nginx 的 UA 分流不会把真人再送来，见 utils/seo_shell.py 第二层否决）。
+    **出口 3 为什么拆成 3a/3b（v3.19.1 修复的线上事故）**：
+      - 3a「直敲 API 地址」（无 ?seo=1）→ 302 回 /post/<slug>。安全：该请求没有
+        nginx 的通道标记，即便 UA 会被 rewrite，下一次请求带 ?seo=1 走 2/3b，只有一跳。
+      - 3b「经通道但闸门否决」（有 ?seo=1）→ **不得 3xx**，按否决原因两分：
+        * 真人信号（微信 / QQ 内置浏览器）→ 200 + `noindex,nofollow` 的**可读页**
+          （人能读到正文，索引不受污染）
+        * `tool-bot` / `not-crawler` → 404 + noindex，**不给正文**
+        为什么不能 302：nginx 的 map 只按 UA 粗筛、**看不见请求头**，
+        会把这个 UA 再次 rewrite 回来 → 无限 302 环。
+        v3.19.0 线上实测：Googlebot / Baiduspider（送 Accept: text/html）与
+        QQ 内置浏览器真人**三者都在 12 次重定向后仍是 302**——搜索引擎彻底抓不到
+        正文（收录归零），真人看到 ERR_TOO_MANY_REDIRECTS。
     """
     site_name = get_setting("site_name", "") or get_setting("site_title", "我的博客")
 
@@ -272,16 +302,37 @@ def og_post(slug):
             return Response("too many requests", 429, _varied())
 
     seo_flag = (request.args.get("seo") or "").strip() == "1"
-    allow, _reason = seo_shell_ua()
+    allow, reason = seo_shell_ua()
 
-    # ---- 出口 3：真人 / 非通道访问 → 回公开地址 ----
-    if not (seo_flag and allow):
+    # ---- 出口 3a：直敲 API 地址（未经 nginx 通道）→ 回公开地址 ----
+    # 只在**没有**通道标记时 302：该请求没有 nginx 的通道标记，即使 UA 会被
+    # rewrite，下一次请求会带 ?seo=1 走出口 2/3b，只有一跳。
+    if not seo_flag:
         from flask import redirect
-        return redirect(_public_url(slug), code=302)
+        resp = redirect(_public_url(slug), code=302)
+        # 302 同样要带 Vary：否则 CDN 可能把「给爬虫的 302」缓存下来发给真人。
+        # （v3.19.1：原实现漏了，由 test_shell_and_redirect_carry_vary 抓出）
+        resp.headers.update(_varied())
+        return resp
 
-    # ---- 出口 2：经通道且判定为抓取方 → 正式可索引壳页 ----
+    # ---- 出口 3b：经通道但闸门否决 ----
+    # ⚠️ **绝不能 3xx**：nginx 的 map 只按 UA 粗筛、看不见请求头，会把这个 UA
+    # 再次 rewrite 回来 → 无限 302 环。线上实测 Googlebot / Baiduspider /
+    # QQ 内置浏览器真人三者都在 12 次重定向后仍是 302。
+    # 按否决原因分两种处置（都不 3xx）：
+    if not allow:
+        if reason not in HUMAN_VETO_REASONS:
+            # tool-bot / not-crawler：本就不该出现在通道上（nginx 不会 rewrite
+            # 它们，走到这里多半是手拼 ?seo=1）。**不给正文**，也不 3xx。
+            return _not_found_shell(site_name)
+        # 真人（微信 / QQ 内置浏览器等）：给可读页面但 noindex—— 人能读到文章，
+        # 索引不受污染，环被断掉。这是唯一「既不误伤真人又不成环」的处置。
+        indexable = False
+    else:
+        indexable = True
+
     title = post.title or site_name
-    desc = (post.seo_description or post.summary or (post.content or "")[:120]
+    desc = (post.seo_description or post.summary or _plain_preview(post.content, 120)
             or get_setting("site_description", "") or "独立开发者的个人博客").strip()
     image = f"/api/og/post/{slug}.png"
     image_abs = _abs(image)
@@ -333,21 +384,46 @@ def og_post(slug):
         f"</article>"
         f"</body></html>",
         200,
-        _shell_headers(),
+        _shell_headers(extra_noindex=not indexable),
     )
 
 
 @api_bp.route("/seo/shell-check")
 def seo_shell_check():
-    """爬虫通道自检（v3.18.9）—— 供后台「收录」页调用。
+    """爬虫通道自检（v3.18.9 建；**v3.19.1 改为本地直调、零出网**）。
 
-    按需自测本端点在 4 种身份下的真实响应，返回三盏灯：
-    ① 抓取方是否拿到服务端 HTML ② canonical 是否等于 `/post/<slug>`
-    ③ 是否 index,follow。**真人两盏灯必须显示"拿到 SPA"**——
-    这一项才是防生产事故的关键，只测爬虫是不够的。
+    两个 v3.19.0 的缺陷在这里一并修掉：
+
+    ① **自请求放大面**：v3.19.0 用 `urllib` 回打 `site_base()` 的公网地址——
+       即从 Flask worker 内部再发起一个到自己的请求，且是**匿名可调**的。
+       一个请求占住一个 worker 并串行等 4 个自请求返回；生产是 gunicorn gthread
+       4 worker × 2 线程，持续并发即可把可用槽吃满（可用性事故面）。
+       改为 `test_request_context()` 注入请求头后**直接调 `og_post()`**：
+       自检的目的本来只是验证闸门判定，不需要绕一圈公网。
+       「线上 nginx 有没有配好」这一层交给 `deploy_guide.md` 里的 curl 人工核验。
+
+    ② **假绿**：v3.19.0 的探针给搜索引擎**只送 UA、不送 `Accept`**，而真实
+       Googlebot / Baiduspider 会送 `Accept: text/html`。正因为漏测这个头，
+       线上那个 302 环在自检里**全绿**——假绿了一整轮。现在探针送真实请求头。
+
+    判定预期分**三档**（v3.19.1），**三档都不允许 3xx**：
+      `shell`   = 抓取方 → 200 + 可索引壳页
+      `noindex` = 真人（QQ 内置浏览器）→ 200 + 不可索引的**可读页**（不再期望 302）
+      `404`     = 非通道候选（Chrome）→ 404，不给内容
+    经通道的请求若被否决，返回 200/404（而**不是 302**）是断掉 302 环的唯一办法，
+    见 `og_post` docstring 出口 3b。
     """
-    from flask import jsonify
+    from flask import jsonify, current_app
     from models import Post
+    from .common import rate_limit, client_key, _current_user_or_none
+
+    # 鉴权：本端点会渲染文章正文，只给超管（v3.19.1 补）
+    u = _current_user_or_none()
+    if not u or not getattr(u, "is_super", False):
+        return Response("forbidden", 403, _varied())
+    if not rate_limit(client_key("seo_shell_check"), limit=30, window=60):
+        return Response("too many requests", 429, _varied())
+
     slug = (request.args.get("slug") or "").strip()
     if not slug:
         p = visible_posts_query().order_by(Post.created_at.desc()).first()
@@ -360,32 +436,36 @@ def seo_shell_check():
         return jsonify(error="site_url 未配置：og:url/canonical 会退化成相对路径，"
                              "微信卡片将取不到图。请先在后台设置站点 URL。"), 400
 
-    import urllib.request
-    import urllib.error
+    app = current_app._get_current_object()
 
-    def _probe(ua, extra_headers=None, path=None):
-        url = "%s%s?seo=1" % (base, path or ("/api/og/post/" + slug))
-        req = urllib.request.Request(url, headers=dict({"User-Agent": ua},
-                                                       **(extra_headers or {})))
-        try:
-            with urllib.request.urlopen(req, timeout=8) as r:
-                body = r.read(4000).decode("utf-8", "replace")
-                return {"status": r.status, "location": r.headers.get("Location", ""),
-                        "robots": r.headers.get("X-Robots-Tag", ""), "body": body}
-        except urllib.error.HTTPError as e:
-            return {"status": e.code, "location": e.headers.get("Location", ""),
-                    "robots": e.headers.get("X-Robots-Tag", ""),
-                    "body": e.read(4000).decode("utf-8", "replace")}
-        except Exception as e:
-            return {"status": 0, "location": "", "robots": "",
-                    "body": "", "error": type(e).__name__}
+    def _probe(ua, extra_headers=None):
+        """在本地请求上下文里直调 `og_post()` —— **零网络**。"""
+        hdrs = {"User-Agent": ua}
+        hdrs.update(extra_headers or {})
+        with app.test_request_context("/api/og/post/%s?seo=1" % slug, headers=hdrs):
+            r = og_post(slug)
+        if isinstance(r, tuple):              # (body, status, headers)
+            body = r[0] if isinstance(r[0], str) else ""
+            status = r[1] if len(r) > 1 else 200
+            h = r[2] if len(r) > 2 and hasattr(r[2], "get") else {}
+        else:                                 # Response（如 redirect）
+            status = r.status_code
+            h = r.headers
+            body = r.get_data(as_text=True) if hasattr(r, "get_data") else ""
+        return {"status": status, "location": (h.get("Location") or ""),
+                "robots": (h.get("X-Robots-Tag") or ""), "body": body}
 
-    public_path = "/post/" + slug
-    checks = []
-    for label, ua, hdr, expect in (
+    cases = (
+        # ⚠️ 搜索引擎探针**必须送 `Accept: text/html`** —— 真实 Googlebot / Baiduspider
+        #    就送它。v3.19.0 漏测这个头，导致线上 302 环在自检里**全绿**（假绿一整轮）。
         ("Baiduspider（搜索引擎）",
          "Mozilla/5.0 (compatible; Baiduspider/2.0; +http://www.baidu.com/search/spider.html)",
-         None, "shell"),
+         {"Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"},
+         "shell"),
+        ("Googlebot（搜索引擎）",
+         "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)",
+         {"Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"},
+         "shell"),
         ("MicroMessenger（微信预览抓取）",
          "Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) MicroMessenger/8.0.40",
          None, "shell"),
@@ -393,34 +473,45 @@ def seo_shell_check():
          "Mozilla/5.0 (Linux; U; Android 12) AppleWebKit/537.36 Chrome/100.0 Mobile Safari/537.36"
          " MQQBrowser/13.0 QQ/9.7.10.43400",
          {"Accept": "text/html,application/xhtml+xml,*/*;q=0.8",
-          "Sec-Fetch-Mode": "navigate"}, "spa"),
+          "Sec-Fetch-Mode": "navigate"}, "noindex"),
         ("Chrome（真人）",
          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0 Safari/537.36",
-         {"Accept": "text/html", "Sec-Fetch-Mode": "navigate"}, "spa"),
-    ):
-        r = _probe(ua, hdr, public_path)
+         {"Accept": "text/html", "Sec-Fetch-Mode": "navigate"}, "404"),
+    )
+    checks = []
+    for label, ua, hdr, expect in cases:
+        r = _probe(ua, hdr)
         body = r.get("body", "")
         is_shell = ("og:title" in body)
-        canonical = ""
-        import re as _re
-        m = _re.search(r"canonical'\s+href='([^']+)'", body) or \
-            _re.search(r'canonical"\s+href="([^"]+)"', body)
-        if m:
-            canonical = m.group(1)
-        indexable = "index" in (r.get("robots") or "") and "noindex" not in (r.get("robots") or "")
-        ok = (r.get("status") == 200 and is_shell) if expect == "shell" \
-            else (r.get("status") in (200, 301, 302, 307, 308))
+        m = re.search(r"canonical'\s+href='([^']+)'", body) or \
+            re.search(r'canonical"\s+href="([^"]+)"', body)
+        canonical = m.group(1) if m else ""
+        robots = r.get("robots") or ""
+        indexable = ("noindex" not in robots) and ("index" in robots)
+        status = r.get("status")
+        is_3xx = isinstance(status, int) and 300 <= status < 400
+        # 三档预期，**都不允许 3xx**（经通道 3xx = nginx 再 rewrite = 302 环）
+        if expect == "shell":
+            # 抓取方：200 + 可索引 + 确实是壳页
+            ok = (status == 200 and is_shell and indexable)
+        elif expect == "noindex":
+            # 真人：200 + 不可索引（内容照给，人能读）
+            ok = (status == 200 and not indexable and not is_3xx)
+        else:
+            # 非通道候选（tool-bot / 普通浏览器）：404 + 不可索引 + 不给正文
+            ok = (status == 404 and not indexable and not is_shell)
         checks.append({
-            "label": label, "expect": expect, "status": r.get("status"),
-            "location": r.get("location", ""), "robots": r.get("robots", ""),
+            "label": label, "expect": expect, "status": status,
+            "location": r.get("location", ""), "robots": robots,
             "server_html": is_shell, "canonical": canonical,
             "canonical_ok": canonical.endswith("/post/" + slug),
-            "indexable": indexable, "ok": ok, "error": r.get("error", ""),
+            "indexable": indexable, "ok": ok,
+            "would_loop": is_3xx,
         })
 
-    shell_ok = all(c["ok"] for c in checks)
     return jsonify(slug=slug, site_base=base, checks=checks,
-                   all_ok=shell_ok,
-                   canonical_ok=all(c["canonical_ok"] or c["expect"] == "spa" for c in checks),
-                   index_ok=all(c["indexable"] or c["expect"] == "spa" for c in checks))
+                   all_ok=all(c["ok"] for c in checks),
+                   canonical_ok=all(c["canonical_ok"] or c["expect"] != "shell"
+                                    for c in checks),
+                   index_ok=all(c["indexable"] for c in checks if c["expect"] == "shell"))
 

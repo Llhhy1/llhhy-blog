@@ -173,6 +173,19 @@ def seo_push_now():
         flash("未知推送引擎")
         return redirect(url_for("admin.seo_console"))
 
+    # 限流 + 在飞去重（v3.19.1）。理由：**百度当日配额用完即不可逆**，
+    # 而每次点击都会起一条新线程——连点 N 次即并发推 N×50 条。
+    # 同类按钮已有先例可抄（admin/settings.py 的邮件测试按钮）。
+    from utils import rate_limit, client_key
+    if not rate_limit(client_key("seo_push"), limit=3, window=300):
+        flash("推送过于频繁（5 分钟内最多 3 次），请稍后再试——"
+              "百度当日配额用完不可恢复。")
+        return redirect(url_for("admin.seo_console"))
+    inflight = SeoSubmission.query.filter_by(engine=engine, status="pending").count()
+    if inflight:
+        flash("已有一批推送在进行中（%d 条排队中），请等它结束后再发起。" % inflight)
+        return redirect(url_for("admin.seo_console"))
+
     post_id = (request.form.get("post_id") or "").strip()
     if post_id:
         p = db.session.get(Post, int(post_id)) if post_id.isdigit() else None
@@ -204,7 +217,12 @@ def seo_push_now():
             return redirect(url_for("admin.seo_console"))
 
     n_enq = seo_push.enqueue(ids, engine, actor=_current_user_or_none())
-    flash("已入队 %d 篇（%s），推送在后台进行——稍后刷新本页查看结果。" % (n_enq, engine))
+    if n_enq:
+        flash("已入队 %d 篇（%s），推送在后台进行——稍后刷新本页查看结果。" % (n_enq, engine))
+    else:
+        # 入队失败不能静默（v3.19.1）：此前无论成败都 flash「已入队」，
+        # 线程起不来时用户以为在推，实际什么都没发生。
+        flash("⚠️ 未发起推送（入队失败或无可推文章），请查看服务日志后重试。")
     return redirect(url_for("admin.seo_console"))
 
 
@@ -252,53 +270,67 @@ def seo_preview():
 @admin_bp.route("/seo/selfcheck")
 @super_required
 def seo_selfcheck():
-    """服务器侧通道自检：复用既有的 4 身份探针端点。
+    """服务器侧通道自检：**真调闸门函数**，不再另写一份公式。
 
-    ⚠️ **不能直接调 `api/og.py::seo_shell_check()` 这个视图函数**——它内部用
-    `urllib` 请求「本站对外地址」（`site_base()`），而那通常是公网域名：
-    从服务器回打自己等于绕一圈公网 + 过 CDN，慢且依赖外网可达。
+    v3.19.1 修（报告 2.3(b)）：v3.19.0 在这里用本地重写的
+    `allow = (not is_tool) and (is_search or is_social) and not human` 复刻闸门，
+    **缺了 `is_internal_referer()` 与 `Sec-Fetch-Dest: document` 两道否决**，
+    而 `seo_shell_ua` 导入了却从未调用。后果：闸门改了、自检页仍显示全绿——
+    正是本文件注释里自己警告过的「两套逻辑漂移」。
 
-    所以这里做的是**在服务端把 4 种身份的判定逻辑跑一遍**（纯函数调用，
-    零网络），把「闸门判定结果」直接给页面。至于「线上 nginx 有没有把配置
-    加进去」这一层，页面另给一个按钮指向真实的 `/api/seo/shell-check`
-    （由浏览器发起，走完整链路，这才是真机验证）。
+    现在改为用 `test_request_context()` 注入请求头后**直接调 `seo_shell_ua()`**
+    （与线上出口用的是同一个函数），结构上不可能再漂移。
+    结果按出口 3b 的分流映射成三种预期：
+      `shell`   = 可索引壳页（搜索引擎 / 社交预览抓取）
+      `noindex` = 真人，给可读但不索引的页
+      `404`     = 非通道候选（tool-bot / 普通浏览器），不给内容
+    三种预期**都不允许是 3xx**（经通道 3xx = nginx 再 rewrite = 302 环）。
+
+    至于「线上 nginx 有没有把配置加进去」这一层，页面另给一个按钮指向真实的
+    `/api/seo/shell-check`（由浏览器发起，走完整链路，这才是真机验证）。
     """
-    from flask import jsonify
-    import re as _re
-    from utils.seo_shell import SEARCH_BOT_UA, _SOCIAL_PREVIEW_UA, _TOOL_BOT_UA
+    from flask import jsonify, current_app
+    from utils import HUMAN_VETO_REASONS
+    from utils.seo_shell import seo_shell_ua
 
+    app = current_app._get_current_object()
     base = site_base()
-    cases = [
-        ("Baiduspider（搜索引擎）",
-         "Mozilla/5.0 (compatible; Baiduspider/2.0; +http://www.baidu.com/search/spider.html)",
-         {}, "shell"),
-        ("MicroMessenger（微信预览抓取）",
-         "Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) MicroMessenger/8.0.40",
-         {}, "shell"),
-        ("QQ 内置浏览器（真人）",
-         "Mozilla/5.0 (Linux; U; Android 12) AppleWebKit/537.36 Chrome/100.0 Mobile"
-         " Safari/537.36 MQQBrowser/13.0 QQ/9.7.10.43400",
-         {"Sec-Fetch-Mode": "navigate", "Accept": "text/html,application/xhtml+xml,*/*;q=0.8"},
-         "spa"),
-        ("Chrome（真人）",
-         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0 Safari/537.36",
-         {"Sec-Fetch-Mode": "navigate", "Accept": "text/html"}, "spa"),
-    ]
+
+    # 与 api/og.py 的自检探针保持同一组 UA / 头（两处都测同一件事）
+    ua_baidu = ("Mozilla/5.0 (compatible; Baiduspider/2.0; "
+                "+http://www.baidu.com/search/spider.html)")
+    ua_google = "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)"
+    ua_wx_crawl = "Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) MicroMessenger/8.0.40"
+    ua_qq_human = ("Mozilla/5.0 (Linux; U; Android 12) AppleWebKit/537.36 "
+                   "Chrome/100.0 Mobile Safari/537.36 MQQBrowser/13.0 QQ/9.7.10.43400")
+    ua_chrome = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                 "Chrome/120.0 Safari/537.36")
+    # ⚠️ 搜索引擎**必须**带 Accept: text/html —— 真实 Googlebot/Baiduspider 就送它。
+    #    v3.19.0 漏了这一点，线上 302 环在自检里假绿了一整轮。
+    accept_html = {"Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"}
+    human_like = {"Accept": "text/html,application/xhtml+xml,*/*;q=0.8",
+                  "Sec-Fetch-Mode": "navigate"}
+
+    cases = (
+        ("Baiduspider（搜索引擎）", ua_baidu, accept_html, "shell"),
+        ("Googlebot（搜索引擎）", ua_google, accept_html, "shell"),
+        ("MicroMessenger（微信预览抓取）", ua_wx_crawl, {}, "shell"),
+        ("QQ 内置浏览器（真人）", ua_qq_human, human_like, "noindex"),
+        ("Chrome（真人）", ua_chrome, human_like, "404"),
+    )
     out = []
     for label, ua, hdr, expect in cases:
-        ual = ua.lower()
-        is_tool = bool(_TOOL_BOT_UA.search(ua))
-        is_search = bool(SEARCH_BOT_UA.search(ua))
-        is_social = bool(_SOCIAL_PREVIEW_UA.search(ua))
-        human = (hdr.get("Sec-Fetch-Mode", "").lower() == "navigate"
-                 or "text/html" in hdr.get("Accept", "").lower())
-        allow = (not is_tool) and (is_search or is_social) and not human
-        got = "shell" if allow else "spa"
-        out.append({
-            "label": label, "expect": expect, "got": got,
-            "ok": got == expect, "human_signal": human,
-            "matched": ("search" if is_search else ("social" if is_social else
-                        ("tool-bot" if is_tool else "none"))),
-        })
+        h = {"User-Agent": ua}
+        h.update(hdr)
+        with app.test_request_context("/post/x?seo=1", headers=h):
+            allow, reason = seo_shell_ua()
+        if allow:
+            got = "shell"
+        elif reason in HUMAN_VETO_REASONS:
+            got = "noindex"
+        else:
+            got = "404"
+        out.append({"label": label, "expect": expect, "got": got,
+                    "ok": got == expect, "reason": reason, "allow": allow})
     return jsonify(site_base=base, configured=bool(base), checks=out,
                    all_ok=all(c["ok"] for c in out) and bool(base))

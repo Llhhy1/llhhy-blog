@@ -3155,4 +3155,95 @@ v3.18.7 发布后按「先覆盖脚本、再跑一键更新」的顺序在服务
 > 2. **发版安全快检时发现的既有项（非本轮引入，如实记录）**：`myblog/api/og.py::qr_image`（`GET /api/qr`，v3.16.0 引入）在 `site_url` **未配置**时，会用 `request.host_url`（第 145 行）与 `request.host`（第 140 行）拼装对外二维码内容，即「让请求方提供 Host 决定我们对外声明什么」。**当前生产已配置 `site_url`（`site_base()` 有值）→ 该分支不生效，实测无风险**；但它与首轮审计 2.9 / R89 确立的「对外地址只走 `site_base()`」原则不一致。该接口另有 host 白名单（`allowed` 集合，仅站内 host 或 `site_url` host 可通过）与 30 次/60s 限流，影响面限于「未配置 `site_url` 的部署」。**处置建议**：下版本把该分支改为「`site_url` 为空时返回 400 并提示先配置站点地址」，与 v3.18.9 对 `_abs()` 的处理保持一致。**本版不改**（属既有行为，改它需回归二维码功能，不适合夹在收录控制台版本里）。
 > 3. `myblog/utils/seo_shell.py::_is_same_site_referer`（第 111-118 行）在 `site_base()` 为空时用 `request.host` 作比对基准 — 这是**判据用途而非对外声明用途**（只用于回答「这个 Referer 是不是自己家」），代码注释已说明，**不构成 Host 注入**，无需修改。
 
+---
+
+## R91 · 第三轮复审修复（v3.19.1 · 302 环 / 出站 SSRF / 自检放大面）
+
+**范围**：`myblog/utils/seo_shell.py`、`myblog/api/og.py`、`myblog/seo_push.py`、`myblog/admin/seo.py`、`myblog/admin/post_trash.py`、`myblog/templates/admin/seo.html`、`myblog/deploy_guide.md`、`myblog/config.py`；测试 `tests/test_seo_shell.py`、`tests/test_seo_push.py`。
+
+**来源**：第三轮第三方复审报告（3 High / 5 Medium / 4 Low）。**复验纪律：逐条回代码与线上实测，不采信报告自述**——11 条中 10 条成立，1 条部分不成立（见 91.5）。
+
+### 91.1 `[High]` 线上 302 环 —— 连接通通道反而杀死收录（**已上线事故**）
+
+| 维度 | 结论 |
+| --- | --- |
+| **症状** | `/post/<slug>` 对「带 `Accept: text/html` 的搜索引擎」与「QQ/微信内置浏览器真人」**无限 302**。线上实测：Googlebot / Baiduspider / QQ 真人**三者 12 次重定向后仍是 302**（`curl --max-redirs 12` 退出码 47）。后果：**搜索引擎抓不到任何正文（收录归零）**；真人在内置浏览器里看到 `ERR_TOO_MANY_REDIRECTS`。 |
+| **根因** | 否决层作用域过宽 + 出口动作与 nginx 粗筛互相激励。nginx 的 `map` **只按 UA** 粗筛（看不见请求头），后端却因 `Accept: text/html` 否决并 **302** 回 `/post/<slug>` → nginx 按同一个 UA 再次 rewrite → 环。 |
+| **为什么自检没照出来** | v3.19.0 的探针给搜索引擎**只送 UA、不送 `Accept`** → 线上环在自检里**全绿**（假绿一整轮）。 |
+| **修复①：作用域按桶拆分** | `Sec-Fetch-Mode`/`Sec-Fetch-Dest`（浏览器专有，搜索引擎不送）→ 两类桶都否决；`Accept: text/html`（**搜索引擎正常也会送**）→ **只对社交桶否决**。新增 `has_fetch_metadata_signal()` / `has_html_accept()` / `HUMAN_VETO_REASONS`；`is_human_navigation()` 保留为并集并**在 docstring 明确禁止当单一闸门用**。 |
+| **修复②：经通道绝不 3xx** | `og_post()` 出口 3 拆为 3a（无 `?seo=1` → 302，安全：只有一跳）与 3b（有 `?seo=1` → **按原因分流且绝不 3xx**）：真人类 → **200 + `noindex,nofollow` 可读页**（人能读正文、索引不受污染）；`tool-bot`/`not-crawler` → **404 + noindex 不给正文**（保住「不给批量抓取入口」的原意图）。 |
+| **顺带修** | 302 响应过去**未带 `Vary`** → CDN 可能把「给爬虫的 302」缓存给真人。测试 `test_shell_and_redirect_carry_vary` 抓出后已补。 |
+| **回归钉死** | `test_channel_never_returns_3xx`（8 种 UA 矩阵断言「经通道禁 3xx，只允许 200/404」）＋ `test_search_engine_with_accept_html_still_gets_indexable_shell`（Googlebot/Baiduspider 带 `Accept` 必须拿 `index,follow`）。**变异测试**：回退修复 → 13 条变红（含这两条）→ 证明非空转。 |
+
+### 91.2 `[High]` 出站跟随重定向 → 半盲 SSRF + 可伪造「推送成功」
+
+**代码事实**：`_http_post()` 的 `_is_allowed_url()` 只在**发起前**校验一次，随后用**默认 opener**（自动跟随 3xx），且 urllib 会把 POST **降级为 GET**。于是「白名单 host 返回 302」= **任意 host 的一次 GET**，响应体还会被当作推送结果入库并上屏（内容回显）。
+
+**本地实证**（已写成回归测试 `test_redirect_is_not_followed`）：起两个本地 HTTP 服务，第一个返回 `302 → 第二个`；v3.19.0 行为 = 第二个**收到 GET**，修复后 = **从未收到请求**。
+
+| 修法 | 说明 |
+| --- | --- |
+| 禁跟随重定向 | 自定义 `_NoRedirect(HTTPRedirectHandler)` 抛 `HTTPError`，3xx 原样返回给调用方落 `fail`（也便于排查链路劫持/端点迁移）。 |
+| 成功判定加严 | 百度要求「可解析为 JSON」**且** `Content-Type` 含 `json`。原先 `HTTP 200` 即判 ok —— 一个伪造 200（或被劫持链路上的 HTML 错误页）就能让控制台显示「成功」并写入虚假配额。 |
+| 响应字段白名单 | 新增 `_extract_response()`，只保留 `success`/`remaining`/`error`/`message` 等协议已知字段，**不再把上游 body 原文入库/上屏**（消除内容回显面）。 |
+| 脱敏先于截断 | 新增 `_redact()`（含 24/16/8 字符前缀片段），`_clean()` 内部顺序固定为「先脱敏 → 再压平 → 最后截断」。原 `_clean(text).replace(token,"***")` 是**先截断后替换**：token 落在 500 字符之后即漏抹（IndexNow key 最长 128 位，泄露面更大）。 |
+
+### 91.3 `[High→Medium]` 自检端点：自请求放大面 + 假绿
+
+| 项 | v3.19.0 | v3.19.1 |
+| --- | --- | --- |
+| 出网 | `urllib` 回打 `site_base()` 公网地址，**串行 4 次**（从 Flask worker 内部请求自己） | `test_request_context()` 注入头后**直调 `og_post()`**，**零出网** |
+| 鉴权 | **匿名可调** | `@super_required`（匿名 403） |
+| 限流 | 无 | `rate_limit(client_key("seo_shell_check"), 30/60s)` |
+| 探针头 | 搜索引擎**只送 UA** → 环在自检里假绿 | 送**真实头**（`Accept: text/html`）→ 环会立刻显红 |
+| 预期分档 | 2 档（shell / spa） | **3 档**（`shell` / `noindex` / `404`），且**三档都不允许 3xx**，`would_loop` 字段供页面报警 |
+
+> **关于报告 2.1 的严重度描述**：报告称「生产是 sync worker、**无 `gunicorn_conf.py`**，两个并发点击即可让全站无 worker 可用」。**实测不成立**：`gunicorn_conf.py` 存在（`workers=4, threads=2, worker_class='sync'`），gunicorn 22.0.0 会把 `threads>1` **自动升级为 gthread**（启动日志 `Using worker: gthread`，每 worker 4 线程）→ 实际 **8 个并发槽**，且同一 worker 的空闲线程可服务自请求，**无报告描述的硬死锁**。严重度下调为「放大型可用性风险」。**但「匿名可调 / 无 rate_limit / 每次 4 个自请求」三条代码事实成立**，故仍按零出网改造。
+
+### 91.4 `[Medium]` 后台线程静默失败 / 审计缺 IP / 配额滥用 / 孤儿行
+
+| 项 | 修法 |
+| --- | --- |
+| **双层 `except Exception: pass`** | `_runner` 外层改为 `logger.exception(...)` **并把这批落 `fail`**。原先 `submit_posts` 一旦抛出，整批记录**永久停在「排队中」**（页面轮询永远等不到结果，日志无痕）。 |
+| **审计无 IP** | 改用统一的 `admin._helpers.log_audit()`（v3.19.0 手搓 `AuditLog(..., ip="")`，`get_client_ip` 导入后从未调用 → 与 v3.18.5 收口的口径矛盾）。IP 在**请求线程**捕获后传入后台线程（后台线程无请求上下文，取不到 IP）。 |
+| **`_spawn` 返回值被丢弃** | 起线程失败 → 落 `fail` + `enqueue` 返回 0 + 页面不再假报「已入队」。 |
+| **无限流 / 无在飞去重** | `rate_limit(client_key("seo_push"), limit=3, window=300)`；同引擎存在 `pending` 时直接拒绝（**百度当日配额用完不可逆**）。 |
+| **`keyLocation` 未校验** | 新增 `_keylocation()`：校验 `site_url` 的 scheme/hostname，拒绝 query/fragment/userinfo；`_valid_indexnow_key()` 出站前再校验 key 格式（纵深防御，管理页保存时已校验一次）。 |
+| **硬删除留孤儿行** | `admin/post_trash.py::purge_post` 显式删 `seo_submission` 同 `post_id` 行 —— SQLite 未开 `PRAGMA foreign_keys=ON`（`app.py` 只设 WAL/busy_timeout/synchronous），FK **不级联**。 |
+| **`og:description` 漏 Markdown** | 新增 `_plain_preview()`（图片整段丢、链接留文字、去反引号/行首标记/标签）。 |
+| **模板 `innerHTML`** | `templates/admin/seo.html` 改为 DOM + `textContent` 构造（当前来源全为常量、不可利用，属**纵深防御**；同时修正了与「只写 textContent」的陈述不符）。 |
+| **nginx map 漏 token** | 补入 `ShenmaSpider`/`ToutiaoSpider`/`QwantBot`/`SeznamBot`/`Embedly`/`Pinterest`/`Vkshare`/`W3C_Validator`/`Outbrain`/`Nuzzel`/`BitlyBot`/`Line-Poker`/`Facebot`；`deploy_guide.md` 写明**必须保持「nginx ⊆ 后端」**这一环安全不变量（nginx 放行了后端不认识的 UA → 后端判 `not-crawler` 返回 404，**不会成环**，但该抓取方拿不到内容）。 |
+| **死代码** | 删 `LOG_KEEP`、`submit_posts(actor=)` 未使用参数。 |
+
+### 91.5 复验结论表（**逐条回代码/线上核对**）
+
+| 报告条目 | 复验 |
+| --- | --- |
+| 2.1 自检端点 DoS | **部分成立**——「匿名/无限流/4 自请求」成立；「sync worker、无 `gunicorn_conf.py`、两个点击打挂」**不成立**（实为 gthread 4×2=8 槽） |
+| 2.2 重定向 SSRF + 伪造成功 | **成立**（本地双服务实证） |
+| 2.3(a) 302 环 | **成立且已是线上事故**（线上实测 3 类身份 12 次重定向仍 302） |
+| 2.3(b) 自检公式漂移 | **成立**（缺 `is_internal_referer` / `Sec-Fetch-Dest`，`seo_shell_ua` 从未调用） |
+| 2.4 静默失败 / 审计无 IP / 丢弃返回值 | **成立** |
+| 2.5 无限流 / 无去重 | **成立** |
+| 2.6 先截断后脱敏 | **成立** |
+| 2.7 三处测试问题 | **成立**（`:594` 的 `or` 断言近乎空转；`test_shell_check_endpoint_untouched` 断言 `200 or 400` 且不 stub `urlopen`；线程内真路径零覆盖） |
+| 2.8 孤儿行 | **成立** |
+| 2.9 五个 Low | 逐条成立（`og:description` / `keyLocation` / 死代码 ×2 / `innerHTML` / nginx map 不一致） |
+| §3 首审 4.x（性能 / 前端 / 可观测性 / CI） | **确认零改动**，转入 `ROADMAP.md` 登记，不夹进本补丁版 |
+
+### 91.6 验证
+
+- **185 passed**（176 基线 + 9 条新增）；`ruff --select F821,E9 myblog/ tests/` **All checks passed**。
+- **变异测试通过**：回退修复 → 13 条红（含两条新回归）→ 新测试非空转。
+- **顺序无关**：随机顺序同样 185 passed；新增 autouse fixture 清空 `utils._RATE`（限流状态原先会跨用例串味，导致「单独跑绿、连跑红」）。
+- **开发库**：`PRAGMA integrity_check` = **ok**；0 篇文章 / 1 用户（与修复前一致）。
+- ⚠️ **如实记录一处自家操作瑕疵**：开发库 `blog.db` 的 sha256 有变化 —— 原因是**我上一轮为渲染样例图，把 `DATABASE_URL` 显式指向了开发库并调用 `create_app()`**，触发 `_migrate_new_tables_v3()` 在该库上建了 `seo_submission` 表。**数据无损**（行数与完整性均正常），但违反了「测试/诊断不得写开发库」的精神。**教训**：任何调 `create_app()` 的诊断脚本，必须先把 `DATABASE_URL` 指向**副本或临时目录**。
+
+**R91 结论**：**0 遗留**（本版范围内）。核心是两条：**经通道绝不 3xx**（断环）+ **出站禁跟随重定向**（断 SSRF）；两条都由回归测试 + 变异测试双重钉死。
+
+> **待办（非本版）**：
+> 1. R90 待办②（`/api/qr` 未配 `site_url` 时用 `request.host`）仍开放 —— **本版未动**（同前述理由：需回归二维码功能，不宜夹进补丁版）。
+> 2. 首审报告第 3–7 章（`post`/`comment` 索引、`inject_globals` 每渲染 8 查询、列表 3N+1、`notify.py` 同步外网、前端 a11y/对比度/`tokens.css` 双份、CI 加 lint/覆盖率/CVE/CodeQL）—— 已登记 `ROADMAP.md`。
+> 3. ✅ **已关闭**：报告 2.9 提到的「**部署文档未记录 gthread**」。实测线上已因 `threads=2` 自动成为 gthread；本版在 `deploy_guide.md` 的 v3.19.1 升级要点里**明确记录了该事实**（避免后人再照报告误判为「未修」）。
+
 

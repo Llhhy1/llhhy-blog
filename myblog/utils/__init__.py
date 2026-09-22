@@ -47,6 +47,7 @@ from .text import (  # noqa: F401
 )
 from .seo_shell import (  # noqa: F401
     SEARCH_BOT_UA,
+    HUMAN_VETO_REASONS,
     seo_shell_ua,
     is_search_engine_ua,
     is_human_navigation,

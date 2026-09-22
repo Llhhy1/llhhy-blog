@@ -19,12 +19,22 @@
     **仅当 host 精确等于 `data.zz.baidu.com`**（`_is_allowed_url()` 精确比对，
     不做后缀匹配，防 `data.zz.baidu.com.evil.com` 之类）。
 
+出网调用点（**本模块内只有一处**，别在别处新开）：
+    `_http_post()` 里的 `_OPENER.open(req, timeout=…)`。`_OPENER` 由
+    `build_opener(_NoRedirect)` 构造，**禁跟随重定向**（v3.19.1：默认 opener 会跟
+    3xx 且 urllib 把 POST 降级为 GET → 「白名单 host 返回 302」就成了一次任意
+    host 的 GET，半盲 SSRF）。新增任何出网动作都必须走 `_http_post()`，
+    否则绕过白名单与禁跳转两道约束。
+    ⚠️ 注意区分：**项目内其它模块也有各自的外网调用**（notify / routes / stats /
+    api.ai / api.review / api.system / admin.games 等），「只有一处」仅指本模块。
+
 配额与退避：
     - 百度单次最多 2000 条 URL（本站取 500 作上限，够了）；
     - IndexNow 单次最多 10000 条，本站同样取 500；
     - 单次请求 timeout 10s；失败记录 `status=fail` + 截断的 response，
       不做自动重试（避免配额被无效请求吃掉），由后台页手动重推。
-    百度返回的 `remaining`（当日剩余配额）会回写进 `Setting`，供页面展示。
+    百度返回的 `remain`（当日剩余配额）会回写进 `Setting`，供页面展示。
+    ⚠️ **字段名是 `remain` 不是 `remaining`**（v3.19.2 由生产数据实证）。
 """
 import json
 import threading
@@ -158,7 +168,9 @@ def _clean(text, n=RESP_KEEP, secrets=()):
 
 
 # 上游响应里允许入库/上屏的字段白名单（其余一律丢弃）
-_RESP_KEYS = ("error", "message", "success", "remaining",
+# ⚠️ `remain` 必须列上：百度真实字段名是 `remain`（生产实测 `{"remain":8,"success":1}`），
+# 不是 `remaining`。少写它会连配额一起被丢掉，收录页配额栏永远是空的。
+_RESP_KEYS = ("error", "message", "success", "remaining", "remain",
               "not_same_site", "not_valid", "status", "code")
 
 
@@ -217,8 +229,10 @@ def push_baidu(urls, token, site_domain=""):
     """百度主动推送。返回 (status, response_text, remaining)。
 
     status ∈ ok / fail / quota。
-    - 返回体形如 `{"success":2,"remaining":998}` 或 `{"error":401,"message":"token is not valid"}`。
-    - `error=over quota` / `remaining=0` 记 quota（清单要求把配额单独成一档，
+    - 成功返回体形如 `{"remain":998,"success":2}`（**字段名是 `remain`，不是 `remaining`**，
+      生产实测确认）；配额耗尽返回 `{"error":400,"message":"over quota"}`。
+      参数错返回 `{"error":401,"message":"token is not valid"}`。
+    - `error=over quota` / `remain=0` 记 quota（清单要求把配额单独成一档，
       便于页面区分「被限流」和「配置错」——一上来就 `status=fail` 会让用户
       以为 token 填错了）。
     """
@@ -250,13 +264,19 @@ def push_baidu(urls, token, site_domain=""):
         data = None
     if isinstance(data, dict):
         shown = _extract_response(data) or safe
-        if data.get("remaining") is not None:
+        # ⚠️ 百度真实字段是 **`remain`**（v3.19.2 由生产数据实证：`{"remain":8,"success":1}`），
+        # 不是 `remaining`。v3.19.0/v3.19.1 读错字段名 → `remaining` 恒为 None →
+        # 「剩余配额」永远写不进 `seo_baidu_quota`，收录页配额栏一直空白
+        # （好消息是 `quota` 档仍被下面的 error 分支兜住了，所以只是信息缺失、
+        #   不是状态误判）。两个名字都认，避免文档与实际不符时再踩一次。
+        raw_remain = data.get("remain", data.get("remaining"))
+        if raw_remain is not None:
             try:
-                remaining = int(data["remaining"])
+                remaining = int(raw_remain)
             except Exception:
                 remaining = None
         # ⚠️ 顺序要紧：先判 error，再判「配额已耗尽」，最后才认 success。
-        # 百度在配额耗尽时返回 `{"success":0,"remaining":0}`——既没有 error
+        # 百度在配额耗尽时返回 `{"remain":0,"success":0}`——既没有 error
         # 字段，success 也是 0。若把 success 判定放在前面，这种情况会被记成
         # ok（页面显示绿色对勾，实际一条也没推成功），是最误导人的一种错。
         if data.get("error"):

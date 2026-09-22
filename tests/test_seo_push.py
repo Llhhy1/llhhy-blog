@@ -553,12 +553,33 @@ def test_baidu_quota_status(monkeypatch):
 
 
 def test_baidu_ok_parses_remaining(monkeypatch):
-    """成功必须解析出 remaining 供页面展示配额。"""
+    """成功必须解析出剩余配额供页面展示。
+
+    **字段名是 `remain`**（v3.19.2 由生产数据实证：`{"remain":8,"success":1}`），
+    不是 `remaining`。v3.19.0/v3.19.1 读错名字 → 剩余配额永远读不到，
+    收录页配额栏一直空白。两个名字都断言，避免以后再改错。
+    """
+    # 真实字段名
     monkeypatch.setattr(seo_push, "_http_post",
-                        lambda *a, **k: (200, '{"success":1,"remaining":998}',
+                        lambda *a, **k: (200, '{"remain":998,"success":2}',
                                          "application/json"))
-    st, _resp, remaining = seo_push.push_baidu(["https://x.cn/post/a"], "t", "https://x.cn")
-    assert st == "ok" and remaining == 998
+    st, resp, remaining = seo_push.push_baidu(["https://x.cn/post/a"], "t", "https://x.cn")
+    assert st == "ok" and remaining == 998, "必须解析 Baidu 真实的 `remain` 字段"
+    assert "remain" in resp, "`remain` 必须在响应白名单里，否则配额被一起丢掉"
+
+    # 兼容旧写法
+    monkeypatch.setattr(seo_push, "_http_post",
+                        lambda *a, **k: (200, '{"success":1,"remaining":77}',
+                                         "application/json"))
+    st2, _r2, rem2 = seo_push.push_baidu(["https://x.cn/post/a"], "t", "https://x.cn")
+    assert st2 == "ok" and rem2 == 77
+
+    # `remain:0` 且 success:0 → 配额耗尽（有了正确字段名这条判定才真正生效）
+    monkeypatch.setattr(seo_push, "_http_post",
+                        lambda *a, **k: (200, '{"remain":0,"success":0}',
+                                         "application/json"))
+    st3, _r3, rem3 = seo_push.push_baidu(["https://x.cn/post/a"], "t", "https://x.cn")
+    assert st3 == "quota" and rem3 == 0, "remain=0 必须归 quota 档"
 
 
 def test_baidu_non_json_200_is_not_success(monkeypatch):

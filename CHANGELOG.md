@@ -3,6 +3,42 @@
 > 本文件承载 **历史版本** 记录。README 只保留最新版本与上手信息。
 > 各版本的安全审计结论见 `myblog/SECURITY_AUDIT.md`；功能规划见 `ROADMAP.md`。
 
+## v3.19.2（2026-09-23 · 修正百度配额字段名：`remain` 而非 `remaining`）
+
+> **来源**：v3.19.1 上线后核对**生产真实数据**时发现——`seo_submission` 里 baidu 引擎的原始响应是：
+> ```
+> {"remain":8,"success":1}
+> {"remain":2,"success":5}
+> ```
+> 即**百度主动推送的剩余配额字段名是 `remain`**，而不是 `remaining`。**这一条第三轮复审报告也没抓到，是生产数据抓出来的。**
+
+### 1. 缺陷与影响
+
+| 项 | 说明 |
+| --- | --- |
+| **代码事实** | `push_baidu()` 读的是 `data.get("remaining")` → 对真实响应恒为 `None` |
+| **影响①（主）** | 「剩余配额」永远写不进 `Setting.seo_baidu_quota`（**生产实测该键为空**）→ 后台「🔍 收录」页的配额栏**一直空白**，用户看不到配额还剩多少 |
+| **影响②** | `remaining == 0 → quota` 这条判定永不触发 |
+| **未受影响（重要）** | `quota` 档**仍能被正确识别**——走的是 `data["error"]` 里 `"over quota"` 那条分支兜住了。所以**不是状态误判，只是信息缺失**。生产数据也印证：7 篇推送全部 `ok`，真实 `success` 为 1~5 |
+| **顺带** | `_RESP_KEYS` 白名单里只有 `remaining`，会把真实的 `remain` 一起丢掉 → 必须同时加进去 |
+
+### 2. 修复
+
+- `push_baidu()`：改为 `data.get("remain", data.get("remaining"))` —— **两个名字都认**（防止文档与实际不符时再踩一次），并注明生产实测来源。
+- `_RESP_KEYS`：加入 `remain`。
+- `push_baidu()` docstring 里那句**错误示例** `{"success":2,"remaining":998}` 更正为 `{"remain":998,"success":2}` —— 这句错误的文档正是这个 bug 的来源，必须一并改掉，否则后人会照它再写一遍。
+
+### 3. 验证
+- **新增/加强回归**：`test_baidu_ok_parses_remaining` 现在同时断言三件事：① 真实字段名 `remain` 能解析；② `remain` 在响应白名单里（不被丢弃）；③ `{"remain":0,"success":0}` 归 `quota` 档。另保留 `remaining` 的兼容断言。
+- **变异测试**：把 `data.get("remain", ...)` 回退成 `data.get("remaining")` → 该测试**变红** → 证明断言真能抓住字段名错误。
+- 全量 **185 passed**（改的是既有测试 `test_baidu_ok_parses_remaining`，未新增用例）；`ruff --select F821,E9` 全绿；开发库 sha256 + mtime 双查零变化。
+
+### 4. 部署注意
+- **纯后端改动**，只需覆盖 `myblog-backend.zip`（前端包无变化）。无新表、无新依赖、无新环境变量、**无需改 Nginx**。
+- 修复后**首次推送成功时**才会写入 `seo_baidu_quota`；在此之前配额栏仍为空属预期（也可在后台手动再推一次让它立即生效）。
+
+---
+
 ## v3.19.1（2026-09-22 · 第三轮复审修复：**线上 302 环** + 出站 SSRF + 自检放大面）
 
 > **背景**：v3.19.0 上线后收到第三轮第三方复审报告（3 High / 5 Medium / 4 Low）。**逐条回代码与线上复验**后发现 11 条里 10 条成立、1 条部分不成立（见下 §5），并确认其中**一条已是正在发生的线上事故**。

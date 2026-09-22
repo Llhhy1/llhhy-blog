@@ -3246,4 +3246,15 @@ v3.18.7 发布后按「先覆盖脚本、再跑一键更新」的顺序在服务
 > 2. 首审报告第 3–7 章（`post`/`comment` 索引、`inject_globals` 每渲染 8 查询、列表 3N+1、`notify.py` 同步外网、前端 a11y/对比度/`tokens.css` 双份、CI 加 lint/覆盖率/CVE/CodeQL）—— 已登记 `ROADMAP.md`。
 > 3. ✅ **已关闭**：报告 2.9 提到的「**部署文档未记录 gthread**」。实测线上已因 `threads=2` 自动成为 gthread；本版在 `deploy_guide.md` 的 v3.19.1 升级要点里**明确记录了该事实**（避免后人再照报告误判为「未修」）。
 
+### 91.7 附注：上线后由**生产数据**发现的字段名缺陷（→ v3.19.2）
+
+**本项非安全缺陷**，但方法论值得记一笔，且报告未覆盖。
+
+- **发现方式**：v3.19.1 上线后核对 `seo_submission` 的真实数据（而非自造 mock）→ baidu 引擎的原始响应是 `{"remain":8,"success":1}`。
+- **缺陷**：`push_baidu()` 读的是 `data.get("remaining")` → 对真实响应**恒为 None** → 「剩余配额」写不进 `Setting.seo_baidu_quota`（实测该键为空）→ 收录页配额栏一直空白；`remaining == 0 → quota` 判定永不触发。
+- **未受影响（重要）**：`quota` 档仍被 `data["error"]` 里 `"over quota"` 分支兜住 → **不是状态误判，只是信息缺失**。生产数据同时印证推送链路正常（7 篇全 `ok`，真实 `success` 1~5）。
+- **根因**：`push_baidu` docstring 里那句**凭想象编的示例** `{"success":2,"remaining":998}` —— 实现照着它写了字段名。→ **一般规律：上游协议字段名必须用真实响应校准；发现写错要连 docstring 的错误示例一起改掉**，否则后人照它再写一遍。
+- **修复（v3.19.2）**：`data.get("remain", data.get("remaining"))` 两个名字都认；`_RESP_KEYS` 加入 `remain`（否则白名单会把配额一起丢掉）；docstring 示例更正为 `{"remain":998,"success":2}`；加强回归测试并做变异验证（回退字段名 → 断言变红）。
+- **与 R91 的关系**：R91 修的 `_RESP_KEYS` 白名单**本身是正确的**（它成功挡住了原始 body 回显）——正因为它生效，`remain` 才需要显式加入白名单。两条修复互补，不冲突。
+
 

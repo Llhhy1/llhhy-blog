@@ -9,8 +9,12 @@ export const state = reactive({
           theme_mode: "system", theme_radius: "md", theme_font: "md",
           nav_style: "light", custom_css: "", site_lang: "zh" },
   user: null,           // { id, username, role, is_admin, ... } 或 null
+  reader: { points: 0, badges: [] },  // v3.21.0 gamification：当前读者积分与勋章
   loaded: false,
   lang: "zh",           // v3.0.0 功能11：界面语言（zh / en）
+  contentLang: "zh",    // v3.21.0 内容多语言：当前阅读的内容语言（译文切换驱动，独立于 UI i18n）
+  installPrompt: null,  // v3.21.0 PWA：浏览器 beforeinstallprompt 事件（可安装时非 null）
+  oauthProviders: [],   // v3.21.0 OAuth：后端已配置的第三方登录 provider（空=未配置，按钮不显）
 });
 
 // v3.0.0 功能11：轻量 i18n 词典（覆盖核心导航与常用文案）
@@ -27,6 +31,9 @@ const I18N = {
     "skip_to_content": "跳到正文",
     "open_menu": "打开菜单", "close_menu": "关闭菜单", "nav_menu": "导航菜单",
     "toggle_theme": "切换亮暗主题", "switch_lang": "切换语言",
+    "install_app": "安装应用",
+    "login_github": "用 GitHub 登录", "login_google": "用 Google 登录",
+    "oauth_being_redirected": "正在跳转到授权页…",
   },
   en: {
     "home": "Home", "archive": "Archive", "stats": "Stats", "about": "About", "docs": "Docs",
@@ -40,6 +47,9 @@ const I18N = {
     "skip_to_content": "Skip to content",
     "open_menu": "Open menu", "close_menu": "Close menu", "nav_menu": "Navigation",
     "toggle_theme": "Toggle dark mode", "switch_lang": "Switch language",
+    "install_app": "Install app",
+    "login_github": "Sign in with GitHub", "login_google": "Sign in with Google",
+    "oauth_being_redirected": "Redirecting to authorization…",
   },
 };
 
@@ -67,6 +77,26 @@ export function initLang(siteLang) {
   } catch (e) {}
   state.lang = lang;
   document.documentElement.setAttribute("lang", lang === "en" ? "en" : "zh-CN");
+  // v3.21.0 内容多语言：恢复上次选择的内容语言（列表 ?lang= 与文章 <html lang> 用）
+  try {
+    const c = localStorage.getItem("contentLang");
+    if (c) state.contentLang = c;
+  } catch (e) {}
+}
+
+// v3.21.0 内容多语言：内容语言（与 UI i18n 解耦，由译文切换器驱动）
+export function setContentLang(lang) {
+  if (!lang) lang = "zh";
+  state.contentLang = lang;
+  try { localStorage.setItem("contentLang", lang); } catch (e) {}
+  applyContentLangAttr(lang);
+}
+
+// 把内容语言映射到 <html lang>（zh → zh-CN，其余直接用代码）
+export function applyContentLangAttr(lang) {
+  const map = { zh: "zh-CN" };
+  const v = map[lang] || lang || "zh-CN";
+  document.documentElement.setAttribute("lang", v);
 }
 
 // 主题美化：把后台设置转成 CSS 变量（圆角/字号）
@@ -165,13 +195,27 @@ export async function initSite() {
     state.user = m.user || null;
     if (m.csrf_token) setCsrfToken(m.csrf_token);
   } catch (e) { state.user = null; }
+  await initReader();  // v3.21.0 gamification：拉取积分/勋章（发请求即创建/命中读者档案）
   state.loaded = true;
 }
 
 export async function login(username, password) {
   const data = await apiPost("/api/auth/login", { username, password });
+  // v3.21.0 2FA：账号已绑两步验证时，第一步只建立「挂起态」，不建立登录态。
+  // 返回标记对象（而非 user），由登录页转入第二步骤；此路径下 state.user 保持 null。
+  if (data && data.twofa_required) {
+    return { twofa_required: true, username: data.username || username };
+  }
   state.user = data.user;
   // 登录成功后会话变化：更新 CSRF Token 缓存（auth/me 或登录响应均带新 token）
+  if (data.csrf_token) setCsrfToken(data.csrf_token);
+  return data.user;
+}
+
+// v3.21.0 2FA：登录第二步——提交验证器 App 的 6 位动态码（或恢复码）完成登录。
+export async function verify2fa(code) {
+  const data = await apiPost("/api/auth/2fa/verify", { code });
+  state.user = data.user;
   if (data.csrf_token) setCsrfToken(data.csrf_token);
   return data.user;
 }
@@ -187,4 +231,51 @@ export async function logout() {
   try { await apiPost("/api/auth/logout", {}); } catch (e) {}
   state.user = null;
   clearCsrfToken();
+}
+
+// v3.21.0 gamification：拉取当前读者积分与勋章（服务器用 cookie 标识匿名读者）。
+// 任何访问都会创建/命中读者档案（便于正确累计积分），不影响主流程。
+export async function initReader() {
+  try {
+    const d = await apiGet("/api/reader/me");
+    if (d && d.reader) state.reader = d.reader;
+  } catch (e) {}
+}
+
+// v3.21.0 OAuth：拉取已配置的第三方登录 provider（config-gated，未配置则为空数组，
+// 前端据此显隐「用 GitHub/Google 登录」按钮，绝不展示不可用的入口）。
+export async function initOAuthProviders() {
+  try {
+    const d = await apiGet("/api/auth/oauth/providers");
+    if (d && Array.isArray(d.providers)) state.oauthProviders = d.providers;
+  } catch (e) { state.oauthProviders = []; }
+}
+
+// v3.21.0 OAuth：跳转到某 provider 授权页（start 返回 authorize_url）。
+export async function startOAuth(provider) {
+  const d = await apiGet("/api/auth/oauth/" + provider + "/start");
+  if (d && d.authorize_url) {
+    window.location.href = d.authorize_url;  // 整页跳转，callback 用 ?oauth=ok|error 回首页
+  } else {
+    throw new Error("oauth_start_failed");
+  }
+}
+
+// v3.21.0 PWA：缓存浏览器安装提示事件；用户在 UI 点击「安装」时再触发（一次性）
+export function setInstallPrompt(e) {
+  state.installPrompt = e || null;
+}
+
+export async function installApp() {
+  const e = state.installPrompt;
+  if (!e) return false;
+  try {
+    e.prompt();
+    await e.userChoice;
+  } catch (err) {
+    return false;
+  } finally {
+    state.installPrompt = null;
+  }
+  return true;
 }

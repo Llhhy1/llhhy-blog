@@ -126,6 +126,9 @@ def _post_summary(p):
         "reading_minutes": p.reading_minutes or 0,
         "reward_enabled": bool(p.reward_enabled),
         "is_private": bool(p.is_private),
+        # v3.21.0 内容多语言：语言代码 + 译文组标识（前端语言切换器与 hreflang 用）
+        "lang": p.lang or "zh",
+        "translation_group": p.translation_group or "",
     }
 
 
@@ -136,6 +139,30 @@ def _is_visible(p):
     if p.scheduled_at is not None and p.scheduled_at > utcnow():
         return False
     return True
+
+
+def lang_dedup(posts, lang):
+    """列表按语言展示：同一 translation_group 优先返回 lang 版本，否则返回默认（首个）版本。
+
+    用于首页/分类/标签列表在 `?lang=` 下避免同组多语言重复出现。posts 须为已按
+    展示顺序排好的列表（调用方先 order_by）；返回的列表保持原顺序（按首现顺序）。
+    """
+    if not lang:
+        return posts
+    by_group = {}
+    order = []
+    for p in posts:
+        g = p.translation_group or ("__solo__%d" % p.id)
+        if g not in by_group:
+            by_group[g] = []
+            order.append(g)
+        by_group[g].append(p)
+    out = []
+    for g in order:
+        members = by_group[g]
+        variant = next((x for x in members if x.lang == lang), None)
+        out.append(variant if variant else members[0])
+    return out
 
 
 def _comment(c):

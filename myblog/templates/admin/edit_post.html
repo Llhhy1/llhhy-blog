@@ -63,6 +63,28 @@
     <label>SEO 关键词（可选，逗号分隔；留空则自动用标签）</label>
     <input type="text" name="seo_keywords" value="{{ post.seo_keywords if post and post.seo_keywords else '' }}" placeholder="如：Flask, 博客, 教程">
 
+    <!-- v3.21.0 内容多语言（M1 翻译配对）：lang 选择 + translation_group 配对标识 -->
+    <div class="meta-grid">
+      <div class="meta-cell">
+        <label>语言（Language）</label>
+        <select name="lang" id="f-lang">
+          <option value="zh" {% if not post or post.lang == 'zh' %}selected{% endif %}>中文（zh）</option>
+          <option value="en" {% if post and post.lang == 'en' %}selected{% endif %}>English（en）</option>
+          <option value="ja" {% if post and post.lang == 'ja' %}selected{% endif %}>日本語（ja）</option>
+          <option value="ko" {% if post and post.lang == 'ko' %}selected{% endif %}>한국어（ko）</option>
+          <option value="fr" {% if post and post.lang == 'fr' %}selected{% endif %}>Français（fr）</option>
+          <option value="es" {% if post and post.lang == 'es' %}selected{% endif %}>Español（es）</option>
+          <option value="de" {% if post and post.lang == 'de' %}selected{% endif %}>Deutsch（de）</option>
+          <option value="ru" {% if post and post.lang == 'ru' %}selected{% endif %}>Русский（ru）</option>
+        </select>
+      </div>
+      <div class="meta-cell meta-tags-cell">
+        <label>译文组标识（Translation Group，同组各语言译文共享）</label>
+        <input type="text" name="translation_group" id="f-tg" value="{{ post.translation_group if post and post.translation_group else '' }}" placeholder="如：post-42（与对应译文填相同值即自动配对）">
+      </div>
+    </div>
+    <p class="hint">🔗 多语言：每种语言是<b>独立文章</b>（各自独立 URL）。把同一篇内容的不同语言版本都填上<b>相同的「译文组标识」</b>即可自动配对；前台会显示语言切换器并输出 hreflang，避免搜索引擎判重复内容。留空表示无译文。</p>
+
     <label>封面图（URL，可填外链或点下面按钮上传）</label>
     <div class="upload-row">
       <input type="text" name="cover" id="cover" value="{{ post.cover if post else '' }}" placeholder="https://… 或上传后自动填入">

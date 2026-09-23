@@ -370,7 +370,8 @@ def create_post_core(*, title, content, summary="", cover="", category_id=None,
                      published=False, scheduled_at=None, author_id=None,
                      is_pinned=False, is_private=False,
                      reward_enabled=False, reward_qr="",
-                     notify_subscribers=False):
+                     notify_subscribers=False,
+                     lang="zh", translation_group=""):
     """发文唯一入口：后台表单与写能力 MCP（/mcp-write）共用，返回新建的 Post。
 
     调用顺序严格沿用 admin/posts.py::new_post()（v3.12.2 抽出，防两套逻辑漂移）：
@@ -396,6 +397,7 @@ def create_post_core(*, title, content, summary="", cover="", category_id=None,
         author_id=author_id,
         word_count=wc, reading_minutes=rm,
         is_private=is_private, reward_enabled=reward_enabled, reward_qr=reward_qr,
+        lang=(lang or "zh"), translation_group=(translation_group or "").strip(),
     )
     db.session.add(post)
     db.session.flush()  # 先把文章放进会话，避免标签关联警告

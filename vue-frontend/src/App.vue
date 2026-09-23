@@ -164,12 +164,15 @@
   </div>
 
   <button id="back-to-top" :title="t('back_to_top')" :aria-label="t('back_to_top')" @click="scrollTop">↑</button>
+
+  <!-- v3.21.0 PWA：浏览器判定可安装时显示（beforeinstallprompt 事件已缓存到 store） -->
+  <button v-if="state.installPrompt" id="install-app" type="button" @click="doInstall">{{ t('install_app') }}</button>
 </template>
 
 <script setup>
 import { onMounted, onBeforeUnmount, ref, h, reactive } from "vue";
 import { useRouter } from "vue-router";
-import { state, initSite, logout, t, setLang, applyActiveTheme } from "./store.js";
+import { state, initSite, logout, t, setLang, applyActiveTheme, installApp } from "./store.js";
 import { toast } from "./lib/toast.js";
 import { apiPost, apiGet } from "./lib/api.js";
 import { sanitizeHtml } from "./lib/sanitize.js";
@@ -345,6 +348,12 @@ function toggleLang() {
 
 function scrollTop() { window.scrollTo({ top: 0, behavior: "smooth" }); }
 
+// v3.21.0 PWA：点击「安装应用」触发浏览器安装流程（已缓存的 beforeinstallprompt 事件）
+async function doInstall() {
+  const ok = await installApp();
+  if (!ok) toast("当前环境暂不支持安装", "error");
+}
+
 async function doLogout() {
   await logout();
   router.push("/");
@@ -447,6 +456,23 @@ router.afterEach(() => { loadNotifs(); });
   text-decoration: none; font-size: 13px;
 }
 .plugin-nav-link { /* 视觉由全局导航样式兜底 */ }
+/* v3.21.0 PWA：可安装提示按钮（与回到顶部同处右下角，置于其上方） */
+#install-app {
+  position: fixed;
+  right: 18px;
+  bottom: 70px;
+  z-index: 900;
+  padding: 9px 14px;
+  border: 0;
+  border-radius: 22px;
+  background: var(--accent, #4c6ef5);
+  color: #fff;
+  font-size: 14px;
+  cursor: pointer;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.18);
+}
+#install-app:hover { filter: brightness(1.05); }
+#install-app:active { transform: translateY(1px); }
 @media (max-width: 900px) {
   .site-frame-body.has-sidebar { flex-direction: column; }
   .plugin-sidebar { width: 100%; flex-basis: auto; }

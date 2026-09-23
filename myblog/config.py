@@ -12,7 +12,7 @@ os.makedirs(DATA_DIR, exist_ok=True)
 
 # 应用版本号：与 GitHub Release 标签保持一致（vX.Y.Z）。
 # 后台侧边栏左下角会显示该版本，用于确认服务器安装的代码是否为最新。
-APP_VERSION = "3.20.0"
+APP_VERSION = "3.21.0"
 
 
 class Config:
@@ -220,6 +220,23 @@ class Config:
     BACKUP_WEBDAV_URL = os.environ.get("BACKUP_WEBDAV_URL", "")
     BACKUP_WEBDAV_USER = os.environ.get("BACKUP_WEBDAV_USER", "")
     BACKUP_WEBDAV_PASS = os.environ.get("BACKUP_WEBDAV_PASS", "")
+
+    # ===== v3.21.0 OAuth 第三方登录（可选，config-gated）=====
+    # 不配置则对应 provider 完全休眠（/api/auth/oauth/<p>/start 返回 503，登录页不显示该按钮）。
+    # 配置后启用对应登录按钮；回调地址需在 provider 后台登记为本站：
+    #   GitHub  : https://<本站>/api/auth/oauth/github/callback
+    #   Google  : https://<本站>/api/auth/oauth/google/callback
+    # GitHub 与 Google 之外的 provider 如需扩展，在 myblog/oauth.py 的 PROVIDERS 注册即可。
+    OAUTH_GITHUB_CLIENT_ID = os.environ.get("OAUTH_GITHUB_CLIENT_ID")
+    OAUTH_GITHUB_CLIENT_SECRET = os.environ.get("OAUTH_GITHUB_CLIENT_SECRET")
+    OAUTH_GOOGLE_CLIENT_ID = os.environ.get("OAUTH_GOOGLE_CLIENT_ID")
+    OAUTH_GOOGLE_CLIENT_SECRET = os.environ.get("OAUTH_GOOGLE_CLIENT_SECRET")
+
+    # ===== v3.21.0 双因素认证 2FA / TOTP（可选，config-gated）=====
+    # 默认关闭：设 BLOG_TWOFA_ENABLED=true 后，用户才能在「后台 → 两步验证」自行绑定
+    # 验证器 App；未启用时所有 2FA 入口短路（代码路径存在但不激活），登录流程完全不变。
+    # 依赖：加密存密钥需 cryptography（备份密钥同款，requirements 已含）。
+    TWOFA_ENABLED = os.environ.get("BLOG_TWOFA_ENABLED", "false").lower() == "true"
 
 
 # 确保上传目录存在（图片保存在 static/uploads，随项目一起）

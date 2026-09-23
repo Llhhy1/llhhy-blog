@@ -3,6 +3,74 @@
 > 本文件承载 **历史版本** 记录。README 只保留最新版本与上手信息。
 > 各版本的安全审计结论见 `myblog/SECURITY_AUDIT.md`；功能规划见 `ROADMAP.md`。
 
+## v3.21.0（2026-09-24 · 内容多语言 M1 + PWA + 读者积分勋章 + OAuth + 2FA）
+
+> **来源**：用户勾选「四个功能全做」（PWA / 读者积分勋章 / OAuth / 2FA），并连同上一轮已完成待发的**内容多语言 M1** 一并发版。
+> **安全**：本轮**发现并修复 1 个高危账号接管缺陷**（见 §6 与 `SECURITY_AUDIT.md` R93 §93.1）。
+> **部署友好**：新增能力**默认全部休眠**（OAuth 需配 provider 凭据、2FA 需 `BLOG_TWOFA_ENABLED=true`），**无新增必填环境变量**，不配置则行为与 v3.20.0 完全一致。
+
+### 1. 内容多语言 M1（译文配对）
+
+- `Post` 新增 `lang` 与 `translation_group` 两列；列表/详情支持 `?lang=`，指定语言无译文时**自动回退原文**（不会出现空白页）。
+- OG / sitemap / feed 输出 `hreflang` 互链；后台文章表单可直接填写语言与译文组；SPA 支持 `?lang=` 解析并同步 `<html lang>`。
+- 前端构建产物须**重新构建**（改了 `vue-frontend/src/**`）。
+
+### 2. PWA 可安装 / 离线
+
+- `vue-frontend/public/` 新增 `manifest.webmanifest`、`sw.js`、`offline.html` 与 4 个图标（192/512 + maskable）。
+- 缓存策略：**导航 network-first**（离线回退 `/offline.html`）、文章只读 API stale-while-revalidate（离线可读）、**后台与其余 `/api/*` 一律不缓存**。
+- 右下角出现「安装应用」按钮（仅浏览器触发 `beforeinstallprompt` 时）。
+- **无需改 Nginx**：nginx `location /` 已 `try_files`，`/sw.js` 与 `/manifest.webmanifest` 落在站点根、scope 自动为 `/`。
+
+### 3. 读者积分勋章（gamification）
+
+- 匿名读者用 httpOnly cookie `reader_token` 标识，登录读者绑定 `user_id`；积分规则集中可调（阅读 +2 / 评论 +5 / 每日访问 +1 / 分享 +3）。
+- **同 reader + 同 reason + 同文章 + 同天**去重防刷；按累计积分自动授予勋章（初来乍到 10 / 阅读达人 50 / 热心评论 120 / 忠实读者 300 / 博客传奇 800）。
+- 新增 `GET /api/reader/me`、`GET /api/reader/leaderboard`；文章页展示积分与勋章。
+- ⚠️ **公开排行榜会显示登录读者的用户名**（匿名读者显示「读者N」）。这是排行榜可辨识所必需的，如不希望对外展示用户名，可在后台停用该入口或改 `gamify.leaderboard()`。
+
+### 4. OAuth 第三方登录（可选，config-gated）
+
+- 支持 GitHub 与 Google；回调地址需在各 provider 后台登记为 `https://<本站>/api/auth/oauth/{github,google}/callback`。
+- **未配置凭据则完全休眠**：`/api/auth/oauth/<p>/start` 返回 503，登录页**不显示**对应按钮。
+- 出站请求走**固定白名单 URL + 禁止跟随重定向**（防半盲 SSRF）。
+
+### 5. 双因素认证 2FA / TOTP（可选，默认关闭）
+
+- **零新增依赖**：TOTP 由标准库实现（RFC 6238），用官方 6 条测试向量自证正确；**不需要 `pip install pyotp`**。
+- 绑定入口：后台侧边栏「🔐 两步验证」（管理员与普通用户均可见），扫码或手抄密钥 → 输入 6 位码确认 → **一次性下发 8 个恢复码**（设备丢失时的唯一救命通道，请务必保存）。
+- 登录流程：已启用账号在密码校验通过后**暂不建立登录态**，需再输入动态码（挂起态 5 分钟有效）；动态码与恢复码均可，且**同一时间窗的码用过即失效**（防重放）。
+- 密钥**加密落库**（Fernet，由 `SECRET_KEY` 派生），绝不存明文；关闭需「密码 + 动态码」双确认。
+- 启用开关：`BLOG_TWOFA_ENABLED=true`（默认 false）。未启用时所有 2FA 入口短路，**登录流程完全不变**。
+
+### 6. 🔴 安全修复：OAuth 未验证邮箱可导致账号接管
+
+**缺陷**：原实现直接用 GitHub `/user` 返回的 `email` 匹配本地账号。该字段是**用户可自填的公开邮箱、不带验证断言** —— 攻击者把 GitHub 公开邮箱改成受害者邮箱，即可通过 OAuth 登录**接管受害者本地账号**。
+
+**修复**：把「provider 是否断言邮箱已验证」提升为安全边界 —— GitHub 只信任 `/user/emails` 中 `verified && primary` 的条目，Google 用其 `email_verified` 字段；**未验证邮箱绝不参与既有账号匹配**（改为新建独立账号，且不落 `email` 列）。
+
+**验证**：新增 3 条回归测试，**4 处变异验证全部变红**（证明测试真能抓住回退）。
+
+### 7. 数据库与部署
+
+- 新增 6 张表：`Reader` / `PointLog` / `Badge` / `ReaderBadge` / `OAuthAccount` / `UserTwoFactor`。均由 `_migrate_new_tables_v3()` + `db.create_all()` **启动自愈**，**无需手工 SQL、不走 Alembic**。
+- 2FA 走**新表**而非给 `user` 加列：SQLite 的 `create_all()` 只建新表、**不 ALTER 已有表**，旧库升级时加列不会生效。
+
+### 8. 新增环境变量（全部可选）
+
+| 变量 | 默认 | 说明 |
+| --- | --- | --- |
+| `OAUTH_GITHUB_CLIENT_ID` / `OAUTH_GITHUB_CLIENT_SECRET` | 空 | 配置后启用 GitHub 登录 |
+| `OAUTH_GOOGLE_CLIENT_ID` / `OAUTH_GOOGLE_CLIENT_SECRET` | 空 | 配置后启用 Google 登录 |
+| `BLOG_TWOFA_ENABLED` | `false` | 设为 `true` 开放 2FA 绑定 |
+
+### 9. 验证
+
+- 全量 **269 passed**（新增 32 条：OAuth 13 + 2FA 19）；`ruff check myblog tests` 全绿；**lint 债务棘轮维持 648 = 648**（未抬基线）。
+- 前端 `vite build` 通过。
+
+---
+
 ## v3.20.0（2026-09-23 · 待办清单批次：工程化门禁 + 异步化 + 可观测性 + 前端 a11y）
 
 > **来源**：用户要求「查看待升级清单」后指示「全部做」。清单来自 `ROADMAP.md` §5.8/§5.9（第一、三轮第三方审计的延后批次）。

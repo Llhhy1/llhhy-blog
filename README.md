@@ -2,7 +2,15 @@
 
 前后端分离的个人博客：**Flask** 后端（SSR + JSON API + 管理后台）+ **Vue3** 前端（SPA）。单仓库托管前后端代码、部署文档与安全报告。
 
-- 当前版本：**v3.20.0**
+- 当前版本：**v3.21.0**
+- **v3.21.0（多语言 M1 + PWA + 读者积分勋章 + OAuth + 2FA）**：四项功能全部**默认休眠**（OAuth 需 provider 凭据、2FA 需 `BLOG_TWOFA_ENABLED=true`），**无新增必填环境变量**，不配置则行为与 v3.20.0 完全一致。
+  - **内容多语言 M1**：`Post` 加 `lang` + `translation_group`，列表/详情支持 `?lang=` 且无译文时**自动回退原文**；OG / sitemap / feed 输出 `hreflang` 互链。
+  - **PWA 可安装 / 离线**：`manifest.webmanifest` + `sw.js` + `offline.html` + 4 个图标。导航 network-first、文章只读 API stale-while-revalidate、**后台与其余 `/api/*` 一律不缓存**；**Nginx 无需改动**（资源落在站点根、scope 自动 `/`）。
+  - **读者积分勋章**：匿名读者用 httpOnly cookie 标识，登录读者绑 `user_id`；「同 reader + 同 reason + 同文章 + 同天」去重防刷；5 枚勋章按累计积分自动授予。⚠️ 公开排行榜会显示登录读者的用户名（匿名显示「读者N」）。
+  - **OAuth 登录**（可选）：GitHub / Google，出站走固定白名单 URL + **禁跟随重定向**；未配凭据则 `start` 返 503、登录页不显示按钮。启用需配 `OAUTH_GITHUB_CLIENT_ID` + `OAUTH_GITHUB_CLIENT_SECRET` 或 `OAUTH_GOOGLE_CLIENT_ID` + `OAUTH_GOOGLE_CLIENT_SECRET`（回调地址登记为 `https://<本站>/api/auth/oauth/{github,google}/callback`）。
+  - **2FA / TOTP**（可选，默认关）：**零新增依赖**（标准库实现 RFC 6238，用官方 6 条测试向量自证）；密钥 **Fernet 加密落库**、`last_counter` 防同窗重放、8 个一次性恢复码；关闭需「密码 + 动态码」双确认。走**新表** `UserTwoFactor`（SQLite `create_all()` 不 ALTER 旧表）。
+  - 🔴 **安全修复**：原实现直接用 GitHub `/user` 的**未验证公开邮箱**匹配本地账号 → 攻击者把公开邮箱改成受害者邮箱即可**接管账号**。已改为只信任 provider 断言「已验证」的邮箱（GitHub 取 `/user/emails` 的 `verified && primary`，Google 用 `email_verified`），未验证邮箱绝不参与绑定。3 条回归测试 + 4 处变异验证全部变红。
+  - 新增 6 张表，均由 `_migrate_new_tables_v3()` **启动自愈**（无需 SQL / `flask db`）。安全审计 **R93**；验证 **269 passed** + ruff 全绿 + lint 棘轮 **648 = 648** + `vite build` 通过。
 - **SEO 收录闭环（v3.18.9 + v3.19.0 + v3.19.1）**：爬虫通道 + 主动推送两层。
   - **v3.18.9（通道）**：`/post/<slug>` 对爬虫/社交抓取器返回**带正文的服务端壳页**，壳页含 **`BlogPosting`/`BreadcrumbList` JSON-LD**（补上 v3.18.6 SSR 退役后彻底缺失的那块）。闸门独立于 `detect_bot()`（它认不出微信、且把社交抓取与 Ahrefs 混在一类），改为「搜索引擎/社交预览双 UA 表 + **真人信号否决**」两层——**防 QQ 内置浏览器里的真人（UA 带 `QQ/9.7.x`）被误伤**。站点地址收敛为 `utils.site_base()` 唯一真相源（**删除 `request.host` 回退**，关闭 Host 注入遗留项）。**Nginx 配置原文入库** `deploy_guide.md`「第 4b 步」（缺它 = 重装后爬虫变回空壳）。另修复**分享卡 `.png` 自 v3.16.0 起一直返回兜底图**的三层叠加故障（字体缺失 → 宝塔图片正则压过 `^~ /api/` → 全局 `proxy_cache` 把兜底图缓存了）。
   - **v3.19.0（推送）**：后台「🔍 收录」控制台——主动推送给**百度**（主动推送 API）与 **Bing/IndexNow**，凭据 Fernet 加密存储、推送**全异步**（接口立即返回 + 页面轮询）、**不可见文章拒绝推送**、sitemap/robots 只读预览、GSC/Bing/百度站长入口。**Google 不做自动推送**（无通用推送 API，不造假的「提交成功」按钮）。

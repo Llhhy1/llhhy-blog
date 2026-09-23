@@ -3387,3 +3387,64 @@ v3.18.7 发布后按「先覆盖脚本、再跑一键更新」的顺序在服务
 | **SEO 自动推送** | `maybe_auto_push` **复用 `enqueue`**（自带「3 次/5 分钟」限流 + pending 去重，连点发布不会重复烧配额）；**只推可见文章**（复用 `visible_posts_query`，含 `scheduled_at` 检查 → 未到点定时文章不会被推给搜索引擎）；无凭据引擎被 `submit_posts` 跳过（不会凭空造失败记录）；**全程异常不抛出**（绝不影响发布主流程、不破坏 `visible_posts_query` 真相源）；**默认关闭**（`SEO_AUTO_PUSH` / setting `seo_auto_push`），不烧百度当日配额。**无新增 SSRF 面**：`enqueue` → `push_baidu` / `push_indexnow` 走固定端点 + 既有超时/白名单 |
 
 > 第三轮的 9 处 `# noqa: BLE001/S110` 全部来自「发布主流程不能被 SEO 推送拖垮」的防御性 `except`（每处写明理由），与「CSV 路由用具体异常替代裸 `except` 消除 1 处」相抵，故棘轮维持 **648 = 648**。详见 `CHANGELOG.md` §8 / §9。
+
+## R93 · 内容多语言 M1 + PWA + 读者积分勋章 + OAuth + 2FA（v3.21.0）
+
+**范围**：`myblog/oauth.py`（新）、`myblog/twofa.py`（新）、`myblog/gamify.py`（新）、`myblog/api/reader.py`（新）、`myblog/admin/twofa.py`（新）、`myblog/templates/admin/twofa.html`（新）、`myblog/models.py`（新增 `Reader`/`PointLog`/`Badge`/`ReaderBadge`/`OAuthAccount`/`UserTwoFactor` 六表）、`myblog/api/auth.py`（OAuth 三路由 + 2FA 五路由 + 登录二步）、`myblog/api/{posts,stats}.py`（积分埋点）、`myblog/config.py`（8 个**可选**环境变量）、`myblog/app.py`（自愈迁移表列）、`vue-frontend/public/{manifest.webmanifest,sw.js,offline.html,icon-*.png}`、`vue-frontend/src/{main.js,store.js,App.vue,views/LoginView.vue,views/PostView.vue}`、`tests/test_{oauth,twofa,gamify}.py`。
+
+**来源**：v3.21.0 功能批次（用户勾选「四个功能全做」）。**本轮发现并修复 1 个高危账号接管缺陷（§93.1）**，另有 4 项设计取舍如实记录（§93.5）。纪律：安全项修复后一律补回归测试 + **变异验证**（回退修复必须变红），否则等于没修。
+
+### 93.1 🔴 [High] OAuth 账号接管：未验证邮箱参与账号绑定（**已修**）
+
+**缺陷**：`exchange_code()` 直接取 GitHub `/user` 的 `email` 字段，再用它去 `User.query.filter_by(email=...)` 匹配既有账号。而 GitHub `/user` 的 `email` 是**用户可自填的公开邮箱、不带验证断言** —— 攻击者注册一个 GitHub 账号、把公开邮箱改成受害者的邮箱地址，即可通过 OAuth 登录**接管受害者本地账号**（典型 OAuth 账号接管，且不需要碰受害者任何凭据）。
+
+**修复**：把「provider 是否断言邮箱已验证」提升为**安全边界**，而非可选元数据：
+- `exchange_code()` 返回值新增 `email_verified`。GitHub 侧改为**只信任 `/user/emails` 里 `verified && primary` 的条目**（`/user` 的 email 仅作展示名来源，明确标为未验证）；Google 侧用其显式字段 `email_verified`。
+- `find_or_create_user(..., email_verified=False)`：**未验证邮箱绝不参与既有账号匹配**，只按 provider 侧不可伪造的 `sub` 命中，否则新建独立账号；新建时未验证邮箱**不落 `email` 列**（避免占位后被别处当作已验证使用）。
+
+**回归测试 + 变异验证**（`tests/test_oauth.py`）：mock 的是**网络层 `_http_json`** 而非 `exchange_code` —— 只 mock 上层会把被修的判定逻辑一起替掉，等于没测。新增 3 条：GitHub 未验证不绑定 / GitHub 已验证才绑定 / Google `email_verified=false` 不绑定。变异验证 4 处，其中 3 条可达路径**全部变红**（`if email and email_verified` → `if email` 红 2 条；GitHub 循环条件去掉 `verified` 红 1 条；Google 忽略断言红 1 条；`email=email if email_verified else ""` → `email=email` 红 1 条）。
+
+> 教训（可复用）：**任何「用第三方返回的邮箱去匹配本地账号」的绑定逻辑，都必须先确认 provider 是否断言了该邮箱已验证**；不同 provider 的字段名和语义不同（GitHub 无 `email_verified`，只有 `/user/emails` 的逐条 `verified`），不能靠猜——本轮最初的实现正是照「字段存在即可用」写的。
+
+### 93.2 2FA / TOTP
+
+| 维度 | 结论 | 证据 |
+| --- | --- | --- |
+| 算法正确性 | ✅ 用 RFC 6238 官方 6 条测试向量自证（SHA-1、8 位码） | `test_rfc6238_vectors` 逐条比对 `94287082/07081804/14050471/89005924/69279037/65353130` |
+| 依赖面 | ✅ **零新增依赖**（未引入 pyotp） | 标准库 `hmac/hashlib/base64/struct/secrets` 实现；部署无需 `pip install` |
+| 密钥存储 | ✅ 加密落库，绝不存明文 | 复用 `backup_settings.encrypt_secret`（Fernet，SECRET_KEY 派生，`bkenc$` 前缀）；测试断言 `row.secret_enc != secret` 且 `get_secret(row) == secret` |
+| 防重放 | ✅ 同时间窗的码用过即失效 | `last_counter` 落库；`test_verify_replay_protection` + 登录二步同窗复用被拒 |
+| 爆破防护 | ✅ 二步码 10/60s 限流；**本轮补** enroll/confirm/disable 各 10/60s | 审计前 `confirm` 无限流（6 位码空间仅 10⁶，持会话即可爆破）→ 已补，且三处用**独立 key** 互不挤占 |
+| 越权 | ✅ 所有入口只作用于 `session["user_id"]` 本人 | `_cur_user()`；关闭还需**密码 + 动态码双确认**（防会话劫持后直接关掉 2FA） |
+| 挂起态 | ✅ 5 分钟 TTL，超时必须重走密码 | `_TWOFA_PENDING_TTL=300`；`test_pending_state_expires` |
+| 锁死风险 | ✅ 重新 enroll 会把 `enabled` 打回 False | 避免「换了密钥但没验证」把用户永久锁在门外；另有 8 个一次性恢复码 |
+| 表结构 | ✅ 走**新表** `UserTwoFactor`，不给 `user` 加列 | SQLite `create_all()` 只建新表、**不 ALTER 已有表**，旧库升级时加列不会生效 |
+
+### 93.3 读者积分勋章（gamification）
+
+- `reader_token` cookie：`httponly=True` + `samesite=Lax` + `path=/` ✅（JS 读不到，缓解 XSS 后的身份冒用）。
+- 积分发放走 `award_interaction()` 兜底：任何异常都吞掉并记日志，**绝不影响阅读/评论/访问主流程**（`# noqa: BLE001` 写明理由）。
+- 去重键「同 reader + 同 reason + 同 post + 同天」，防刷量 ✅；`leaderboard` 的 `limit` 上限 50、非法值回落 10 ✅（防 `?limit=999999` 拉全表）。
+- **公开排行榜会展示登录读者的用户名**（`Reader.name` 回落到 `user.username`）：这是**有意的产品行为**（排行榜需可辨识），但属于对外可见信息面，已在 CHANGELOG 明确告知站点所有者。
+
+### 93.4 PWA Service Worker
+
+- 只处理 **GET** 且**同源**请求 ✅；`/admin*` 直接放行、`/api/*` 中**除文章只读接口**（`/api/post/`、`/api/posts`）外全部不缓存 —— 因此 `/api/auth/*`、`/api/reader/*`、`/api/auth/2fa/*` **不会被离线缓存**，不存在「共享设备上离线读到他人会话数据」的路径 ✅。
+- 导航 network-first + `/offline.html` 兜底；静态资源 stale-while-revalidate ✅。
+- `manifest.webmanifest` 与图标为纯静态，**无密钥/无敏感字段**（已 grep 确认）✅。
+
+### 93.5 设计取舍（明确接受，非遗漏）
+
+| 项 | 决定 | 理由 |
+| --- | --- | --- |
+| OAuth state 用 `!=` 比较而非 `compare_digest` | 接受 | state 为一次性、单次会话内消费；时序攻击需大量样本且先要拿到同一会话，收益不抵复杂度 |
+| 2FA 恢复码用 SHA-256 而非慢哈希 | 接受 | 恢复码是 `secrets.token_urlsafe(12)`（约 96 bit 高熵），**不存在暴力破解空间**，慢哈希只增加无谓开销；口令才需要 scrypt |
+| TOTP 容忍 ±1 个时间窗（±30s） | 接受 | 补偿手机与服务器时钟漂移；同时用 `last_counter` 防同窗重放，二者不冲突 |
+| OAuth / 2FA 默认**整体休眠** | 接受（刻意） | 未配凭据/未开开关时代码路径存在但不激活（start 返 503、2FA 入口 404、登录流程完全不变）——新增攻击面在无配置时为 **0** |
+
+### 93.6 门禁与回归
+
+- 全量 **269 passed**（本轮新增 32 条：OAuth 13 + 2FA 19）；`ruff check myblog tests` 全绿。
+- **lint 棘轮维持 648 = 648**：本轮新增约 1500 行，一度涨到 673（+25），逐项真修后归零 —— 删无用导入/未用参数、`contextlib.suppress` 取代 `try/except: pass`（同时消 S110+BLE001）、清理测试未用变量；仅对 6 处「刻意兜底」的宽异常加 `# noqa: BLE001` 并写明理由。**未用 `--update` 抬基线**。
+
+**R93 结论**：**0 遗留**。核心是 §93.1 那条 —— 「第三方返回的邮箱能否用于绑定」是本轮唯一真正的高危面，已修且由 3 条回归测试 + 4 处变异验证钉死。

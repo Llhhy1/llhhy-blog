@@ -18,6 +18,22 @@
           <span> · {{ post.views }} 阅读</span>
           <span v-if="post.word_count"> · 📖 {{ post.word_count }} 字 / {{ post.reading_minutes }} 分钟</span>
         </p>
+        <!-- v3.21.0 内容多语言：译文切换器（同组各语言独立 URL，slug 互链；hreflang 防重复内容） -->
+        <nav v-if="langOptions.length > 1" class="lang-switcher" aria-label="语言版本">
+          <span class="lang-switcher-label">🌐 语言：</span>
+          <router-link
+            v-for="opt in langOptions"
+            :key="opt.lang"
+            :to="'/post/' + opt.slug"
+            class="lang-opt"
+            :class="{ active: opt.current }">{{ langLabel(opt.lang) }}</router-link>
+        </nav>
+        <!-- v3.21.0 gamification：读者积分与已得勋章 -->
+        <div class="reader-points" v-if="state.reader && (state.reader.points > 0 || state.reader.badges.length)">
+          <span class="rp-score">🏅 {{ state.reader.points }} 积分</span>
+          <span v-for="b in state.reader.badges" :key="b.key" class="rp-badge"
+                :title="`${b.name}：${b.description}`">{{ b.icon }}</span>
+        </div>
         <nav v-if="tocItems.length" class="toc" aria-label="文章目录">
           <p class="toc-title">目录</p>
           <ul>
@@ -98,7 +114,7 @@ import { onMounted, onBeforeUnmount, ref, watch, nextTick, computed } from "vue"
 import { useRoute } from "vue-router";
 import { apiGet, apiPost } from "../lib/api.js";
 import { copyText } from "../lib/clipboard.js";
-import { state } from "../store.js";
+import { state, setContentLang } from "../store.js";
 import hljs from "highlight.js/lib/core";
 import "highlight.js/styles/github.css";
 import bash from "highlight.js/lib/languages/bash";
@@ -136,6 +152,16 @@ const bodyEl = ref(null);
 const tocItems = ref([]);
 const related = ref([]);
 const rewardQrDefault = ref("");
+// v3.21.0 内容多语言：当前文章的译文切换选项（当前语言 + 同组其它语言）
+const langOptions = computed(() => {
+  if (!post.value) return [];
+  const opts = [{ lang: post.value.lang, slug: post.value.slug, title: post.value.title, current: true }];
+  (post.value.translations || []).forEach((x) =>
+    opts.push({ lang: x.lang, slug: x.slug, title: x.title, current: false }));
+  return opts;
+});
+const LANG_LABELS = { zh: "中文", en: "English", ja: "日本語", ko: "한국어", fr: "Français", es: "Español", de: "Deutsch", ru: "Русский" };
+function langLabel(l) { return LANG_LABELS[l] || l; }
 // v3.16.0 图片灯箱
 const lbImgs = ref([]);
 const lbIndex = ref(-1);
@@ -193,14 +219,17 @@ function lbKey(e) {
 
 async function load() {
   const slug = route.params.slug;
+  const ql = route.query.lang;
   notFound.value = false;
   post.value = null;
   tocItems.value = [];
   try {
-    const data = await apiGet(`/api/post/${encodeURIComponent(slug)}`);
+    const url = `/api/post/${encodeURIComponent(slug)}` + (ql ? `?lang=${encodeURIComponent(ql)}` : "");
+    const data = await apiGet(url);
     post.value = data;
     related.value = [];
     rewardQrDefault.value = state.site.reward_qr_default || "";
+    setContentLang(data.lang || "zh");   // v3.21.0：内容语言驱动列表 ?lang= 与 <html lang>
     await nextTick();
     renderBody(data.html || "");
     buildToc();
@@ -327,6 +356,18 @@ watch(() => route.params.slug, () => { load(); });
 .ai-summary-text { margin: 0; font-size: 14px; line-height: 1.75; color: var(--text); }
 .ai-tags { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
 .ai-tag { font-size: 12px; color: var(--accent); text-decoration: none; background: var(--accent-soft, rgba(26,115,232,.1)); border-radius: 999px; padding: 2px 10px; }
+
+/* v3.21.0 内容多语言：译文切换器 */
+.lang-switcher { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin: 6px 0 16px; font-size: 13px; }
+.lang-switcher-label { color: var(--text-soft, #888); }
+.lang-opt { text-decoration: none; padding: 3px 11px; border: 1px solid var(--border, #e2e2e2); border-radius: 999px; color: var(--text); background: var(--surface-2, #f4f6f8); transition: border-color .15s ease, color .15s ease; }
+.lang-opt:hover { border-color: var(--accent, #1a73e8); color: var(--accent, #1a73e8); }
+.lang-opt.active { background: var(--accent, #1a73e8); color: #fff; border-color: var(--accent, #1a73e8); }
+
+/* v3.21.0 gamification：读者积分/勋章条 */
+.reader-points { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin: 4px 0 16px; font-size: 13px; }
+.rp-score { padding: 3px 11px; border-radius: 999px; background: var(--surface-2, #f4f6f8); border: 1px solid var(--border, #e2e2e2); color: var(--text); }
+.rp-badge { font-size: 18px; line-height: 1; cursor: default; }
 
 /* v3.16.0 正文增强：图片灯箱 + 代码复制（作用于 v-html 注入的内容，必须用 :deep 命中） */
 .post-body :deep(.img-zoomable) {

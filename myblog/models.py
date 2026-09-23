@@ -58,6 +58,26 @@ class Post(db.Model):
     # 二者仅作缓存，永远不对外直接展示——出口仍是 render_post_html()（渲染失败也只是变慢）。
     content_html = db.Column(db.Text)
     content_hash = db.Column(db.String(64))
+    # ===== 内容多语言（M1 翻译配对，v3.21.0）=====
+    # lang：本篇文章的语言代码（zh / en / ja ...），默认 zh。
+    # translation_group：同组译文共享标识；为空 = 独立文章（无译文）。
+    # 译文 = 独立 Post，各自独立 URL；渲染/OG/SEO 全复用现有机制。
+    lang = db.Column(db.String(10), default="zh", nullable=False)
+    translation_group = db.Column(db.String(64), index=True, default="")
+
+    @classmethod
+    def in_group(cls, group):
+        """返回同 translation_group 的全部文章（含各语言），用于 hreflang 生成。"""
+        if not group:
+            return []
+        return cls.query.filter_by(translation_group=group).all()
+
+    def counterpart(self, lang, base_query=None):
+        """返回同组指定语言的文章（经 base_query 控制可见性）；无则 None。"""
+        if not self.translation_group or not lang:
+            return None
+        q = base_query if base_query is not None else self.__class__.query
+        return q.filter_by(translation_group=self.translation_group, lang=lang).first()
 
 
 class Category(db.Model):
@@ -406,6 +426,30 @@ def visible_posts_query(user=None):
     return q
 
 
+def hreflang_alternates(post, base):
+    """生成 [(hreflang, url)] 列表（含 x-default），供 sitemap / OG / feed 互链防重复内容。
+
+    - 独立文章（无 translation_group）：仅 x-default 指向自身。
+    - 同组译文：列出每个语言版本 URL，并追加 x-default（优先 zh，否则首个成员）。
+    调用方需传入站点 base（如 https://www.llhhy.cn，不含末尾斜杠）。
+    """
+    if post is None:
+        return []
+    if not post.translation_group:
+        return [("x-default", f"{base}/post/{post.slug}")]
+    members = Post.in_group(post.translation_group)
+    out = []
+    seen = set()
+    for m in members:
+        if m.lang in seen:
+            continue
+        seen.add(m.lang)
+        out.append((m.lang, f"{base}/post/{m.slug}"))
+    default = next((m for m in members if m.lang == "zh"), members[0])
+    out.append(("x-default", f"{base}/post/{default.slug}"))
+    return out
+
+
 class Game(db.Model):
     """原创/第三方解压小游戏（v3.15.0 游戏平台）。
 
@@ -463,3 +507,100 @@ class SeoSubmission(db.Model):
 
     def __repr__(self):
         return f"<SeoSubmission post={self.post_id} {self.engine}={self.status}>"
+
+
+# ======================================================================
+# 读者积分勋章（v3.21.0 gamification）
+# 设计：匿名访客用 reader_token（httpOnly cookie）标识；登录读者绑定 user_id。
+# 积分由 gamify.py 的 award() 统一发放（带每日去重）；勋章按累计积分阈值自动授予。
+# 新表由 app.py 的 _migrate_new_tables_v3 + db.create_all() 自愈创建（不走 Alembic），
+# 与 SeoSubmission 同策略——理由见 models.SeoSubmission docstring。
+# ======================================================================
+
+class Reader(db.Model):
+    """读者积分档案：匿名读者靠 token、登录读者靠 user_id 标识。"""
+    id = db.Column(db.Integer, primary_key=True)
+    token = db.Column(db.String(64), unique=True, nullable=False, index=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=True, index=True)
+    display_name = db.Column(db.String(60), default="")      # 展示名（登录用户取 username，匿名留空）
+    points = db.Column(db.Integer, default=0)
+    created_at = db.Column(db.DateTime, default=utcnow)
+    updated_at = db.Column(db.DateTime, default=utcnow, onupdate=utcnow)
+    badges = db.relationship("ReaderBadge", backref="reader",
+                             cascade="all, delete-orphan", lazy="dynamic")
+
+    @property
+    def name(self):
+        if self.display_name:
+            return self.display_name
+        if self.user_id:
+            u = db.session.get(User, self.user_id)
+            if u:
+                return u.username
+        return "读者%d" % self.id
+
+
+class PointLog(db.Model):
+    """积分流水（v3.21.0）。同一读者 + 同一 reason + 同一 post + 同一天只计一次（应用层去重）。"""
+    id = db.Column(db.Integer, primary_key=True)
+    reader_id = db.Column(db.Integer, db.ForeignKey("reader.id"), nullable=False, index=True)
+    reason = db.Column(db.String(20), nullable=False)   # read / comment / visit / share
+    post_id = db.Column(db.Integer, nullable=True)
+    delta = db.Column(db.Integer, default=0)
+    day = db.Column(db.String(10), index=True)          # YYYY-MM-DD（去重键一部分）
+    created_at = db.Column(db.DateTime, default=utcnow)
+
+
+class Badge(db.Model):
+    """勋章定义（v3.21.0）：累计积分达到 threshold 即自动授予。"""
+    id = db.Column(db.Integer, primary_key=True)
+    key = db.Column(db.String(40), unique=True, nullable=False)
+    name = db.Column(db.String(60), nullable=False)
+    description = db.Column(db.String(200), default="")
+    icon = db.Column(db.String(20), default="🏅")        # emoji 图标（零静态资源）
+    threshold = db.Column(db.Integer, default=0)
+
+
+class ReaderBadge(db.Model):
+    """读者已得勋章关联（v3.21.0）。"""
+    id = db.Column(db.Integer, primary_key=True)
+    reader_id = db.Column(db.Integer, db.ForeignKey("reader.id"), nullable=False, index=True)
+    badge_id = db.Column(db.Integer, db.ForeignKey("badge.id"), nullable=False)
+    badge = db.relationship("Badge")  # 经 badge_id 直接取勋章定义（key/name/icon…）
+    earned_at = db.Column(db.DateTime, default=utcnow)
+    __table_args__ = (db.UniqueConstraint("reader_id", "badge_id", name="uq_reader_badge"),)
+
+
+class OAuthAccount(db.Model):
+    """OAuth 第三方账号绑定（v3.21.0，config-gated：未配 provider 凭据则整体休眠）。
+
+    provider + sub 唯一；一个本地 User 可绑多个 provider。登录时按
+    (provider, sub) 命中或按邮箱匹配已存在用户，否则新建本地账号（仅 OAuth 登录）。
+    """
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False, index=True)
+    provider = db.Column(db.String(20), nullable=False)       # github / google
+    sub = db.Column(db.String(120), nullable=False)           # provider 侧用户唯一标识
+    email = db.Column(db.String(160), default="")
+    created_at = db.Column(db.DateTime, default=utcnow)
+    __table_args__ = (db.UniqueConstraint("provider", "sub", name="uq_oauth_provider_sub"),)
+
+
+class UserTwoFactor(db.Model):
+    """用户双因素认证（v3.21.0 2FA，config-gated：TWOFA_ENABLED=false 时整体休眠）。
+
+    设计要点：
+    - 用**新表**而非给 user 表加列：SQLite 的 create_all() 只建缺失的新表，不会
+      ALTER 已有表（生产旧库升级时加列不会自动生效），新表可随 _migrate_new_tables_v3 自愈。
+    - secret 落库前经 Fernet 加密（复用 backup_settings.encrypt_secret），绝不存明文。
+    - 恢复码只存 SHA-256 摘要（码本身高熵随机，无需慢哈希），一次性消费。
+    """
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False,
+                        unique=True, index=True)
+    secret_enc = db.Column(db.Text, nullable=False)          # Fernet 密文（bkenc$ 前缀）
+    enabled = db.Column(db.Boolean, default=False, nullable=False)
+    recovery_codes = db.Column(db.Text, default="")          # JSON 数组：SHA-256 摘要
+    last_counter = db.Column(db.Integer, default=0, nullable=False)  # 防重放：已消费的最后一个时间窗
+    created_at = db.Column(db.DateTime, default=utcnow)
+    confirmed_at = db.Column(db.DateTime, nullable=True)

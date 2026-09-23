@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>离线 · LLHhy Blog</title>
+  <style>
+    :root { color-scheme: light dark; }
+    body {
+      margin: 0; min-height: 100vh; display: flex; flex-direction: column;
+      align-items: center; justify-content: center; gap: 14px;
+      font-family: system-ui, -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+      background: #0f1115; color: #e6e8ee; text-align: center; padding: 24px;
+    }
+    .logo { width: 72px; height: 72px; border-radius: 18px; background: #4c6ef5; display: flex; align-items: center; justify-content: center; font-size: 34px; font-weight: 700; color: #fff; }
+    h1 { font-size: 20px; margin: 8px 0 0; }
+    p { color: #9aa0ad; margin: 0; max-width: 32ch; line-height: 1.6; }
+    button { margin-top: 10px; padding: 10px 20px; border: 0; border-radius: 10px; background: #4c6ef5; color: #fff; font-size: 15px; cursor: pointer; }
+    button:active { transform: translateY(1px); }
+  </style>
+</head>
+<body>
+  <div class="logo">L</div>
+  <h1>您已离线</h1>
+  <p>当前没有网络连接。已浏览过的文章仍可离线阅读；恢复网络后可正常使用全部功能。</p>
+  <button onclick="location.reload()">重试</button>
+</body>
+</html>

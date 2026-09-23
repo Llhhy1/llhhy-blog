@@ -7,7 +7,8 @@ import re as _re
 from flask import request, jsonify, current_app, session, Response
 from markupsafe import escape
 
-from .common import (api_bp, db, Post, Category, Tag, Comment, ReadLog, Setting, User, visible_posts_query, _current_user_or_none, _post_summary, _is_visible, _comment, _render_html, rate_limit, client_key)
+from .common import (api_bp, db, Post, Category, Tag, Comment, ReadLog, Setting, User, visible_posts_query, _current_user_or_none, _post_summary, _is_visible, _comment, _render_html, rate_limit, client_key, lang_dedup)
+from models import hreflang_alternates
 import stats  # myblog/stats.py：client_ip / cached_region（浏览量去重与评论归属地）
 from utils import fmt_bj, to_beijing, BEIJING_TZ, site_base
 from _time import utcnow
@@ -26,14 +27,19 @@ def posts():
             db.or_(Post.title.ilike(like), Post.summary.ilike(like), Post.content.ilike(like))
         )
     query = query.order_by(Post.is_pinned.desc(), Post.created_at.desc())
-    pagination = query.paginate(page=page, per_page=per_page, error_out=False)
-
+    # v3.21.0 内容多语言：?lang= 下按语言去重，避免同组多语言重复出现
+    lang = (request.args.get("lang") or "").strip()
+    items_all = lang_dedup(query.all(), lang)
+    total = len(items_all)
+    pages = (total + per_page - 1) // per_page if per_page else 1
+    start = (page - 1) * per_page
+    page_items = items_all[start:start + per_page]
     return jsonify({
-        "items": [_post_summary(p) for p in pagination.items],
-        "page": pagination.page,
-        "pages": pagination.pages,
-        "total": pagination.total,
-        "per_page": pagination.per_page,
+        "items": [_post_summary(p) for p in page_items],
+        "page": page,
+        "pages": pages,
+        "total": total,
+        "per_page": per_page,
     })
 
 # ---------- 文章详情（含渲染后的 HTML 与评论）----------
@@ -42,11 +48,22 @@ def post_detail(slug):
     # v3.0.0 功能13：登录的超级管理员可查看自己的隐私文章；其余人（含未登录）一律 404
     _u = _current_user_or_none()
     p = visible_posts_query(user=_u).filter_by(slug=slug).first_or_404()
+    # v3.21.0 内容多语言：?lang= 请求同组译文（不可见则回退当前文章）
+    req_lang = (request.args.get("lang") or "").strip()
+    if req_lang and req_lang != (p.lang or "zh") and p.translation_group:
+        alt = visible_posts_query(user=_u).filter_by(
+            translation_group=p.translation_group, lang=req_lang).first()
+        if alt:
+            p = alt
     # 阅读量 +1（防刷：同 IP 24h 内只计一次真实阅读）
     from app import count_unique_view
+    from gamify import award_interaction, READER_COOKIE, READER_COOKIE_MAXAGE
+    _reader_cookie = None
     if count_unique_view(p.id, stats.client_ip()):
         p.views += 1
         db.session.commit()
+        # v3.21.0 gamification：真实阅读加积分（匿名/登录读者，cookie 标识）
+        _reader_cookie = award_interaction("read", p.id)
 
     data = _post_summary(p)
     data["html"] = _render_html(p)  # v3.9.1：走正文渲染缓存（content_html）
@@ -65,7 +82,19 @@ def post_detail(slug):
         }
     else:
         data["series"] = None
-    return jsonify(data)
+    # v3.21.0 内容多语言：本篇语言 + 同组其他语言入口（前端切换器 / hreflang 用）
+    data["lang"] = p.lang or "zh"
+    data["translation_group"] = p.translation_group or ""
+    data["translations"] = (
+        [{"lang": m.lang, "slug": m.slug, "title": m.title}
+         for m in Post.in_group(p.translation_group) if m.id != p.id]
+        if p.translation_group else []
+    )
+    resp = jsonify(data)
+    if _reader_cookie:
+        resp.set_cookie(READER_COOKIE, _reader_cookie, max_age=READER_COOKIE_MAXAGE,
+                        httponly=True, samesite="Lax", path="/")
+    return resp
 
 # ---------- 分类 / 标签 ----------
 @api_bp.route("/categories")
@@ -114,6 +143,8 @@ def posts_by_category(slug):
     c = Category.query.filter_by(slug=slug).first_or_404()
     items = visible_posts_query().filter_by(category_id=c.id)\
         .order_by(Post.is_pinned.desc(), Post.created_at.desc()).all()
+    lang = (request.args.get("lang") or "").strip()
+    items = lang_dedup(items, lang)
     return jsonify({"name": c.name, "slug": c.slug,
                     "items": [_post_summary(p) for p in items]})
 
@@ -122,6 +153,8 @@ def posts_by_category(slug):
 def posts_by_tag(slug):
     t = Tag.query.filter_by(slug=slug).first_or_404()
     items = visible_posts_query().filter(Post.tags.any(id=t.id)).order_by(Post.is_pinned.desc(), Post.created_at.desc()).all()
+    lang = (request.args.get("lang") or "").strip()
+    items = lang_dedup(items, lang)
     return jsonify({"name": t.name, "slug": t.slug,
                     "items": [_post_summary(p) for p in items]})
 
@@ -136,6 +169,11 @@ def _rss_xml(posts, title, desc, base):
         author = (p.author.username if p.author
                   else current_app.config.get("SITE_TITLE", "站长"))
         cat = p.category.name if p.category else ""
+        # v3.21.0 内容多语言：译文组 hreflang 互链
+        alts = "".join(
+            f"      <atom:link rel='alternate' hreflang='{h}' href='{escape(u)}'/>\n"
+            for h, u in hreflang_alternates(p, base)
+        )
         items.append(
             "    <item>\n"
             f"      <title>{escape(p.title)}</title>\n"
@@ -145,12 +183,14 @@ def _rss_xml(posts, title, desc, base):
             f"      <dc:creator>{escape(author)}</dc:creator>\n"
             f"      <category>{escape(cat)}</category>\n"
             f"      <description>{summary}</description>\n"
+            + alts +
             "    </item>"
         )
     last = fmt_bj(posts[0].created_at, "%a, %d %b %Y %H:%M:%S") + " +0800" if posts else ""
     xml = (
         '<?xml version="1.0" encoding="UTF-8"?>\n'
-        '<rss version="2.0" xmlns:dc="http://purl.org/dc/elements/1.1/">\n'
+        '<rss version="2.0" xmlns:dc="http://purl.org/dc/elements/1.1/" '
+        'xmlns:atom="http://www.w3.org/2005/Atom">\n'
         "  <channel>\n"
         f"    <title>{escape(title)}</title>\n"
         f"    <link>{escape(base + '/')}</link>\n"
@@ -279,6 +319,9 @@ def comment(slug):
                 email_hash=email_hash)
     db.session.add(c)
     db.session.commit()
+    # v3.21.0 gamification：发表评论加积分（匿名/登录读者，cookie 标识）
+    from gamify import award_interaction, READER_COOKIE, READER_COOKIE_MAXAGE
+    _reader_cookie = award_interaction("comment", p.id)
     # v3.9.0 M1：新评论写入 → 触发插件事件（订阅者异常已隔离）
     try:
         from plugins.signals import emit_comment_created
@@ -287,8 +330,11 @@ def comment(slug):
         pass
     # A4 站内 @ 通知：解析评论内容里 @username，给注册用户发通知
     notify_mentioned(content, f"/post/{p.slug}", author, post_id=p.id)
-    return jsonify({"ok": True, "comment": _comment(c),
-                    "pending": require_approval}), 201
+    resp = jsonify({"ok": True, "comment": _comment(c), "pending": require_approval})
+    if _reader_cookie:
+        resp.set_cookie(READER_COOKIE, _reader_cookie, max_age=READER_COOKIE_MAXAGE,
+                        httponly=True, samesite="Lax", path="/")
+    return resp, 201
 
 
 @api_bp.route("/post/<slug>/comments")

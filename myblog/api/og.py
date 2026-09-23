@@ -27,7 +27,7 @@ import re
 from flask import request, Response, send_file
 
 from .common import api_bp
-from models import visible_posts_query
+from models import visible_posts_query, hreflang_alternates
 from utils import (get_setting, fmt_bj, site_base, abs_url, seo_shell_ua,
                    is_search_engine_ua, HUMAN_VETO_REASONS)
 from og_image import og_png_bytes
@@ -315,6 +315,14 @@ def og_post(slug):
     if not post:
         return _not_found_shell(site_name)
 
+    # v3.21.0 内容多语言：?lang= 解析到同组译文（不可见则回退）
+    req_lang = (request.args.get("lang") or "").strip()
+    if req_lang and req_lang != (post.lang or "zh") and post.translation_group:
+        alt = visible_posts_query().filter_by(
+            translation_group=post.translation_group, lang=req_lang).first()
+        if alt:
+            post = alt
+
     # ---- 限流：豁免正规搜索引擎（把 Google/Baidu 的正常抓取 429 掉 = 自废收录）----
     if not is_search_engine_ua():
         from .common import rate_limit, client_key
@@ -354,15 +362,22 @@ def og_post(slug):
     title = post.title or site_name
     desc = (post.seo_description or post.summary or _plain_preview(post.content, 120)
             or get_setting("site_description", "") or "独立开发者的个人博客").strip()
-    image = f"/api/og/post/{slug}.png"
+    image = f"/api/og/post/{post.slug}.png"
     image_abs = _abs(image)
-    public_url = _public_url(slug)
+    public_url = _public_url(post.slug)
     t = html.escape(title)
     d = html.escape(desc)
     i = html.escape(image_abs)
     u = html.escape(public_url)
     sn = html.escape(site_name)
     ld = _json_ld(post, public_url, site_name, image_abs, desc)
+    # v3.21.0 内容多语言：hreflang 互链（防重复内容）+ 正确 <html lang>
+    base = public_url.rsplit("/post/", 1)[0]
+    alt_links = "".join(
+        f"<link rel='alternate' hreflang='{h}' href='{html.escape(u_)}'>"
+        for h, u_ in hreflang_alternates(post, base)
+    )
+    html_lang = "zh-CN" if (post.lang or "zh") == "zh" else post.lang
 
     # 正文：复用 content_html 缓存列（v3.9.1 起渲染结果已落库，命中时几乎零成本），
     # 不新写渲染逻辑，也就不会引入与正文页不一致的 XSS/白名单差异。
@@ -377,11 +392,12 @@ def og_post(slug):
         body = f"<p>{d}</p>"
 
     return (
-        f"<!DOCTYPE html><html lang='zh-CN'><head><meta charset='utf-8'>"
+        f"<!DOCTYPE html><html lang='{html_lang}'><head><meta charset='utf-8'>"
         f"<meta name='viewport' content='width=device-width,initial-scale=1'>"
         f"<title>{t}</title>"
         f"<meta name='description' content='{d}'>"
         f"<link rel='canonical' href='{u}'>"
+        f"{alt_links}"
         f"<meta property='og:type' content='article'>"
         f"<meta property='og:site_name' content='{sn}'>"
         f"<meta property='og:title' content='{t}'>"

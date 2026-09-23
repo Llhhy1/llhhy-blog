@@ -32,6 +32,7 @@ from . import review       # v3.17.0：年度回顾 / 访客地域榜（公开�
 from . import ai           # v3.17.0：A 内容 AI（文章摘要 / 标签建议，复用 LLM 配置）
 from . import reactions    # v3.17.3：评论表情回应（Setting KV 存储，零表变更）
 from . import system        # 版本检查 在线更新 webhook 部署
+from . import reader        # noqa: F401  v3.21.0 gamification：读者积分 / 勋章 / 排行榜（注册路由用，非按名引用）
 
 # 蓝图唯一出处（功能模块从 .common 取，app.py 从本包取，二者同一对象）
 from .common import api_bp

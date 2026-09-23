@@ -82,6 +82,11 @@
    > - `FEED_FETCH_TIMEOUT`：默认 `8`——友链 RSS 聚合抓取 socket 超时（秒）；不可达/超慢源超时只跳过、不卡死 worker。
    > - `TIME_ZONE`：固定 `Asia/Shanghai`（北京时间，UTC+8）；全站时间按此展示，**暂不可经环境变量改**（避免 UI 内部错位）。展示层统一转北京时间，数据库存储仍为 UTC。
    > - `ENABLED_PLUGINS` / `DISABLED_PLUGINS`：插件启用 / 紧急关停列表（内置插件当前默认全部下线，默认留空；`DISABLED_PLUGINS` 优先级更高，紧急关停单个插件用，重启生效）。
+   > - **v3.21.0 新增（全部可选，不配则对应功能整体休眠、行为与旧版一致）**：
+   >   - `OAUTH_GITHUB_CLIENT_ID` + `OAUTH_GITHUB_CLIENT_SECRET`：配置后登录页出现「用 GitHub 登录」。回调地址需在 GitHub OAuth App 里登记为 `https://<本站>/api/auth/oauth/github/callback`。
+   >   - `OAUTH_GOOGLE_CLIENT_ID` + `OAUTH_GOOGLE_CLIENT_SECRET`：配置后登录页出现「用 Google 登录」。回调地址登记为 `https://<本站>/api/auth/oauth/google/callback`。
+   >   - `BLOG_TWOFA_ENABLED`：默认 `false`。设为 `true` 后后台侧边栏出现「🔐 两步验证」，登录用户可自行绑定验证器 App。
+   >   - ⚠️ 2FA 密钥用 **`SECRET_KEY` 派生的 Fernet 密钥加密后落库**：**启用 2FA 后不要更换 `SECRET_KEY`**，否则已绑定用户的密钥无法解密（表现为动态码始终错误），只能重新绑定。
 
 4. 点 **「提交」**。等待依赖安装完成（首次约 1-3 分钟，面板会显示进度）。
 5. 项目状态变为 **运行中（绿色）** 即成功。若报错，点项目右侧 **「日志」** 查看原因。
@@ -530,6 +535,18 @@ supervisorctl status
 7. **环境变量**：只覆盖文件 + 重启，环境变量原样保留，无需重填；**若误删 Python 项目重建，必须重填 `SECRET_KEY` / `ADMIN_PASSWORD`**（缺失拒绝启动）。改 `SECRET_KEY` 会让已登录用户需要重新登录，属正常现象。
 
 > ⚠️ **服务器上的 `update.sh` / `deploy.sh` 也务必与最新 Release 同版**：脚本经历过「假成功不覆盖 / 校验误报 / 无法自动重启」多轮加固，升级前先从最新 Release 覆盖一次脚本，再跑一键更新。
+
+> **v3.21.0（内容多语言 M1 + PWA + 读者积分勋章 + OAuth + 2FA）升级要点**：**后端与前端都改了 → 两个包都要覆盖**（`myblog-backend.zip` + `vue-frontend-dist.zip`）。
+> - **新增 6 张表，全部启动自愈**：`Reader` / `PointLog` / `Badge` / `ReaderBadge` / `OAuthAccount` / `UserTwoFactor`。由 `_migrate_new_tables_v3()` + `db.create_all()` 在应用启动时建表并播种 5 枚默认勋章，**无需手工 SQL、无需 `flask db`、无需 `flask db stamp`**。首次启动日志会打印「已迁移：新建数据表（…）」。
+> - **无新增依赖**：2FA 的 TOTP 是标准库实现（RFC 6238），**不需要 `pip install pyotp`**。
+> - **无新增必填环境变量**：新增 5 个**可选**变量，不配置则对应功能整体休眠、行为与 v3.20.0 完全一致：
+>   - `OAUTH_GITHUB_CLIENT_ID` + `OAUTH_GITHUB_CLIENT_SECRET` → 配置后登录页出现「用 GitHub 登录」；回调地址需在 GitHub OAuth App 登记为 `https://<本站>/api/auth/oauth/github/callback`。
+>   - `OAUTH_GOOGLE_CLIENT_ID` + `OAUTH_GOOGLE_CLIENT_SECRET` → 同上，回调 `https://<本站>/api/auth/oauth/google/callback`。
+>   - `BLOG_TWOFA_ENABLED=true` → 开放后台「🔐 两步验证」绑定入口（默认 `false` 关闭）。
+> - **无需改 Nginx**：PWA 的 `/sw.js` 与 `/manifest.webmanifest` 落在站点根目录，nginx 现有 `location /` 的 `try_files` 已能正确返回，scope 自动为 `/`。
+> - **2FA 密钥依赖 `SECRET_KEY`**：密钥用 `SECRET_KEY` 派生的 Fernet 加密后落库。**若更换 `SECRET_KEY`，已绑定的 2FA 密钥将无法解密**（表现为动态码始终错误），需用户重新绑定 —— 请勿在启用 2FA 后随意更换该变量。
+> - ⚠️ **公开积分排行榜会显示登录读者的用户名**（匿名读者显示「读者N」）。如不希望对外展示，可先不启用该入口或改 `myblog/gamify.py::leaderboard()`。
+> - **回滚**：无破坏性变更；回退到 v3.20.0 仅失去本版新功能（已建的新表会保留，不影响旧版本运行）。
 
 > **v3.20.0（待办清单批次：工程化门禁 + 异步化 + 可观测性 + 前端 a11y）升级要点**：**本版同时改了后端与前端 → 两个包都要覆盖**（`myblog-backend.zip` + `vue-frontend-dist.zip`）。
 > - **新增 `GET /api/health`**：无需登录的存活探针，回 `{ok, version, db}`；依赖不可用返回 **503**。此前项目**没有**任何探活端点，`UPTIME_MONITOR.md` 的监控可以直接打这个地址做机器判定（不再依赖人工体检）。

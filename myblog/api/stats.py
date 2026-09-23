@@ -32,7 +32,14 @@ def stats_visit():
         except (TypeError, ValueError):
             post_id = None
     stats.record_visit(path, post_id, referrer)
-    return jsonify({"ok": True})
+    # v3.21.0 gamification：每日访问加积分（按天去重；新读者写入 cookie）
+    from gamify import award_interaction, READER_COOKIE, READER_COOKIE_MAXAGE
+    _reader_cookie = award_interaction("visit")
+    resp = jsonify({"ok": True})
+    if _reader_cookie:
+        resp.set_cookie(READER_COOKIE, _reader_cookie, max_age=READER_COOKIE_MAXAGE,
+                        httponly=True, samesite="Lax", path="/")
+    return resp
 
 
 @api_bp.route("/stats/search", methods=["POST"])

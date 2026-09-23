@@ -146,7 +146,9 @@ def _migrate_post_table():
                   "is_private": "BOOLEAN DEFAULT 0", "in_trash": "BOOLEAN DEFAULT 0",
                   "deleted_at": "DATETIME",
                   # v3.9.1 正文渲染缓存列（旧库自动补，缺省为 NULL = 未缓存，首次访问时渲染并写入）
-                  "content_html": "TEXT", "content_hash": "VARCHAR(64)"}
+                  "content_html": "TEXT", "content_hash": "VARCHAR(64)",
+                  # v3.21.0 内容多语言：lang + translation_group（旧库自动补，历史文默认为 zh / 独立）
+                  "lang": "VARCHAR(10) DEFAULT 'zh'", "translation_group": "VARCHAR(64) DEFAULT ''"}
         need = [c for c in specs if c not in cols]
         if need:
             db.session.remove()
@@ -276,15 +278,20 @@ def _migrate_new_tables_v3():
     """
     from sqlalchemy import inspect
     from models import (AuditLog, RecycleBin, LinkApplication, PostHistory,
-                        SeoSubmission)
+                        SeoSubmission, Reader, PointLog, Badge, ReaderBadge, OAuthAccount,
+                        UserTwoFactor)
     ins = inspect(db.engine)
     existing = set(ins.get_table_names())
-    new_tables = [AuditLog, RecycleBin, LinkApplication, PostHistory, SeoSubmission]
+    new_tables = [AuditLog, RecycleBin, LinkApplication, PostHistory, SeoSubmission,
+                  Reader, PointLog, Badge, ReaderBadge, OAuthAccount, UserTwoFactor]
     need = [t for t in new_tables if t.__tablename__ not in existing]
     if need:
         try:
             db.create_all()
             print("已迁移：新建数据表（" + ", ".join(t.__tablename__ for t in need) + "）")
+            # v3.21.0 gamification：建表后播种默认勋章（幂等）
+            from gamify import seed_badges
+            seed_badges()
         except Exception as e:
             print("建表失败（可忽略，下次启动重试）:", e)
 

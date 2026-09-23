@@ -1,0 +1,76 @@
+{% extends "admin/base.html" %}
+{% block title %}两步验证{% endblock %}
+{% block content %}
+  <h1 class="page-title">两步验证（2FA）</h1>
+
+  {% if not enabled %}
+    <div class="auth-box" style="max-width: 560px; margin: 0;">
+      <p>⚠️ <b>两步验证未启用。</b></p>
+      <p class="auth-tip">需先在服务器环境变量设置 <code>BLOG_TWOFA_ENABLED=true</code> 并重启应用，本页才会开放绑定功能。</p>
+      <p class="auth-tip">未启用时登录流程完全不变，不影响正常使用。</p>
+    </div>
+  {% else %}
+
+    {% if enrolled %}
+      <div class="auth-box" style="max-width: 560px; margin: 0;">
+        <p>✅ 当前账号<b>已启用</b>两步验证：登录后需额外输入验证器 App 的 6 位动态码。</p>
+        <p class="auth-tip">剩余可用恢复码：<b>{{ recovery_codes_left }}</b> 个（每个一次性，用完后请重新绑定以刷新）。</p>
+        <form method="post" action="{{ url_for('admin.twofa') }}" style="margin-top: 14px;">
+          {{ csrf_input() }}
+          <input type="hidden" name="action" value="disable">
+          <label>登录密码（确认身份）</label>
+          <input type="password" name="password" required>
+          <label>当前动态码或恢复码</label>
+          <input type="text" name="code" inputmode="numeric" autocomplete="one-time-code" placeholder="6 位动态码 / 恢复码" required>
+          <button type="submit">关闭两步验证</button>
+        </form>
+      </div>
+    {% else %}
+      <div class="auth-box" style="max-width: 560px; margin: 0;">
+        <p>当前账号<b>未启用</b>两步验证。</p>
+        <form method="post" action="{{ url_for('admin.twofa') }}" style="display:inline;">
+          {{ csrf_input() }}
+          <input type="hidden" name="action" value="enroll">
+          <button type="submit">生成绑定密钥</button>
+        </form>
+      </div>
+
+      {% if secret %}
+        <div class="auth-box" style="max-width: 560px; margin: 14px 0 0;">
+          <h3 style="margin-top:0;">1. 用验证器 App 扫码</h3>
+          {% if qr %}
+            <div style="background:#fff;display:inline-block;padding:10px;border-radius:8px;line-height:0;">
+              {{ qr | safe }}
+            </div>
+          {% else %}
+            <p class="auth-tip">（服务器未安装 segno，无法生成二维码；请用下方密钥手动添加。）</p>
+          {% endif %}
+          <h3>2. 或手动输入密钥</h3>
+          <p><code style="user-select:all;word-break:break-all;">{{ secret }}</code></p>
+          <h3>3. 输入 6 位码完成绑定</h3>
+          <form method="post" action="{{ url_for('admin.twofa') }}">
+            {{ csrf_input() }}
+            <input type="hidden" name="action" value="confirm">
+            <input type="text" name="code" inputmode="numeric" autocomplete="one-time-code"
+                   pattern="[0-9]*" maxlength="6" placeholder="6 位动态码" required>
+            <button type="submit">确认绑定</button>
+          </form>
+          <p class="auth-tip">密钥只显示这一次；重新点击「生成绑定密钥」会作废当前密钥并重新等待确认。</p>
+        </div>
+      {% endif %}
+    {% endif %}
+
+    {% if recovery_codes %}
+      <div class="auth-box" style="max-width: 560px; margin: 14px 0 0;">
+        <h3 style="margin-top:0;">🔑 恢复码（请立即保存，只显示这一次）</h3>
+        <p class="auth-tip">手机丢失或更换设备时，可用任一恢复码完成登录；每个只能用一次。</p>
+        <ul style="columns:2;list-style:none;padding:0;margin:8px 0;">
+          {% for c in recovery_codes %}<li><code style="user-select:all;">{{ c }}</code></li>{% endfor %}
+        </ul>
+      </div>
+    {% endif %}
+
+  {% endif %}
+
+  <p style="margin-top: 14px;"><a href="{{ url_for('admin.dashboard') }}">← 返回仪表盘</a></p>
+{% endblock %}

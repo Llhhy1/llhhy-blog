@@ -152,7 +152,7 @@ async function load() {
   page.value = parseInt(route.query.page || "1", 10) || 1;
   loading.value = true;
   try {
-    const data = await apiGet("/api/posts", { page: page.value, page_size: PAGE_SIZE });
+    const data = await apiGet("/api/posts", { page: page.value, page_size: PAGE_SIZE, lang: state.contentLang });
     items.value = data.items || [];
     totalPages.value = data.total_pages || 1;
   } catch (e) { items.value = []; totalPages.value = 1; }
@@ -161,4 +161,5 @@ async function load() {
 
 onMounted(load);
 watch(() => route.query.page, load);
+watch(() => state.contentLang, load);   // v3.21.0 内容多语言：随内容语言刷新列表
 </script>

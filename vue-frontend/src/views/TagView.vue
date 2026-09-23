@@ -13,6 +13,7 @@
 import { onMounted, ref, watch } from "vue";
 import { useRoute } from "vue-router";
 import { apiGet } from "../lib/api.js";
+import { state } from "../store.js";
 import PostCard from "../components/PostCard.vue";
 import Sidebar from "../components/Sidebar.vue";
 
@@ -23,11 +24,12 @@ const name = ref("");
 async function load() {
   const slug = route.params.slug;
   try {
-    const data = await apiGet(`/api/tag/${encodeURIComponent(slug)}`);
+    const data = await apiGet(`/api/tag/${encodeURIComponent(slug)}`, { lang: state.contentLang });
     items.value = data.items || [];
     name.value = data.name ? data.name : slug;
   } catch (e) { items.value = []; name.value = slug; }
 }
 onMounted(load);
 watch(() => route.params.slug, load);
+watch(() => state.contentLang, load);   // v3.21.0 内容多语言：随内容语言刷新列表
 </script>

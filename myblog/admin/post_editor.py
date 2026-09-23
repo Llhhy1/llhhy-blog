@@ -41,6 +41,9 @@ def new_post():
             series_id = int(series_id) if series_id else None
         seo_description = (request.form.get("seo_description") or "").strip()
         seo_keywords = (request.form.get("seo_keywords") or "").strip()
+        # v3.21.0 内容多语言：语言 + 译文组标识（任何角色都可为文章配对译文）
+        lang = (request.form.get("lang") or "zh").strip() or "zh"
+        translation_group = (request.form.get("translation_group") or "").strip()
         # v3.0.0 功能13/14：隐私空间 + 打赏（仅超管可设置）
         is_private = (request.form.get("is_private") == "on") and bool(user and user.is_super)
         reward_enabled = (request.form.get("reward_enabled") == "on") and bool(user and user.is_super)
@@ -54,6 +57,7 @@ def new_post():
             author_id=session.get("user_id"),
             is_pinned=is_pinned, is_private=is_private,
             reward_enabled=reward_enabled, reward_qr=reward_qr,
+            lang=lang, translation_group=translation_group,
         )
         # 普通用户发布后回到「我的文章」，管理员回仪表盘
         user = db.session.get(User, session.get("user_id"))
@@ -122,6 +126,9 @@ def edit_post(post_id):
             post.pin_requested = False  # 管理员直接操作置顶，无需申请态
         post.seo_description = (request.form.get("seo_description") or "").strip()
         post.seo_keywords = (request.form.get("seo_keywords") or "").strip()
+        # v3.21.0 内容多语言：语言 + 译文组标识（任何角色都可为文章配对译文）
+        post.lang = (request.form.get("lang") or "zh").strip() or "zh"
+        post.translation_group = (request.form.get("translation_group") or "").strip()
         # v3.0.0 功能13/14：隐私空间 + 打赏（仅超管可设置）
         if user.is_super:
             post.is_private = request.form.get("is_private") == "on"
@@ -227,6 +234,10 @@ def autosave_post(post_id):
         post.seo_description = (data.get("seo_description") or "").strip()
     if data.get("seo_keywords") is not None:
         post.seo_keywords = (data.get("seo_keywords") or "").strip()
+    if data.get("lang") is not None:
+        post.lang = (data.get("lang") or "zh").strip() or "zh"
+    if data.get("translation_group") is not None:
+        post.translation_group = (data.get("translation_group") or "").strip()
     wc, rm = count_words(post.content)
     post.word_count = wc
     post.reading_minutes = rm

@@ -9,7 +9,7 @@ from flask import (Blueprint, render_template, request, redirect, url_for,
                    abort, flash, current_app, Response, jsonify, session)
 from markupsafe import escape
 
-from models import db, Post, Comment, Setting, User, ROLE_USER, visible_posts_query
+from models import db, Post, Comment, Setting, User, ROLE_USER, visible_posts_query, hreflang_alternates
 from utils import (safe_redirect, rate_limit, client_key, validate_password,
                    get_setting, fmt_bj, setting_bool as _setting_bool,
                    site_base as _site_base_impl)
@@ -481,6 +481,10 @@ def feed():
         summary = (p.summary or (p.content or "")[:200]).strip()
         author = (p.author.username if p.author else site_title)
         cat = p.category.name if p.category else ""
+        alts = "".join(
+            f"      <atom:link rel='alternate' hreflang='{h}' href='{escape(u)}'/>\n"
+            for h, u in hreflang_alternates(p, base)
+        )
         items.append(
             "    <item>\n"
             f"      <title>{escape(p.title)}</title>\n"
@@ -490,12 +494,14 @@ def feed():
             f"      <dc:creator>{escape(author)}</dc:creator>\n"
             f"      <category>{escape(cat)}</category>\n"
             f"      <description>{escape(summary)}</description>\n"
+            + alts +
             "    </item>"
         )
     last = fmt_bj(posts[0].created_at, "%a, %d %b %Y %H:%M:%S") + " +0800" if posts else ""
     xml = (
         '<?xml version="1.0" encoding="UTF-8"?>\n'
-        '<rss version="2.0" xmlns:dc="http://purl.org/dc/elements/1.1/">\n'
+        '<rss version="2.0" xmlns:dc="http://purl.org/dc/elements/1.1/" '
+        'xmlns:atom="http://www.w3.org/2005/Atom">\n'
         "  <channel>\n"
         f"    <title>{escape(site_title)}</title>\n"
         f"    <link>{escape(base + '/')}</link>\n"
@@ -534,10 +540,15 @@ def atom_feed():
     for p in posts:
         link = f"{base}/post/{p.slug}"
         when = fmt_bj(p.created_at, ts)
+        # v3.21.0 内容多语言：每个语言版本独立 <link rel=alternate hreflang=...>
+        alts = "".join(
+            f'    <link href="{escape(u)}" rel="alternate" hreflang="{h}"/>\n'
+            for h, u in hreflang_alternates(p, base)
+        )
         entries.append(
             "  <entry>\n"
             f"    <title>{escape(p.title)}</title>\n"
-            f'    <link href="{escape(link)}" rel="alternate"/>\n'
+            + alts +
             f"    <id>{escape(link)}</id>\n"
             f"    <updated>{when}</updated>\n"
             f"    <published>{when}</published>\n"
@@ -612,28 +623,31 @@ def comments_feed():
 def sitemap():
     """站点地图（v3.8.0 增强：lastmod / changefreq / priority / 封面图）。"""
     base = _site_base()
-    urls = [
-        (base + "/", "daily", "1.0"),
-        (base + "/about", "monthly", "0.5"),
-        (base + "/links", "weekly", "0.6"),
-    ]
-    for p in visible_posts_query().all():
-        urls.append((f"{base}/post/{p.slug}", "weekly", "0.8",
-                     fmt_bj(p.updated_at or p.created_at, "%Y-%m-%d"), p.cover))
     lines = [
         '<?xml version="1.0" encoding="UTF-8"?>',
         '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" '
-        'xmlns:image="http://www.google.com/schemas/sitemap-image/1.1">',
+        'xmlns:image="http://www.google.com/schemas/sitemap-image/1.1" '
+        'xmlns:xhtml="http://www.w3.org/1999/xhtml">',
     ]
-    for item in urls:
-        u, freq, prio = item[0], item[1], item[2]
-        extra = ""
-        if len(item) > 3 and item[3]:
-            extra += f"<lastmod>{item[3]}</lastmod>"
-        if len(item) > 4 and item[4]:
-            extra += f'<image:image><image:loc>{escape(item[4])}</image:loc></image:image>'
-        lines.append(f"  <url><loc>{escape(u)}</loc>{extra}"
+    # 静态页（单语言）
+    for u, freq, prio in [
+        (base + "/", "daily", "1.0"),
+        (base + "/about", "monthly", "0.5"),
+        (base + "/links", "weekly", "0.6"),
+    ]:
+        lines.append(f"  <url><loc>{escape(u)}</loc>"
                      f"<changefreq>{freq}</changefreq><priority>{prio}</priority></url>")
+    # 文章页：含译文组 hreflang 互链（v3.21.0，防重复内容惩罚）
+    for p in visible_posts_query().all():
+        u = f"{base}/post/{p.slug}"
+        lastmod = fmt_bj(p.updated_at or p.created_at, "%Y-%m-%d")
+        extra = f"<lastmod>{lastmod}</lastmod>" if lastmod else ""
+        if p.cover:
+            extra += f'<image:image><image:loc>{escape(p.cover)}</image:loc></image:image>'
+        for h, alt_u in hreflang_alternates(p, base):
+            extra += f'<xhtml:link rel="alternate" hreflang="{h}" href="{escape(alt_u)}"/>'
+        lines.append(f"  <url><loc>{escape(u)}</loc>{extra}"
+                     f"<changefreq>weekly</changefreq><priority>0.8</priority></url>")
     lines.append("</urlset>")
     return Response("\n".join(lines), mimetype="application/xml")
 

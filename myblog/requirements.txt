@@ -1,9 +1,9 @@
 Flask==3.1.3
 Flask-SQLAlchemy==3.1.1
-markdown==3.8.1
+markdown==3.10.3
 bleach==6.4.0
 gunicorn==22.0.0
-feedparser==6.0.11
+feedparser==6.0.14
 # v3.1.6 可选：配置 REDIS_URL 后用于多 worker 全局限流（未配置不安装也不报错，自动回退内存限流）
 redis>=4.5.0,<7.0.0
 # v3.17.11（审计 R76-R3）：可选依赖补上限，避免生产 pip install 拉到未来不兼容大版本
@@ -27,4 +27,4 @@ cryptography>=50.0.0,<51.0.0
 # v3.16.0 分享卡重做：纯 Python 二维码生成（零二进制依赖），微信扫码分享用。
 # /api/qr 使用；未安装时该接口 404，不影响其他功能（降级范式）。
 segno>=1.6.0,<2.0.0
-Flask-Migrate==4.0.7
+Flask-Migrate==4.1.0

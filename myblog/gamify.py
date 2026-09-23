@@ -40,11 +40,24 @@ DEFAULT_BADGES = [
 
 
 def seed_badges():
-    """首次建表后播种默认勋章（幂等：已有则跳过）。"""
-    if Badge.query.count() == 0:
-        for key, name, desc, icon, thr in DEFAULT_BADGES:
-            db.session.add(Badge(key=key, name=name, description=desc, icon=icon, threshold=thr))
+    """播种默认勋章（幂等；多 worker 并发启动也安全）。
+
+    按 key 逐枚跳过已有项，而不是「表空才整批插」：
+    - 旧写法①：表里有任意一行就整体跳过 → 缺的勋章永远补不齐；
+    - 旧写法②：gunicorn 多 worker 同时启动都看到空表、都去插入，后提交的撞
+      UNIQUE 键（v3.21.1 上线日志实测出现假警报「播种失败」，会掩盖真失败）。
+    撞键 = 另一 worker 已抢先完成播种 → 回滚放弃即可，**不算失败、不必报警**。
+    """
+    from sqlalchemy.exc import IntegrityError
+    existing = {k for (k,) in Badge.query.with_entities(Badge.key).all()}
+    for key, name, desc, icon, thr in DEFAULT_BADGES:
+        if key in existing:
+            continue
+        db.session.add(Badge(key=key, name=name, description=desc, icon=icon, threshold=thr))
+    try:
         db.session.commit()
+    except IntegrityError:
+        db.session.rollback()   # 竞态窗口内另一 worker 先 commit 成功 → 放弃本次即可
 
 
 def _today():

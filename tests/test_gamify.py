@@ -2,7 +2,7 @@
 import pytest
 from models import db, Post, Reader, Badge
 from gamify import (current_reader, award, seed_badges,
-                    _check_badges, READER_COOKIE)
+                    _check_badges, READER_COOKIE, DEFAULT_BADGES)
 
 
 @pytest.fixture
@@ -34,6 +34,29 @@ def test_badges_seeded_even_when_tables_already_exist(app):
         assert Badge.query.count() == 0
         _migrate_new_tables_v3()          # 表都已存在 → need 为空
         assert Badge.query.count() >= 5, "表已存在时也必须完成勋章播种"
+
+
+def test_seed_badges_partial_and_race_safe(app_ctx):
+    """回归（v3.21.2）：按 key 逐枚幂等 —— 部分播种 / 多 worker 竞态都不出错。
+
+    旧实现「`Badge.query.count()==0` 才整批插入」有两个坑：
+    ① 表里有任意一行就整体跳过 → 缺的勋章永远补不齐；
+    ② gunicorn 多 worker 同时启动都看到空表、都去插入，后提交的撞 UNIQUE 键
+       （v3.21.1 上线日志实测出现假警报「播种失败」，会掩盖真失败）。
+    """
+    # ① 部分播种：清空后只手工插 1 枚 → seed 后应补齐到默认枚数，且不覆盖已有项
+    # （测试库跨用例共享，前面用例可能已播种，必须先清掉才能构造「部分播种」场景）
+    Badge.query.delete()
+    db.session.commit()
+    db.session.add(Badge(key="novice", name="外部插入", icon="🌱", threshold=10))
+    db.session.commit()
+    seed_badges()
+    assert Badge.query.count() == len(DEFAULT_BADGES)
+    assert Badge.query.filter_by(key="novice").one().name == "外部插入"
+
+    # ② 再跑一次仍幂等（不重复插入）
+    seed_badges()
+    assert Badge.query.count() == len(DEFAULT_BADGES)
 
 
 def test_award_dedup_per_day(app_ctx):

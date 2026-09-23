@@ -536,6 +536,12 @@ supervisorctl status
 
 > ⚠️ **服务器上的 `update.sh` / `deploy.sh` 也务必与最新 Release 同版**：脚本经历过「假成功不覆盖 / 校验误报 / 无法自动重启」多轮加固，升级前先从最新 Release 覆盖一次脚本，再跑一键更新。
 
+> **v3.21.1（修复默认勋章未播种）升级要点**：**纯后端改动，只需覆盖后端包**（`vue-frontend/` 未动）。
+> - **修的是什么**：v3.21.0 的 `seed_badges()` 写在了 `_migrate_new_tables_v3()` 的 `if need:` 分支内，而 `create_app()` 里的 `db.create_all()` **已经先把新表建好了** → `need` 恒为空 → **勋章从未播种**。线上实测 `badge` 表 0 行：读者能攒积分但**永远拿不到勋章**，且全程不报错。
+> - **怎么修**：播种移出条件分支，改为无条件调用（幂等，表内有数据则不插入）。
+> - **升级后**：重启时自动补齐 5 枚默认勋章，**无需手工 SQL**。可在服务器上验证：`python -c "import sqlite3;print(sqlite3.connect('data/blog.db').execute('select count(*) from badge').fetchone())"` 应 ≥ 5。
+> - **回滚**：无破坏性变更；回退到 v3.21.0 仅失去勋章播种修复。
+
 > **v3.21.0（内容多语言 M1 + PWA + 读者积分勋章 + OAuth + 2FA）升级要点**：**后端与前端都改了 → 两个包都要覆盖**（`myblog-backend.zip` + `vue-frontend-dist.zip`）。
 > - **新增 6 张表，全部启动自愈**：`Reader` / `PointLog` / `Badge` / `ReaderBadge` / `OAuthAccount` / `UserTwoFactor`。由 `_migrate_new_tables_v3()` + `db.create_all()` 在应用启动时建表并播种 5 枚默认勋章，**无需手工 SQL、无需 `flask db`、无需 `flask db stamp`**。首次启动日志会打印「已迁移：新建数据表（…）」。
 > - **无新增依赖**：2FA 的 TOTP 是标准库实现（RFC 6238），**不需要 `pip install pyotp`**。

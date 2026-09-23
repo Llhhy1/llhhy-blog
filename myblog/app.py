@@ -289,11 +289,19 @@ def _migrate_new_tables_v3():
         try:
             db.create_all()
             print("已迁移：新建数据表（" + ", ".join(t.__tablename__ for t in need) + "）")
-            # v3.21.0 gamification：建表后播种默认勋章（幂等）
-            from gamify import seed_badges
-            seed_badges()
         except Exception as e:
             print("建表失败（可忽略，下次启动重试）:", e)
+
+    # v3.21.0 gamification：播种默认勋章（幂等）。
+    # ⚠️ 必须放在 `if need:` **之外**：create_app 里 `db.create_all()` 先跑（第 619 行），
+    # 新表在进本函数前就已建好 → `need` 恒为空 → 放在里面则勋章永远播不进去，
+    # 表现为「勋章表建好了但一条数据没有，读者永远拿不到勋章」的静默降级。
+    try:
+        from gamify import seed_badges
+        seed_badges()
+    except Exception as e:  # noqa: BLE001  播种失败不能拖垮启动（下次启动会重试）
+        # 与同文件其它 _migrate_* 一致走 stdout；必须留痕，否则又变成静默降级
+        print("默认勋章播种失败（可忽略，下次启动重试）:", e)  # noqa: T201
 
 
 def count_unique_view(post_id, ip):

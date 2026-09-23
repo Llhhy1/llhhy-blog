@@ -19,6 +19,23 @@ def test_seed_badges_idempotent(app_ctx):
     assert Badge.query.count() == n1
 
 
+def test_badges_seeded_even_when_tables_already_exist(app):
+    """回归（v3.21.1）：`create_app` 里的 `db.create_all()` 会**先**把新表建好，
+    于是 `_migrate_new_tables_v3()` 算出的 `need` 恒为空 —— 若把 `seed_badges()`
+    写在 `if need:` 分支内，勋章就**永远播不进去**，线上表现为「勋章表建好了但
+    一条数据都没有，读者永远拿不到勋章」的静默降级（v3.21.0 首发即踩）。
+
+    本用例先清空勋章再跑迁移，精确复现「表已存在」这一路径。
+    """
+    from app import _migrate_new_tables_v3
+    with app.app_context():
+        Badge.query.delete()
+        db.session.commit()
+        assert Badge.query.count() == 0
+        _migrate_new_tables_v3()          # 表都已存在 → need 为空
+        assert Badge.query.count() >= 5, "表已存在时也必须完成勋章播种"
+
+
 def test_award_dedup_per_day(app_ctx):
     r = Reader(token="t1")
     db.session.add(r)

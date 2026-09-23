@@ -3258,3 +3258,132 @@ v3.18.7 发布后按「先覆盖脚本、再跑一键更新」的顺序在服务
 - **与 R91 的关系**：R91 修的 `_RESP_KEYS` 白名单**本身是正确的**（它成功挡住了原始 body 回显）——正因为它生效，`remain` 才需要显式加入白名单。两条修复互补，不冲突。
 
 
+
+
+---
+
+## R92 · 待办清单批次（v3.20.0 · 工程化门禁 / 异步化 / 可观测性 / 前端 a11y）
+
+**范围**：`pyproject.toml`、`tools/lint_debt.py`、`tools/lint_debt_baseline.json`、`.github/workflows/ci.yml`、`.github/dependabot.yml`、`gunicorn_conf.py`、`myblog/notify.py`、`myblog/mail_notify.py`、`myblog/api/system.py`（`/health`）、`myblog/app.py`、`vue-frontend/src/{App.vue,lib/toast.js,views/DocsView.vue,views/PostView.vue,store.js}`、`tests/test_lint_debt.py`、`tests/test_notify_health.py`。
+
+**来源**：`ROADMAP.md` §5.8 / §5.9（第一、三轮第三方审计的延后批次）。**本轮的特点是先实测再动手**，因此有 3 项结论与审计描述不同（§92.4），另有 1 项**我自己的假设被实验推翻**（§92.3），已从代码注释里清掉，不留错误结论。
+
+### 92.1 供应链与门禁（原审计：无 lint / 无 ruff 配置 / 无 dependabot）
+
+- **`pyproject.toml`（新增）**：只承载 ruff 配置，**刻意不写 `[project]`** —— 避免引入第二处版本号（该仓库已有「版本号多处复制」的已知问题）。`select` 的选型原则是「**高信号且加入当天全绿**」，因为一上线就红的门禁很快会被绕过或关掉。
+- **阻断集与处置**：`E9/F63/F7/F82`（0 条）｜`B`（8 条，全修：4×B904 异常链 + 4×B007）｜`F841`（3 条，**抓到的全是真死代码**）｜`S105`（3 条**全为误报** —— 是 Setting/session **键名**，已就地 `# noqa` 并写明理由）｜`C4`/`RET`/`A`（9 条，已修；`RET503` 2 处与 `C408` 1 处为误报/可读性取舍，已 noqa 说明）。
+- **`DTZ`（13 条）明确不修** —— 项目约定是 **naive UTC 存储**（`myblog/_time.py` docstring 明写「数据库 DateTime 列均为 naive 存储，与旧行为逐字节一致」）。改成 tz-aware = 改存储语义 + 数据迁移。**这是设计决定，不是缺陷**；把它当阻断项修属于「修 lint 把系统修坏」。
+- **`tools/lint_debt.py`（新增）—— 债务棘轮**：历史债（`BLE001` 272 / `F401` 171 / `S110` 94 / `ARG` 73 / `T20` 68 / `SIM` 40）一次性修完风险高（91 处 `except: pass` 涉及「记日志还是静默」的语义决策），但放着会继续长。棘轮把当前数量固化为基线，**只允许减少、不允许增加**，从而在不清算历史债的前提下止住新增。
+  刻意**不收** `I`/`UP`/`PTH`：属个人风格偏好，收进去只会制造无意义的历史债务。
+- **CI `lint` job**：`ruff check .`（阻断）+ 债务棘轮 + `check_i18n.py` + **发布公钥一致性**（钉住 `update.sh` 的 `BUILTIN_RELEASE_PUBKEY` —— 它是更新链 fail-closed 的根锚点，误改会让所有老版本拒装新包或让验签形同虚设）。
+- **`npm install` → `npm ci`**：前者按 range 重解依赖且可能改写 lockfile，会让「CI 绿」与「本机装出的那份」脱钩。
+- **`dependabot.yml`（新增）**：三类生态，小版本/补丁**分组**成单 PR，**明确不自动合并** —— `requirements.txt` 的上限是带理由刻意选的（`cryptography>=50,<51` 消化过 CVE），且该文件承载「最低 Python 版本由 bleach 决定为 >=3.10」这条需人工复核的约束。
+
+> ⚠️ **诚实边界**：完整的 `verify_package_checksums.py` **无法在 CI 运行** —— 它需要已签名的发布物，而签名私钥只存在于发布者本机且绝不入库。CI 只能守住「公钥值」这个不变量；包级三链校验仍留在本机发版流程。
+
+### 92.2 配置入库与探活
+
+- **`gunicorn_conf.py` 入库**（原先只存在于线上、由宝塔生成，删站即丢）。**不在部署包里**（`package.py` 只收 `myblog/`），`update.sh` 不覆盖它。
+  把三个此前只在线上、且**被第三方报告误判过**的事实写进 `deploy_guide.md`：① 写 `sync` 但 gunicorn 22 在 `threads>1` 时自动升级 `gthread`；② 实际并发槽 = 4×2 = **8** 而非 4（报告据此误判为「2~3 个 sync worker」，见 R91）；③ 4 个 worker 是刻意的（2 核 + SQLite 写锁竞争）。
+- **`GET /api/health`（新增）**：无需登录、单次 `SELECT 1`、**不出网**、依赖不可用返回 **503**。响应字段严格 `{ok, version, db}` 三项，**不回显配置/路径/密钥/异常细节**（测试逐条断言 `SECRET`/`password`/`token`/`/www/`/`sqlite` 不出现）。
+  此前项目**零探活端点**，`diagnostics.py` 是人工触发的拉取式体检 → 「站点挂了」只能靠人先发现。
+
+### 92.3 通知异步化（含一处**我方假设被实测推翻**）
+
+`notify.py` 改为后台线程（原为同步，每渠道 `timeout=6`，两渠道齐配最坏阻塞 **12s**，而 5 个调用点全在请求路径上）。
+
+**必须更正的判断**（我原本写在注释里的因果是错的，已全部改掉）：
+
+| 我的原假设 | 实测结果 | 结论 |
+| --- | --- | --- |
+| 传 ORM 对象进后台线程会抛 `DetachedInstanceError`，因为 `commit()` 让属性过期、线程里是新 session | **证伪**。实测（Flask-SQLAlchemy 3.1.1 / SQLAlchemy 2.0.52）：detached 的 `Post` 上**标量属性照常可读**（值仍在实例 `__dict__`） | `mail_notify` 当年那样传对象，**对它自己的用法是能工作的** —— 不存在「订阅者静默收不到信」的历史缺陷 |
+| —— | detached 实例上访问**从未加载的懒加载关系**（如 `post.author`）**确实抛** `DetachedInstanceError` | **这才是真实风险边界**，且窄：只有「后台线程里访问懒加载关系」才会踩到 |
+
+**处置**：`notify.py` 用「调用线程内先取快照」（线程内只碰字符串）；`mail_notify` 改为「传 id、线程内重查」（拿到属于新 session 的活对象）。
+**并明确记录：这两处是「纵深防御」，不是「修 bug」** —— 区别重要，因为它决定了是否值得为一个已上线版本紧急发补丁。判断依据就是上表两条实测。
+同时把两模块的 `print(...)` 与静默 `except: pass` 换成 `logger.warning(..., exc_info=True)`。
+
+### 92.4 前端 a11y（含 3 处与审计描述不同的结论）
+
+先实测发现**改动面比审计小得多**（`vue-frontend/src` 仅 38 个文件）。逐项：
+
+| 项 | 复验结论 |
+| --- | --- |
+| 零 `aria-live` | **真缺陷，但根因不是「忘了写」**：`lib/toast.js` 给**每条** toast 现建现挂 `role="status"`，而 **live region 必须先在 DOM 中存在**之后插入的内容才会被朗读 → 实际不会被播报。已改为**宿主常驻** `role="status" aria-live="polite" aria-atomic="false"`。 |
+| 无 skip-link | **真缺陷**，已加（含 `<main tabindex="-1">`）+ 同步 zh/en i18n key。 |
+| 灯箱无 `role="dialog"` | **真缺陷**（容器对读屏是「哑」的），已补 `role="dialog" aria-modal="true" aria-label`。**未做完整焦点陷阱**，已在注释里记为已知缺口 —— 不假装达到 modal 的 WCAG 要求。 |
+| `IntersectionObserver` 泄漏 | **只有 `DocsView.vue` 是真泄漏**：它是**路由组件**，每次进入 `/docs` 新建 observer 且从不 `disconnect` → 持续累积。已加 `onBeforeUnmount` + `disconnect`。`main.js` 的 `v-reveal` 是**一次性** observer（命中即 `disconnect`），**无需改**（审计把它一并列出属扩大描述）。 |
+| scroll/resize 未清理 | `App.vue` 是**根组件、SPA 内不卸载** → **理论问题、无实际影响**。既然该处已有 `onBeforeUnmount`，顺手收口并在注释说明它并非真实泄漏。 |
+| `v-html` 未统一 `sanitizeHtml` | **未复现**：仓库存在 `lib/sanitize.js`，抽查 `App.vue` 的 `v-html` 均已经过 `sanitizeHtml()`。本轮**未做全量核对**，列为下次复核项（见待办）。 |
+
+### 92.5 评估后**明确不做**的两项（附实测依据）
+
+| 审计项 | 实测 | 结论 |
+| --- | --- | --- |
+| `post`/`comment` 主表零索引 | 生产真实行数 `post` = **7**、`comment` = **1**；**有量**的表其实都已建索引（`visit_log` 2593 / `ip_region` 854 / `read_log` 85 / `setting` 77）；`post.slug` 也已有 unique 自动索引 | **不按原样做**。7 行加索引只有写入成本且要改表结构 → **改为设触发条件**（`post > 500` 或 `comment > 5000` 再加）。唯一「有量且无索引」者是 `audit_log`（218 行），亦未到需要索引的量级。 |
+| `inject_globals` 每次渲染 8 条查询 | SSR 退役后全项目只剩 **2 个模板**（`login`/`register`）extend `base.html`，其余 **45 处渲染全是 `admin/*`** → 这 8 条**只发生在后台页与登录页**；公开文章页由 nginx 直出 SPA + JSON API，不经过它 | **不加缓存**。项目有 **20 处**直接写 `Setting`（无单一收口点），做缓存须引入 TTL + 失效钩子，代价是「改完主题后一段时间显示旧值」，换来的只是省掉后台点击时的 8 条小表查询 —— **收益小于复杂度**。理由已写进 `inject_globals` docstring。 |
+
+顺带删掉一处真死代码：`inject_globals` 注入的 `now_year` 未被任何模板使用（同时消掉一处 `DTZ005`）。
+
+### 92.6 验证
+
+- 全量 **221 passed**（185 基线 + 36 新增：`test_stats_depth.py` 5 条 + `test_seo_push.py` 4 条 + `test_lint_debt.py` 6 条 + `test_notify_health.py` 10 条 + `test_qr.py` 7 条 + `test_atom_feed.py` 4 条）；`ruff check .` 全绿；棘轮通过（**648 = 648，无新增**）；`check_i18n.py` 通过；`vite build` 通过。
+- 新增测试均做**变异验证**：① 棘轮前缀匹配（`T20` 这类「以数字结尾的族前缀」—— 该函数**连错两次且两次都是静默失效**，界面照常打印、退出码照常 0，只是整族漏计）；② `mail_notify` 回退成「传对象」→ 断言变红；③ `maybe_auto_push` 回退「默认关闭 / 拒绝不可见」→ 断言变红。
+- 开发库 `blog.db` sha256 + mtime 双查零变化（本轮零表结构变更）。
+
+### 92.7 待办（本轮新增）
+
+1. **`v-html` + `sanitizeHtml` 全量核对**（92.4 只抽查了 `App.vue`）—— 需逐个确认 6 个文件的 10 处 `v-html` 都过了清洗。
+2. **灯箱焦点陷阱**：`role="dialog"` 已补，但 Tab 仍可能走到背后元素；要做完整的 focus trap + 关闭后焦点归还。
+3. **`audit_log` 索引**：218 行仍不需要；若日后审计日志查询变慢再评估。
+4. 棘轮基线需在**每次债务下降后** `--update` 刷新（否则「下降」不会反映到门禁上，不影响正确性）。
+
+
+### 92.8 第二轮（同日续做：真缺陷闭包 / 订阅源 / CI 深度）
+
+用户随后要求「能做的全部实现」，故把上一轮**只有实测才能发现的真缺陷**补齐。
+
+| # | 项 | 复验结论 | 处置 |
+| --- | --- | --- | --- |
+| 1 | **每页 2 个 `<main>`** | **真缺陷**（上一轮遗漏）：`App.vue` 1 个 + **11 个视图各 1 个** → 每页 2 个。`main` 是 landmark，一个文档只应有一个 | 保留 `App.vue`（兼 skip-link 落点），11 个视图改 `<div>`；**改前先验证视图 CSS 不依赖 `main` 标签选择器**（实测无依赖） |
+| 2 | **灯箱焦点陷阱** | 上一轮只补 `role="dialog"`，Tab 仍会跑到背后 → 键盘/读屏用户「掉出对话框」 | 补完整焦点管理：记录来源焦点、聚焦关闭按钮、**Tab 循环**、关闭后**归还焦点** |
+| 3 | **`/api/qr` 用 `request.host_url`**（R90 待办②） | **真缺陷**：与「对外地址只走 `site_base()`」原则冲突（`/api/og/*`、`_abs()` 在 v3.18.9 已收口，此接口是**唯一漏网**） | 相对路径分支**不再回退请求 Host**，未配置即 400。**同时保住别名域名可用性**（前端 `postUrl` 派生自 `location.origin`）→ 绝对 URL 分支继续放行本次请求 host。两条方向相反，写 7 条测试钉住 |
+| 4 | **Atom 1.0**（§5.4） | 此前只有 RSS 2.0 | 新增 `GET /feed.atom`，**复用 `/feed.xml` 的同一条查询**（不新增查询逻辑，避免两套订阅源口径漂移）。测试用 `xml.etree` **真解析**，并断言「未发布状态不泄露」「特殊字符被转义」 |
+| 5 | **CI 覆盖率** | 基线 **49%**（9216 语句） | 加 `coverage` + `--fail-under=45`，定位是**防回退下限**，不是「证明覆盖充分」 |
+| 6 | **CI CVE 扫描** | 实跑 `pip-audit` → **无已知漏洞** | 因基线干净，设为**阻断项** |
+
+#### ⚠️ 92.8.1 更正一条审计结论：「`v-html` 未统一 `sanitizeHtml`」**不成立为风险**
+
+上一轮我只抽查了 `App.vue` 就把它留作待办。本轮**逐个查完 4 处**未走客户端 `sanitizeHtml` 的 `v-html`：
+
+| 位置 | 数据来源 | 服务端消毒 |
+| --- | --- | --- |
+| `App.vue` 公告 `a.content` | `/api/site` | ✅ `api/site.py:103`：`clean_html(render_markdown(a.content))` |
+| `AboutView` `about_content` | `/api/site` | ✅ `api/site.py:20`：`clean_html(...)` |
+| `SquareView` 博客圈 `it.summary` | `/api/feed/circle`（**第三方 RSS**） | ✅ `feed_agg.py:258`：`clean_html(e["summary"])[:300]` |
+| `SearchView` `p.highlight` | 服务端生成 | ✅ 先 `escape()` 全文再插 `<mark>` |
+| `PostView` 正文 `innerHTML` | `content_html` 缓存列 | ✅ 经 `clean_html` 白名单 |
+
+**结论：消毒发生在服务端 —— 也就是正确的信任边界上。** 客户端再洗一遍属纵深防御，而对「管理员富文本」槽位反而**有风险**：DOMPurify 的默认白名单与服务端 `clean_html` 白名单**不一致**，会剥掉服务端认为是合法的标记，造成可见的内容缺失。
+→ **收益不为正，故不加**；同时把「消毒在服务端」这件事记在这里，避免后人再按审计原文重开此条。
+
+#### 92.8.2 本轮仍未做（清单已收敛，见 `ROADMAP.md` §5.9.1）
+
+- **前端**：token 对比度（4 组 < 4.5:1）与 `derive_dark` 无 WCAG 校验｜表单 placeholder-only 无 `label`｜后台模板 `data-label`（**2/50**）｜`tokens.css` 两份且**已漂移**（2004 vs 2291 字符，需人工判断哪份为准）
+- **性能**：`eager loading` 仍 **0 处**、`.all()` 107 处、列表 N+1（**须先量耗时再改**）、`/static/` 的 gzip/expires（nginx 层）
+- **结构**：`create_app` **432 行**（比审计基线 373 还长）、函数级 import **258 处**（基线 226）→ **两者都在持续增长**，故必须先有门禁再动刀
+- **schema**：Alembic 基线仍是假的 + 9 个手写 `_migrate_*` = 两份 schema 真相源
+- **功能类**（ROADMAP §5.1–5.6，需产品决策或新表/外部凭据）：内容多语言、读者积分勋章、OAuth、2FA、PWA（已标注暂无计划）等
+
+### 92.9 第三轮（统计深度 + SEO 自动推送）
+
+用户要求把功能类清单也做掉，选**零表变更、无外部凭据、可验证**的项。安全维度逐项核对：
+
+| 项 | 安全核对 |
+| --- | --- |
+| **来源渠道 TOP** | 数据只来自 `VisitLog.referrer`（v3.17.3 起只存 origin，**不含 query/path**），不回显完整 URL → 无 SSRF 反射面；未知来源退回域名本身（无害）。聚合走 `group_by`，参数化查询 |
+| **实时在线 / 趋势环比** | 只读聚合，三个 helper 各自独立 `try/except`（`# noqa: BLE001`，理由写明），单点失败不影响统计页其余部分、更不抛到请求路径 |
+| **CSV 导出** | `super_required` + 全局 CSRF 已覆盖；**公式注入防护**：单元格以 `= + - @ \t \r \n` 开头时加前缀单引号（防 `=cmd\|'/c calc'!A1` 类 CSV 宏执行）；**UTF-8 BOM** 让 Excel 正确识别中文；`days` 上限 `min(days, 365)` 防 `?days=999999` 拉全表做 DoS |
+| **SEO 自动推送** | `maybe_auto_push` **复用 `enqueue`**（自带「3 次/5 分钟」限流 + pending 去重，连点发布不会重复烧配额）；**只推可见文章**（复用 `visible_posts_query`，含 `scheduled_at` 检查 → 未到点定时文章不会被推给搜索引擎）；无凭据引擎被 `submit_posts` 跳过（不会凭空造失败记录）；**全程异常不抛出**（绝不影响发布主流程、不破坏 `visible_posts_query` 真相源）；**默认关闭**（`SEO_AUTO_PUSH` / setting `seo_auto_push`），不烧百度当日配额。**无新增 SSRF 面**：`enqueue` → `push_baidu` / `push_indexnow` 走固定端点 + 既有超时/白名单 |
+
+> 第三轮的 9 处 `# noqa: BLE001/S110` 全部来自「发布主流程不能被 SEO 推送拖垮」的防御性 `except`（每处写明理由），与「CSV 路由用具体异常替代裸 `except` 消除 1 处」相抵，故棘轮维持 **648 = 648**。详见 `CHANGELOG.md` §8 / §9。

@@ -32,6 +32,12 @@ def publish_now(post_id):
             notify.notify_new_post(post, current_app.config.get("SITE_URL", ""))
         except Exception:
             pass
+        # v3.20.0：新文自动推送（默认关闭，见 seo_push.maybe_auto_push 的说明）
+        try:
+            import seo_push
+            seo_push.maybe_auto_push(post)
+        except Exception:  # noqa: BLE001, S110  (自动推送失败绝不影响发布主流程)
+            pass
         try:
             mail_notify.notify_subscribers_async(post)
         except Exception:

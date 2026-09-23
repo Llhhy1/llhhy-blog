@@ -58,3 +58,10 @@ smoke_*.py
 # 本地审查/排查脚本（一次性，不入库）
 _review_*.py
 _rescan*.py
+
+# 覆盖率产物（v3.20.0 起 CI 跑 coverage；`.coverage` 是二进制数据文件，绝不入库）
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+.pytest_cache/

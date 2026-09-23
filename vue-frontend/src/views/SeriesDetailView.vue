@@ -1,6 +1,6 @@
 <template>
   <div class="layout">
-    <main class="content">
+    <div class="content">
       <div v-if="notFound" class="series-detail-head"><h1>找不到该系列</h1></div>
       <template v-else-if="series">
         <div class="series-detail-head">
@@ -34,7 +34,7 @@
         <PostCard v-for="p in series.posts" :key="p.slug" :post="p" />
         <p v-if="!series.posts.length" class="empty">该系列还没有文章。</p>
       </template>
-    </main>
+    </div>
     <Sidebar />
   </div>
 </template>

@@ -28,7 +28,7 @@ import seo_push
 # 单次批量推送的默认篇数（页面可选）
 BATCH_CHOICES = (10, 20, 50)
 # 密钥键名（Setting）
-BAIDU_TOKEN_KEY = "seo_baidu_token_enc"
+BAIDU_TOKEN_KEY = "seo_baidu_token_enc"   # noqa: S105 —— Setting 键名，密文存值，不是密码
 INDEXNOW_KEY_KEY = "seo_indexnow_key_enc"
 
 

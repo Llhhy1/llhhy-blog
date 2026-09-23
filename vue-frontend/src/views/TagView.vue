@@ -1,10 +1,10 @@
 <template>
   <div class="layout">
-    <main class="content">
+    <div class="content">
       <h1 class="page-title">标签：{{ name }}</h1>
       <p v-if="!items.length" class="empty">该标签下还没有文章。</p>
       <PostCard v-for="p in items" :key="p.slug" :post="p" />
-    </main>
+    </div>
     <Sidebar />
   </div>
 </template>

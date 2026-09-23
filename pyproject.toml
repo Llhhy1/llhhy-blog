@@ -1,0 +1,62 @@
+# 本文件当前**只用于给 ruff 提供配置**（CI lint 用），不是打包元数据。
+# 刻意不写 [project] 表：本项目以「源码直接部署」运行（update.sh 覆盖 myblog/），
+# 没有 pip 安装流程；且加 [project] 必然要再写一遍 version，
+# 与「版本号多处复制」这条已知仓库卫生问题相冲突（见 ROADMAP §5.9 E）。
+
+[tool.ruff]
+target-version = "py313"
+line-length = 120
+exclude = [
+    ".git",
+    "__pycache__",
+    "vue-frontend",
+    "data",
+    "myblog/data",
+    ".workbuddy",
+    "migrations",
+]
+
+[tool.ruff.lint]
+# ⚠️ 这份 select 是「**高信号、且加入当天全绿**」的集合 —— 不是越大越好。
+# 门禁的第一原则是「能长期开着」：规则集若一上线就是红的，很快会被绕过或关掉。
+#
+# 选型依据（2026-09-23 在本仓库实测各规则命中量后确定）：
+#   E9 / F63 / F7 / F82 —— 0 条。语法错、未定义名（F821）等「一定会炸」的，必拦。
+#   B     —— 8 条（bugbear）。已全部修掉：4 条 B904（`raise ... from` 异常链
+#            —— 影响排障时能否看到原始异常）+ 4 条 B007（未使用循环变量）。
+#   F841  —— 3 条。**抓到的全是真死代码**（`admin/settings.py` 的 mail_keys、
+#            `admin/stats.py` 的 total_hour、`mail_notify.py` 的 app），已删。
+#            另在 tests 里删掉 3 处未使用变量（其中 1 处是「忘了断言」的弱测试信号）。
+#            注意：F841 在测试里**保留**，正是因为它能照出弱测试。
+#   S105  —— 3 条，**全部是误报**（`BAIDU_TOKEN_KEY` / `KEY_TOKEN_FMT` /
+#            `_CAPTCHA_PASS_KEY` 都是 Setting 或 session 的**键名**，不是密码）；
+#            已就地加 `# noqa: S105` 并写明理由。规则本身保留，因为它能拦住真的硬编码口令。
+#   C4 / RET / A —— 5 / 4 / 0 条，已修（C401 集合推导 4 处、RET504 2 处；
+#            RET503 2 处是 Flask before_request 的**隐式 None = 放行**语义，属误报，
+#            已加 noqa 说明；C408 1 处保留 `dict()` 可读写法并加 noqa）。
+#
+# 特意**不**纳入的规则，以及为什么（这些才是「不盲从审计」的地方）：
+#   DTZ（13 条）—— **不改，这是设计决定**。项目约定是 naive UTC 存储，
+#       见 `myblog/_time.py` 的 docstring：「返回 naive UTC，与旧行为逐字节一致
+#       （数据库 DateTime 列均为 naive 存储）」。改成 tz-aware 等于改存储语义
+#       并要求数据迁移，收益远小于风险。
+#   F401(168) / I(107) / UP(161) / PTH(258) / SIM(36) / ARG(12) / T20(68) /
+#   S110(91) / BLE001(268) —— 一次性修完风险大（尤其 91 处 `except ...: pass`
+#       涉及「该记日志还是该静默」的语义决策，不能批量盲改）。
+#       改由 `tools/lint_debt.py` 做**棘轮门禁**：只允许减少、不允许增加。
+select = ["E9", "F63", "F7", "F82", "B", "F841", "S105", "C4", "RET", "A"]
+
+[tool.ruff.lint.per-file-ignores]
+# 测试里出现「假的令牌常量」是正常且必要的写法（如 `TOKEN = "t-xxx"`），
+# 故 S105 在 tests 下忽略。其余规则在测试中一律照常生效。
+#
+# `ARG` 在 tests 下同样忽略，理由是**它在测试里几乎全是误报**（v3.20.0 实测：
+# 新增 2 个测试文件带来 25 条 ARG，逐条看下来没有一条是真缺陷）：
+#   * `lambda token, chat, text: ...` —— **签名必须与被替身的函数一致**，
+#     否则替身根本调不通，参数不用是刻意的；
+#   * pytest fixture 形参（`clean_env` / `app`）—— 有的是为了**副作用**（设/清环境），
+#     有的是被后续用例复制时留下的，删掉反而破坏 setup；
+#   * 假类的 `__init__(self, target, args, daemon, **kw)` —— 同理，要吃掉调用方的实参。
+# 在 **myblog/（生产代码）** 下 ARG 照常参与棘轮 —— 那里未使用的参数更可能意味着
+# 「参数已废弃但没删干净」，是真信号。
+"tests/**" = ["S105", "ARG"]

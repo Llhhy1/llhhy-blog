@@ -1,0 +1,56 @@
+# Dependabot 配置（v3.20.0 新增）
+#
+# 为什么加它：审计指出「CI 无 CVE 扫描 / 无 dependabot」。本仓库的依赖更新
+# 此前完全靠人工想起来 —— 而 `myblog/requirements.txt` 里已经踩过一次
+# 「上限定死漏洞」的坑（v3.17.14：cryptography 原上限 <47 把全部安全修复挡在门外，
+# 见该文件内的注释）。让机器定期把「有新版」这件事摆到台面上，比靠记性可靠。
+#
+# ⚠️ **绝不开启自动合并**（Dependabot 默认就不会自动合并，这里明确保持）：
+#   * `requirements.txt` 的上限是**带理由刻意选的**（如 `cryptography>=50,<51`、
+#     `segno<2`、`redis<7`），盲目抬上限可能踩到不兼容大版本；
+#   * 该文件还记录了**运行环境的最低 Python 版本由 bleach 决定为 >=3.10**
+#     —— 改依赖后必须重新核对这条约束；
+#   * 前端 `npm ci` 与 lockfile 强绑定，bump 后需要重新 `npm run build` 验证。
+#   所以策略是：**机器提议、人工裁决**。
+#
+# 分组策略：小版本/补丁合并成一个 PR，避免单人维护者被 PR 淹没；
+# 大版本（major）单独成 PR，因为它最可能需要人工评估。
+
+version: 2
+updates:
+  - package-ecosystem: "pip"
+    directory: "/myblog"          # requirements.txt 所在目录
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 3
+    groups:
+      pip-minor-patch:
+        applies-to: version-updates
+        update-types: ["minor", "patch"]
+    commit-message:
+      prefix: "chore(deps)"
+    labels: ["dependencies", "python"]
+
+  - package-ecosystem: "npm"
+    directory: "/vue-frontend"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 3
+    groups:
+      npm-minor-patch:
+        applies-to: version-updates
+        update-types: ["minor", "patch"]
+    commit-message:
+      prefix: "chore(deps)"
+    labels: ["dependencies", "frontend"]
+
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "monthly"
+    open-pull-requests-limit: 2
+    commit-message:
+      prefix: "chore(ci)"
+    labels: ["dependencies", "ci"]

@@ -221,7 +221,7 @@ def create_backup():
                     {"path": rel, "sha256": _sha256_file(snap), "size": os.path.getsize(snap)})
             # 2) 上传目录（图片等）
             if os.path.isdir(UPLOAD_DIR):
-                for dirpath, dirnames, filenames in os.walk(UPLOAD_DIR):
+                for dirpath, _dirnames, filenames in os.walk(UPLOAD_DIR):
                     for fn in filenames:
                         full = os.path.join(dirpath, fn)
                         rel = os.path.relpath(full, BASE_DIR).replace("\\", "/")
@@ -482,7 +482,7 @@ def _snapshot_before_restore(tag=""):
             if snap:
                 zf.write(snap, "data/blog.db")
         if os.path.isdir(UPLOAD_DIR):
-            for dirpath, dirnames, filenames in os.walk(UPLOAD_DIR):
+            for dirpath, _dirnames, filenames in os.walk(UPLOAD_DIR):
                 for fn in filenames:
                     full = os.path.join(dirpath, fn)
                     rel = os.path.relpath(full, BASE_DIR).replace("\\", "/")

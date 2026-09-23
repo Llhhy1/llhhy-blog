@@ -213,7 +213,7 @@ def backup_settings():
         "webdav": bool(cfg.get("BACKUP_WEBDAV_URL")),
     }
     if request.method == "POST":
-        for skey, (env, default) in bs.ALL_FIELDS.items():
+        for skey in bs.ALL_FIELDS:
             if skey in bs.SENSITIVE_KEYS:
                 # 敏感键：留空 = 保持不变；非空则加密覆盖
                 new_val = (request.form.get(skey) or "").strip()
@@ -252,7 +252,6 @@ def email_settings():
     密码不回显：保存时密码留空 = 保持不变。提供「发送测试邮件」验证配置。
     """
     from utils import rate_limit, client_key
-    mail_keys = ["mail_host", "mail_port", "mail_username", "mail_password", "mail_from", "mail_use_ssl"]
     if request.method == "POST":
         action = request.form.get("action", "save")
         # 保存配置

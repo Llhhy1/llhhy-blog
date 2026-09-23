@@ -1,6 +1,6 @@
 <template>
   <div class="layout">
-    <main class="content">
+    <div class="content">
       <h1 class="page-title">留言墙</h1>
       <p class="empty" v-if="!state.user">登录后也可以在这里留言哦～</p>
 
@@ -26,7 +26,7 @@
         </div>
       </div>
       <p v-if="!items.length" class="empty">还没有留言，来当第一个吧！</p>
-    </main>
+    </div>
     <Sidebar />
   </div>
 </template>

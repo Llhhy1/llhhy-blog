@@ -7,6 +7,62 @@ on:
     branches: [main]
 
 jobs:
+  # ---------------------------------------------------------------------------
+  # 静态检查（v3.20.0 新增）
+  # 对应审计「CI 只有 test+build，无 lint / 无 ruff 配置」。
+  # 设计要点：**门禁必须当天就是绿的**，否则很快会被绕过 —— 所以规则集分两层：
+  #   ① pyproject.toml 的 select：高信号、当前全绿（语法错 / 未定义名 / bugbear / 死代码 …）
+  #   ② tools/lint_debt.py 棘轮：历史债只允许减少、不允许增加
+  # 这样既不放过新债，又不用为了开门禁而去做 91 处 `except: pass` 的高风险批量改。
+  # ---------------------------------------------------------------------------
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.13
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install ruff
+        run: |
+          python -m pip install --upgrade pip
+          pip install ruff
+
+      - name: Ruff（阻断规则集，配置见 pyproject.toml）
+        run: python -m ruff check .
+
+      - name: Lint 债务棘轮（只允许减少，不允许增加）
+        run: python tools/lint_debt.py
+
+      - name: i18n 键一致性（zh / en 词典 vs 模板实际使用）
+        run: python tools/check_i18n.py
+
+      - name: 依赖 CVE 扫描（pip-audit）
+        # v3.20.0 新增。测基线：2026-09-23 本仓库 `myblog/requirements.txt` 扫描结果
+        # 为「No known vulnerabilities found」，故设为**阻断项**。
+        # 若日后报出漏洞：优先在 requirements.txt 里抬到修复版本（注意该文件的上限是
+        # 带理由刻意选的，如 cryptography>=50,<51），而不是把这一步改成非阻断。
+        run: |
+          python -m pip install --upgrade pip pip-audit
+          python -m pip_audit -r myblog/requirements.txt --progress-spinner off
+
+      - name: 发布公钥一致性
+        # update.sh 内置的验签公钥是「更新链 fail-closed」的根锚点：
+        # 它一旦被误改，所有老版本部署都会拒绝新包（或更糟——验签形同虚设）。
+        # 这里钉住它的值。换密钥时必须同步改本工作流 + deploy_guide.md 的说明。
+        run: |
+          EXPECTED='jolSxBuRPpVlwGWQGbYU7iLus4NIBT0nh0LPx1abzho='
+          if ! grep -q "$EXPECTED" update.sh; then
+            echo "::error::update.sh 内置发布公钥与预期不一致（换密钥需同步本工作流与 deploy_guide.md）"
+            exit 1
+          fi
+          echo "发布公钥一致：$EXPECTED"
+          # 说明：完整的 verify_package_checksums.py 无法在 CI 跑 ——
+          # 它需要一个**已签名**的发布物，而签名私钥只存在于发布者本机、绝不入库。
+          # 故 CI 只能守住「公钥值」这个不变量；包级校验留在本机发版流程里。
+
   test:
     runs-on: ubuntu-latest
     # 与生产环境一致：Python 3.13
@@ -20,13 +76,17 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r myblog/requirements.txt
-          pip install pytest
-      - name: Run tests
+          pip install pytest coverage
+      - name: Run tests（带覆盖率门禁）
         env:
           SECRET_KEY: ci-secret-key
           ADMIN_PASSWORD: ci-admin-password
+        # v3.20.0 新增覆盖率。**基线 49%**（2026-09-23 实测：9199 条语句），
+        # 阈值取 45% 留一点波动余量 —— 它的作用是「防止回退」，不是「证明覆盖充分」。
+        # 覆盖率上去后请把 --fail-under 一起抬（棘轮思路同样适用于它）。
         run: |
-          python -m pytest tests/ -q
+          coverage run --source=myblog -m pytest tests/ -q
+          coverage report --skip-covered --fail-under=45
 
   build:
     runs-on: ubuntu-latest
@@ -41,6 +101,10 @@ jobs:
         with:
           node-version: "22"
       - name: Install dependencies
-        run: npm install
+        # v3.20.0：npm install → npm ci。
+        # `npm install` 会按 package.json 的 range 重解依赖、还可能改写 lockfile，
+        # 于是「CI 绿」与「本机装出来的那份」两件事就脱钩了；
+        # `npm ci` 严格按 lockfile 安装，装不上直接失败 —— 这正是构建校验想要的行为。
+        run: npm ci
       - name: Build frontend
         run: npm run build

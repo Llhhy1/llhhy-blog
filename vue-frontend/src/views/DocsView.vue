@@ -31,7 +31,7 @@
       </nav>
     </aside>
 
-    <main class="docs-main">
+    <div class="docs-main">
       <!-- ============ 通用约定 ============ -->
       <div id="common" class="doc-section">
         <h1>通用约定</h1>
@@ -457,7 +457,7 @@ print(c.get('/api/posts').get_json())
         <h3>10. 别忘了同步文档</h3>
         <p>新增/修改接口后，请同步更新 <code>myblog/API.md</code> 对应章节与 README 的 API 小节，保持站内文档与代码一致（本页 /docs 由前端维护，亦请同步）。</p>
       </div>
-    </main>
+    </div>
 
     <aside class="docs-toc">
       <div class="toc-title">本页目录</div>
@@ -471,7 +471,7 @@ print(c.get('/api/posts').get_json())
 </template>
 
 <script setup>
-import { onMounted, ref } from "vue";
+import { onBeforeUnmount, onMounted, ref } from "vue";
 import { copyText } from "../lib/clipboard.js";
 // v3.17.10：highlight.js 改为本地打包——原 cdnjs 动态注入的 CSS/JS 被 CSP（style-src/script-src 'self'）
 // 拦截，线上代码高亮从未真正生效。代码块仅用 bash/js/json/python 四种语言，主题沿用 github-dark。
@@ -492,6 +492,8 @@ window.hljs = hljs;
 
 const tocItems = ref([]);
 const activeId = ref("");
+// v3.20.0：目录高亮用的 observer 句柄，挂载时创建、卸载时 disconnect（原先未清理）
+let _tocObs = null;
 
 function scrollTo(id) {
   const el = document.getElementById(id);
@@ -548,11 +550,20 @@ onMounted(() => {
 
   // 右侧「本页目录」随滚动高亮当前章节
   if ("IntersectionObserver" in window) {
-    const obs = new IntersectionObserver((entries) => {
+    _tocObs = new IntersectionObserver((entries) => {
       entries.forEach((e) => { if (e.isIntersecting) activeId.value = e.target.id; });
     }, { rootMargin: "-80px 0px -70% 0px", threshold: 0 });
-    document.querySelectorAll(".docs-main h1, .docs-main h3").forEach((h) => obs.observe(h));
+    document.querySelectorAll(".docs-main h1, .docs-main h3").forEach((h) => _tocObs.observe(h));
   }
+});
+
+// v3.20.0 修复**真实泄漏**：原实现在 onMounted 里 new 了 IntersectionObserver 却从不
+// disconnect。DocsView 是**路由组件**，每次进入 /docs 都会新建一个 observer，
+// 而它仍持有上一次挂载的 DOM 节点引用 → 反复进出会持续累积。
+// （对比：App.vue 的 scroll/resize 未清理只是「理论问题」，因为根组件不会卸载；
+//   这里才是真正会累积的那个。）
+onBeforeUnmount(() => {
+  if (_tocObs) { _tocObs.disconnect(); _tocObs = null; }
 });
 </script>
 

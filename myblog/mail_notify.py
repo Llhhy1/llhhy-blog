@@ -1,10 +1,13 @@
 """邮件群发：新文章发布时给所有 active 订阅者发通知邮件。
 使用标准库 smtplib，无需新依赖。配置来源：后台「邮件设置」（Setting 表 mail_* 键）优先，环境变量 SMTP_* 兜底；
-均未配置则自动跳过，异常静默处理。
+均未配置则自动跳过，异常**记日志但不抛出**。
 每封邮件密送（收件人互不可见），并带退订链接（凭 email + unsub_token）。
 安全：标题/摘要/邮箱插入 HTML 前均转义；退订链接 email/token 均 URL 编码；主题经 Header 编码防换行注入。
 """
+import logging
 import threading
+
+logger = logging.getLogger(__name__)
 
 
 def load_mail_config():
@@ -135,27 +138,53 @@ def _fill_unsub(body, email, token):
 
 def notify_subscribers_async(post):
     """后台线程异步群发新文章通知给所有 active 订阅者。
-    在新文章发布时调用（不阻塞发布主流程）。所有异常静默处理。
+    在新文章发布时调用（不阻塞发布主流程）。异常记日志但不抛出。
+
+    ## v3.20.0：只传 `post.id` 进线程，线程内**重新查库**
+
+    **这是纵深防御，不是修 bug** —— 先把实测事实写清楚，免得后人误判：
+
+    调用点都在 `db.session.commit()` 之后（见 `admin/post_editor.py`），
+    而线程里 push 的是**新的 app context（= 新 session）**，原对象已 detach。
+    我原以为这会让属性访问抛 `DetachedInstanceError`，但**实测证伪**
+    （Flask-SQLAlchemy 3.1.1 / SQLAlchemy 2.0.52）：detached 的 `Post` 上
+    **标量属性照常可读**（值仍在实例 `__dict__`），所以原写法对
+    `_build_mail`（只读 title/summary/content/slug 四个标量）**本来就能工作**。
+
+    真正的风险边界是**懒加载关系**：detached 实例上访问从未加载的关系
+    （如 `post.author`）会抛 `DetachedInstanceError`，再被 `except Exception` 吞掉
+    → 「订阅者静默收不到信」，且**只有配了 SMTP 的部署才会遇到**。
+
+    所以这里改为传 id + 线程内 `db.session.get(Post, pid)`：
+    线程拿到的是**属于新 session 的活对象**，标量与关系都安全，
+    顺便还取到的是**最新状态**（而非提交那一刻的快照）。
+    代价是多一次主键查询 —— 相对一次 SMTP 往返可以忽略。
     """
+    pid = getattr(post, "id", None)   # ⚠️ 必须在调用线程里取（session 尚可用）
+    if not pid:
+        return
+
     def _worker():
         try:
-            from models import Subscriber
-            from flask import current_app
-            app = current_app._get_current_object()
+            from models import db, Post, Subscriber
             cfg = load_mail_config()
             if not cfg.get("host") or not cfg.get("username"):
                 return  # 未配置 SMTP，跳过
+            fresh = db.session.get(Post, pid)
+            if fresh is None:
+                return  # 文章已被删除，静默跳过（不是错误）
             subs = Subscriber.query.filter_by(active=True).all()
             if not subs:
                 return
-            body_html, plain = _build_mail(post, cfg.get("site_url", ""))
+            body_html, plain = _build_mail(fresh, cfg.get("site_url", ""))
             for sub in subs:
                 token = sub.unsub_token or ""
                 bh = _fill_unsub(body_html, sub.email, token)
                 bp = _fill_unsub(plain, sub.email, token)
-                _send_smtp(cfg, [sub.email], f"【新文章】{post.title}", bh, bp)
+                _send_smtp(cfg, [sub.email], f"【新文章】{fresh.title}", bh, bp)
         except Exception:
-            pass  # 群发失败不影响发文章
+            # 群发失败不影响发文章，但**必须留痕**（原为静默 pass）
+            logger.warning("订阅者群发失败（post_id=%s）", pid, exc_info=True)
 
     try:
         from flask import current_app
@@ -167,4 +196,5 @@ def notify_subscribers_async(post):
         t2 = threading.Thread(target=_runner, daemon=True)
         t2.start()
     except Exception:
-        pass
+        logger.warning("起后台线程失败，订阅者群发未执行（post_id=%s）", pid,
+                       exc_info=True)

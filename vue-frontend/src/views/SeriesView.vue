@@ -1,6 +1,6 @@
 <template>
   <div class="layout">
-    <main class="content">
+    <div class="content">
       <h1 class="page-title">文章系列</h1>
       <p class="empty" v-if="!series.length">还没有系列，去后台「系列管理」添加吧。</p>
       <div class="series-grid">
@@ -10,7 +10,7 @@
           <p class="count">{{ s.count }} 篇文章</p>
         </router-link>
       </div>
-    </main>
+    </div>
     <Sidebar />
   </div>
 </template>

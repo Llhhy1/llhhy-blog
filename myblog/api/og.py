@@ -148,6 +148,13 @@ def qr_image():
 
     安全：**仅允许本站 URL**（site_url 前缀或站内相对路径）——否则本接口会被
     当作公共二维码生成服务，给钓鱼链接批量生成码。附 60s/30 次限流。
+
+    v3.20.0 收口（闭环 R90 待办②）：相对路径分支**不再回退 `request.host_url`**。
+    此前 site_url 未配置时会用请求 Host 拼二维码内容 —— 「对外地址由客户端可控的
+    请求头决定」，与 v3.18.9 为 `/api/og/*` / `_abs()` 做的收口原则相冲突。
+    现在未配置即返回 400（带可操作提示），与 `/api/og/*` 行为一致。
+    绝对 URL 分支仍放行「本次请求的 host」（那是访客地址栏里的域名，且 URL 由客户端
+    显式传入、我们只做白名单校验），以保证别名域名访问时扫码仍然可用。
     """
     import io
     from flask import Response
@@ -156,7 +163,11 @@ def qr_image():
         return Response("too many requests", 429)
     url = (request.args.get("url") or "").strip()
     site = (get_setting("site_url", "") or "").rstrip("/")
-    # 允许的 host = site_url 的 host ∪ 本次请求的 host（生产即真实域名，未配 site_url 也可用）
+    # 允许的 host = site_url 的 host ∪ **本次请求的 host**。
+    # 为什么留着 request.host：这一支是「客户端**显式传入**一个绝对 URL，我们只校验
+    # 它是不是我们的域名」。而 request.host 正是访客浏览器地址栏里的域名，
+    # 放行它不会带来任何「攻击者决定的对外地址」——别名域名访问也能正常出码。
+    # （反过来，**由我们构造**对外地址的分支见下方，那里禁止用 Host。）
     from urllib.parse import urlparse
     allowed = set()
     for h in (urlparse(site).netloc if site else "", request.host or ""):
@@ -164,7 +175,16 @@ def qr_image():
         if h:
             allowed.add(h)
     if url.startswith("/"):
-        absu = (site + url) if site else request.host_url.rstrip("/") + url
+        # v3.20.0（闭环 R90 待办②）：**不再回退 `request.host_url`**。
+        # 「对外声明什么地址」必须由 site_url / site_base() 决定，**不能由客户端可控的
+        # Host 头决定** —— 这是 v3.18.9 已为 `/api/og/*` 与 `_abs()` 做过的同一处收口，
+        # 本接口此前是唯一漏网的。未配置时直接 400 并给出可操作的提示，
+        # 与 `/api/og/*` 在 site_base() 为空时的行为保持一致。
+        if not site:
+            return Response(
+                "site_url 未配置：请先在后台「站点设置」填站点 URL（否则二维码地址会随请求头变化）",
+                400)
+        absu = site + url
     elif url.startswith(("http://", "https://")):
         if urlparse(url).netloc.lower() not in allowed:
             return Response("forbidden", 403)

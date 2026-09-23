@@ -556,7 +556,7 @@ def create_app(enable_scheduler=True):
         return None
 
     # 跨域预检（OPTIONS）直接放行，否则浏览器 POST 会被拦
-    @app.before_request
+    @app.before_request   # noqa: RET503 —— 隐式返回 None = 放行（Flask 钩子语义）
     def handle_preflight():
         if request.method == "OPTIONS":
             return ("", 204)
@@ -655,7 +655,25 @@ def create_app(enable_scheduler=True):
 
     @app.context_processor
     def inject_globals():
-        """把每个页面都需要的公共数据注入模板（侧边栏/页脚用）。"""
+        """把每个页面都需要的公共数据注入模板（侧边栏 / 页脚用）。
+
+        ## 关于「每次渲染 8 条查询」——审计点名项，评估后**决定不加缓存**
+
+        审计指出本函数每次模板渲染固定 8 条查询。2026-09-23 实测后判断
+        **不值得为此引入缓存**，依据有两条：
+
+        1. **影响面比审计描述的小得多**。v3.18.6 SSR 退役后，全项目只剩 2 个模板
+           extend `base.html`（`login.html` / `register.html`），其余 45 处渲染
+           全是 `admin/*`。也就是说这 8 条查询只发生在**后台页面与登录页**上；
+           公开文章页由 nginx 直出 SPA + `/api/*` 返回 JSON，**根本不经过本函数**。
+        2. **缓存会引入过期语义，而收益极小**。全项目有 **20 处**直接写 `Setting`
+           （admin/settings.py 8 处，其余散落在 9 个文件），没有单一写入收口点；
+           要保证一致就得做 TTL + 失效钩子，代价是「改完主题/设置后一段时间内
+           页面仍显示旧值」——而换来的只是省掉后台点击时的 8 条小表查询。
+
+        结论：**保持简单**。若日后后台渲染变慢，先量 `EXPLAIN`/耗时再决定，
+        不要凭「查询条数多」就上缓存（见 ROADMAP §5.9 A 的同类判断）。
+        """
         cats = Category.query.order_by(Category.id).all()
         tags = Tag.query.order_by(Tag.id).all()
         links = FriendLink.query.order_by(FriendLink.sort).all()
@@ -701,12 +719,12 @@ def create_app(enable_scheduler=True):
         from utils import csrf_input as _csrf_input
         from flask import session as _session
         _csrf_generate()
-        return dict(
+        return dict(   # noqa: C408 —— 20 键上下文，dict() 更易读且避免手写 20 对引号出错
             cats=cats, tags=tags, links=links, recent=recent,
             total_posts=total_posts, total_views=total_views,
             total_comments=total_comments, settings=settings,
             site_title=settings.get("site_title", "我的博客"),
-            now_year=datetime.datetime.now().year,
+
             current_user=current_user,
             admin_css_v=admin_css_v,
             theme_css=theme_css,
@@ -746,6 +764,12 @@ def create_app(enable_scheduler=True):
                             import notify as _notify
                             _notify.notify_new_post(p, app.config.get("SITE_URL", ""))
                         except Exception:
+                            pass
+                        # v3.20.0：新文自动推送（默认关闭，见 seo_push.maybe_auto_push 的说明）
+                        try:
+                            import seo_push
+                            seo_push.maybe_auto_push(p)
+                        except Exception:  # noqa: BLE001, S110  (自动推送失败绝不影响发布主流程)
                             pass
                         try:
                             import mail_notify as _mail

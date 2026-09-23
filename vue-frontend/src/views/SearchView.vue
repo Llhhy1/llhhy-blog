@@ -1,6 +1,6 @@
 <template>
   <div class="layout">
-    <main class="content">
+    <div class="content">
       <h1 class="page-title">搜索{{ q ? `：${q}` : "" }}</h1>
       <p v-if="q && !items.length && !loading" class="empty">没有匹配 "{{ q }}" 的文章。</p>
       <p v-if="loading" class="empty">搜索中…</p>
@@ -24,7 +24,7 @@
         <span class="current">{{ page }} / {{ pages }}</span>
         <button :disabled="page >= pages" @click="go(page + 1)">下一页 →</button>
       </nav>
-    </main>
+    </div>
     <Sidebar />
   </div>
 </template>

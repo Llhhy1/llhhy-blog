@@ -36,11 +36,15 @@
     百度返回的 `remain`（当日剩余配额）会回写进 `Setting`，供页面展示。
     ⚠️ **字段名是 `remain` 不是 `remaining`**（v3.19.2 由生产数据实证）。
 """
+import os
 import json
 import threading
 import urllib.error
 import urllib.parse
 import urllib.request
+import logging
+
+logger = logging.getLogger(__name__)
 
 # --- 出站目标（唯一真相源；不得从别处拼接）---
 BAIDU_ENDPOINT = "http://data.zz.baidu.com/urls"
@@ -68,7 +72,7 @@ def _is_allowed_url(url):
     """
     try:
         u = urllib.parse.urlsplit(url)
-    except Exception:
+    except Exception:  # noqa: BLE001  (读 setting 失败→当关闭)
         return False
     host = (u.hostname or "").lower()
     if u.scheme == "https":
@@ -578,3 +582,68 @@ def enqueue(post_ids, engine, actor=None):
             _record(pid, engine, "fail", "后台线程启动失败，请重试或查看服务日志")
         return 0
     return len(ids)
+
+
+# ---------- 新文自动推送（v3.20.0，ROADMAP §5.4「新文自动 ping」的替代实现）----------
+#
+# ⚠️ **本批没有实现「ping 搜索引擎」，因为实测目标端点已经不存在**：
+#     2026-09-23 实测 `https://www.bing.com/ping?sitemap=...` 返回 **HTTP 410 Gone**，
+#     `https://www.google.com/ping?sitemap=...` 请求超时（该端点亦早已不推荐使用）。
+#     照原样实现只会得到一个永远失败、什么也不做的“功能”。
+#
+# **真正有效的替代路径**是复用本模块已有的两条真实通道：
+#   * 百度 → `push_baidu`（生产实测成功过）
+#   * Bing / Yandex 等 → `push_indexnow`（IndexNow，配额宽松，需先配 key）
+# 因此本函数做的是「发布即自动 enqueue 到**已配置凭据**的引擎」。
+#
+# ⚠️ **默认关闭**：百度主动推送有当日配额（本仓库实测曾只剩 2 次），
+#     自动推送会把它烧掉。需显式开启：`SEO_AUTO_PUSH=1` 或后台设置 `seo_auto_push=1`。
+
+AUTO_PUSH_KEY = "seo_auto_push"
+
+
+def _auto_push_enabled():
+    from utils import get_setting
+    v = (os.environ.get("SEO_AUTO_PUSH", "") or "").strip().lower()
+    if v in ("1", "true", "yes", "on"):
+        return True
+    try:
+        v2 = (get_setting(AUTO_PUSH_KEY, "") or "").strip().lower()
+    except Exception:
+        return False
+    return v2 in ("1", "true", "yes", "on")
+
+
+def maybe_auto_push(post, actor=None):
+    """文章「变为已发布」时调用：对已配置凭据的引擎自动入队推送。
+
+    设计要点（都关系到**别把配额烧掉**）：
+      * **默认关闭**（见 `_auto_push_enabled`）；
+      * 只推送**可见**文章（复用 `visible_posts_query`，不然会把未发布/回收站的 URL 推给搜索引擎）；
+      * **复用 `enqueue`** —— 它自带「3 次/5 分钟」限流与 pending 去重，
+        不会因连点发布而重复消耗配额；
+      * 无凭据的引擎会被 `submit_posts` 跳过，不会凭空造出失败记录；
+      * 全程异常不抛出：SEO 推送失败不影响发布主流程。
+    """
+    try:
+        if not _auto_push_enabled():
+            return 0
+        if not getattr(post, "published", False) or getattr(post, "in_trash", False) \
+                or getattr(post, "is_private", False):
+            return 0
+        from models import Post, visible_posts_query
+        pid = getattr(post, "id", None)
+        if not pid:
+            return 0
+        if not visible_posts_query().filter(Post.id == pid).first():
+            return 0     # 不可见（含未到点定时）→ 拒绝推送
+        n = 0
+        for engine in ENGINES:
+            try:
+                n += enqueue([pid], engine, actor=actor)
+            except Exception:  # noqa: BLE001  (单引擎失败不影响其余)
+                logger.warning("自动推送入队失败（engine=%s）", engine, exc_info=True)
+        return n
+    except Exception:  # noqa: BLE001  (SEO 推送失败绝不影响发布主流程)
+        logger.warning("自动推送检查失败", exc_info=True)
+        return 0

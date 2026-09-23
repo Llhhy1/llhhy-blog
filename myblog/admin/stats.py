@@ -52,7 +52,6 @@ def stats():
     summary = compute_summary()
     guard = bot_guard.guard_stats()
     # 时段分布转成带百分比的行，供模板画横向条形图
-    total_hour = sum(b["count"] for b in summary["hourly"]) or 1
     max_hour = max([b["count"] for b in summary["hourly"]] or [1]) or 1
     for b in summary["hourly"]:
         b["pct"] = round(b["count"] * 100 / max_hour)
@@ -175,3 +174,67 @@ def clear_audit_logs():
     log_audit("clear", "audit_log", None, f"清空 {days} 天前的审计日志 {deleted} 条", user=_current_user_or_none())
     flash(f"已清理 {deleted} 条 {days} 天前的旧日志（近 {days} 天记录保留）")
     return redirect(url_for("admin.audit_logs"))
+
+
+@admin_bp.route("/stats/export")
+@login_required
+@super_required
+def export_visit_stats():
+    """导出**访问统计明细**为 CSV（v3.20.0，ROADMAP §5.2）。
+
+    与 `/audit-logs/export` 的两点不同：
+      1. 这里是**单文件 CSV**（访问明细按行，不做 zip 打包）—— 量级不同，
+         访问日志通常是审计日志的几十倍，zip 打包意义不大而内存占用翻倍。
+      2. 默认只导出**最近 30 天**，且可用 `?days=N` 调整（上限 365）；
+         不做时间区间自由筛选，避免一次拉全表。
+
+    ⚠️ 必须复用 `_csv_guard`：CSV 公式注入防护。访问日志里的 `path`、`referrer`、
+    `region` 都含用户/第三方可控内容，单元格以 `= + - @` 开头会被 Excel 当公式执行。
+    """
+    import io
+    import csv
+    from flask import Response
+    # ⚠️ VisitLog **不在** `_helpers` 的导出里（`admin.stats` 命名空间取不到它），
+    # 必须显式导入 —— 否则路由运行时 NameError。这条是实测发现的（导入 admin.stats
+    # 后 hasattr(m, "VisitLog") 为 False），单看代码看不出来。
+    from models import VisitLog
+
+    try:
+        days = int(request.args.get("days", 30))
+    except (ValueError, TypeError):        # 具体异常（比 blind Exception 更准）
+        days = 30
+    days = max(1, min(days, 365))          # 夹到 [1, 365]，防 ?days=999999 拉全表
+
+    def _csv_guard(v):
+        s = "" if v is None else str(v)
+        if s and s[0] in ("=", "+", "-", "@", "\t", "\r", "\n"):
+            return "'" + s
+        return s
+
+    cutoff = (datetime.date.today() - datetime.timedelta(days=days - 1)).isoformat()
+    rows = (VisitLog.query.filter(VisitLog.date >= cutoff)
+            .order_by(VisitLog.created_at.desc()).all())
+
+    buf = io.StringIO()
+    w = csv.writer(buf)
+    w.writerow(["日期", "时段", "路径", "文章ID", "来源", "属地", "IP", "是否爬虫", "爬虫名"])
+    for r in rows:
+        w.writerow([
+            _csv_guard(r.date),
+            _csv_guard("%d时" % (r.hour or 0)),
+            _csv_guard(r.path),
+            _csv_guard(r.post_id),
+            _csv_guard(r.referrer),
+            _csv_guard(r.region),
+            _csv_guard(r.ip),
+            "是" if r.is_bot else "否",
+            _csv_guard(r.bot_name),
+        ])
+    # BOM：Excel 打开 UTF-8 CSV 需要它，否则中文乱码
+    data = "\ufeff" + buf.getvalue()
+    fname = "visit_stats_%s.csv" % datetime.date.today().isoformat()
+    return Response(
+        data.encode("utf-8"),
+        mimetype="text/csv; charset=utf-8",
+        headers={"Content-Disposition": 'attachment; filename="%s"' % fname},
+    )

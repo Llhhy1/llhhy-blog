@@ -15,7 +15,7 @@ import string
 from flask import session, current_app, request
 
 _CAPTCHA_SESSION_KEY = "captcha_answer"
-_CAPTCHA_PASS_KEY = "captcha_passed"
+_CAPTCHA_PASS_KEY = "captcha_passed"   # noqa: S105 —— 这是 session 键名，不是密码
 
 
 # ---------- 验证码配置（存 Setting 表，后台可单独设置；环境变量为默认值回退）----------

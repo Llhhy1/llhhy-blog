@@ -229,7 +229,7 @@ def test_theme_center_page_requires_super(app, client):
         superu = _mkuser(role=ROLE_SUPER)
         aid, sid = admin.id, superu.id
     try:
-        tok = _auth(client, aid)
+        _auth(client, aid)
         assert client.get("/admin/theme-center").status_code == 403
 
         _auth(client, sid)

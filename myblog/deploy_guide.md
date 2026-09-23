@@ -86,6 +86,39 @@
 4. 点 **「提交」**。等待依赖安装完成（首次约 1-3 分钟，面板会显示进度）。
 5. 项目状态变为 **运行中（绿色）** 即成功。若报错，点项目右侧 **「日志」** 查看原因。
 
+### 第 2b 步：gunicorn 并发配置（v3.20.0 起仓库内有权威副本）
+
+仓库根目录有 **`gunicorn_conf.py`**（v3.20.0 起入库）。它**不在部署包里**——
+`package.py` 只收 `myblog/`，所以 `update.sh` 不会覆盖它，日常升级无需关心它；
+它的作用是**重建站点时有据可依**（此前这份配置由宝塔生成、从未入库，
+删站/换机器就会丢，而且丢了以后并发能力静默退化、没人会发现）。
+
+**必须知道的三个事实**（都写在那份文件的注释里，这里再强调一遍）：
+
+1. **写的 `sync`，跑的是 `gthread`**：配置里是 `workers = 4, threads = 2,
+   worker_class = 'sync'`，但 **gunicorn 22 只要看到 `threads > 1` 就会自动把
+   worker 升级为 `gthread`**（官方文档原话：*"If you try to use the sync worker
+   type and set the threads setting to more than 1, the gthread worker type will
+   be used instead."*）。启动日志可见 `[INFO] Using worker: gthread`。
+2. **实际并发槽 = `workers × threads` = 4 × 2 = 8**，不是 4。
+   排查「慢请求占满 worker」类问题时**请按 gthread 判断**——
+   曾有一份第三方审计报告据「2~3 个 sync worker」误判为「两个并发点击即可打挂全站」。
+3. **4 个 worker 是刻意的**：机器是 2 核（`nproc` = 2），官方建议 `(2 × nproc) + 1`，
+   但本项目用 SQLite，worker 越多写锁竞争越重，故取 4。
+
+**验证线上实际并发模型**：
+
+```bash
+# ① 看启动日志里的 worker 类型（应出现 gthread）
+grep -m1 'Using worker' /www/wwwlogs/python/myblog/gunicorn_error.log
+
+# ② 看每个 worker 进程内的线程数（gthread 下应 > 1）
+for p in $(pgrep -f 'gunicorn.*myblog'); do echo "pid=$p threads=$(ls /proc/$p/task | wc -l)"; done
+```
+
+**改并发数怎么改**：编辑服务器上的 `gunicorn_conf.py` → 在宝塔「Python 项目」
+点「停止」再「启动」（**不是**「重启」）→ 用上面两条命令确认生效。
+
 ## 第 3 步：上传前端静态文件
 
 1. 仍在 **「文件」** 管理，进入 `/www/wwwroot/`。
@@ -115,6 +148,15 @@
     # 拿到的是 HTML 而非 XML → 表现为「朋友订阅不了 RSS」。这几段必须放在
     # location / 之前（精确匹配优先于前缀匹配）。
     location = /feed.xml {
+        proxy_pass http://127.0.0.1:8686;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+    # v3.20.0 新增：Atom 1.0 订阅源。**这条必须加** —— 它是精确匹配，
+    # 漏了就会落到 SPA 的 try_files 拿到 index.html（RSS 阅读器解析失败）。
+    location = /feed.atom {
         proxy_pass http://127.0.0.1:8686;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
@@ -488,6 +530,17 @@ supervisorctl status
 7. **环境变量**：只覆盖文件 + 重启，环境变量原样保留，无需重填；**若误删 Python 项目重建，必须重填 `SECRET_KEY` / `ADMIN_PASSWORD`**（缺失拒绝启动）。改 `SECRET_KEY` 会让已登录用户需要重新登录，属正常现象。
 
 > ⚠️ **服务器上的 `update.sh` / `deploy.sh` 也务必与最新 Release 同版**：脚本经历过「假成功不覆盖 / 校验误报 / 无法自动重启」多轮加固，升级前先从最新 Release 覆盖一次脚本，再跑一键更新。
+
+> **v3.20.0（待办清单批次：工程化门禁 + 异步化 + 可观测性 + 前端 a11y）升级要点**：**本版同时改了后端与前端 → 两个包都要覆盖**（`myblog-backend.zip` + `vue-frontend-dist.zip`）。
+> - **新增 `GET /api/health`**：无需登录的存活探针，回 `{ok, version, db}`；依赖不可用返回 **503**。此前项目**没有**任何探活端点，`UPTIME_MONITOR.md` 的监控可以直接打这个地址做机器判定（不再依赖人工体检）。
+> - **通知改为异步**：保存/发布文章不再同步等待 Telegram / 企业微信推送（原先每渠道 6s、两渠道齐配最坏阻塞 **12s**）。**行为变化**：调用即返回，外发在后台线程；无应用上下文时（脚本调用）自动退化为同步。线上目前两个渠道**都未配置**，所以体感无变化。
+> - **`gunicorn_conf.py` 已入库**（仓库根）：**不在部署包里**，`update.sh` 不会覆盖服务器上那份，日常升级无需关心。详见上文新增的「第 2b 步」。
+> - **CI 新增 lint 门禁**（ruff + 债务棘轮 + i18n + 发布公钥一致性）与 **dependabot**：仅影响 GitHub 侧，不影响部署。`npm install` → `npm ci`。**Dependabot 会定期开依赖升级 PR，但不会自动合并** —— `requirements.txt` 的上限是带理由刻意选的，合前需人工复核。
+> - **无新表、无新依赖、无新增必填环境变量、无表结构变更、无需 `flask db`。** 新增一个**可选**环境变量 `SEO_AUTO_PUSH`（默认 `0` = 关闭）：设为 `1` 后，文章发布即自动入队推送给已配置凭据的搜索引擎（复用收录控制台的 `enqueue` 限流去重）。默认关闭是为了不烧百度当日推送配额；不设则完全无行为变化。
+> - **🔴 Nginx 需要加一行**：本版新增 `GET /feed.atom`（Atom 1.0 订阅源）。nginx 对 `/feed.xml` 用的是 `location =`（精确匹配），所以**必须同步加 `location = /feed.atom`**（原文见上文「第 4 步」的 feed 段落）。**漏了不会报错，只会悄悄返回 SPA 的 index.html**，表现为「订阅器说这个 Atom 源无效」。改完 `nginx -t && nginx -s reload`。
+> - **新增 `GET /api/health`**：见上一条。
+> - **前端 a11y 变化**（可见的很轻微）：键盘「跳到正文」链接（Tab 首个焦点，平时不可见）；toast 改为**常驻 live region**（读屏可播报 —— 原先给每条 toast 现挂 `role="status"`，而 live region 必须先在 DOM 中存在才会被朗读）；`/docs` 目录高亮的 observer 现在离开页面会释放（修掉一处真实泄漏）；图片灯箱补 `role="dialog"` + **完整焦点陷阱**（Tab 循环、关闭后焦点归还）；**修掉「每页 2 个 `<main>`」**（11 个视图的 `<main>` 改 `<div>`，landmark 语义恢复正确）。
+> - **回滚**：本版无破坏性变更，回退到 v3.19.2 会失去 `/health` 与 a11y 修复，其余功能不受影响。
 
 > **v3.19.2（修正百度配额字段名 `remain`）升级要点**：**纯后端改动，只需覆盖后端包**（`vue-frontend/` 未动）。**无新表、无新依赖、无新环境变量、无需改 Nginx、无需 `flask db`**——只需覆盖 `myblog-backend.zip` → gunicorn「停止 → 启动」。
 > - **改了什么**：百度主动推送的剩余配额字段名是 **`remain`**（生产实测 `{"remain":8,"success":1}`），v3.19.0/v3.19.1 读的是 `remaining` → 剩余配额读不到、写不进 `seo_baidu_quota`，后台「🔍 收录」页的配额栏一直空白。修法：两个字段名都认 + 把 `remain` 加入响应字段白名单。

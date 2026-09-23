@@ -161,7 +161,7 @@ def tool_create_post(args):
         try:
             category_id = int(category_id)
         except (TypeError, ValueError):
-            raise ValueError("category_id 必须是整数")
+            raise ValueError("category_id 必须是整数") from None
         if Category.query.get(category_id) is None:
             raise ValueError("category_id 不存在（不猜，请传入有效分类 id）")
     else:
@@ -173,7 +173,7 @@ def tool_create_post(args):
         try:
             series_id = int(series_id)
         except (TypeError, ValueError):
-            raise ValueError("series_id 必须是整数")
+            raise ValueError("series_id 必须是整数") from None
     else:
         series_id = None
 
@@ -194,7 +194,7 @@ def tool_create_post(args):
         try:
             scheduled_at = _parse_iso(sched_raw)
         except Exception:
-            raise ValueError("scheduled_at 必须是 ISO8601(UTC) 时间字符串")
+            raise ValueError("scheduled_at 必须是 ISO8601(UTC) 时间字符串") from None
 
     # —— 提权字段闸门（默认一律忽略）——
     allow_super = current_app.config.get("MCP_WRITE_ALLOW_SUPER_FIELDS", "0") == "1"
@@ -211,7 +211,7 @@ def tool_create_post(args):
             try:
                 aid = int(aid)
             except (TypeError, ValueError):
-                raise ValueError("author_id 必须是整数")
+                raise ValueError("author_id 必须是整数") from None
             from models import User
             if User.query.get(aid) is None:
                 raise ValueError("author_id 不存在（不猜）")

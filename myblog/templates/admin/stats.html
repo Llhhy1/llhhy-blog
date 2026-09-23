@@ -1,4 +1,62 @@
 {% extends "admin/base.html" %}
+
+  <!-- v3.20.0 统计深度（ROADMAP §5.2）：来源渠道 / 实时在线 / 环比 / 导出 -->
+  <div class="stats-card">
+    <h3>📈 环比（最近 {{ summary.compare.days }} 天 vs 上一个同期）</h3>
+    {% set c = summary.compare %}
+    <table class="stats-table">
+      <thead><tr><th>指标</th><th>本期</th><th>上期</th><th>环比</th></tr></thead>
+      <tbody>
+        {% for label, it in [("访问量 PV", c.pv), ("独立访客 UV", c.uv), ("新增评论", c.comments), ("新增订阅", c.subscribers)] %}
+        <tr>
+          <td>{{ label }}</td>
+          <td>{{ it.cur }}</td>
+          <td>{{ it.prev }}</td>
+          <td>
+            {# 上期为 0 时环比没有百分比意义 —— 显示「—」而不是 0% #}
+            {% if it.pct is none %}<span class="stats-empty">—</span>
+            {% elif it.pct > 0 %}<span class="tag tag-up">↑ {{ it.pct }}%</span>
+            {% elif it.pct < 0 %}<span class="tag tag-down">↓ {{ (it.pct|abs) }}%</span>
+            {% else %}<span class="tag tag-flat">持平</span>{% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    <p class="stats-tip">在线（近似）：<strong>{{ summary.online }}</strong> —— 指最近 10 分钟内的独立 IP 数。本项目无会话表，按访问日志推算，NAT / 换网络会重复计数，是<b>近似值</b>不是精确在线人数。</p>
+  </div>
+
+  <div class="stats-card">
+    <h3>🔗 来源渠道 TOP（最近 30 天）</h3>
+    {% if summary.referrers %}
+    <table class="stats-table">
+      <thead><tr><th>来源</th><th>次数</th><th>占比</th></tr></thead>
+      <tbody>
+        {% set total_ref = summary.referrers | sum(attribute="count") %}
+        {% for r in summary.referrers %}
+        <tr>
+          <td class="rank-title">{{ r.source }}</td>
+          <td class="rank-count">{{ r.count }}</td>
+          <td>{{ (r.count * 100 / total_ref)|round(1) if total_ref else 0 }}%</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <p class="stats-empty">暂无来源数据（referrer 自 v3.17.3 起只记录 origin，不含具体页面）</p>
+    {% endif %}
+  </div>
+
+  <div class="stats-card">
+    <h3>⬇️ 导出访问明细</h3>
+    <p class="stats-tip">导出 CSV（含 UTF-8 BOM，Excel 直接打开不乱码）。已做 <b>CSV 公式注入防护</b>：以 <code>= + - @</code> 开头的单元格会被加前缀单引号中和。</p>
+    <p>
+      <a class="btn" href="/admin/stats/export?days=7">最近 7 天</a>
+      <a class="btn" href="/admin/stats/export?days=30">最近 30 天</a>
+      <a class="btn" href="/admin/stats/export?days=365">最近一年</a>
+    </p>
+  </div>
+
 {% block title %}访问统计{% endblock %}
 {% block content %}
   <style>

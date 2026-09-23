@@ -7,7 +7,9 @@
 - 出站 host 白名单必须精确（`data.zz.baidu.com.evil.com` 不能过）；
 - 响应回显里的 token 必须被抹掉（否则「页面不回显明文」当场失效）。
 """
+import os
 import secrets
+from datetime import timedelta
 
 import pytest
 
@@ -1108,3 +1110,76 @@ def test_purge_removes_seo_submission_rows(app, client):
             RecycleBin.query.filter_by(id=rid).delete(synchronize_session=False)
             Post.query.filter_by(id=pid).delete(synchronize_session=False)
             _cleanup(post_ids=[pid], user_ids=[uid])
+
+
+# ===========================================================================
+# 九、v3.20.0：发布即自动推送（seo_push.maybe_auto_push）
+#     —— 默认关闭 + 防配额烧掉 + 不推不可见 URL
+# ===========================================================================
+def test_maybe_auto_push_disabled_by_default_is_noop(app):
+    """默认关闭（不读 env / 不读 setting）→ 返回 0，且**不创建任何** SeoSubmission。"""
+    os.environ.pop("SEO_AUTO_PUSH", None)
+    with app.app_context():
+        Setting.query.filter_by(key=seo_push.AUTO_PUSH_KEY).delete(synchronize_session=False)
+        db.session.commit()
+        p = _mkpost(published=True)
+        pid = p.id
+        before = SeoSubmission.query.count()
+        n = seo_push.maybe_auto_push(p)
+        after = SeoSubmission.query.count()
+        _cleanup(post_ids=[pid])
+    assert n == 0, "默认关闭时应返回 0"
+    assert after == before, "默认关闭时不得产生推送记录（百度配额只剩 2，不能自动烧）"
+
+
+def test_maybe_auto_push_enabled_enqueues_visible(app):
+    """开启（SEO_AUTO_PUSH=1）+ 已发布可见文章 → 为每个引擎入队（建 pending 行）。"""
+    os.environ["SEO_AUTO_PUSH"] = "1"
+    pids = []
+    try:
+        with app.app_context():
+            p = _mkpost(published=True)
+            pid = p.id
+            pids.append(pid)
+            n = seo_push.maybe_auto_push(p)
+            rows = SeoSubmission.query.filter_by(post_id=pid).all()
+        assert n == len(seo_push.ENGINES), "返回数应等于引擎数"
+        assert {r.engine for r in rows} == set(seo_push.ENGINES)
+        # ⚠️ 不卡 status=="pending"：enqueue 建的是 pending 行，但后台线程会异步
+        # 把它改成 ok/fail（无凭据时通常 fail）。行已创建 + 引擎集合正确即达标。
+        assert all(r.status in ("pending", "ok", "fail") for r in rows)
+    finally:
+        os.environ.pop("SEO_AUTO_PUSH", None)
+        with app.app_context():
+            _cleanup(post_ids=pids)
+
+
+def test_maybe_auto_push_refuses_invisible(app):
+    """开启但文章在回收站 / 私密 / 定时未到 → 一律拒绝（不推不可见 URL 给搜索引擎）。"""
+    os.environ["SEO_AUTO_PUSH"] = "1"
+    pids = []
+    try:
+        with app.app_context():
+            for kw in ({"in_trash": True},
+                       {"is_private": True},
+                       {"scheduled_at": utcnow() + timedelta(days=1)}):
+                p = _mkpost(published=True, **kw)
+                pid = p.id
+                pids.append(pid)
+                n = seo_push.maybe_auto_push(p)
+                cnt = SeoSubmission.query.filter_by(post_id=pid).count()
+                assert n == 0 and cnt == 0, "不可见文章不得推送：%r" % kw
+    finally:
+        os.environ.pop("SEO_AUTO_PUSH", None)
+        with app.app_context():
+            _cleanup(post_ids=pids)
+
+
+def test_maybe_auto_push_none_is_safe(app):
+    """调用参数为 None / 无 id → 不抛异常，返回 0（发布主流程不因此崩）。"""
+    os.environ["SEO_AUTO_PUSH"] = "1"
+    try:
+        with app.app_context():
+            assert seo_push.maybe_auto_push(None) == 0
+    finally:
+        os.environ.pop("SEO_AUTO_PUSH", None)

@@ -1,6 +1,6 @@
 <template>
   <div class="layout">
-    <main class="content">
+    <div class="content">
       <div v-if="notFound" class="post-detail">
         <h1>找不到这篇文章</h1>
         <p class="post-meta">可能已被删除或链接错误</p>
@@ -73,11 +73,17 @@
         <LikeButton :slug="post.slug" :count="post.likes || 0" />
         <CommentForm :slug="post.slug" />
       </article>
-    </main>
+    </div>
     <Sidebar />
 
     <!-- v3.16.0 图片灯箱：点击正文图片放大预览，支持 ←/→ 切换、Esc 关闭 -->
-    <div v-if="lbIndex >= 0" class="lightbox" @click="lbClose">
+        <!-- v3.20.0 a11y：补 role="dialog" + aria-modal。
+             原先只有关闭/上一张/下一张三个带 aria-label 的按钮，容器本身对读屏是「哑」的，
+             打开后不会被告知「进入了一个对话框」。
+             ⚠️ 未做完整焦点陷阱（Tab 仍可能走到背后的页面元素）—— 记录为已知缺口，
+             不假装已做到 WCAG 的 modal 要求。 -->
+        <div v-if="lbIndex >= 0" ref="lbBox" class="lightbox" role="dialog" aria-modal="true"
+             aria-label="图片预览" @click="lbClose">
       <button class="lb-close" type="button" aria-label="关闭" @click.stop="lbClose">×</button>
       <img class="lb-img" :src="lbImgs[lbIndex]" alt="预览大图" @click.stop />
       <button v-if="lbImgs.length > 1" class="lb-nav lb-prev" type="button" aria-label="上一张" @click.stop="lbStep(-1)">‹</button>
@@ -133,16 +139,56 @@ const rewardQrDefault = ref("");
 // v3.16.0 图片灯箱
 const lbImgs = ref([]);
 const lbIndex = ref(-1);
+// v3.20.0 a11y：灯箱容器 ref + 打开前的焦点元素（关闭后归还焦点）
+const lbBox = ref(null);
+let lbPrevFocus = null;
+
 function lbClose() { lbIndex.value = -1; }
 function lbStep(d) {
   if (!lbImgs.value.length) return;
   lbIndex.value = (lbIndex.value + d + lbImgs.value.length) % lbImgs.value.length;
 }
+
+// v3.20.0 a11y：完整的焦点管理。此前只有 role="dialog"，Tab 仍会跑到背后页面上，
+// 键盘/读屏用户会「掉出对话框」。现在：打开时记住来源焦点并聚焦关闭按钮，
+// 关闭时把焦点还回去（不还回去会让键盘用户回到页面顶部，丢失位置）。
+watch(lbIndex, async (v) => {
+  if (v >= 0) {
+    lbPrevFocus = document.activeElement;
+    await nextTick();
+    const btn = lbBox.value && lbBox.value.querySelector(".lb-close");
+    if (btn) btn.focus();
+  } else {
+    const prev = lbPrevFocus;
+    lbPrevFocus = null;
+    if (prev && typeof prev.focus === "function" && document.contains(prev)) prev.focus();
+  }
+});
+
 function lbKey(e) {
   if (lbIndex.value < 0) return;
-  if (e.key === "Escape") lbClose();
-  if (e.key === "ArrowLeft") lbStep(-1);
-  if (e.key === "ArrowRight") lbStep(1);
+  if (e.key === "Escape") { lbClose(); return; }
+  if (e.key === "ArrowLeft") { lbStep(-1); return; }
+  if (e.key === "ArrowRight") { lbStep(1); return; }
+  if (e.key === "Tab") {
+    // 焦点陷阱：只在对话框内的可聚焦元素之间循环
+    const box = lbBox.value;
+    if (!box) return;
+    const list = Array.prototype.filter.call(
+      box.querySelectorAll("button, [href], [tabindex]:not([tabindex='-1'])"),
+      (el) => !el.disabled && el.offsetParent !== null
+    );
+    if (!list.length) return;
+    const first = list[0];
+    const last = list[list.length - 1];
+    if (!box.contains(document.activeElement)) {
+      e.preventDefault(); first.focus();
+    } else if (e.shiftKey && document.activeElement === first) {
+      e.preventDefault(); last.focus();
+    } else if (!e.shiftKey && document.activeElement === last) {
+      e.preventDefault(); first.focus();
+    }
+  }
 }
 
 async function load() {

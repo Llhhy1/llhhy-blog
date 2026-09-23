@@ -517,8 +517,127 @@ def compute_summary():
         "human_visits": VisitLog.query.filter_by(is_bot=False).count(),
         "bot_today": VisitLog.query.filter_by(date=today_str(), is_bot=True).count(),
         "bot_breakdown": _bot_breakdown(),
+        # v3.20.0：统计深度（ROADMAP §5.2）—— 全部复用既有字段，**零表结构变更**
+        "referrers": _top_referrers(),
+        "online": compute_online(),
+        "compare": compute_period_compare(),
         "updated_at": fmt_bj(utcnow(), "%Y-%m-%d %H:%M:%S"),
     }
+
+
+# ---------- v3.20.0 统计深度（ROADMAP §5.2）----------
+# 设计前提：**不改表结构**。因此只使用 VisitLog 既有字段：
+#   * `referrer`（v3.17.3 起**只存 origin**，不含 query/path）→ 可做来源渠道，且天然不泄隐私
+#   * `date` / `hour` / `ip`（均有索引）→ 可做趋势与环比
+#   * `created_at` → 可做「实时在线」的近似值
+# ⚠️ **设备/浏览器分布本批不做**：VisitLog 没有 UA 字段，要实现必须新增列 ——
+#    与项目「能不改表结构就不改」的原则冲突，故列在 ROADMAP 待办而非强做。
+
+_REFERRER_LABELS = (
+    ("google.", "Google"), ("bing.", "Bing"), ("baidu.", "百度"),
+    ("duckduckgo.", "DuckDuckGo"), ("so.com", "360搜索"), ("sogou.", "搜狗"),
+    ("sm.cn", "神马搜索"), ("yandex.", "Yandex"),
+    ("mp.weixin.", "微信"), ("weibo.", "微博"), ("zhihu.", "知乎"),
+    ("x.com", "X / Twitter"), ("twitter.", "X / Twitter"),
+    ("facebook.", "Facebook"), ("linkedin.", "LinkedIn"),
+    ("juejin.", "掘金"), ("csdn.", "CSDN"), ("v2ex.", "V2EX"), ("github.", "GitHub"),
+)
+
+
+def _label_referrer(ref):
+    """把来源 origin 映射成可读名字；未知来源退回域名本身。"""
+    if not ref:
+        return "直接访问"
+    low = ref.lower()
+    for key, name in _REFERRER_LABELS:
+        if key in low:
+            return name
+    return ref.split("//")[-1].split("/")[0]
+
+
+def _top_referrers(limit=10, days=30):
+    """来源渠道 TOP N。空 referrer 视为「直接访问」，不参与聚合（由前端另算）。"""
+    try:
+        end = datetime.date.today()
+        start = (end - datetime.timedelta(days=days - 1)).isoformat()
+        rows = (db.session.query(VisitLog.referrer, db.func.count(VisitLog.id).label("c"))
+                .filter(VisitLog.referrer != "",
+                        VisitLog.date >= start, VisitLog.date <= end.isoformat())
+                .group_by(VisitLog.referrer)
+                .order_by(db.desc("c")).limit(limit).all())
+        return [{"source": _label_referrer(r[0]), "count": r[1]} for r in rows]
+    except Exception:  # noqa: BLE001  (来源聚合失败不应拖垮统计页)
+        return []
+
+
+def compute_online(minutes=10):
+    """「实时在线」**近似值**：最近 N 分钟内的独立 IP 数。
+
+    ⚠️ 它是近似值不是精确在线人数：本项目没有会话表，只能按 VisitLog 的
+    独立 IP 推算 —— NAT / 换网络会重复计数，反之短时无请求会被漏掉。
+    取名 `online` 而不是 `online_users` 就是为了避免被误当成精确值。
+    """
+    try:
+        cutoff = utcnow() - datetime.timedelta(minutes=minutes)
+        n = (db.session.query(db.func.count(db.func.distinct(VisitLog.ip)))
+             .filter(VisitLog.created_at >= cutoff)
+             .filter(VisitLog.is_bot.is_(False)).scalar())
+        return int(n or 0)
+    except Exception:  # noqa: BLE001  (在线数估算失败不应拖垮统计页)
+        return 0
+
+
+def compute_period_compare(days=7):
+    """本期 vs 上一期**环比**（PV / UV / 评论 / 订阅）。
+
+    分母为 0 时 `pct` 返回 `None`（而不是 0 或无穷大）——
+    环比在上期为 0 时**没有百分比意义**，前端应显示为「—」而不是 0%。
+    """
+    def _delta(cur, prev):
+        pct = None if prev == 0 else round((cur - prev) * 100.0 / prev, 1)
+        return {"cur": cur, "prev": prev, "pct": pct}
+
+    try:
+        end = datetime.date.today()
+        cur_start = (end - datetime.timedelta(days=days - 1)).isoformat()
+        prev_end = (end - datetime.timedelta(days=days)).isoformat()
+        prev_start = (end - datetime.timedelta(days=days * 2 - 1)).isoformat()
+
+        def _agg(a, b):
+            rows = (db.session.query(VisitLog.date, VisitLog.ip)
+                    .filter(VisitLog.date >= a, VisitLog.date <= b).all())
+            return {"pv": len(rows), "uv": len({ip for _, ip in rows})}
+
+        cur, prev = _agg(cur_start, end.isoformat()), _agg(prev_start, prev_end)
+        return {
+            "days": days,
+            "pv": _delta(cur["pv"], prev["pv"]),
+            "uv": _delta(cur["uv"], prev["uv"]),
+            # 评论 / 订阅：按创建时间区间统计（两者都有 created_at）
+            "comments": _delta(
+                Comment.query.filter(Comment.created_at >= _dt(cur_start),
+                                     Comment.created_at < _dt_tomorrow(end)).count(),
+                Comment.query.filter(Comment.created_at >= _dt(prev_start),
+                                     Comment.created_at < _dt(prev_end + "T24")).count()),
+            "subscribers": _delta(
+                Subscriber.query.filter(Subscriber.created_at >= _dt(cur_start),
+                                        Subscriber.created_at < _dt_tomorrow(end)).count(),
+                Subscriber.query.filter(Subscriber.created_at >= _dt(prev_start),
+                                        Subscriber.created_at < _dt(prev_end + "T24")).count()),
+        }
+    except Exception:  # noqa: BLE001  (环比计算失败不应拖垮统计页)
+        return {"days": days, "pv": _delta(0, 0), "uv": _delta(0, 0),
+                "comments": _delta(0, 0), "subscribers": _delta(0, 0)}
+
+
+def _dt(date_str):
+    """'YYYY-MM-DD' → 当日 00:00 的 naive datetime（与库里 utcnow() 同一口径）。"""
+    return datetime.datetime.strptime(date_str, "%Y-%m-%d")
+
+
+def _dt_tomorrow(end_date):
+    """'YYYY-MM-DD' → 次日 00:00（用作半开区间上界）。"""
+    return _dt((end_date + datetime.timedelta(days=1)).isoformat())
 
 
 def compute_dashboard(range_days=30):

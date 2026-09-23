@@ -51,12 +51,12 @@ def test_sync_tags_dedups_case_and_dups(app):
     tk = _tok()
     tag_a = "Zz" + tk          # 随机名，保证不与真实数据撞
     with app.app_context():
-        pid = None
+
         try:
             p = Post(title="t-" + tk, slug="p-" + tk, content="正文", published=False)
             db.session.add(p)
             db.session.flush()
-            pid = p.id
+
             # 大小写变体 + 中文分隔 + 同义重复
             _sync_tags(p, f"{tag_a}， {tag_a.lower()}、{tag_a.upper()}, 生活")
             db.session.commit()
@@ -118,6 +118,6 @@ def test_merge_duplicate_tags_legacy_mess(app):
             rows = Tag.query.filter(Tag.name.contains(tk)).all()
             assert len(rows) == 1
             keep = rows[0]
-            assert set(x.id for x in keep.posts) == {p1.id, p2.id}
+            assert {x.id for x in keep.posts} == {p1.id, p2.id}
         finally:
             _cleanup_token(tk)

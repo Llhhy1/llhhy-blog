@@ -119,7 +119,7 @@ def package_backend(version):
 def package_frontend(front_dir):
     out = os.path.join(ROOT, "vue-frontend-dist.zip")
     with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as zf:
-        for dirpath, dirnames, filenames in os.walk(front_dir):
+        for dirpath, _dirnames, filenames in os.walk(front_dir):
             for fn in filenames:
                 full = os.path.join(dirpath, fn)
                 rel = os.path.relpath(full, front_dir)

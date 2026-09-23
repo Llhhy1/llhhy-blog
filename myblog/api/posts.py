@@ -331,10 +331,10 @@ def post_comments(slug):
 @api_bp.route("/post/<slug>/related")
 def related_posts(slug):
     p = visible_posts_query().filter_by(slug=slug).first_or_404()
-    p_tags = set(t.id for t in p.tags)
+    p_tags = {t.id for t in p.tags}
     scored = []
     for c in visible_posts_query().filter(Post.id != p.id).all():
-        c_tags = set(t.id for t in c.tags)
+        c_tags = {t.id for t in c.tags}
         score = len(p_tags & c_tags)
         if p.category_id and p.category_id == c.category_id:
             score += 1
@@ -367,9 +367,9 @@ def also_viewed(slug):
         for (pid,) in other:
             scored[pid] = scored.get(pid, 0) + 1
     # 相似度加权（标签/分类）
-    p_tags = set(t.id for t in p.tags)
+    p_tags = {t.id for t in p.tags}
     for c in visible_posts_query().filter(Post.id != p.id).all():
-        c_tags = set(t.id for t in c.tags)
+        c_tags = {t.id for t in c.tags}
         sim = len(p_tags & c_tags)
         if p.category_id and p.category_id == c.category_id:
             sim += 1
@@ -410,9 +410,8 @@ def search_api():
         esc_q = escape(q)
         # 大小写不敏感地包裹命中词
         import re as _re
-        esc_text = _re.sub(_re.escape(esc_q), lambda m: f"<mark>{m.group(0)}</mark>",
-                           esc_text, flags=_re.IGNORECASE)
-        return esc_text
+        return _re.sub(_re.escape(esc_q), lambda m: f"<mark>{m.group(0)}</mark>",
+                       esc_text, flags=_re.IGNORECASE)
 
     try:
         import fts as fts_mod
@@ -483,6 +482,12 @@ def publish_now(post_id):
         import notify as _notify
         _notify.notify_new_post(p, current_app.config.get("SITE_URL", ""))
     except Exception:
+        pass
+    # v3.20.0：新文自动推送（默认关闭，见 seo_push.maybe_auto_push 的说明）
+    try:
+        import seo_push
+        seo_push.maybe_auto_push(p)
+    except Exception:  # noqa: BLE001, S110  (自动推送失败绝不影响发布主流程)
         pass
     try:
         import mail_notify as _mail

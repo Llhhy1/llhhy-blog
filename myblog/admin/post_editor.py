@@ -151,6 +151,11 @@ def edit_post(post_id):
                 notify.notify_new_post(post, current_app.config.get("SITE_URL", ""))
             except Exception:
                 pass
+            try:
+                import seo_push
+                seo_push.maybe_auto_push(post)
+            except Exception:  # noqa: BLE001, S110  (自动推送失败绝不影响发布主流程)
+                pass
             # C3 邮件群发：草稿转发布时也通知订阅者
             try:
                 mail_notify.notify_subscribers_async(post)

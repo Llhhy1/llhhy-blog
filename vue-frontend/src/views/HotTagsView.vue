@@ -1,6 +1,6 @@
 <template>
   <div class="layout">
-    <main class="content">
+    <div class="content">
       <h1 class="page-title">🔥 热门标签</h1>
       <p class="empty" v-if="!tags.length">还没有标签数据</p>
       <div class="hot-tag-cloud">
@@ -14,7 +14,7 @@
           {{ t.name }} <span class="hot-tag-count">{{ t.count }}</span>
         </router-link>
       </div>
-    </main>
+    </div>
     <Sidebar />
   </div>
 </template>

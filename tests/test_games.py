@@ -32,7 +32,7 @@ def test_unpack_rejects_traversal():
     bad = _zip_bytes({"../evil.html": "<script>x</script>"})
     try:
         gs.unpack_zip_safely(bad)
-        assert False, "应拒绝穿越路径"
+        raise AssertionError("应拒绝穿越路径")
     except ValueError as e:
         assert "路径" in str(e)
 
@@ -41,7 +41,7 @@ def test_unpack_rejects_abs_and_bad_ext():
     for payload in ({"C:/evil.html": "x"}, {"game.exe": b"MZ"}, {"a.php": "<?php"}):
         try:
             gs.unpack_zip_safely(_zip_bytes(payload))
-            assert False, "应拒绝：" + str(payload)
+            raise AssertionError("应拒绝：" + str(payload))
         except ValueError:
             pass
 

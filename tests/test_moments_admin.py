@@ -157,7 +157,7 @@ def test_moments_admin_page_requires_admin_role(app, client):
             _auth(client, plain.id)
             r = client.get("/admin/moments")
             assert r.status_code == 302, "普通用户应被重定向，实际 %s" % r.status_code
-            r2 = client.post("/admin/moment/%d/delete" % mid, data={"csrf_token": "x"})
+            client.post("/admin/moment/%d/delete" % mid, data={"csrf_token": "x"})
             assert db.session.get(Moment, mid) is not None, "普通用户不得删除动态"
         finally:
             _cleanup([mid], [u.id, plain.id])

@@ -62,7 +62,7 @@
     </section>
 
     <div class="layout">
-      <main class="content">
+      <div class="content">
         <h1 class="page-title">✨ 最新文章</h1>
         <!-- v3.17.0 骨架屏：首屏加载中显示占位，避免「还没有文章」闪现 -->
         <template v-if="loading">
@@ -88,7 +88,7 @@
           <router-link v-if="page < totalPages" :to="{ query: { page: page + 1 } }">下一页 →</router-link>
           <span v-else class="disabled">下一页 →</span>
         </nav>
-      </main>
+      </div>
       <Sidebar />
     </div>
   </div>

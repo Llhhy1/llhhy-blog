@@ -1,6 +1,6 @@
 <template>
   <div class="layout">
-    <main class="content">
+    <div class="content">
       <h1 class="page-title">广场 · 社交聚合</h1>
 
       <!-- 标签切换 -->
@@ -90,7 +90,7 @@
         </div>
         <p style="margin-top:14px;"><router-link class="btn-ghost" to="/social">🔗 查看完整社交墙 →</router-link></p>
       </template>
-    </main>
+    </div>
 
     <Sidebar />
   </div>

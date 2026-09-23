@@ -1,4 +1,8 @@
 <template>
+  <!-- v3.20.0 a11y：跳到正文（skip link）。
+       键盘用户按 Tab 时的第一个焦点就是它，不必再穿过整条导航 + 抽屉菜单才到内容。
+       视觉上默认移出屏幕，获得焦点时浮出（见 .skip-link 样式）。 -->
+  <a class="skip-link" href="#main-content" @click.prevent="focusMain">{{ t('skip_to_content') }}</a>
   <div class="reading-progress" id="reading-progress"></div>
   <!-- v2.6.0 mobile 抽屉式导航 -->
   <div class="drawer-mask" :class="{show: drawerOpen}" @click="drawerOpen = false"></div>
@@ -116,7 +120,9 @@
   <!-- 文档页（/docs）内容极宽，用 site-frame--wide 打破 1100px 限宽并放开裁剪，否则三栏布局被压窄、右侧「本页目录」被媒体查询隐藏 -->
   <div class="site-frame" :class="{ 'site-frame--wide': $route.name === 'docs' }">
     <div class="site-frame-body" :class="{ 'has-sidebar': pluginSidebar.length && $route.name !== 'docs' }">
-      <main class="site-frame-inner">
+      <!-- v3.20.0 a11y：skip-link 的落点。tabindex="-1" 让它可被脚本聚焦
+           （但仍不进入 Tab 顺序，避免多一个停留点）。 -->
+      <main class="site-frame-inner" id="main-content" tabindex="-1">
         <router-view v-slot="{ Component }">
           <!-- v3.17.0：路由过渡（淡入上移；prefers-reduced-motion 下自动降级为瞬时） -->
           <Transition name="page" mode="out-in">
@@ -235,7 +241,24 @@ function trackVisit(to) {
 router.afterEach((to) => trackVisit(to));
 
 // v3.17.0：手势导航 / 彩蛋 生命周期清理
-onBeforeUnmount(() => { uninstallGestures(); uninstallEasterEgg(); });
+// v3.20.0：一并清掉滚动/尺寸监听（原先只清手势与彩蛋）。
+// 说明：App.vue 是**根组件**，SPA 内导航时不会卸载，所以这两个监听
+// 实际上活到整页结束、并非真实泄漏；但既然这里已有 onBeforeUnmount，
+// 顺手收口更不容易被后人误认为「遗漏」。
+onBeforeUnmount(() => {
+  uninstallGestures();
+  uninstallEasterEgg();
+  window.removeEventListener("scroll", onScroll);
+  window.removeEventListener("resize", onScroll);
+});
+
+// v3.20.0 a11y：skip-link 的目标聚焦
+function focusMain() {
+  const el = document.getElementById("main-content");
+  if (!el) return;
+  el.focus();
+  el.scrollIntoView({ block: "start" });
+}
 
 // v3.17.0 手势导航：移动端从左缘右滑开抽屉、抽屉内左滑关闭（阈值 60px、纵向容差 50px）
 let _gx = 0, _gy = 0;
@@ -377,6 +400,31 @@ router.afterEach(() => { loadNotifs(); });
 </script>
 
 <style scoped>
+/* v3.20.0 a11y：跳到正文链接。
+   默认移出视口（不是 display:none —— 那样会从 Tab 顺序里消失，skip link 就失效了），
+   获得键盘焦点时浮到左上角可见。 */
+.skip-link {
+  position: absolute;
+  left: -9999px;
+  top: 0;
+  z-index: 9999;
+  padding: 10px 16px;
+  background: var(--accent, #1a73e8);
+  color: #fff;
+  border-radius: 0 0 8px 0;
+  font-size: 14px;
+  text-decoration: none;
+}
+.skip-link:focus {
+  left: 0;
+  outline: 2px solid #fff;
+  outline-offset: -3px;
+}
+/* 主内容被脚本聚焦时不要出现整块焦点框（视觉噪音），
+   但保留「确实获得焦点」这件事以利读屏。 */
+#main-content:focus { outline: none; }
+#main-content:focus-visible { outline: 2px solid var(--accent, #1a73e8); outline-offset: 2px; }
+
 .site-frame-body { display: block; }
 .site-frame-body.has-sidebar { display: flex; gap: 24px; align-items: flex-start; }
 .site-frame-body.has-sidebar .site-frame-inner { flex: 1 1 auto; min-width: 0; }

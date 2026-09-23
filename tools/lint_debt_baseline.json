@@ -1,0 +1,23 @@
+{
+  "_comment": "lint 债务基线（由 tools/lint_debt.py --update 生成）。计数只允许下降；新增规则请先 --update。S110 与 BLE001 在同一处会同时命中，合计含重复计数。",
+  "rules": [
+    "F401",
+    "SIM",
+    "ARG",
+    "T20",
+    "S110",
+    "BLE001"
+  ],
+  "targets": [
+    "myblog",
+    "tests"
+  ],
+  "counts": {
+    "ARG": 10,
+    "BLE001": 269,
+    "F401": 171,
+    "S110": 92,
+    "SIM": 40,
+    "T20": 66
+  }
+}

@@ -39,7 +39,7 @@ KEY_DIAG_DISABLED = "mcp_diag_disabled"
 KEY_WRITE_DISABLED = "mcp_write_disabled"
 KEY_EXT_SERVICES = "mcp_external_services"
 KEY_BASE_URL = "mcp_base_url"      # 生成指令用的对外域名（空 = 用当前访问域名）
-KEY_TOKEN_FMT = "mcp_service_token_%s"
+KEY_TOKEN_FMT = "mcp_service_token_%s"   # noqa: S105 —— Setting 键名模板，不是密码
 
 MAX_EXT_SERVICES = 20              # 外部服务登记数量上限（防滥用）
 

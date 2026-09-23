@@ -13,6 +13,43 @@ from config import Config as _Config
 
 from .common import (api_bp, db, User, _UPDATE_LOCK, _VER_CHECK_CACHE, rate_limit, client_key)
 
+
+# ---------- 存活探针（v3.20.0 新增）----------
+
+@api_bp.route("/health")
+def health():
+    """存活探针：给外部监控 / 负载均衡做**机器判定**用。
+
+    为什么需要它：此前项目**没有**任何探活端点 —— `diagnostics.py` 是
+    **人工触发**的拉取式体检，也就是说「站点挂了」只能靠人先发现。
+    配合 `UPTIME_MONITOR.md` 里的监控，打这个地址即可自动判定。
+
+    设计约束（三条都很重要）：
+      1. **无需登录**（监控打不进来就没意义）→ 因此**绝不返回任何敏感信息**：
+         只回 `ok` / `version` / `db` 三项，不回显配置、路径、密钥、异常细节。
+      2. **便宜且不可放大**：只做一次 `SELECT 1`，不查业务表、**不出网**。
+         故刻意**不加限流** —— 探活本身要能被高频调用，而它的成本已是最低。
+      3. 依赖不可用时返回 **503**（而不是 200 + `ok:false`）：
+         这样通用 HTTP 探活（不解析 body 的那种）也能直接判定失败。
+    """
+    from config import APP_VERSION
+
+    db_ok = True
+    try:
+        from models import db as _db
+        _db.session.execute(_db.text("SELECT 1"))
+    except Exception:
+        db_ok = False
+        # 用 contextlib.suppress 而不是再套一层 try/except-pass：
+        # 记日志本身失败也不能影响探活返回值（且这样满足 SIM105）
+        import contextlib
+        with contextlib.suppress(Exception):
+            current_app.logger.warning("health: 数据库探活失败", exc_info=True)
+
+    return jsonify(ok=db_ok, version=APP_VERSION,
+                   db="up" if db_ok else "down"), (200 if db_ok else 503)
+
+
 # ---------- 版本自检与在线更新（后台一键更新，v2.5.0）----------
 
 

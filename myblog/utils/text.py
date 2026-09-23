@@ -19,8 +19,7 @@ def js_escape(raw):
     s = s.replace("\\", "\\\\").replace("'", "\\'")
     s = s.replace("\r", "\\r").replace("\n", "\\n")
     # 防 </script> 提前闭合内联脚本块（HTML 解析在 JS 转义之前发生）
-    s = s.replace("</", "<\\/")
-    return s
+    return s.replace("</", "<\\/")
 
 
 

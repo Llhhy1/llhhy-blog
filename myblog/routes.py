@@ -20,7 +20,7 @@ main_bp = Blueprint("main", __name__)
 
 
 # ---------- 反爬限流保护（v3.8.0）----------
-@main_bp.before_request
+@main_bp.before_request   # noqa: RET503 —— 隐式返回 None = 放行（Flask 钩子语义）
 def _bot_guard_before():
     """前台请求进入前做反爬限流检查；放行返回 None，拦截返回 429 响应。"""
     try:
@@ -506,6 +506,61 @@ def feed():
         "</rss>\n"
     )
     return Response(xml, mimetype="application/rss+xml")
+
+
+@main_bp.route("/feed.atom")
+def atom_feed():
+    """Atom 1.0 订阅源（v3.20.0）。
+
+    **为什么补它**：此前只有 RSS 2.0（`/feed.xml`、`/feed/comments`），而部分现代
+    阅读器与聚合服务更偏好 Atom。数据源与 `/feed.xml` **完全一致**（同一条查询、
+    同一批文章），只换序列化格式 —— 不新增查询逻辑，避免两套订阅源口径漂移。
+
+    ⚠️ **部署注意**：nginx 对 `/feed.xml` 用的是 `location = /feed.xml`（精确匹配），
+    所以新增这个路径**必须同步加一条 `location = /feed.atom`**，否则请求会落到
+    SPA 的 `try_files` 拿到 index.html。`deploy_guide.md` 已补该行。
+    """
+    from _time import utcnow
+    posts = (visible_posts_query()
+             .order_by(Post.is_pinned.desc(), Post.created_at.desc()).limit(20).all())
+    base = _site_base()
+    site_title = current_app.config.get("SITE_TITLE", "我的博客")
+    desc_row = Setting.query.filter_by(key="site_description").first()
+    desc = desc_row.value if desc_row else site_title
+    # Atom 要求 RFC3339 时间；展示层统一北京时间（与 /feed.xml 做法一致）
+    ts = "%Y-%m-%dT%H:%M:%S+08:00"
+
+    entries = []
+    for p in posts:
+        link = f"{base}/post/{p.slug}"
+        when = fmt_bj(p.created_at, ts)
+        entries.append(
+            "  <entry>\n"
+            f"    <title>{escape(p.title)}</title>\n"
+            f'    <link href="{escape(link)}" rel="alternate"/>\n'
+            f"    <id>{escape(link)}</id>\n"
+            f"    <updated>{when}</updated>\n"
+            f"    <published>{when}</published>\n"
+            f"    <author><name>{escape(p.author.username if p.author else site_title)}</name></author>\n"
+            f'    <category term="{escape(p.category.name if p.category else "")}"/>\n'
+            f"    <summary>{escape((p.summary or (p.content or '')[:200]).strip())}</summary>\n"
+            "  </entry>"
+        )
+    feed_updated = (fmt_bj(posts[0].created_at, ts) if posts
+                    else fmt_bj(utcnow(), ts))
+    xml = (
+        '<?xml version="1.0" encoding="UTF-8"?>\n'
+        '<feed xmlns="http://www.w3.org/2005/Atom" xml:lang="zh-CN">\n'
+        f"  <title>{escape(site_title)}</title>\n"
+        f"  <subtitle>{escape(desc)}</subtitle>\n"
+        f'  <link href="{escape(base + "/")}" rel="alternate"/>\n'
+        f'  <link href="{escape(base + "/feed.atom")}" rel="self"/>\n'
+        f"  <id>{escape(base + '/')}</id>\n"
+        f"  <updated>{feed_updated}</updated>\n"
+        + "\n".join(entries) + "\n"
+        "</feed>\n"
+    )
+    return Response(xml, mimetype="application/atom+xml")
 
 
 @main_bp.route("/feed/comments")

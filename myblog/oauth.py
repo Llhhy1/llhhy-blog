@@ -153,21 +153,42 @@ def _unique_username(base):
     return cand
 
 
-def find_or_create_user(provider, sub, email, name, email_verified=False):
-    """按 (provider, sub) 命中已绑账号；否则按**已验证**邮箱匹配；都没有则新建本地用户。
+def find_or_create_user(provider, sub, email, name, email_verified=False, bind_user_id=None):
+    """按 (provider, sub) 命中已绑账号；否则新建本地账号，或在**已登录会话**内认领。
 
-    安全边界：`email_verified=False` 时**绝不按邮箱匹配已有账号**（防 OAuth 账号接管），
-    只按 provider 侧不可伪造的 `sub` 命中，或干脆新建一个独立账号。
+    安全边界（v3.21.2 审计收紧，别改回去）：
+
+    1. `email_verified=False` 时绝不按邮箱匹配 —— 这是 R93 §93.1 修的那一半。
+    2. **即使 provider 已验证邮箱，也不按邮箱静默认领本地账号** —— 另一半：不可信
+       的不只是第三方给的邮箱，**本地库里存的邮箱同样没被验证过**。本站注册路径
+       （`api/auth.py::auth_register`、`routes.py::register`）对 email 只做 `strip()`，
+       无格式校验、无唯一约束、无所有权验证。于是原先的
+       `User.query.filter_by(email=email).first()` 可被这样利用：攻击者先用受害者
+       邮箱注册一个自己知道密码的账号 → 受害者首次「用 Google 登录」→ 按邮箱匹配
+       把他/她的 provider 身份**永久**绑到攻击者那个账号（此后每次 OAuth 登录都落进
+       攻击者的账号，且 `OAuthAccount` 命中在先，再也改不回来）。
+    3. 认领既有账号只保留一个入口：该账号**当前已登录**（`bind_user_id` 取自服务端
+       session，身份已由密码 / 第二因素证明）。绑到自己账号是用户本人的决定。
+    4. 未验证邮箱不作为本地账号的 `email` 落库（避免占位与后续误匹配）。
     """
     link = OAuthAccount.query.filter_by(provider=provider, sub=sub).first()
     if link:
         return db.session.get(User, link.user_id)
-    # 仅已验证邮箱可命中既有账号；未验证邮箱只作为新账号的展示信息（且不落 email，避免占位）
-    if email and email_verified:
-        u = User.query.filter_by(email=email).first()
-        if u:
-            db.session.add(OAuthAccount(user_id=u.id, provider=provider, sub=sub, email=email))
-            db.session.commit()
+    if bind_user_id:
+        u = db.session.get(User, bind_user_id)
+        if u is not None:
+            try:
+                db.session.add(OAuthAccount(user_id=u.id, provider=provider, sub=sub,
+                                            email=email if email_verified else ""))
+                db.session.commit()
+            except Exception:
+                # 并发回调抢同一 (provider, sub)：唯一约束 `uq_oauth_provider_sub`
+                # 会拒掉后来者。回滚后按已存在的绑定走，不让它冒成 500。
+                db.session.rollback()
+                link = OAuthAccount.query.filter_by(provider=provider, sub=sub).first()
+                if link:
+                    return db.session.get(User, link.user_id)
+                raise
             return u
     u = User(username=_unique_username(name or email or provider),
              email=email if email_verified else "", role=ROLE_USER)

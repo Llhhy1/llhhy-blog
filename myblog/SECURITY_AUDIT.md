@@ -3466,3 +3466,56 @@ v3.21.1 上线后日志出现 `默认勋章播种失败: UNIQUE constraint faile
 **处置**：`seed_badges()` 改为按 key 逐枚幂等，撞键回滚放弃（另一 worker 已完成，非失败）。回归测试 `test_seed_badges_partial_and_race_safe`，**变异验证**（回退旧实现 → 2 条变红）。
 
 > 与 §93.7 同一条经验链：**多 worker 并发是本项目部署常态（workers=4）**，任何「初始化一次」的写入逻辑都必须假设自己会与其他 worker 同时执行；判断「失败」前先想清楚「是不是别人已经做完了」。
+
+---
+
+## R94 · 第四轮复审：v3.19.3~v3.21.2 新增鉴权面 + 批次 1/2 遗留项
+
+> 审计对象：v3.21.2（`80fa71d`）。第三方复审同时核对了上一轮清单（可见性泄露 / 权限面）的落地情况：**批次 1、批次 2 当时均未实施**，本轮随新发现一并修复。
+> 结论：**2 条 Critical、4 条 High、若干 Medium**。§93.1 那条修复本身是**真的**（代码与测试都对），但同一段逻辑还有反方向的一半没修（见 §94.2）。
+
+### 94.1 2FA 只是装饰：三条登录路径里只有一条判了第二因素（Critical）
+
+全仓库唯一的第二因素检查在 `/api/auth/login`。而 `POST /login`（`routes.py`）、`POST /admin/login`（`admin/auth.py`）都是验完密码直接写 `session["user_id"]`，`login_required` / `admin_required` / `super_required` 又只看 `user_id`。攻击者从后台登录框输对密码即可拿到完整后台（含设置、删用户、备份），第二因素形同装饰。
+
+**处置**：不在各路径补 `if`（第 5 条登录路径出现时还会漏），而是与 `enforce_session_version` 同层加 `enforce_twofa` 会话级闸门 + `/twofa` 挑战页；`_login_user()` 每次显式写回 `twofa_ok=False`。回归测试 `test_ssr_password_login_cannot_bypass_second_factor` 从**新的 SSR 会话**复现原绕过路径，**变异验证**：移除闸门 → 变红。
+
+### 94.2 OAuth 账号接管：不可信的不仅是第三方给的邮箱，本地存的邮箱同样没验证过（High）
+
+R93 §93.1 排除了「provider 返回未验证邮箱」，但保留了「按邮箱匹配既有账号」。问题是本站注册路径（`auth_register` / `routes.register`）对 email 只做 `strip()`——**无格式校验、无唯一约束、无所有权验证**。于是：攻击者先用受害者邮箱注册一个自己知道密码的账号 → 受害者首次 OAuth 登录 → 按邮箱匹配命中**攻击者**的账号并永久绑上其 provider `sub`（`OAuthAccount` 命中在邮箱匹配之前，之后每次登录都落进攻击者账号，且无解绑入口）。`.first()` 还无 `order_by`，命中哪行不确定。
+
+**处置**：认领既有账号只保留「该账号当前已登录」一个入口（`bind_user_id` 取自服务端 session）。回归测试 `test_oauth_email_preclaim_cannot_takeover` 精确复现上述 4 步。
+
+### 94.3 隐私文章经搜索/推荐/统计外泄（Critical）+ 索引里躺着正文全文
+
+`_is_visible()` 只判 `published` / `scheduled_at`，不判 `is_private` / `in_trash`，却被 `/api/search` 的 FTS 分支和 `also-viewed` 使用；`stats._hot_posts()` 则裸用 `db.session.get(Post, id)`。FTS 索引自 v3.x 起就收录着隐私文章的**全文正文**。
+
+**这是同一模式第 5 次出现**（v3.18.5 修过 `/api/review`、`/api/ai/summary`）。因此除接口层收口外，另加两道：索引侧闸门 `fts._indexable()`、静态防复发用例 `test_no_second_visibility_helper`（发现第二个 `*visible*` helper 即变红）。`ensure()` 只在表为空时回填 → 脏行必须显式重建，故新增 `fts.rebuild_all()` + `tools/rebuild_fts.py`。
+
+### 94.4 发布路径漏同步索引：文章永久搜不到（High，功能类静默缺陷）
+
+5 处改变可见性的写路径不调 `sync_post`：定时发布线程、两个 publish-now、批量发布/转草稿、回收站就地还原。**定时发布是最主要的那条**——它由机器触发，没有人会再人肉点一次「发布」，而 `ensure()` 不会自愈。之所以长期无人发现：中文查询因 FTS 未配 CJK 分词本就回退 LIKE，掩盖了缺行。
+
+**处置**：`fts.sync_post_quiet()` 在 5 处统一收尾。测试 `test_publish_paths_sync_index`。
+
+### 94.5 备份远程后端的 argv 注入（High）
+
+`BACKUP_SCP_HOST` / `BACKUP_WEBDAV_URL` 来自后台可编辑的 Setting 表（`apply_to_environ()` 写回 `os.environ`），却直接拼进 argv：`-oProxyCommand=<命令>` 被 scp 当选项 → 以 gunicorn 进程身份执行任意命令；`file://` 配 `curl -T` → 把备份包写到任意本地路径。`_run` 早已禁 `shell=True`，缺的是 argv 层。已加取值形态校验 + `--` 结束选项解析。
+
+### 94.6 「恢复」在有上传文件时必然崩掉（High，可用性）
+
+`_snapshot_before_restore()` 的 uploads 打包循环写在 `with ZipFile(...)` **块外**，对已关闭归档调 `write()` 实测抛 `ValueError: Attempt to write to ZIP archive that was already closed`；`restore()` 在覆盖主库**之前**调用它 → 快照一崩整个恢复中止。即：**最需要恢复的时候恢复不可用**。且该快照不写 manifest（`verify()` 会拒收，「回退保险」是纸面的），其 `blog_prerestore_` 前缀也不被 `prune_local()` 匹配（无限堆积）。三条一起修。
+
+### 94.7 其它已修（Medium）
+
+`super_required` 缺首登闸门（29 条裸用它的路由在默认密码窗口期内全部可用）；插件 `slug` 目录穿越（`makedirs`/`open(w)`/`os.remove` 原语）；`feed_agg` 内层复用外层变量名 `_old_to` → 出口还原的是错的值，**进程级 socket 默认超时被永久改写**；删用户导致 rowid 复用与 `OAuthAccount` 孤儿绑定；勋章并发提交不 rollback → 评论请求连带 500；`/api/reader/me` 未鉴权无限流却会写库；`_hot_posts` 所在的 `/api/stats/summary` 无 `rate_limit`。
+
+### 94.8 本轮记录但**未**修改（需产品决策或需改表结构）
+
+1. **积分身份 = 客户端 cookie，去重键含 `reader_id`** → 丢掉 cookie 即刷新每日额度，排行榜可被无限刷。但积分/勋章经核对**不参与任何权限或可见性判定**（纯展示），故属公平性而非安全问题。
+2. `PointLog` 去重缺复合 UNIQUE 约束（`award` 仍是 check-then-insert）；`Reader.points` 无索引 → 排行榜全表排序。都需要迁移。
+3. 未过审评论即发 +5 积分，驳回不回收。
+4. 无 `reader` / `point_log` / `reader_badge` 保留策略（仅 `AuditLog` 有）。
+5. OAuth **未接入 2FA**：已绑 2FA 的账号仍可从 OAuth 直接进（把 IdP 视为等效第二因素是常见设计，但若 provider 账号被盗则 2FA 失效）——需决策，且改动会影响前端流程。
+6. 订阅邮件群发仍**每个收件人一次 SMTP 连接 + 一次登录**（`_send_smtp`），上千订阅者时会被 QQ/163 限流。
+7. 后台无 OAuth 绑定列表/解绑入口（§94.2 的可发现性缺口）。

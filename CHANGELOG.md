@@ -3,6 +3,49 @@
 > 本文件承载 **历史版本** 记录。README 只保留最新版本与上手信息。
 > 各版本的安全审计结论见 `myblog/SECURITY_AUDIT.md`；功能规划见 `ROADMAP.md`。
 
+## v3.22.0（2026-09-27 · 安全复审 R94：2FA 闸门 / OAuth 接管 / 隐私外泄修复）
+
+> **来源**：合并 PR #14（GitHub 用户 `Llhhy1` 提的第四轮安全复审），作者即站点所有者。
+> 本版本**无新功能**，是 R94 审计结论的工程化落地：2 Critical + 4 High + 若干 Medium。
+> 审计详情见 `myblog/SECURITY_AUDIT.md` §R94（由 PR 写入）。
+
+**六项修复（逐条回代码核对，非采信报告自述）**：
+
+1. **R94.1 Critical｜2FA 只是装饰**：此前 2FA 只在 `/api/auth/login`（JSON 登录）判了，
+   `POST /login`（前台 SPA）、`POST /admin/login`（后台）直接写 `session["user_id"]` 放行。
+   改为**会话级 before_request 闸门 `enforce_twofa`**（`TWOFA_ENABLED` 关则整体休眠；只对
+   已启用 2FA 的账号拦截非白名单路径；白名单不含 enroll/confirm/disable 以防单因素会话改
+   第二因素）；`twofa.enroll` 对**已生效**的 2FA 要求先验证当前码（防静默解除）。
+2. **R94.2 High｜OAuth 接管（本地邮箱）**：原 `oauth.py` 按**本地库未验证邮箱**匹配既有账号
+   （注册仅 `strip()`，无校验/唯一约束）。改为未登录回调不再按邮箱认领，认领入口限缩为
+   「当前已登录会话本人」。⚠️ **语义变更**：曾按邮箱绑定的老用户下次 OAuth 会进新账号，
+   需在其账号内重新点一次绑定。
+3. **R94.3 Critical｜隐私/回收站外泄 + FTS 正文**：`api/posts.py` 两处（相关推荐、搜索）用
+   不判 `is_private/in_trash` 的 `_is_visible()`；`fts.py` 索引只判 `published`，隐私/回收站
+   正文进全文索引。改为 FTS 写入侧闸门 `_indexable()` + 删除平行 `_is_visible()`（配静态防复发
+   测试）+ 两处改回 `visible_posts_query()`。📌 **部署必须跑一次 `python tools/rebuild_fts.py`**
+   清洗历史脏行。
+4. **R94.4 High｜FTS 不同步**：5 处改变可见性的写路径（定时发布线程、publish_now、后台发布/
+   进回收站等）补 `sync_post_quiet()`，避免文章永久搜不到。
+5. **R94.5 High｜备份 scp/curl 参数注入**：`BACKUP_SCP_HOST`/`WEBDAV_URL` 来自后台可编辑
+   Setting，写入 `-oProxyCommand=` 或 `file://` 可 RCE/任意写。改为严格正则校验 + 仅限
+   http/https + scp/curl 加 `--` 终止符 + size 上限 + 流式哈希。
+6. **R94.6 High｜恢复在有上传文件时必崩**：`_snapshot_before_restore` 上传打包循环写在
+   `with ZipFile` 块外，对已关闭归档调 `write()` → `ValueError`，而 `restore()` 在覆盖主库前先
+   调它 → 真实站点恢复直接废。修复 indentation + 快照自带 manifest + 改名纳入清理 + 失败不阻断。
+
+**取舍（按 B 方案「全收」接受，沿用 PR 设计）**：① OAuth+2FA 用户由全局闸门重定向到 2FA 挑战
+页（安全行为，非锁死）；② 删用户改为**停用**（防 rowid 复用 / OAuth 孤儿）；③ 积分身份公平性、
+`PointLog` 复合 UNIQUE 迁移、`reader/point_log` 保留策略——PR 刻意未做；④ 老邮箱绑定用户需重新
+绑定（R94.2 必要取舍）。
+
+**审计纪律备注**：R94 报告把 94.3 写成「上一轮（R93）可见性修复一条都没落地」，经核对**不实**——
+`visible_posts_query()` 在 v3.21.2 中约 40 处均已使用，真正漏的只有 2 处 + FTS 写入侧；但 94.1 /
+94.2 / 94.4 / 94.5 / 94.6 的底层事实均属实（仅 94.5 严重度偏高，属管理后提权而非未授权远程 RCE）。
+
+**验证**：300 passed；ruff 全绿；lint 棘轮 648 = 648（PR 带入 1 处 SIM105，已真修）；
+compileall + 打包三链互证与验签通过。
+
 ## v3.21.2（2026-09-24 · 修复勋章播种的多 worker 竞态假警报）
 
 > **来源**：v3.21.1 上线后看 gunicorn 日志发现一条 `默认勋章播种失败: UNIQUE constraint failed: badge.key`。勋章表实际完好（5 行）—— 这是 **4 个 gunicorn worker 并发启动的竞态**：都看到空表、都去插入，后提交的撞键。

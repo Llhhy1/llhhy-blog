@@ -536,6 +536,12 @@ supervisorctl status
 
 > ⚠️ **服务器上的 `update.sh` / `deploy.sh` 也务必与最新 Release 同版**：脚本经历过「假成功不覆盖 / 校验误报 / 无法自动重启」多轮加固，升级前先从最新 Release 覆盖一次脚本，再跑一键更新。
 
+> **v3.22.0（安全复审 R94：2FA 闸门 / OAuth 接管 / 隐私外泄修复）升级要点**：**纯后端改动，只需覆盖后端包**（`vue-frontend/` 未动）。
+> - **⚠️ 必跑一步**：升级并重启后，**必须**在服务器上跑一次 `python tools/rebuild_fts.py`（或 `cd /www/wwwroot/myblog && /www/server/pyporject_evn/blog_env/bin/python tools/rebuild_fts.py`）。原因：R94.3 在 FTS 写入侧加了 `_indexable()` 闸门，但历史库里**已存在的隐私/回收站文章正文行不会因为改了代码而消失**——不重建，那些脏行仍可被 `/api/search` 命中。`rebuild_all()` 会清空 `post_fts` 只重写通过闸门的文章。
+> - **行为变更（需知会）**：① 启用 2FA 后，所有登录入口（含前台 SPA / 后台登录框）都会被会话级闸门拦截到 2FA 挑战页——这是预期的安全行为；② 后台「删除用户」改为**停用**（旧文章归属保留，防 rowid 复用）；③ 若此前有人用 OAuth 按邮箱绑定过账号，升级后下次 OAuth 登录会落到新账号，需在其账号内重新点一次绑定（R94.2 必要取舍）。
+> - **无新增环境变量、无新表、无 Nginx 变更**：OAuth/2FA 仍为可选休眠（`OAUTH_*` / `BLOG_TWOFA_ENABLED` 不配则不动）。升级即覆盖 `myblog-backend.zip` → gunicorn「停止 → 启动」；升级后 `grep APP_VERSION config.py` 应为 `3.22.0`，`grep 播种失败 gunicorn.log` 无新增。
+> - 回滚：无破坏性变更；如需回退，覆盖上一版后端包即可（FTS 脏行回归属「搜到隐私」范畴，必要时再跑一次旧版 rebuild）。
+
 > **v3.21.2（修复勋章播种的多 worker 竞态假警报）升级要点**：**纯后端改动，只需覆盖后端包**。
 > - **现象**：v3.21.1 重启日志出现 `默认勋章播种失败: UNIQUE constraint failed: badge.key`，但勋章表数据完好 —— 是 4 个 worker 并发启动的**竞态**（都看到空表、都去插入，后提交的撞键），功能无害但属**假警报**，会掩盖真正的播种失败。
 > - **修复**：`seed_badges()` 改为按 key 逐枚幂等；撞键回滚放弃。顺带修掉「表里有任意一行就整体跳过 → 缺的勋章补不齐」的坑。

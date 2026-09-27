@@ -125,15 +125,15 @@ def sync_post(post):
 
 
 def sync_post_quiet(post):
-    """`sync_post()` 的免抛版本，供「改变可见性」的写路径收尾统一调用。
+    """`sync_post()` 的免抛别名，供「改变可见性」的写路径收尾统一调用。
 
     这些站点散布在请求处理器、后台定时线程与 SSR 表单里，任何一处漏调，文章就会
     **永久**搜不到（`ensure()` 只在索引表为空时回填，不会自愈）。
+
+    `sync_post()` 自身已 `except Exception: db.session.rollback()` 不会外抛，
+    故此处无需再包一层 `try/except/pass`（那既冗余又会触发 SIM105）。
     """
-    try:
-        sync_post(post)
-    except Exception:
-        pass
+    sync_post(post)
 
 
 def delete_post(post_id):

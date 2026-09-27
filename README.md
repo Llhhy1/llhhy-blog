@@ -2,7 +2,13 @@
 
 前后端分离的个人博客：**Flask** 后端（SSR + JSON API + 管理后台）+ **Vue3** 前端（SPA）。单仓库托管前后端代码、部署文档与安全报告。
 
-- 当前版本：**v3.22.0**
+- 当前版本：**v3.23.0**
+- **v3.23.0（可观测性 + 后台任务 + OAuth 自助解绑 + CI 门禁）**：无表结构变更、无新增必填环境变量。
+  - **后台「第三方绑定」页**：查看/解绑自己的 OAuth 绑定（解绑需输密码 = 证明仍有可用登录方式；超管不得解掉他人最后一个绑定）。
+  - **结构化日志 + request_id**：日志带 `rid=` 可按请求串联，响应回写 `X-Request-ID`；可选环境变量 `LOG_LEVEL`（默认 INFO）。
+  - **后台长任务**：立即备份（最长 300s）与游戏上传 LLM 审计（120s）改为后台执行 + 页面轮询，不再占死 gunicorn 并发槽。
+  - **`/api/weather` 缓存**：同参数 10 分钟缓存，上游全故障回吐过期值（宁旧勿 502）。
+  - **CI**：新增前端 `npm audit` 门禁与 CodeQL（SAST，非阻断）；lint 棘轮修复转绿。
 - **v3.21.0（多语言 M1 + PWA + 读者积分勋章 + OAuth + 2FA）**：四项功能全部**默认休眠**（OAuth 需 provider 凭据、2FA 需 `BLOG_TWOFA_ENABLED=true`），**无新增必填环境变量**，不配置则行为与 v3.20.0 完全一致。
   - **内容多语言 M1**：`Post` 加 `lang` + `translation_group`，列表/详情支持 `?lang=` 且无译文时**自动回退原文**；OG / sitemap / feed 输出 `hreflang` 互链。
   - **PWA 可安装 / 离线**：`manifest.webmanifest` + `sw.js` + `offline.html` + 4 个图标。导航 network-first、文章只读 API stale-while-revalidate、**后台与其余 `/api/*` 一律不缓存**；**Nginx 无需改动**（资源落在站点根、scope 自动 `/`）。

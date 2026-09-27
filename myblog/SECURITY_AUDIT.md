@@ -3528,3 +3528,34 @@ R93 §93.1 排除了「provider 返回未验证邮箱」，但保留了「按邮
 - **审计纪律备注（事实澄清）**：PR 正文把 §94.3 写成「上一轮（R93）可见性修复一条都没落地」——**经逐条回代码核对，该表述不实**。`visible_posts_query()` 在 v3.21.2 中于 `api/posts.py` / `routes.py` / `api/og.py` / `admin/seo.py` / `api/review.py` 等约 40 处均已使用，真实漏口只有 `api/posts.py` 的 2 处（相关推荐、搜索）与 `fts.py` 写入侧。其余 §94.1 / §94.2 / §94.4 / §94.5 / §94.6 的底层事实均属实（仅 §94.5 严重度偏高，属管理后提权而非未授权远程 RCE）。
 - **本地核实**：300 passed；ruff 全绿；lint 棘轮 648 = 648（PR 带入 1 处 `fts.py:133` SIM105，已真修）；compileall + 打包三链互证与验签通过；`enforce_twofa` / FTS `_indexable()` / OAuth 本地邮箱闸门 / 备份注入校验 均按 diff 复核，逻辑正确。
 - **部署必做**：升 v3.22.0 后跑一次 `python tools/rebuild_fts.py`，否则历史库隐私/回收站正文脏行不会被清。
+
+## R95 · v3.23.0 发版安全审查（后台任务 + 结构化日志 + OAuth 解绑 + 天气缓存 + CI 门禁）
+
+> 审计对象：本轮 18 改 + 9 新增（基线 6618ca8）。结论：**未发现新增暴露面**，限流 / CSRF / 越权 / 密钥 / 资源释放逐项核对通过。
+
+### 95.1 新增攻击面逐项核对
+
+| 改动 | 维度核对 | 结论 |
+| --- | --- | --- |
+| `admin/oauth_bindings.py`（OAuth 绑定列表 + 解绑） | 越权：仅本人；超管可 `?user_id=` 查他人但**不得解绑他人最后一个绑定**（超管密码只证明超管身份）；CSRF：POST 走全局 `_csrf_protect`；SQL：ORM `filter_by`/`get` 参数化；XSS：模板 autoescape；审计：`log_audit` 成败皆记 | ✅ 通过 |
+| `tasks.py`（后台长任务） | 路径穿越：`status()` 仅接受**字母数字** task id，`../` 直拒；状态文件为**原子写**（tmp+replace），防轮询读到半截 JSON；跨进程互斥用锁文件（`O_EXCL`）+ 过期清理，锁名全部为内部常量；异常落盘不外抛；线程内 app context 仿 `notify.py` 既有范式 | ✅ 通过 |
+| `/admin/task/<id>`（任务状态轮询） | `admin_required`；只回 `id/name/state/message/error` 五字段。⚠️ `error` 为 `str(e)[:500]`，可能含内部路径——**仅管理员可见，接受**（与管理页既有口径一致） | ✅ 通过（注记） |
+| `logging_setup.py`（结构化日志） | **日志注入**：沿用上游 `X-Request-ID` 前做形态校验（≤64、字母数字/`-`/`_`），否则丢弃重生成；格式化仅含 `request_id/levelname/name/message`，**不含** query/body/cookie，无密钥泄露面 | ✅ 通过 |
+| `/api/weather` 缓存 | `city` 用户可控 → cache key 无界增长风险，**限容 200 + 到顶全清**；出站 URL 全部固定白名单域名 + `quote` 编码（SSRF 既有口径不变）；只缓存成功结果；失败回吐**同 key** 过期数据（不串味）；限流 60/min 保留 | ✅ 通过 |
+| 备份改后台任务 | `super_required` 不变；CSRF 不变；审计日志改为「任务已提交」+ 任务状态落盘；`create_backup` 本身无改动 | ✅ 通过 |
+| 游戏上传 LLM 审计后台化 | 线程内按 id 重取 Game（防 detached 对象写脏数据）；审计结果仍写回 `Game` 行，权限口径不变 | ✅ 通过 |
+| CI（npm audit + CodeQL） | 无密钥入仓；CodeQL 刻意**非阻断**（SAST 告警需人工判定） | ✅ 通过 |
+| `api/common.py` `import stats` noqa / 删 `import io` / fts.py、backup.py 加 noqa | 纯注释/死代码清理，**零行为变更**（棘轮债修复，非功能） | ✅ 通过 |
+
+### 95.2 本轮记录但未修改
+
+1. `/admin/task/<id>` 的 `error` 字段可能含内部路径（如 traceback 片段）——仅管理员可见，与全站「管理页可看异常摘要」口径一致；若未来开放给普通用户需先脱敏。
+2. 天气缓存的「到顶全清」策略在极端并发下可能互相挤掉对方缓存（DoS 放大有限，rate_limit 60/min 已兜底）；若日后上量再换 LRU。
+3. CodeQL 首轮可能报出一批历史 SAST 告警（非阻断，进 Security 选项卡），处置见 ROADMAP。
+
+### 95.3 部署注意
+
+- 新增运行期目录 `data/tasks/`（任务状态 + 锁文件，自动创建；`update.sh` 不触碰 data/，无需迁移）。
+- 新增可选环境变量 `LOG_LEVEL`（默认 INFO，不改任何默认行为）。
+- `/api/weather` 行为变化：同参数 10 分钟内返回缓存（含失败时回吐过期值），属预期。
+- 本版**无表结构变更、无 `_RENDER_VERSION` 变化**；`rebuild_fts.py` 无需重跑。

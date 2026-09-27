@@ -129,17 +129,17 @@ def backup():
     if request.method == "POST":
         action = request.form.get("action", "")
         if action == "backup_now":
-            try:
-                arc, man, sync = backup_mod.create_backup()
-                msg = "备份成功：%s（%d 个文件）" % (os.path.basename(arc), man["file_count"])
-                for name, ok, s in sync:
-                    msg += "；远程[%s]%s" % (name, "✅" if ok else "⚠️" + s)
-                log_audit("backup", target="创建备份", detail=msg)
-                flash(msg)
-            except Exception as e:
-                log_audit("backup", target="创建备份", detail=str(e)[:200], success=False)
-                flash("备份失败：" + str(e)[:200])
-            return redirect(url_for("admin.backup"))
+            # v3.23.0 #48：`create_backup` 内含 scp/curl 远程同步（`_run(timeout=300)`），
+            # 同步跑会**长期占住一个 gunicorn 并发槽**（gthread 只有 8 个），
+            # 几个这样的请求就能把整站拖成 502。改为后台任务 + 页面轮询。
+            import tasks as tasks_mod
+            tid, err = tasks_mod.submit("backup", backup_mod.create_backup)
+            if err:
+                log_audit("backup", target="创建备份", detail=err, success=False)
+                flash(err)
+                return redirect(url_for("admin.backup"))
+            log_audit("backup", target="创建备份", detail="后台任务已提交：%s" % tid)
+            return redirect(url_for("admin.backup", task=tid))
         fn = request.form.get("file", "")
         fp = os.path.join(backup_mod.BACKUP_ROOT, fn) if fn else ""
         safe = bool(fn and os.path.basename(fn) == fn and fn.startswith("blog_backup_")
@@ -184,8 +184,11 @@ def backup():
         "latest_at": (backups[-1].get("stamp") or backups[-1].get("created_at") or "") if backups else "",
         "remote_count": sum(1 for _k in ("oss", "scp", "webdav") if remote_status.get(_k)),
     }
+    # v3.23.0 #48：提交后台任务后带 ?task=<id> 回来，页面据此轮询进度
+    task_id = (request.args.get("task") or "").strip()
     return render_template("admin/backup.html", backups=backups, remote_status=remote_status,
-                           retention=backup_mod.RETENTION_DAYS, summary=summary)
+                           retention=backup_mod.RETENTION_DAYS, summary=summary,
+                           task_id=task_id)
 
 @admin_bp.route("/backup-settings", methods=["GET", "POST"])
 @super_required

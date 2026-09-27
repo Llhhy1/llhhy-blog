@@ -8,7 +8,6 @@
   B5 删除用户 → 停用用户：不回收 rowid，不继承旧人文章，第三方绑定一并断开
   B6 读者积分：未鉴权接口限流 + 勋章并发不炸评论
 """
-import io
 import json
 import os
 import secrets

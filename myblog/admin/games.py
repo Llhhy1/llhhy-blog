@@ -156,7 +156,24 @@ def games():
         db.session.commit()
         log_audit("create", "game", g.id, f"上传收录《{title}》", user=_current_user_or_none())
         if get_setting("games_llm_on", "0") == "1":
-            _run_llm_audit(g)
+            # v3.23.0 #48：LLM 审计单次要 120s（urlopen timeout=120），而上传路径
+            # **不使用其结果**（flash 是静态文案、无论如何都跳转）——本来就是
+            # fire-and-forget 语义，同步跑只会白占一个 gunicorn 并发槽。
+            # 故改为后台任务；结果写回 Game 行（audit_summary / audit_score），
+            # 刷新列表即可见。线程里必须**按 id 重取**：ORM 对象跨线程会 detached。
+            import tasks as tasks_mod
+            _gid = g.id
+
+            def _audit_bg():
+                gobj = db.session.get(Game, _gid)
+                if gobj is None:
+                    return "游戏已被删除，跳过审计"
+                _ok, note = _run_llm_audit(gobj)
+                return note
+
+            _tid, _err = tasks_mod.submit("llm_audit", _audit_bg)
+            if _err:
+                flash("LLM 审计任务未能启动：" + _err)
         flash(f"已收录《{title}》待审核（静态分 {score}）")
         return redirect(url_for("admin.games"))
 

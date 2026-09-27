@@ -34,7 +34,10 @@ from models import db, Post, Category, Tag, Comment, FriendLink, Setting, User, 
     ReadLog, visible_posts_query, LinkApplication, AuditLog, PostHistory, RecycleBin
 from utils import (render_markdown, clean_html, render_post_html,
                    rate_limit, client_key, fmt_bj, to_beijing, BEIJING_TZ)
-import stats
+# 刻意保留的**再导出**：本模块按 docstring 的约定集中存放顶层导入，供各功能模块
+# `from .common import ...` 取用（避免循环依赖）。故这些导入在本文件内「未使用」
+# 是设计使然，不是死代码 —— 删掉会破坏下游的 `from .common import X`。
+import stats  # noqa: F401
 # v3.1.0：记录登录审计（log_login_attempt 定义在 admin 模块，admin 不依赖 api，无循环）
 from admin import log_login_attempt
 from _time import utcnow

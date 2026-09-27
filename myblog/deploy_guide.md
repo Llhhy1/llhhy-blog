@@ -536,6 +536,13 @@ supervisorctl status
 
 > ⚠️ **服务器上的 `update.sh` / `deploy.sh` 也务必与最新 Release 同版**：脚本经历过「假成功不覆盖 / 校验误报 / 无法自动重启」多轮加固，升级前先从最新 Release 覆盖一次脚本，再跑一键更新。
 
+> **v3.23.0（可观测性 + 后台任务 + OAuth 自助解绑 + CI 门禁）升级要点**：**纯后端改动，只需覆盖后端包**（`vue-frontend/` 未动）。
+> - **新增运行期目录 `data/tasks/`**（后台任务状态 + 同名任务锁文件，`tasks.py` 自动创建，**无需手动迁移**；`update.sh` 不触碰 `data/`）。
+> - **新增可选环境变量 `LOG_LEVEL`**（默认 `INFO`，不设则行为与旧版完全一致；线上排障可临时调 `DEBUG`，排完调回）。
+> - **行为变更（需知会）**：① 后台新增「🔑 第三方绑定」页（账号安全项，管理员与普通用户均可见）——可查看/解绑自己的 OAuth 绑定；解绑需输入登录密码（OAuth 建号者输不出随机密码，故不会把自己锁在门外）；② **「立即备份」改为后台执行**：点击后立即返回并在页面轮询进度（含 scp/curl 远程同步最长 300s），完成后列表自动刷新；③ **`/api/weather` 增加进程内缓存**：同参数 10 分钟内返回缓存，上游全故障时回吐过期数据（宁旧勿 502）；④ 游戏上传时的 LLM 审计改为后台执行（结果照旧写回游戏行的 `audit_summary` / `audit_score`，刷新列表可见）。
+> - **无新增必填环境变量、无新表、无 Nginx 变更、无渲染版本变化**：升级即覆盖 `myblog-backend.zip` → gunicorn「停止 → 启动」；升级后 `grep APP_VERSION config.py` 应为 `3.23.0`。`rebuild_fts.py` **无需**重跑。
+> - **CI 变更（仓库侧）**：`ci.yml` 新增前端 `npm audit` 门禁、新增 `codeql.yml`（SAST，非阻断）——不影响部署，仅影响 PR 检查。
+
 > **v3.22.0（安全复审 R94：2FA 闸门 / OAuth 接管 / 隐私外泄修复）升级要点**：**纯后端改动，只需覆盖后端包**（`vue-frontend/` 未动）。
 > - **⚠️ 必跑一步**：升级并重启后，**必须**在服务器上跑一次 `python tools/rebuild_fts.py`（或 `cd /www/wwwroot/myblog && /www/server/pyporject_evn/blog_env/bin/python tools/rebuild_fts.py`）。原因：R94.3 在 FTS 写入侧加了 `_indexable()` 闸门，但历史库里**已存在的隐私/回收站文章正文行不会因为改了代码而消失**——不重建，那些脏行仍可被 `/api/search` 命中。`rebuild_all()` 会清空 `post_fts` 只重写通过闸门的文章。
 >   - **v3.22.0 起该脚本随后端包分发**：`package.py` 已把 `tools/rebuild_fts.py` 封进 `myblog-backend.zip`（落在解压后的 `$APP_DIR/tools/`），不再需要手动 scp/放置——覆盖后端包（或一键更新）后它就在站点目录里了。脚本路径探测也已兼容「站点布局」与「仓库布局」两种位置，原地就能 `python tools/rebuild_fts.py` 跑起来。

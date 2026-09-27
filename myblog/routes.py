@@ -2,6 +2,8 @@
 import hashlib
 import json
 import re as _re
+import threading
+import time
 import urllib.request
 import urllib.parse
 
@@ -363,6 +365,49 @@ _WTTR_TEXT = {
 }
 
 
+# ---------- /api/weather 出站结果缓存（v3.23.0）----------
+# 为什么必须有：该接口是**公开**端点，原先每次请求都真打外部 API —— 坐标模式下
+# 串行「反向地理编码 5s + wttr.in 7s + Open-Meteo 兜底 5s」，最坏约 17s。
+# gunicorn 是 gthread（4 worker × 2 线程 = 8 个并发槽），几个这样的慢请求就能把
+# 整站拖成 502。缓存把外部调用压到「每 10 分钟最多一次」。
+#
+# 设计取舍：
+# - **进程内**缓存，不引 Redis：v3.10.7 已 revert 掉 Redis 缓存层，不再重新引入。
+#   代价是 4 个 worker 各存一份（每 10 分钟最多 4 次外部调用），可接受。
+# - **必须限容**：`city` 是用户可控字符串，key 无界增长会吃内存。到顶直接全清 ——
+#   天气缓存重建成本极低，不值得为此写 LRU。
+# - **只缓存成功结果**：失败不写，避免一次抖动把错误固化 10 分钟。
+# - **上游全失败时回吐过期数据**（stale-while-error）：宁可旧，不要 502。
+_WEATHER_CACHE = {}
+_WEATHER_CACHE_LOCK = threading.Lock()
+_WEATHER_TTL = 600.0        # 10 分钟：天气数据不需要实时
+_WEATHER_CACHE_MAX = 200    # key 无界增长防护
+
+
+def _weather_cache_get(key):
+    """只返回**新鲜**缓存；过期返回 None（数据留在原地，供 stale 兜底取用）。"""
+    with _WEATHER_CACHE_LOCK:
+        hit = _WEATHER_CACHE.get(key)
+    if not hit:
+        return None
+    payload, ts = hit
+    return payload if (time.time() - ts) <= _WEATHER_TTL else None
+
+
+def _weather_cache_put(key, payload):
+    with _WEATHER_CACHE_LOCK:
+        if len(_WEATHER_CACHE) >= _WEATHER_CACHE_MAX:
+            _WEATHER_CACHE.clear()
+        _WEATHER_CACHE[key] = (payload, time.time())
+
+
+def _weather_cache_stale(key):
+    """上游失败时的兜底：回吐**过期**数据（有总比 502 好）。"""
+    with _WEATHER_CACHE_LOCK:
+        hit = _WEATHER_CACHE.get(key)
+    return hit[0] if hit else None
+
+
 @main_bp.route("/api/weather")
 def api_weather():
     """天气接口（双源容灾，全部免费无需 Key）：
@@ -400,6 +445,29 @@ def api_weather():
     if (lat is None) != (lon is None):
         lat = lon = None
 
+    # 缓存键：三种模式各自独立（城市名 / 坐标 / 后台默认）
+    if city:
+        _ck = "city:" + city
+    elif lat is not None and lon is not None:
+        _ck = "ll:%.4f,%.4f" % (lat, lon)
+    else:
+        _ck = "default"
+    _fresh = _weather_cache_get(_ck)
+    if _fresh is not None:
+        return jsonify(**_fresh)
+
+    def _ok(payload):
+        """成功：写缓存后返回。"""
+        _weather_cache_put(_ck, payload)
+        return jsonify(**payload)
+
+    def _fail():
+        """上游全失败：能回吐过期数据就回吐，否则才 502。"""
+        stale = _weather_cache_stale(_ck)
+        if stale is not None:
+            return jsonify(**stale)
+        return jsonify(error="天气获取失败"), 502
+
     def _http_json(url, timeout=6):
         req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
         with urllib.request.urlopen(req, timeout=timeout) as r:
@@ -425,10 +493,10 @@ def api_weather():
     if city:
         try:
             temp, desc, code = _wttr(city)
-            return jsonify(name=city, city=city, temp=temp, code=code,
-                           description=desc, lat=None, lon=None)
         except Exception:
-            return jsonify(error="找不到该城市或天气获取失败"), 502
+            return _fail()
+        return _ok({"name": city, "city": city, "temp": temp, "code": code,
+                    "description": desc, "lat": None, "lon": None})
 
     # ---- 2) 坐标模式（浏览器定位）：wttr.in 坐标查询优先，Open-Meteo 兜底 ----
     if lat and lon:
@@ -448,10 +516,11 @@ def api_weather():
             pass  # 反查失败就保留「我的位置」
         try:
             temp, desc, code = _wttr(f"{lat},{lon}")
-            return jsonify(name=name, city=name, temp=temp, code=code,
-                           description=desc, lat=lat, lon=lon)
         except Exception:
             pass  # wttr 失败 → open-meteo 兜底
+        else:
+            return _ok({"name": name, "city": name, "temp": temp, "code": code,
+                        "description": desc, "lat": lat, "lon": lon})
     # ---- 3) 默认模式：后台设置的城市/坐标 ----
     else:
         s = {s.key: s.value for s in Setting.query.all()}
@@ -462,10 +531,11 @@ def api_weather():
         if name != "本地":
             try:
                 temp, desc, code = _wttr(name)
-                return jsonify(name=name, city=name, temp=temp, code=code,
-                               description=desc, lat=lat, lon=lon)
             except Exception:
                 pass  # wttr 失败 → open-meteo 兜底
+            else:
+                return _ok({"name": name, "city": name, "temp": temp, "code": code,
+                            "description": desc, "lat": lat, "lon": lon})
 
     # ---- 兜底：Open-Meteo（WMO code）----
     try:
@@ -478,12 +548,10 @@ def api_weather():
         temp = d["current"]["temperature_2m"]
         code = d["current"]["weather_code"]
     except Exception:
-        return jsonify(error="天气获取失败"), 502
-    return jsonify(
-        name=name, city=name, temp=temp, code=code,
-        description=_WEATHER_TEXT.get(code, "未知"),
-        lat=lat, lon=lon,
-    )
+        return _fail()
+    return _ok({"name": name, "city": name, "temp": temp, "code": code,
+                "description": _WEATHER_TEXT.get(code, "未知"),
+                "lat": lat, "lon": lon})
 
 
 def _site_base():

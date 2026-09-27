@@ -87,7 +87,7 @@ def rebuild_all():
     try:
         db.session.execute(db.text("DELETE FROM post_fts"))
         db.session.commit()
-    except Exception:
+    except Exception:  # noqa: BLE001  清空失败必须吞掉并降级返回，绝不外抛：rebuild 是维护动作，抛异常只会让调用方（启动/管理接口）整条崩掉
         db.session.rollback()
         return {"ok": False, "reason": "clear-failed"}
     kept = 0

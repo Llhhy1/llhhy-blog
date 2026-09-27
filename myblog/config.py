@@ -12,7 +12,7 @@ os.makedirs(DATA_DIR, exist_ok=True)
 
 # 应用版本号：与 GitHub Release 标签保持一致（vX.Y.Z）。
 # 后台侧边栏左下角会显示该版本，用于确认服务器安装的代码是否为最新。
-APP_VERSION = "3.22.0"
+APP_VERSION = "3.23.0"
 
 
 class Config:
@@ -55,6 +55,12 @@ class Config:
     # 防止不可达/超慢的 RSS 源（如被墙的外站）卡死整个聚合、甚至拖垮 gunicorn worker。
     # 0 = 不限制（不推荐）。
     FEED_FETCH_TIMEOUT = int(os.environ.get("FEED_FETCH_TIMEOUT", "8"))
+
+    # ===== v3.23.0 新增：日志级别 =====
+    # 影响 root logger 与 app.logger。默认 INFO：迁移/启动/定时发布等诊断信息可见；
+    # 线上排障可临时调 DEBUG（会带出第三方库日志，排完请调回）。
+    # 有效值：DEBUG / INFO / WARNING / ERROR / CRITICAL（大小写不敏感）。
+    LOG_LEVEL = os.environ.get("LOG_LEVEL", "INFO")
 
     # ===== v3.10.5 新增：展示时区（北京时间）=====
     # 数据库所有时间按 UTC（naive）存储；展示 / 导出 / RSS / JSON-LD / 后台模板

@@ -579,7 +579,7 @@ def _snapshot_before_restore(tag=""):
             manifest["file_count"] = len(manifest["files"])
             zf.writestr("manifest.json",
                         json.dumps(manifest, ensure_ascii=False, indent=2))
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001  R94 §94.6：快照失败必须降级、绝不阻断恢复——最需要恢复的时候不能因为保险快照自己崩了而恢复不了；异常已写 stderr 供排查
         # 快照失败绝不阻断恢复：降级为「无保险地继续」，并由调用方把警告打给用户
         sys.stderr.write("[备份] 恢复前快照失败（不影响恢复本身）：%s\n" % e)
         try:

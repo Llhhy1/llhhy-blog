@@ -13,6 +13,10 @@ import datetime
 
 from models import FriendLink
 from utils import clean_html, fmt_bj, to_beijing, BEIJING_TZ
+import logging
+
+# v3.23.0：print → logger（格式/级别见 logging_setup）
+logger = logging.getLogger(__name__)
 
 # 内存缓存（单进程有效；多 worker 下各进程独立缓存，足够个人博客使用）
 _CACHE = {"items": [], "ts": 0}
@@ -190,7 +194,7 @@ def get_circle_feed(force=False):
             total_links = diag["total_links"]
             note = (f"共 {total_links} 条友链，其中 0 条填写了 RSS 地址"
                     f"（后台「友链管理」给友链填 RSS 地址即可聚合）")
-            print(f"[FEED AGG] 博客圈聚合：{note}")
+            logger.info("[FEED AGG] 博客圈聚合：%s", note)
             diag["notes"].append(note)
         diag["per_link"] = []
         for link in links:
@@ -198,7 +202,7 @@ def get_circle_feed(force=False):
                    "safe": None, "entries": 0, "status": "", "reason": ""}
             if not _safe_url(link.rss_url):
                 reason = _safe_url_fail_reason(link.rss_url)
-                print(f"[FEED AGG] 跳过友链「{link.name}」：RSS 地址未通过安全校验（{reason}）")
+                logger.warning("[FEED AGG] 跳过友链「%s」：RSS 地址未通过安全校验（%s）", link.name, reason)
                 diag["skipped"] += 1
                 diag["notes"].append(f"跳过友链「{link.name}」：RSS 地址未过安全校验（{reason}）")
                 rec["safe"] = False
@@ -225,7 +229,7 @@ def get_circle_feed(force=False):
                 finally:
                     _sock_agg.setdefaulttimeout(_old_to_src)
             except ImportError:
-                print("[FEED AGG] feedparser 未安装！请在服务器上执行: pip install feedparser==6.0.11 后重启服务")
+                logger.warning("[FEED AGG] feedparser 未安装！请在服务器上执行: pip install feedparser==6.0.11 后重启服务")
                 diag["feedparser_ok"] = False
                 diag["notes"].append("feedparser 未安装：pip install feedparser==6.0.11 后重启服务")
                 rec["status"] = "error"
@@ -234,7 +238,7 @@ def get_circle_feed(force=False):
                 break
             except Exception as e:
                 # 抓取/解析失败跳过该源，不影响其它源
-                print(f"[FEED AGG] 抓取友链「{link.name}」RSS 失败: {type(e).__name__}: {e}")
+                logger.warning("[FEED AGG] 抓取友链「%s」RSS 失败: %s: %s", link.name, type(e).__name__, e)
                 diag["skipped"] += 1
                 diag["notes"].append(f"抓取友链「{link.name}」RSS 失败：{type(e).__name__}: {e}")
                 rec["status"] = "error"
@@ -245,7 +249,7 @@ def get_circle_feed(force=False):
             rec["entries"] = len(entries)
             if not entries:
                 bozo = getattr(parsed, "bozo", 0)
-                print(f"[FEED AGG] 友链「{link.name}」RSS 解析到 0 条（bozo={bozo}，地址：{link.rss_url}）")
+                logger.info("[FEED AGG] 友链「%s」RSS 解析到 0 条（bozo=%s，地址：%s）", link.name, bozo, link.rss_url)
                 diag["notes"].append(f"友链「{link.name}」RSS 解析到 0 条（地址：{link.rss_url}）")
                 rec["status"] = "empty"
             else:

@@ -4,6 +4,7 @@
 """
 import os
 import datetime
+import logging
 
 from flask import (Flask, render_template, request, session, jsonify,
                    redirect, url_for)
@@ -28,6 +29,10 @@ try:
 except Exception:
     Migrate = None
 
+
+# v3.23.0：模块级 logger。全仓 print( 分批迁移到 logger，第一批是 app.py 自身
+# （启动/迁移/定时发布/播种的诊断信息）。格式化与级别由 logging_setup 统一配置。
+logger = logging.getLogger(__name__)
 
 _PRAGMAS_INSTALLED = False
 
@@ -74,7 +79,7 @@ def _install_sqlite_pragmas():
 
         _PRAGMAS_INSTALLED = True
     except Exception as e:
-        print("SQLite PRAGMA 初始化跳过:", e)
+        logger.warning("SQLite PRAGMA 初始化跳过: %s", e)
 
 
 def _ensure_settings(app):
@@ -118,7 +123,7 @@ def _migrate_user_table():
                 conn.execute(db.text(
                     "ALTER TABLE user ADD COLUMN session_version INTEGER DEFAULT 0"
                 ))
-            print("已迁移 user 表：新增 session_version 列")
+            logger.info("已迁移 user 表：新增 session_version 列")
             db.session.remove()
             db.engine.dispose()
         if "must_change_password" not in cols:
@@ -128,7 +133,7 @@ def _migrate_user_table():
                 conn.execute(db.text(
                     "ALTER TABLE user ADD COLUMN must_change_password BOOLEAN DEFAULT 1"
                 ))
-            print("已迁移 user 表：新增 must_change_password 列")
+            logger.info("已迁移 user 表：新增 must_change_password 列")
 
 
 def _migrate_post_table():
@@ -156,7 +161,7 @@ def _migrate_post_table():
             with db.engine.begin() as conn:
                 for c in need:
                     conn.execute(db.text(f"ALTER TABLE post ADD COLUMN {c} {specs[c]}"))
-            print(f"已迁移 post 表：新增 {', '.join(need)} 列")
+            logger.info("已迁移 post 表：新增 %s 列", ", ".join(need))
 
 
 def _migrate_comment_table():
@@ -183,7 +188,7 @@ def _migrate_comment_table():
             with db.engine.begin() as conn:
                 for c in need:
                     conn.execute(db.text(f"ALTER TABLE comment ADD COLUMN {c} {specs[c]}"))
-            print(f"已迁移 comment 表：新增 {', '.join(need)} 列")
+            logger.info("已迁移 comment 表：新增 %s 列", ", ".join(need))
 
 
 def _migrate_friendlink_table():
@@ -197,7 +202,7 @@ def _migrate_friendlink_table():
             db.engine.dispose()
             with db.engine.begin() as conn:
                 conn.execute(db.text("ALTER TABLE friend_link ADD COLUMN rss_url VARCHAR(300) DEFAULT ''"))
-            print("已迁移 friend_link 表：新增 rss_url 列")
+            logger.info("已迁移 friend_link 表：新增 rss_url 列")
 
 
 def _migrate_guestbook_table():
@@ -211,7 +216,7 @@ def _migrate_guestbook_table():
             db.engine.dispose()
             with db.engine.begin() as conn:
                 conn.execute(db.text("ALTER TABLE guestbook ADD COLUMN is_read BOOLEAN DEFAULT 0"))
-            print("已迁移 guestbook 表：新增 is_read 列")
+            logger.info("已迁移 guestbook 表：新增 is_read 列")
 
 
 def _migrate_subscriber_table():
@@ -225,7 +230,7 @@ def _migrate_subscriber_table():
             db.engine.dispose()
             with db.engine.begin() as conn:
                 conn.execute(db.text("ALTER TABLE subscriber ADD COLUMN unsub_token VARCHAR(64) DEFAULT ''"))
-            print("已迁移 subscriber 表：新增 unsub_token 列")
+            logger.info("已迁移 subscriber 表：新增 unsub_token 列")
 
 
 def _migrate_audit_log_table():
@@ -239,7 +244,7 @@ def _migrate_audit_log_table():
             db.engine.dispose()
             with db.engine.begin() as conn:
                 conn.execute(db.text("ALTER TABLE audit_log ADD COLUMN success BOOLEAN DEFAULT 1"))
-            print("已迁移 audit_log 表：新增 success 列")
+            logger.info("已迁移 audit_log 表：新增 success 列")
 
 
 def _migrate_visit_log_table():
@@ -264,7 +269,7 @@ def _migrate_visit_log_table():
             with db.engine.begin() as conn:
                 for c in need:
                     conn.execute(db.text(f"ALTER TABLE visit_log ADD COLUMN {c} {specs[c]}"))
-            print(f"已迁移 visit_log 表：新增 {', '.join(need)} 列")
+            logger.info("已迁移 visit_log 表：新增 %s 列", ", ".join(need))
 
 
 def _migrate_new_tables_v3():
@@ -288,9 +293,9 @@ def _migrate_new_tables_v3():
     if need:
         try:
             db.create_all()
-            print("已迁移：新建数据表（" + ", ".join(t.__tablename__ for t in need) + "）")
+            logger.info("已迁移：新建数据表（%s）", ", ".join(t.__tablename__ for t in need))
         except Exception as e:
-            print("建表失败（可忽略，下次启动重试）:", e)
+            logger.warning("建表失败（可忽略，下次启动重试）: %s", e)
 
     # v3.21.0 gamification：播种默认勋章（幂等）。
     # ⚠️ 必须放在 `if need:` **之外**：create_app 里 `db.create_all()` 先跑（第 619 行），
@@ -301,7 +306,7 @@ def _migrate_new_tables_v3():
         seed_badges()
     except Exception as e:  # noqa: BLE001  播种失败不能拖垮启动（下次启动会重试）
         # 与同文件其它 _migrate_* 一致走 stdout；必须留痕，否则又变成静默降级
-        print("默认勋章播种失败（可忽略，下次启动重试）:", e)  # noqa: T201
+        logger.warning("默认勋章播种失败（可忽略，下次启动重试）: %s", e)
 
 
 def count_unique_view(post_id, ip):
@@ -397,7 +402,7 @@ def _ensure_super_admin(app):
         if existing.must_change_password is None:
             existing.must_change_password = True
             db.session.commit()
-            print(f"超级管理员 {existing.username} 需在后台设置新用户名/密码")
+            logger.info("超级管理员 %s 需在后台设置新用户名/密码", existing.username)
         return
 
     # 没有任何超管：用 config 兜底账号新建唯一一个
@@ -414,7 +419,7 @@ def _ensure_super_admin(app):
         u.set_password(app.config["ADMIN_PASSWORD"])
         db.session.add(u)
     db.session.commit()
-    print(f"已创建唯一超级管理员账号: {username}（首次登录后台需设置新用户名/密码）")
+    logger.info("已创建唯一超级管理员账号: %s（首次登录后台需设置新用户名/密码）", username)
 
 
 _HTTP_ERROR_TEXT = {
@@ -468,6 +473,12 @@ def create_app(enable_scheduler=True):
     # v3.18.5：删除残留的 app.config["ADMIN_HASH"]。它全仓无任何读取方，且每次启动
     # 白算一次 scrypt；密码校验一律走 User.check_password()。ADMIN_PASSWORD 仍由
     # _ensure_super_admin() 在建库首次创建超管时使用，故保留在 config 中。
+
+    # v3.23.0：结构化日志 + request_id（必须早于任何 logger 使用——否则迁移/启动
+    # 阶段的日志拿不到 rid，且 root 无 handler 时 INFO 级会被直接丢弃）。
+    import logging_setup
+    logging_setup.init_request_id(app)
+    logging_setup.setup_logging(app)
 
     # v3.9.1：SQLite WAL + busy_timeout（必须在建连/建表之前装好监听）
     _install_sqlite_pragmas()
@@ -673,7 +684,7 @@ def create_app(enable_scheduler=True):
             import fts
             fts.ensure()
         except Exception as e:
-            print("FTS 初始化跳过:", e)
+            logger.warning("FTS 初始化跳过: %s", e)
         _ensure_settings(app)
         _ensure_super_admin(app)
 
@@ -682,7 +693,7 @@ def create_app(enable_scheduler=True):
             from plugins import load_plugins
             load_plugins(app, app.config)
         except Exception as e:
-            print("插件系统加载失败（已跳过，不影响博客启动）:", e)
+            logger.warning("插件系统加载失败（已跳过，不影响博客启动）: %s", e)
 
     # v3.1.6：确保每个请求都生成会话 CSRF Token（未登录访客也有，用于游客提交表单/API）
     def _csrf_generate():
@@ -831,17 +842,17 @@ def create_app(enable_scheduler=True):
                         except Exception:
                             pass
                     if due:
-                        print(f"[定时发布] 已自动发布 {len(due)} 篇到点文章")
+                        logger.info("[定时发布] 已自动发布 %d 篇到点文章", len(due))
             except Exception as e:
                 # 单轮异常不致命，下一轮继续；打印便于排查
-                print("[定时发布线程] 异常（已忽略，继续下一轮）:", e)
+                logger.warning("[定时发布线程] 异常（已忽略，继续下一轮）: %s", e)
 
     # v3.18.5：CLI 命令必须在 return 之前注册，否则永不生效（此处曾是 return 之后的死代码）。
     @app.cli.command("seed")
     def seed_command():
         """插入示例数据：flask seed（仅首次演示用）"""
         if Post.query.count() > 0:
-            print("已有文章，跳过示例数据。")
+            logger.info("已有文章，跳过示例数据。")
             return
         cat = Category(name="随笔", slug=make_slug("随笔"))
         db.session.add(cat)
@@ -871,7 +882,7 @@ def create_app(enable_scheduler=True):
         db.session.add(post)
         db.session.add(FriendLink(name="WorkBuddy", url="https://www.workbuddy.cn", description="你的 AI 助手", sort=0))
         db.session.commit()
-        print("已插入示例文章、分类、标签和一条友情链接。")
+        logger.info("已插入示例文章、分类、标签和一条友情链接。")
 
     # v3.18.5：统一错误处理——/api/ 前缀返回 JSON 信封，其余返回模板页。
     # 修复前全仓 0 个 errorhandler，first_or_404() 对 JSON 客户端返回 Werkzeug

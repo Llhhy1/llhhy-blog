@@ -19,6 +19,10 @@ import importlib
 import traceback
 
 from flask import Blueprint, jsonify, request, session
+import logging
+
+# v3.23.0：print → logger（格式/级别见 logging_setup）
+logger = logging.getLogger(__name__)
 
 # 插件运行时注册表：slug -> manifest dict（含 slots、各 provider 等）。
 # 单进程内有效；多 worker 各自加载，互不影响。
@@ -111,7 +115,7 @@ def _unregister_blueprints(app, slug=None):
                     keep.append(r)
             app.url_map._rules[:] = keep
         except Exception as e:
-            print(f"[插件] 卸载蓝图失败（忽略）：{name} -> {e}")
+            logger.warning("[插件] 卸载蓝图失败（忽略）：%s -> %s", name, e)
     if slug is None:
         SLUG_BLUEPRINTS.clear()
     else:
@@ -124,7 +128,7 @@ def _load_one(app, cfg, slug):
         module = importlib.import_module(f"plugins.{slug}")
         register = getattr(module, "register", None)
         if register is None:
-            print(f"[插件] {slug} 缺少 register(app, cfg)，已跳过")
+            logger.warning("[插件] %s 缺少 register(app, cfg)，已跳过", slug)
             return None
         before = set(app.blueprints.keys())
         manifest = register(app, cfg) or {}
@@ -138,10 +142,10 @@ def _load_one(app, cfg, slug):
             emit_plugin_loaded(slug, manifest)
         except Exception:
             pass
-        print(f"[插件] 已加载：{slug} v{manifest.get('version', '?')}")
+        logger.info("[插件] 已加载：%s v%s", slug, manifest.get("version", "?"))
         return manifest
     except Exception as e:
-        print(f"[插件] 加载失败（已隔离，不影响博客）：{slug} -> {e}")
+        logger.warning("[插件] 加载失败（已隔离，不影响博客）：%s -> %s", slug, e)
         traceback.print_exc()
         return None
 
@@ -151,7 +155,7 @@ def load_plugins(app, cfg):
     PLUGIN_REGISTRY.clear()
     plugins_dir = cfg.get("PLUGINS_DIR", "")
     if plugins_dir and not os.path.isdir(plugins_dir):
-        print(f"[插件] 插件目录不存在：{plugins_dir}，跳过")
+        logger.info("[插件] 插件目录不存在：%s，跳过", plugins_dir)
         return
     enabled = _parse_list(cfg.get("ENABLED_PLUGINS", ""))
     loaded = 0
@@ -160,7 +164,7 @@ def load_plugins(app, cfg):
             if _load_one(app, cfg, slug):
                 loaded += 1
         else:
-            print(f"[插件] 已跳过（禁用清单/标记文件/运行时禁用）：{slug}")
+            logger.info("[插件] 已跳过（禁用清单/标记文件/运行时禁用）：%s", slug)
     # v3.13.1：幂等 + 崩溃安全注册。create_app 启动时已注册过一次；
     # 后台「插件重载」按钮（reload_plugins → load_plugins）会在运行时再次走到这里，
     # 若应用已处理过请求，Flask 禁止 register_blueprint（抛 AssertionError → 该接口直接 500）。
@@ -174,7 +178,7 @@ def load_plugins(app, cfg):
                 "跳过 plugins 系统蓝图运行时注册（应用已处理请求，路由级变更需重启 gunicorn 生效）"
             )
     SLUG_BLUEPRINTS.setdefault("__sys__", set()).add(SYS_BP_NAME)
-    print(f"[插件] 加载完成，共 {loaded} 个启用")
+    logger.info("[插件] 加载完成，共 %d 个启用", loaded)
 
 
 def set_plugin_enabled(app, cfg, slug, enabled):
@@ -221,7 +225,7 @@ def reload_plugins(app, cfg):
     try:
         _unregister_blueprints(app, None)
     except Exception as e:
-        print(f"[插件] 卸载全部蓝图失败（忽略）：{e}")
+        logger.warning("[插件] 卸载全部蓝图失败（忽略）：%s", e)
     load_plugins(app, cfg)
     return {"ok": True, "loaded": len(PLUGIN_REGISTRY)}
 
@@ -254,25 +258,25 @@ def _collect_providers():
             try:
                 footer_items.extend(m["footer_provider"]() or [])
             except Exception as e:
-                print(f"[插件] footer_provider 失败：{slug} -> {e}")
+                logger.warning("[插件] footer_provider 失败：%s -> %s", slug, e)
         # nav
         if m.get("nav_provider"):
             try:
                 nav_items.extend(m["nav_provider"]() or [])
             except Exception as e:
-                print(f"[插件] nav_provider 失败：{slug} -> {e}")
+                logger.warning("[插件] nav_provider 失败：%s -> %s", slug, e)
         # sidebar
         if m.get("sidebar_provider"):
             try:
                 sidebar_items.extend(m["sidebar_provider"]() or [])
             except Exception as e:
-                print(f"[插件] sidebar_provider 失败：{slug} -> {e}")
+                logger.warning("[插件] sidebar_provider 失败：%s -> %s", slug, e)
         # html（富文本，前端须 DOMPurify 消毒后 v-html）
         if "html" in slots and m.get("html_provider"):
             try:
                 html_items.append({"slug": slug, "html": m["html_provider"]() or ""})
             except Exception as e:
-                print(f"[插件] html_provider 失败：{slug} -> {e}")
+                logger.warning("[插件] html_provider 失败：%s -> %s", slug, e)
         # remote_components（预构建 JS，仅允许同源 /static/plugins/ 前缀）
         for rc in (m.get("remote_components") or []):
             url = rc.get("url", "")

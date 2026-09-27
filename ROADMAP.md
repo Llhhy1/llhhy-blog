@@ -167,6 +167,11 @@
 - **文档与仓库卫生**：文档 760 KB 入库（`SECURITY_AUDIT.md` 342 KB / `CHANGELOG.md` 134 KB / `ROADMAP.md` 116 KB）会吃光 LLM 上下文；版本号 5+ 处复制且 `update.sh` 用正则强绑 `APP_VERSION = "x.y.z"` 字面写法；3 份一次性审查文档常驻；`LICENSE` ×3；`deploy_guide.md` 让执行 `python tools/seed_games.py`（实际在 `myblog/tools/`）；311 处 `v3.x.y` 注释版本戳。
 - **结构**：`create_app()` 373 行上帝函数；`admin/_helpers.py` 用 `globals()` 拼 `__all__` + `import *` 全量灌命名空间（静态检查看不见）；调度线程随 gunicorn worker 数翻倍（N worker = N 线程，同一篇定时文章并发发布 + N 倍推送）；Alembic 基线是假的（`upgrade()` 直接 `db.create_all()`）+ 9 个手写 `_migrate_*` → **两份 schema 真相源**；`Setting` KV 被 UGC 当表用（每条评论一行 `react_<id>`）却有 6 处全表加载；226 处函数级 import 硬扛循环依赖。
 
+> **§5.8 处置记录（2026-09-28 · v3.23.0）**：本节按「先实测再动手」处理了一批，另有两条结论**被实测推翻**：
+> - **已落地**：可观测性之结构化日志（`logging_setup.py`，request_id + `LOG_LEVEL`，运行时 `print(` 清零 47 处；⚠️ `/api/health` **早已存在**，§5.8 该条过时）；工程化之 CI 前端 CVE 门禁（`npm audit`）+ CodeQL（非阻断）（⚠️ lint/dependabot/pip-audit v3.20.0 已有，该条部分过时）；后台长任务 `tasks.py`（立即备份 300s / 游戏上传 LLM 审计 120s 移出请求路径——**Telegram 推送与 IP 属地查询实测早已异步**，§5.8 该两条过时）；`/api/weather` 出站缓存（公开端点串行最坏 ~17s）。
+> - **实测证伪后改判**：「Alembic 基线是假的 → 必须重建后才能改表」**不成立**——生产库已 `stamp` 到基线 head，且 autogenerate 对业务表**零漂移**（唯一漂移是 6 张 FTS5 虚拟表，须在 `env.py` 加 `include_object` 排除后再生成迁移，否则会生成 `DROP TABLE post_fts*`）。改表批次（PointLog 复合 UNIQUE + 索引 + 保留策略）因此解锁，**未实施**（保留策略需产品决策）。
+> - **仍未做**：热表索引（同前）、`create_app()` 拆分、`_migrate_*` 退役、`Setting` KV 治理、后台表格 `data-label` 覆盖（2/27，仅新增模板已带）、token 纯度（admin.css/global.css 各 ~230-250 处裸 hex）、a11y 其余项。
+
 ---
 
 ### 5.9 第三轮复审延后批次（2026-09-22 · 基线 v3.19.0）

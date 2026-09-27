@@ -1,0 +1,58 @@
+{% extends "admin/base.html" %}
+{% block title %}第三方账号绑定{% endblock %}
+{% block content %}
+  <h1 class="page-title">第三方账号绑定</h1>
+
+  {% if target.id != actor.id %}
+    <div class="auth-box" style="max-width: 680px; margin: 0 0 14px;">
+      <p>🔧 <b>正在以超管身份查看他人账号：</b>{{ target.username }}（id={{ target.id }}）</p>
+      <p class="auth-tip">解绑会用<b>你自己的密码</b>确认身份，并记入操作日志。</p>
+    </div>
+  {% endif %}
+
+  {% if not configured %}
+    <div class="auth-box" style="max-width: 680px; margin: 0 0 14px;">
+      <p>⚠️ <b>当前没有配置任何第三方登录。</b></p>
+      <p class="auth-tip">需设置 <code>OAUTH_GITHUB_CLIENT_ID/SECRET</code> 或 <code>OAUTH_GOOGLE_CLIENT_ID/SECRET</code> 并重启。
+      未配置时无法<b>新增</b>绑定，但下方已有的历史绑定仍可查看和解绑。</p>
+    </div>
+  {% endif %}
+
+  {% if not links %}
+    <div class="auth-box" style="max-width: 680px; margin: 0;">
+      <p>当前账号<b>没有</b>任何第三方账号绑定。</p>
+    </div>
+  {% else %}
+    <div class="auth-box" style="max-width: 680px; margin: 0;">
+      <table class="stats-table" style="width:100%;">
+        <thead>
+          <tr><th>渠道</th><th>第三方 ID</th><th>邮箱</th><th>绑定时间</th><th>操作</th></tr>
+        </thead>
+        <tbody>
+          {% for l in links %}
+          <tr>
+            <td data-label="渠道">{{ l.provider }}</td>
+            <td data-label="第三方 ID"><code>{{ l.sub }}</code></td>
+            <td data-label="邮箱">{{ l.email or '—' }}</td>
+            <td data-label="绑定时间">{{ l.created_at.strftime('%Y-%m-%d %H:%M') if l.created_at else '—' }}</td>
+            <td data-label="操作">
+              <form method="post" action="{{ url_for('admin.oauth_unbind') }}" style="margin:0;">
+                {{ csrf_input() }}
+                <input type="hidden" name="link_id" value="{{ l.id }}">
+                {% if target.id != actor.id %}<input type="hidden" name="user_id" value="{{ target.id }}">{% endif %}
+                <input type="password" name="password" placeholder="登录密码" required
+                       style="width:120px;display:inline-block;">
+                <button type="submit" onclick="return confirm('确认解绑 {{ l.provider }} 账号？此操作不可撤销。');">解绑</button>
+              </form>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      <p class="auth-tip" style="margin-top:12px;">
+        解绑需要验证登录密码：这既是身份确认，也确保你解绑后<b>仍有办法登录</b>
+        （第三方注册的账号密码是随机串，输不出密码即代表解绑会把你锁在门外）。
+      </p>
+    </div>
+  {% endif %}
+{% endblock %}

@@ -13,10 +13,14 @@
 插件订阅示例（在 register(app, cfg) 内）：
     from plugins.signals import post_published
     def _on_published(post):
-        print("新文章：", post.title)
+        logger.info("新文章：%s", post.title)
     post_published.connect(_on_published)
 """
 from blinker import Namespace
+import logging
+
+# v3.23.0：print → logger（格式/级别见 logging_setup）
+logger = logging.getLogger(__name__)
 
 _signals = Namespace()
 
@@ -31,32 +35,32 @@ def emit_post_published(post):
     try:
         post_published.send(post)
     except Exception as e:
-        print(f"[插件信号] post_published 订阅者异常（已忽略）：{e}")
+        logger.warning("[插件信号] post_published 订阅者异常（已忽略）：%s", e)
 
 
 def emit_post_deleted(post):
     try:
         post_deleted.send(post)
     except Exception as e:
-        print(f"[插件信号] post_deleted 订阅者异常（已忽略）：{e}")
+        logger.warning("[插件信号] post_deleted 订阅者异常（已忽略）：%s", e)
 
 
 def emit_comment_created(comment):
     try:
         comment_created.send(comment)
     except Exception as e:
-        print(f"[插件信号] comment_created 订阅者异常（已忽略）：{e}")
+        logger.warning("[插件信号] comment_created 订阅者异常（已忽略）：%s", e)
 
 
 def emit_comment_approved(comment):
     try:
         comment_approved.send(comment)
     except Exception as e:
-        print(f"[插件信号] comment_approved 订阅者异常（已忽略）：{e}")
+        logger.warning("[插件信号] comment_approved 订阅者异常（已忽略）：%s", e)
 
 
 def emit_plugin_loaded(slug, manifest):
     try:
         plugin_loaded.send(slug, manifest=manifest)
     except Exception as e:
-        print(f"[插件信号] plugin_loaded 订阅者异常（已忽略）：{e}")
+        logger.warning("[插件信号] plugin_loaded 订阅者异常（已忽略）：%s", e)

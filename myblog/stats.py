@@ -17,6 +17,10 @@ from models import db, Post, VisitLog, ReadLog, SearchLog, IpRegion, Comment, Su
 from flask import request
 from utils import detect_bot, fmt_bj, to_beijing, BEIJING_TZ
 from _time import utcnow
+import logging
+
+# v3.23.0：print → logger（格式/级别见 logging_setup）
+logger = logging.getLogger(__name__)
 
 _LOCAL_IPS = {"127.0.0.1", "::1", "localhost", "0.0.0.0"}
 
@@ -448,7 +452,7 @@ def compute_trend(days=30):
             cur += datetime.timedelta(days=1)
         return result
     except Exception as e:
-        print("compute_trend 失败:", e)
+        logger.warning("compute_trend 失败: %s", e)
         return []
 
 
@@ -501,7 +505,7 @@ def compute_dashboard_trend(days=30):
             cur += datetime.timedelta(days=1)
         return result
     except Exception as e:
-        print("compute_dashboard_trend 失败:", e)
+        logger.warning("compute_dashboard_trend 失败: %s", e)
         return []
 
 

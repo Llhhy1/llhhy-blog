@@ -1,0 +1,56 @@
+name: CodeQL
+
+# v3.23.0 新增。对应审计「工程化：CI 无 CodeQL」。
+#
+# 与 ci.yml 的分工：ci.yml 是**阻断门禁**（lint / 测试 / 构建 / CVE），
+# 这里做的是**静态安全分析（SAST）**，结果进 GitHub Security 选项卡。
+#
+# ⚠️ 刻意**不设为阻断**：SAST 对单人维护的项目会产生不少需要人工判定的告警
+# （尤其 Python 的动态特性与 Jinja 模板），一旦阻断 PR，最常见的结局是被关掉。
+# 让它持续跑、结果可查，比让它当门神更有价值。
+#
+# 语言：Python（后端 myblog/）+ JavaScript/TypeScript（前端 vue-frontend/）。
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    # 每周一 03:27 UTC 跑一次：即使 main 长期不推，也能跟上新规则/新查询。
+    # 分钟取 27 是为了避开 GitHub Actions 的整点排队高峰。
+    - cron: "27 3 * * 1"
+
+jobs:
+  analyze:
+    name: Analyze (${{ matrix.language }})
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+      security-events: write   # 上传 SARIF 到 Security 选项卡所必需
+
+    strategy:
+      fail-fast: false          # 一门语言失败不影响另一门
+      matrix:
+        language: ["python", "javascript-typescript"]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: ${{ matrix.language }}
+          # 默认查询集（security-extended 会显著增加告警量，
+          # 待默认集稳定后再评估是否开启）
+          queries: security-and-quality
+
+      - name: Autobuild
+        uses: github/codeql-action/autobuild@v3
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v3
+        with:
+          category: "/language:${{ matrix.language }}"

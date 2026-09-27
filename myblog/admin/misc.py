@@ -222,3 +222,27 @@ def plugins():
             "disabled": bool(disabled),
         })
     return render_template("admin/plugins.html", plugins=items, app_version=APP_VERSION)
+
+
+@admin_bp.route("/task/<task_id>")
+@admin_required
+def task_status(task_id):
+    """后台长任务状态轮询（v3.23.0 #48）。
+
+    前端提交「立即备份 / LLM 审计 / AI 摘要」后拿到 task_id，用本端点轮询，
+    避免这三个 90~300s 的操作长期占住 gunicorn 的并发槽。
+    状态来自**文件**（data/tasks/<id>.json）——不能放内存，因为 4 个 worker
+    是独立进程，提交在 A、轮询可能打到 B。
+    """
+    import tasks as tasks_mod
+    st = tasks_mod.status(task_id)
+    if st is None:
+        return jsonify({"state": "unknown", "message": "任务不存在或已过期"}), 404
+    # 只回前端需要的字段，不把内部字段（started_at 等浮点）全部外泄
+    return jsonify({
+        "id": st.get("id", ""),
+        "name": st.get("name", ""),
+        "state": st.get("state", "unknown"),
+        "message": st.get("message", ""),
+        "error": st.get("error", ""),
+    })

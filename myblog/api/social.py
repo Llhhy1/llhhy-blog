@@ -6,6 +6,10 @@ from flask import request, jsonify, session
 
 from .common import (api_bp, db, Moment, MomentComment, SocialAccount, User, _current_user, _moment, _mcomment, rate_limit, client_key)
 import stats  # myblog/stats.py：client_ip / cached_region（动态归属地）
+import logging
+
+# v3.23.0：print → logger（格式/级别见 logging_setup）
+logger = logging.getLogger(__name__)
 
 # ---------- 社交聚合页（广场）----------
 @api_bp.route("/moments")
@@ -97,7 +101,7 @@ def feed_circle():
     except Exception as e:
         # v3.8.4：不再静默——异常栈落日志（gunicorn.log 可查）
         import traceback
-        print("[FEED AGG] 博客圈聚合异常:", repr(e))
+        logger.warning("[FEED AGG] 博客圈聚合异常: %s", repr(e))
         traceback.print_exc()
         items = []
         debug = {"error": repr(e)}

@@ -35,6 +35,49 @@
   <button type="submit" class="btn primary">📦 立即备份一次</button>
 </form>
 
+{# v3.23.0 #48：备份已改为后台任务（含 scp/curl 远程同步，最长 300s），此处轮询进度。 #}
+{% if task_id %}
+<div class="auth-box" id="bk-task" style="max-width:680px; margin:0 0 14px;">
+  <p>⏳ <b>备份正在后台进行…</b>（任务 <code>{{ task_id }}</code>）</p>
+  <p class="auth-tip" id="bk-task-msg">已开始，本页会自动更新状态，完成后自动刷新列表。</p>
+</div>
+<script>
+(function () {
+  var tid = {{ task_id|tojson }};
+  var msg = document.getElementById('bk-task-msg');
+  if (!tid || !msg) { return; }
+  var url = {{ url_for('admin.task_status', task_id='__TID__')|tojson }}.replace('__TID__', encodeURIComponent(tid));
+  var rounds = 0;
+  var timer = setInterval(function () {
+    rounds += 1;
+    if (rounds > 200) {                       // 200 × 3s ≈ 10 分钟上限
+      clearInterval(timer);
+      msg.textContent = '⚠️ 轮询超时（任务可能仍在进行），请刷新页面确认结果。';
+      return;
+    }
+    fetch(url, { headers: { 'Accept': 'application/json' }, credentials: 'same-origin' })
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        if (d.state === 'done') {
+          clearInterval(timer);
+          msg.textContent = '✅ 备份完成，正在刷新列表…';
+          setTimeout(function () { location.reload(); }, 800);
+        } else if (d.state === 'error') {
+          clearInterval(timer);
+          msg.textContent = '❌ 备份失败：' + (d.error || d.message || '未知错误');
+        } else if (d.state === 'unknown') {
+          clearInterval(timer);
+          msg.textContent = '⚠️ 任务状态已过期或不存在，请刷新列表确认。';
+        } else {
+          msg.textContent = '进行中…（' + (d.message || '') + '）';
+        }
+      })
+      .catch(function () { /* 网络抖动：忽略，下一轮继续 */ });
+  }, 3000);
+})();
+</script>
+{% endif %}
+
 <h3 style="margin:22px 0 10px;">本地备份列表（保留 {{ retention }} 天）</h3>
 {% if backups %}
 <div class="bk-table-wrap">

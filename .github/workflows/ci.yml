@@ -106,5 +106,19 @@ jobs:
         # 于是「CI 绿」与「本机装出来的那份」两件事就脱钩了；
         # `npm ci` 严格按 lockfile 安装，装不上直接失败 —— 这正是构建校验想要的行为。
         run: npm ci
+
+      - name: 前端依赖 CVE 扫描（npm audit）
+        # v3.23.0 新增。CI 此前只扫了 Python（pip-audit），前端依赖一直没有 CVE 门禁。
+        # 基线：2026-09-27 实测 `npm audit` = found 0 vulnerabilities，故设为**阻断项**
+        # （与 pip-audit 一致的口径）。
+        #
+        # ⚠️ 必须显式指定官方 registry：若环境配了镜像源（本机就是 npmmirror.com），
+        # 其 audit 端点未实现（404 NOT_IMPLEMENTED），会直接报错、让门禁失去意义。
+        #
+        # 关于 `--audit-level=high`：只阻断 high/critical。构建链（vite 等 devDep）
+        # 常带 moderate 级传递告警，一律阻断会让每个无关 PR 都红，反而逼人关掉门禁；
+        # 高危及以上则绝不放过。基线为 0，故当前这一档实际等于「全阻断」。
+        run: npm audit --registry=https://registry.npmjs.org --audit-level=high
+
       - name: Build frontend
         run: npm run build

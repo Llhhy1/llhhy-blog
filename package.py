@@ -101,6 +101,15 @@ def package_backend(version):
     out = os.path.join(ROOT, "myblog-backend.zip")
     with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as zf:
         add_tree(zf, BACKEND_SRC, "myblog", EXCLUDE_DIRS, EXCLUDE_SUFFIXES)
+        # v3.22.0：把 FTS 重建脚本随包分发，使一键更新后站点目录 tools/ 下即可用
+        # （R94.3 修复后，历史库里已存在的隐私/回收站文章正文行必须显式重建一次才会消失）。
+        # 只挑这一个运维脚本——绝不把仓库根 tools/ 里的开发/CI 工具
+        # （api_routes_snapshot / check_i18n / lint_debt 等）带上线。
+        # 嵌套在 myblog/tools/ 下：update.sh 的 rsync 会剥掉 myblog/ 前缀，
+        # 最终落到 $APP_DIR/tools/rebuild_fts.py，无需改 update.sh。
+        _rebuild_script = os.path.join(ROOT, "tools", "rebuild_fts.py")
+        if os.path.exists(_rebuild_script):
+            zf.write(_rebuild_script, os.path.join("myblog", "tools", "rebuild_fts.py"))
     # 校验
     with zipfile.ZipFile(out) as zf:
         names = zf.namelist()

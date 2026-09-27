@@ -14,7 +14,20 @@
 import os
 import sys
 
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "myblog"))
+# 兼容两种运行位置：
+#   仓库内   : <repo>/tools/rebuild_fts.py     → app 在 <repo>/myblog
+#   生产站点 : <APP_DIR>/tools/rebuild_fts.py  → app 在 <APP_DIR>
+# （旧写法固定拼 <父父目录>/myblog，只在仓库布局成立；站点布局下会拼成
+#  $APP_DIR/myblog 而导入失败，导致「必须跑」的这一步本身就跑不起来。）
+_HERE = os.path.dirname(os.path.abspath(__file__))
+_REPO = os.path.dirname(_HERE)
+_APP_CANDIDATES = (os.path.join(_REPO, "myblog"), _REPO)
+for _cand in _APP_CANDIDATES:
+    if os.path.exists(os.path.join(_cand, "app.py")):
+        sys.path.insert(0, _cand)
+        break
+else:
+    sys.path.insert(0, os.path.join(_REPO, "myblog"))  # 兜底：保持旧仓库布局行为
 
 os.environ.setdefault("SECRET_KEY", "rebuild-fts-secret-key-only")
 os.environ.setdefault("ADMIN_PASSWORD", "rebuild-fts-admin-password-only")

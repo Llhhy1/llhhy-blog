@@ -33,6 +33,8 @@ import datetime
 import tempfile
 import subprocess
 import argparse
+import re
+from urllib.parse import urlparse
 
 BASE_DIR = os.path.abspath(os.path.dirname(__file__))
 DATA_DIR = os.path.join(BASE_DIR, "data")
@@ -293,6 +295,33 @@ def sync_oss(arc, man):
         return ("oss", False, str(e)[:200])
 
 
+_SCP_TARGET_RE = re.compile(r"^(?:[A-Za-z0-9._%+-]{1,64}@)?[A-Za-z0-9.-]{1,253}$")
+
+
+def _scp_target_ok(host):
+    """scp 目标必须是 `[user@]host` 形态（允许 IP 与裸主机名）。
+
+    这些值来自后台可编辑的 Setting 表（`backup_settings.apply_to_environ()` 把它们
+    写回 os.environ），属于**跨信任边界输入**：以 `-` 开头会被 scp 当成选项，
+    `-oProxyCommand=<命令>` 即以 gunicorn 进程身份执行任意命令。
+    """
+    if not host or host.startswith("-") or ".." in host:
+        return False
+    return bool(_SCP_TARGET_RE.match(host))
+
+
+def _webdav_url_ok(url):
+    """WebDAV 地址只允许 http/https，且不得以 `-` 开头（curl 选项注入）。
+
+    `curl -T <文件> <url>` 在 url 为 `file://` 时是**任意本地路径写入**——把备份包
+    （内含明文可猜测的 zip 结构）写到 cron / web 目录即可提权。gopher/file 同理。
+    """
+    if not url or url.startswith("-"):
+        return False
+    scheme = urlparse(url).scheme.lower()
+    return scheme in ("http", "https")
+
+
 def sync_scp(arc, man):
     """scp 到备用机。依赖系统 scp + SSH 互信或 BACKUP_SCP_KEY。"""
     try:
@@ -300,11 +329,18 @@ def sync_scp(arc, man):
         dest = os.environ.get("BACKUP_SCP_DIR", "~/blog_backups")
         port = os.environ.get("BACKUP_SCP_PORT", "22")
         key = os.environ.get("BACKUP_SCP_KEY", "")
+        if not _scp_target_ok(host):
+            return ("scp", False, "BACKUP_SCP_HOST 非法（只允许 [user@]host，不得以 - 开头）")
+        if not str(port).isdigit() or not (1 <= int(port) <= 65535):
+            return ("scp", False, "BACKUP_SCP_PORT 必须是 1-65535 的端口号")
+        if key.startswith("-") or any(c in key for c in " \t\r\n"):
+            return ("scp", False, "BACKUP_SCP_KEY 路径非法")
         opts = ["-P", str(port)]
         if key:
             opts += ["-i", key]
         for f in (arc, man):
-            _run(["scp"] + opts + [f, "%s:%s/" % (host, dest)], timeout=300)
+            # `--` 结束选项解析：即便日后新增字段忘了校验，也不会退化成选项注入
+            _run(["scp"] + opts + ["--", f, "%s:%s/" % (host, dest)], timeout=300)
         return ("scp", True, "ok")
     except Exception as e:
         return ("scp", False, str(e)[:200])
@@ -316,9 +352,11 @@ def sync_webdav(arc, man):
         url = os.environ["BACKUP_WEBDAV_URL"].rstrip("/")
         user = os.environ.get("BACKUP_WEBDAV_USER", "")
         pwd = os.environ.get("BACKUP_WEBDAV_PASS", "")
+        if not _webdav_url_ok(url):
+            return ("webdav", False, "BACKUP_WEBDAV_URL 非法（只允许 http/https，不得以 - 开头）")
         auth = ["-u", "%s:%s" % (user, pwd)] if user else []
         for f in (arc, man):
-            _run(["curl", "-sS", "-f"] + auth + ["-T", f,
+            _run(["curl", "-sS", "-f"] + auth + ["-T", f, "--",
                   "%s/%s" % (url, os.path.basename(f))], timeout=300)
         return ("webdav", True, "ok")
     except Exception as e:
@@ -446,6 +484,24 @@ def list_backups():
     return out
 
 
+_MAX_MEMBER_BYTES = 512 * 1024 * 1024   # 单个备份成员解压后允许的上限
+
+
+def _sha256_stream(fh, limit):
+    """分块哈希；累计读出超过 limit 字节立即抛错（不把成员整体读进内存）。"""
+    h = hashlib.sha256()
+    read = 0
+    while True:
+        chunk = fh.read(1 << 20)
+        if not chunk:
+            break
+        read += len(chunk)
+        if read > limit:
+            raise ValueError("成员解压后超过上限 %.0f MiB，拒绝" % (limit / 1048576))
+        h.update(chunk)
+    return h.hexdigest()
+
+
 def verify(arc_path):
     """校验备份包完整性：manifest 存在 + 每个文件 SHA256 一致 + 路径白名单。"""
     if not os.path.exists(arc_path):
@@ -462,34 +518,80 @@ def verify(arc_path):
                     return False, "manifest 含非法路径: %s" % rel
                 if rel not in names:
                     return False, "缺少文件: %s" % rel
-                data = zf.read(rel)
-                if hashlib.sha256(data).hexdigest() != item["sha256"]:
-                    return False, "哈希不一致: %s" % rel
+                info = zf.getinfo(rel)
+                declared = int(item.get("size") or 0)
+                # manifest 里本来就写了 size（create_backup 记的），却从未被校验：
+                # 补上，顺带挡住「解压后巨大」的成员——原实现 zf.read() 整体进内存。
+                if declared and info.file_size != declared:
+                    return False, "尺寸与 manifest 不符: %s" % rel
+                if info.file_size > _MAX_MEMBER_BYTES:
+                    return False, "成员过大（%.0f MiB）: %s" % (
+                        info.file_size / 1048576, rel)
+                with zf.open(rel) as fh:
+                    if _sha256_stream(fh, _MAX_MEMBER_BYTES) != item["sha256"]:
+                        return False, "哈希不一致: %s" % rel
         return True, man
     except Exception as e:
         return False, str(e)
 
 
 def _snapshot_before_restore(tag=""):
-    """恢复前自动打一份当前数据快照，命名含标签，便于回退。"""
+    """恢复前自动打一份当前数据快照，命名含标签，便于回退。
+
+    三个必须一起满足的性质（v3.21.2 审计时三条全不成立）：
+    1. **不能抛异常** —— 调用方 `restore()` 在覆盖主库**之前**打快照，快照一崩
+       整个恢复动作就中止，等于「最需要恢复的时候恢复不可用」；
+    2. **必须自带 manifest** —— 否则 `verify()` 拒收，这份快照永远无法被恢复回去，
+       「回退保险」是纸面的；
+    3. **必须被清理** —— 旧名 `blog_prerestore_*` 不被 `prune_local()` 的
+       `blog_backup_` 前缀匹配，会在小盘上无限堆积。
+    """
     ts = _now().strftime("%Y%m%d_%H%M%S")
-    name = "blog_prerestore_%s%s.zip" % (ts, ("_" + tag) if tag else "")
+    safe_tag = re.sub(r"[^A-Za-z0-9_.-]", "_", tag or "")[:40]
+    name = "blog_backup_prerestore_%s%s.zip" % (ts, ("_" + safe_tag) if safe_tag else "")
     os.makedirs(BACKUP_ROOT, exist_ok=True)
     arc = os.path.join(BACKUP_ROOT, name)
+    manifest = {
+        "created_at": _now().isoformat(timespec="seconds"),
+        "app_version": APP_VERSION,
+        "kind": "prerestore",
+        "files": [],
+    }
     snap = make_db_snapshot(os.path.join(DATA_DIR, "blog.db"))
     try:
         with zipfile.ZipFile(arc, "w", zipfile.ZIP_DEFLATED) as zf:
             if snap:
                 zf.write(snap, "data/blog.db")
-        if os.path.isdir(UPLOAD_DIR):
-            for dirpath, _dirnames, filenames in os.walk(UPLOAD_DIR):
-                for fn in filenames:
-                    full = os.path.join(dirpath, fn)
-                    rel = os.path.relpath(full, BASE_DIR).replace("\\", "/")
-                    if _safe_rel(rel):
+                manifest["files"].append(
+                    {"path": "data/blog.db", "sha256": _sha256_file(snap),
+                     "size": os.path.getsize(snap)})
+            if os.path.isdir(UPLOAD_DIR):
+                for dirpath, _dirnames, filenames in os.walk(UPLOAD_DIR):
+                    for fn in filenames:
+                        full = os.path.join(dirpath, fn)
+                        rel = os.path.relpath(full, BASE_DIR).replace("\\", "/")
+                        if not _safe_rel(rel):
+                            continue
                         zf.write(full, rel)
+                        manifest["files"].append(
+                            {"path": rel, "sha256": _sha256_file(full),
+                             "size": os.path.getsize(full)})
+            manifest["file_count"] = len(manifest["files"])
+            zf.writestr("manifest.json",
+                        json.dumps(manifest, ensure_ascii=False, indent=2))
+    except Exception as e:
+        # 快照失败绝不阻断恢复：降级为「无保险地继续」，并由调用方把警告打给用户
+        sys.stderr.write("[备份] 恢复前快照失败（不影响恢复本身）：%s\n" % e)
+        try:
+            os.remove(arc)
+        except OSError:
+            pass
+        return None
     finally:
         cleanup_db_snapshot(snap)
+    with open(os.path.join(BACKUP_ROOT, "manifest_prerestore_%s%s.json" % (ts, ("_" + safe_tag) if safe_tag else "")),
+              "w", encoding="utf-8") as f:
+        json.dump(manifest, f, ensure_ascii=False, indent=2)
     return arc
 
 
@@ -505,6 +607,8 @@ def restore(arc_path, yes=False, tag=""):
     if not ok:
         raise SystemExit("备份校验未通过，拒绝恢复：" + str(man_or_msg))
     snap = _snapshot_before_restore(tag)
+    if not snap:
+        sys.stderr.write("[备份] 未能建立恢复前快照，本次恢复**没有回退点**，请确认已另行冷备\n")
     with zipfile.ZipFile(arc_path) as zf:
         for item in man_or_msg["files"]:
             rel = item["path"]

@@ -23,6 +23,30 @@ def _probe():
 _AVAIL = None
 
 
+def _indexable(post):
+    """索引闸门：这篇文章是否允许出现在 `post_fts` 里。
+
+    与 `models.visible_posts_query()` 的**访客**语义对齐（不含超管豁免）。
+    为什么在写入侧收口而不只在查询侧：查询分支会随功能增加而漂移（`_is_visible()`
+    就是第 4 次漂移出来的），而索引里一旦躺着隐私文章的**正文**，任何一次漏判都是
+    直接外泄；写入门闸后，漏判最多是「搜不到」，不会是「泄露」。
+    """
+    from _time import utcnow
+    if not post or not post.published:
+        return False
+    if post.in_trash or post.is_private:
+        return False
+    return post.scheduled_at is None or post.scheduled_at <= utcnow()
+
+
+def _insert(post):
+    db.session.execute(db.text(
+        "INSERT INTO post_fts (rowid, title, summary, content, slug) "
+        "VALUES (:rid,:t,:s,:c,:sl)"
+    ), {"rid": post.id, "t": post.title, "s": post.summary or "", "c": post.content or "",
+        "sl": post.slug})
+
+
 def available():
     """FTS5 是否可用（带缓存，只探测一次）。"""
     global _AVAIL
@@ -46,27 +70,70 @@ def ensure():
         cnt = 0
     if cnt == 0:
         for p in Post.query.filter_by(published=True).all():
-            db.session.execute(db.text(
-                "INSERT INTO post_fts (rowid, title, summary, content, slug) "
-                "VALUES (:rid,:t,:s,:c,:sl)"
-            ), {"rid": p.id, "t": p.title, "s": p.summary or "", "c": p.content or "", "sl": p.slug})
+            if _indexable(p):
+                _insert(p)
         db.session.commit()
 
 
+def rebuild_all():
+    """全量重建 `post_fts`：清空后只写入通过 `_indexable()` 的文章。
+
+    必须提供且**执行一次**：`ensure()` 只在表为空时回填（见上方 cnt == 0 判断），
+    所以历史库中已存在的隐私文章正文行不会因为改了闸门而消失——它们仍在盘上，
+    且仍会被 `/api/search` 的 FTS 分支命中。
+    """
+    if not available():
+        return {"ok": False, "reason": "fts5-unavailable"}
+    try:
+        db.session.execute(db.text("DELETE FROM post_fts"))
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        return {"ok": False, "reason": "clear-failed"}
+    kept = 0
+    # 按 id 分页取，不 `yield_per`：流式游标尚未读完就在同一连接上写 post_fts，
+    # SQLite/DBAPI 下会重置游标；也不 `Post.query.all()`：正文全文进内存会吃掉数百 MB。
+    batch = 50
+    last_id = 0
+    while True:
+        rows = (Post.query.filter(Post.id > last_id)
+                .order_by(Post.id).limit(batch).all())
+        if not rows:
+            break
+        last_id = rows[-1].id
+        for p in rows:
+            if not _indexable(p):
+                continue
+            _insert(p)
+            kept += 1
+        db.session.expunge_all()
+    db.session.commit()
+    return {"ok": True, "indexed": kept}
+
+
 def sync_post(post):
-    """新增 / 更新文章后同步 FTS 索引（未发布不进索引）。"""
+    """新增 / 更新文章后同步 FTS 索引（不可对外露出的内容不进索引）。"""
     if not available():
         return
     try:
         db.session.execute(db.text("DELETE FROM post_fts WHERE rowid=:rid"), {"rid": post.id})
-        if post.published:
-            db.session.execute(db.text(
-                "INSERT INTO post_fts (rowid, title, summary, content, slug) "
-                "VALUES (:rid,:t,:s,:c,:sl)"
-            ), {"rid": post.id, "t": post.title, "s": post.summary or "", "c": post.content or "", "sl": post.slug})
+        if _indexable(post):
+            _insert(post)
         db.session.commit()
     except Exception:
         db.session.rollback()
+
+
+def sync_post_quiet(post):
+    """`sync_post()` 的免抛版本，供「改变可见性」的写路径收尾统一调用。
+
+    这些站点散布在请求处理器、后台定时线程与 SSR 表单里，任何一处漏调，文章就会
+    **永久**搜不到（`ensure()` 只在索引表为空时回填，不会自愈）。
+    """
+    try:
+        sync_post(post)
+    except Exception:
+        pass
 
 
 def delete_post(post_id):

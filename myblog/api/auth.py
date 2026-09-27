@@ -3,6 +3,7 @@
 共享辅助（_user_pub/_login_user/_login_delay/_csrf_token 等）统一来自 .common，
 本模块不重复定义，避免命名覆盖与行为漂移。
 """
+import hmac
 import time
 
 from flask import request, jsonify, session, Response, current_app, redirect
@@ -71,13 +72,13 @@ def auth_login():
         # v3.1.6 中优：消除用户名枚举——失败统一文案（无论用户是否存在）+ 统一延迟，防时序侧信道
         _login_delay()
         return jsonify({"error": "用户名或密码错误"}), 401
-    log_login_attempt(username, True)
-    # v3.21.0 2FA：该账号已绑定两步验证且全局开启 → 先不建立登录态，要求二次验证码。
-    # 挂起态只记「待验证的用户 id + 起始时间戳」，5 分钟内有效（见 _TWOFA_PENDING_TTL）。
+    # v3.21.2 审计：密码对但**尚未通过第二因素**时不得记成登录成功——否则针对
+    # 2FA 挑战的爆破在审计日志里全都显示为「成功登录」，正好掩盖了最需要看的信号。
     if _twofa_on() and _twofa_active(u.id):
         session["twofa_pending_uid"] = u.id
         session["twofa_pending_at"] = int(time.time())
         return jsonify({"twofa_required": True, "username": u.username}), 200
+    log_login_attempt(username, True)
     return _login_user(u)
 
 
@@ -153,6 +154,9 @@ def captcha_verify():
 
 # ---------- v3.21.0 OAuth 第三方登录（config-gated，未配凭据则休眠）----------
 
+_OAUTH_STATE_TTL = 600   # state 有效期（秒）：与 _TWOFA_PENDING_TTL 同理，不给整会话期重放
+
+
 @api_bp.route("/auth/oauth/providers")
 def oauth_providers():
     """返回当前已配置的 provider 列表（前端据此显隐登录按钮）。"""
@@ -163,41 +167,84 @@ def oauth_providers():
 @api_bp.route("/auth/oauth/<provider>/start")
 def oauth_start(provider):
     from oauth import is_configured, build_authorize_url, new_state
+    if not rate_limit(client_key("api_oauth"), limit=20, window=60):
+        return jsonify({"error": "操作过于频繁，请稍后再试"}), 429
     if provider not in ("github", "google") or not is_configured(provider):
         return jsonify({"error": "provider_not_configured"}), 503
-    redirect_uri = request.url_root.rstrip("/") + "/api/auth/oauth/" + provider + "/callback"
+    redirect_uri = _oauth_redirect_uri(provider)
     state = new_state()
     session["oauth_provider"] = provider
     session["oauth_state"] = state
+    session["oauth_state_at"] = int(time.time())
     return jsonify({"authorize_url": build_authorize_url(provider, redirect_uri, state)})
+
+
+def _oauth_redirect_uri(provider):
+    """回调地址优先由 `site_base()` 派生。
+
+    与 `/api/og/*`、`_abs()` 在 v3.18.9 定下的「对外 URL 只走 `site_base()`」一致
+    （`utils/settings.py` 把 `request.url_root` 列为禁用项，而本站未配
+    `trusted_hosts` / `SERVER_NAME`）。
+    未配置站点地址时**退回本次请求的 Host**而不是报错：
+    ① 现网存在只靠域名别名跑的部署（同 R90 待办② 的结论）；
+    ② 硬失败会从 `oauth_start` 冒成 500；
+    ③ 这里不构成 Host 注入面——provider 只会在**其登记的回调白名单**内跳转，
+      伪造 Host 顶多让自己拿不到 code。若真要收得更紧，应配 SITE_URL 而非在此
+      拒绝服务。
+    """
+    from utils import site_base
+    base = (site_base() or "").rstrip("/")
+    if not base:
+        base = (request.url_root or "").rstrip("/")
+    return base + "/api/auth/oauth/" + provider + "/callback"
 
 
 @api_bp.route("/auth/oauth/<provider>/callback")
 def oauth_callback(provider):
     from oauth import is_configured, exchange_code, find_or_create_user
-    home = request.url_root.rstrip("/") + "/"
+    home = (request.url_root or "/").rstrip("/") + "/"
+    if not rate_limit(client_key("api_oauth_cb"), limit=20, window=60):
+        return redirect(home + "?oauth=rate_limited")
     if session.get("oauth_provider") != provider or not is_configured(provider):
         return redirect(home + "?oauth=error")
     req_state = request.args.get("state") or ""
-    if not req_state or req_state != session.get("oauth_state"):
+    exp_state = session.get("oauth_state") or ""
+    # 常量时间比较 + 有效期：`!=` 会留下时序侧信道，且没有 TTL 的话一次下发的 state
+    # 在整个会话生命周期内都可重放（下面 :185 的「缺 code 提前 return」正好绕开了
+    # finally 的清理，所以那条路径上的 state 会一直留在会话里）。
+    issued_at = session.get("oauth_state_at") or 0
+    expired = (int(time.time()) - int(issued_at)) > _OAUTH_STATE_TTL
+    if not req_state or not exp_state or expired or \
+            not hmac.compare_digest(str(req_state), str(exp_state)):
         return redirect(home + "?oauth=error")
     code = request.args.get("code") or ""
     if not code:
+        session.pop("oauth_provider", None)
+        session.pop("oauth_state", None)
+        session.pop("oauth_state_at", None)
         return redirect(home + "?oauth=error")
     try:
-        info = exchange_code(
-            provider, code,
-            request.url_root.rstrip("/") + "/api/auth/oauth/" + provider + "/callback",
-        )
+        info = exchange_code(provider, code, _oauth_redirect_uri(provider))
+        # 已登录时回调 = 用户主动把第三方身份**绑到自己这个账号**；未登录时才走
+        # 「命中已有绑定 / 新建账号」。绝不按邮箱认领别人的账号（见 oauth.py 注释）。
         u = find_or_create_user(provider, info["sub"], info.get("email"),
-                                info.get("name"), info.get("email_verified", False))
-    except Exception:# noqa: BLE001  OAuth 回调绝不向外泄漏异常细节，统一重定向到 ?oauth=error
+                                info.get("name"), info.get("email_verified", False),
+                                bind_user_id=session.get("user_id"))
+    except Exception:
+        # OAuth 回调绝不向外泄漏异常细节（库结构 / 路径 / provider 原文），统一 error
+        current_app.logger.exception("OAuth 回调失败")
         return redirect(home + "?oauth=error")
     finally:
         session.pop("oauth_provider", None)
         session.pop("oauth_state", None)
+        session.pop("oauth_state_at", None)
+    if u is None:
+        # 绑定的目标用户已被删除：当作失败处理，不得冒成未捕获的 AttributeError
+        return redirect(home + "?oauth=error")
+    log_login_attempt(u.username, True)   # v3.21.2：OAuth 登录此前完全不进登录审计
     session["user_id"] = u.id
     session["session_version"] = u.session_version or 0
+    session["twofa_ok"] = False
     return redirect(home + "?oauth=ok")
 
 
@@ -242,10 +289,17 @@ def twofa_enroll():
     # 限流：enroll 会写库生成新密钥，防被刷成写放大（与 confirm/disable 分开计数，互不挤占）
     if not rate_limit(client_key("api_2fa_enroll"), limit=10, window=60):
         return jsonify({"error": "操作过于频繁，请稍后再试"}), 429
-    status, secret, uri = twofa.enroll(u)
+    status, secret, uri = twofa.enroll(u, ((request.get_json(silent=True) or request.form)
+                                           .get("code") or "").strip())
+    if status == "requires_code":
+        return jsonify({"error": "重置已生效的两步验证需要当前动态码或恢复码"}), 403
     if status != "ok":
         return jsonify({"error": "密钥加密失败，请联系管理员检查 cryptography 依赖"}), 500
-    return jsonify({"secret": secret, "provisioning_uri": uri})
+    resp = jsonify({"secret": secret, "provisioning_uri": uri})
+    # 响应体含**明文 TOTP 密钥**：不留任何可被浏览器/代理缓存的副本
+    # （与同文件其它敏感响应一致；provisioning_uri 里同样带着密钥）。
+    resp.headers["Cache-Control"] = "no-store"
+    return resp
 
 
 @api_bp.route("/auth/2fa/confirm", methods=["POST"])
@@ -267,6 +321,10 @@ def twofa_confirm():
         return jsonify({"error": "密钥读取失败"}), 500
     if status == "bad_code":
         return jsonify({"error": "验证码错误或已过期"}), 400
+    # confirm 成功即「当场证明持有第二因素」，因此本会话直接算已过 2FA。
+    # 不做这一步的话，用户刚绑定完就会被 `enforce_twofa` 挡在所有接口之外——
+    # 而 `/api/auth/2fa/verify` 是登录第二步、要求挂起态，此时并无挂起态可用。
+    session["twofa_ok"] = True
     return jsonify({"ok": True, "recovery_codes": plain})
 
 
@@ -313,5 +371,5 @@ def twofa_verify():
         return jsonify({"error": "验证码或恢复码错误"}), 400
     session.pop("twofa_pending_uid", None)
     session.pop("twofa_pending_at", None)
-    return _login_user(u)
+    return _login_user(u, twofa_ok=True)
 

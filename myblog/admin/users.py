@@ -82,14 +82,41 @@ def kick_user(uid):
 @login_required
 @super_required
 def delete_user(uid):
-    """删除用户。超级管理员不能被删除（包括自己）。"""
+    """停用用户（v3.21.2 审计：由「物理删行」改为「就地停用」）。
+
+    为什么不能删行：`Post.author_id` 是**裸整数、不是外键**（`models.py:20`，注释里
+    写明了原因），而 SQLite 在删掉最大 rowid 后会把它**复用**给下一个新用户。于是
+    「删一个管理员曾经发过文的账号」= 把这些文章连 `author_id` 一起送给下一个注册者，
+    而 `_can_edit_post()`（`admin/_helpers.py:112-116`）只比 `post.author_id == user.id`
+    —— 新人因此获得编辑 / 删除 / 再发布旧人全部文章的权限。同类隐患还有
+    `Notification` / `RecycleBin.author_id` / `OAuthAccount.user_id`（后者会留下孤儿
+    绑定，OAuth 回调取到 None 后直接冒成 500）。
+    保留行就一次性根除整类问题，且不需要改表结构。
+    """
     target = db.session.get(User, uid)
     if not target:
         abort(404)
     if target.is_super:
         flash("超级管理员不能被删除")
         return redirect(url_for("admin.users"))
-    db.session.delete(target)
-    db.session.commit()
-    flash(f"已删除用户 {target.username}")
+    me = _current_user_or_none()
+    if me and me.id == target.id:
+        flash("不能停用自己（请用「踢下线」或直接改密码）")
+        return redirect(url_for("admin.users"))
+
+    import secrets as _secrets
+    from models import OAuthAccount
+    name = target.username
+    # 断开第三方绑定：否则该 sub 仍指向这个已废弃的行
+    for acct in OAuthAccount.query.filter_by(user_id=target.id).all():
+        db.session.delete(acct)
+    target.role = ROLE_USER                    # 收回后台权限（is_admin_role 变 False）
+    target.email = ""                          # 释放邮箱占用，避免后续误匹配
+    target.username = "disabled_%d_%s" % (target.id, _secrets.token_hex(4))
+    target.set_password(_secrets.token_urlsafe(48))   # 随机密码：无人能再用密码登录
+    target.bump_session_version()                # 现有会话全部失效
+    log_audit("disable", "user", target.id,
+              f"停用用户：{name}（原 {target.id} 号行保留，防 id 复用继承其文章）",
+              user=me)
+    flash(f"已停用用户 {name}（其文章保留原归属；如需彻底清除，请先在文章里改作者或删除）")
     return redirect(url_for("admin.users"))

@@ -214,12 +214,16 @@ def get_circle_feed(force=False):
                 # 连同 gunicorn worker 一起拖住（前台 /api/feed/circle 会卡死）。
                 # 与 _probe_rss（上方诊断探针）保持同一手法。
                 import socket as _sock_agg
-                _old_to = _sock_agg.getdefaulttimeout()
+                # ⚠️ 变量名不得复用外层的 `_old_to`：外层在 :174 存了**真实**原值、
+                # 本处读到的却是外层刚设进去的 `_timeout`，若覆盖它，函数出口的
+                # `finally: _sock.setdefaulttimeout(_old_to)` 就会把进程级默认超时
+                # 永久留在 `_timeout` 上（gunicorn worker 里所有后续 socket 一起中招）。
+                _old_to_src = _sock_agg.getdefaulttimeout()
                 _sock_agg.setdefaulttimeout(12)
                 try:
                     parsed = feedparser.parse(link.rss_url)
                 finally:
-                    _sock_agg.setdefaulttimeout(_old_to)
+                    _sock_agg.setdefaulttimeout(_old_to_src)
             except ImportError:
                 print("[FEED AGG] feedparser 未安装！请在服务器上执行: pip install feedparser==6.0.11 后重启服务")
                 diag["feedparser_ok"] = False

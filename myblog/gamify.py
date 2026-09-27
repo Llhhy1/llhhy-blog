@@ -92,21 +92,34 @@ def award(reader, reason, post_id=None, delta=None):
         return False
     db.session.add(PointLog(reader_id=reader.id, reason=reason,
                             post_id=post_id, delta=delta, day=day))
-    reader.points = (reader.points or 0) + delta
-    reader.updated_at = utcnow()
+    # 用 SQL 级 `points = points + :d`，不在 Python 侧读改写：4 worker × 2 线程下
+    # 两个并发事件会各自读到同一个旧值，后提交的把前一个覆盖掉（丢积分）。
+    db.session.execute(db.text(
+        "UPDATE reader SET points = COALESCE(points, 0) + :d, updated_at = :u "
+        "WHERE id = :r"), {"d": delta, "u": utcnow(), "r": reader.id})
     db.session.commit()
+    db.session.refresh(reader)   # 让下面的阈值判定看到累加后的值
     _check_badges(reader)
     return True
 
 
 def _check_badges(reader):
     """按累计积分自动授予已达阈值的勋章（已得的跳过）。"""
+    from sqlalchemy.exc import IntegrityError
     earned = {rb.badge_id for rb in reader.badges.all()}
     for b in Badge.query.filter(Badge.threshold <= (reader.points or 0)).all():
         if b.id not in earned:
             db.session.add(ReaderBadge(reader_id=reader.id, badge_id=b.id))
-    if db.session.new:
+    if not db.session.new:
+        return
+    try:
         db.session.commit()
+    except IntegrityError:
+        # 并发授予同一枚时 `uq_reader_badge` 会拒掉后来者，这不算错误。
+        # 但**必须回滚**：否则会话停在失败状态，同一请求里紧接着的取库操作
+        # （评论流程随后还要写 ReadLog）会连带炸成 500。
+        # 这正是 v3.21.1/v3.21.2 在 `seed_badges()` 上踩过的同一个坑。
+        db.session.rollback()
 
 
 def reader_summary(reader):

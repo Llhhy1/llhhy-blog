@@ -14,6 +14,7 @@
 - 事件总线（M1）：插件可在 register() 内订阅 plugins.signals 的信号。
 """
 import os
+import re
 import importlib
 import traceback
 
@@ -40,9 +41,28 @@ def _parse_list(raw):
     return [s.strip() for s in (raw or "").split(",") if s.strip()]
 
 
+_SLUG_RE = re.compile(r"[A-Za-z0-9_-]{1,64}\Z")
+
+
 def _plugin_dir(cfg, slug):
+    """解析插件目录。
+
+    slug 直接来自 URL 路径段（`POST /api/plugins/<slug>/set-enabled`），而
+    `set_plugin_enabled()` 会对结果路径做 `os.makedirs` / `open(w)` / `os.remove`——
+    不校验就等于给管理员会话（以及任何拿到 CSRF token 的脚本）一个「在
+    PLUGINS_DIR 之外建目录、写文件、删文件」的原语。`..`、绝对路径、`\0`
+    都会在这里被挡掉；返回空串时调用方已有的 `if not mp` 分支会干净拒绝。
+    """
     plugins_dir = cfg.get("PLUGINS_DIR", "")
-    return os.path.join(plugins_dir, slug) if plugins_dir else ""
+    if not plugins_dir or not _SLUG_RE.match(slug or ""):
+        return ""
+    d = os.path.abspath(os.path.join(plugins_dir, slug))
+    try:
+        if os.path.commonpath([d, os.path.abspath(plugins_dir)]) != os.path.abspath(plugins_dir):
+            return ""
+    except ValueError:      # 不同盘符 / 相对与绝对混用，一律拒绝
+        return ""
+    return d
 
 
 def _marker_path(cfg, slug):

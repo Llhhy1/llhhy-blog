@@ -58,12 +58,17 @@ def _user_pub(u):
     }
 
 
-def _login_user(u):
+def _login_user(u, twofa_ok=False):
     """登录：Flask session 与前端通过 header X-User-Id 共用同一会话。
     v3.1.6：登录后会话变化，响应带新 csrf_token 供前端立即更新缓存。
+
+    v3.21.2 审计：**每次建立登录态都必须把 `twofa_ok` 显式写回**（默认 False）。
+    2FA 是否放行由全局闸门 `app.enforce_twofa` 依据该标记判定；若沿用上一轮会话
+    留下的 True，改密码/换账号后就能带着旧的「已过第二因素」直接进后台。
     """
     session["user_id"] = u.id
     session["session_version"] = u.session_version or 0  # v3.1.6：会话版本绑定，改密码/踢下线后旧会话失效
+    session["twofa_ok"] = bool(twofa_ok)
     return jsonify({"ok": True, "user": _user_pub(u), "csrf_token": _csrf_token()})
 
 
@@ -130,15 +135,6 @@ def _post_summary(p):
         "lang": p.lang or "zh",
         "translation_group": p.translation_group or "",
     }
-
-
-def _is_visible(p):
-    """判断单篇文章当前是否对访客可见（已发布且未到定时发布时间）。"""
-    if not p or not p.published:
-        return False
-    if p.scheduled_at is not None and p.scheduled_at > utcnow():
-        return False
-    return True
 
 
 def lang_dedup(posts, lang):

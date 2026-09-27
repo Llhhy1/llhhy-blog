@@ -112,8 +112,21 @@ def stats_referrers():
 
 @api_bp.route("/stats/summary")
 def stats_summary():
-    """统计汇总（累计访问 / 区域排行 / 热读文章 / 常搜词 / 时段分布 / 访客趋势）。"""
-    return jsonify(stats.compute_summary())
+    """统计汇总（累计访问 / 区域排行 / 热读文章 / 常搜词 / 时段分布 / 访客趋势）。
+
+    未鉴权接口，必须限流：v3.20.0 起 `compute_summary()` 内含十余个聚合查询
+    （referrers / online / period_compare），单请求成本比 sibling 更高，
+    不限流等于给小 VPS（4 worker × 2 线程 = 8 槽）一个放大倍数很高的入口。
+    """
+    if not rate_limit(client_key("api_stats_summary"), limit=30, window=60):
+        return jsonify({"error": "too_many_requests"}), 429
+    try:
+        return jsonify(stats.compute_summary())
+    except Exception:
+        # 与 /stats/dashboard 同一处理：异常详情只进日志，对外给不透明错误码
+        # （str(e) 可能带库结构 / 文件路径）。
+        current_app.logger.exception("stats summary 聚合失败")
+        return jsonify({"error": "internal_error"}), 500
 
 
 @api_bp.route("/stats/dashboard")

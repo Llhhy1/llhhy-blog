@@ -6,9 +6,25 @@
 - callback 校验 state、换 token（mock）、新建/绑定本地用户并写入登录态。
 - state 不匹配 / 无会话 → 安全重定向到 ?oauth=error（绝不泄漏异常）。
 """
+import contextlib
+import pytest
 import secrets
+import time
 
 from models import db, User, OAuthAccount, ROLE_USER
+
+
+@pytest.fixture(autouse=True)
+def _clear_rate_limit():
+    """清空内存限流计数（同 test_twofa.py）：OAuth 三个端点现在都带 rate_limit，
+    而 `_RATE` 是 utils.net 的模块级字典，跨用例累积会让后跑的回调用例被判 429。"""
+    with contextlib.suppress(Exception):
+        from utils.net import _RATE
+        _RATE.clear()
+    yield
+    with contextlib.suppress(Exception):
+        from utils.net import _RATE
+        _RATE.clear()
 
 
 def _configure(app, provider="github"):
@@ -60,6 +76,7 @@ def test_callback_state_mismatch_returns_error(app, client):
     with client.session_transaction() as sess:
         sess["oauth_provider"] = "github"
         sess["oauth_state"] = "expected"
+        sess["oauth_state_at"] = int(time.time())
     resp = client.get("/api/auth/oauth/github/callback?code=X&state=wrong")
     assert resp.status_code == 302
     assert resp.headers["Location"].endswith("?oauth=error")
@@ -78,6 +95,7 @@ def test_callback_exchange_failure_returns_error(app, client, monkeypatch):
     with client.session_transaction() as sess:
         sess["oauth_provider"] = "github"
         sess["oauth_state"] = "s1"
+        sess["oauth_state_at"] = int(time.time())
     resp = client.get("/api/auth/oauth/github/callback?code=X&state=s1")
     assert resp.status_code == 302
     assert resp.headers["Location"].endswith("?oauth=error")
@@ -94,6 +112,7 @@ def test_callback_creates_user_and_logs_in(app, client, monkeypatch):
     with client.session_transaction() as sess:
         sess["oauth_provider"] = "github"
         sess["oauth_state"] = "s2"
+        sess["oauth_state_at"] = int(time.time())
 
     resp = client.get("/api/auth/oauth/github/callback?code=CODE&state=s2")
     assert resp.status_code == 302
@@ -112,7 +131,8 @@ def test_callback_creates_user_and_logs_in(app, client, monkeypatch):
         assert link.user_id == user_id
 
 
-def test_callback_binds_existing_email(app, client, monkeypatch):
+def test_callback_does_not_claim_existing_account_by_email(app, client, monkeypatch):
+    """未登录的 OAuth 回调**绝不**按邮箱认领既有账号，即使 provider 说邮箱已验证。"""
     _configure(app, "google")
     with app.app_context():
         existing = User(username="preuser", email="pre@example.com", role=ROLE_USER)
@@ -126,23 +146,27 @@ def test_callback_binds_existing_email(app, client, monkeypatch):
         lambda *a, **k: {"sub": "gsub-9", "email": "pre@example.com",
                          "name": "Pre User", "email_verified": True},
     )
-    # 不 mock find_or_create_user：走生产代码，验证按**已验证**邮箱命中已有用户并绑定
+    # 生产代码：邮箱已验证，但**未登录的回调不得按邮箱认领既有账号**
+    # （v3.21.2 审计：本地注册对 email 零验证，见 test_oauth_email_preclaim_cannot_takeover）
 
     with client.session_transaction() as sess:
         sess["oauth_provider"] = "google"
         sess["oauth_state"] = "s3"
+        sess["oauth_state_at"] = int(time.time())
 
     resp = client.get("/api/auth/oauth/google/callback?code=C&state=s3")
     assert resp.status_code == 302
     assert resp.headers["Location"].endswith("?oauth=ok")
 
     with client.session_transaction() as sess:
-        assert sess.get("user_id") == existing_id
+        new_id = sess.get("user_id")
+        assert new_id and new_id != existing_id, "不得静默落进别人按邮箱认领的账号"
 
     with app.app_context():
         link = OAuthAccount.query.filter_by(provider="google", sub="gsub-9").first()
         assert link is not None
-        assert link.user_id == existing_id
+        assert link.user_id == new_id
+        assert db.session.get(User, existing_id) is not None
 
 
 # ---------- 邮箱验证边界（OAuth 账号接管防线）----------
@@ -185,6 +209,7 @@ def test_github_unverified_email_cannot_bind_existing_account(app, client, monke
     with client.session_transaction() as sess:
         sess["oauth_provider"] = "github"
         sess["oauth_state"] = "st1"
+        sess["oauth_state_at"] = int(time.time())
     resp = client.get("/api/auth/oauth/github/callback?code=C&state=st1")
     assert resp.status_code == 302
     with client.session_transaction() as sess:
@@ -197,23 +222,77 @@ def test_github_unverified_email_cannot_bind_existing_account(app, client, monke
         assert OAuthAccount.query.filter_by(provider="github", sub="999").first().user_id == uid
 
 
-def test_github_verified_email_binds_existing_account(app, client, monkeypatch):
-    """已验证邮箱（/user/emails 明确 verified+primary）才允许绑定既有账号。"""
+def test_oauth_email_preclaim_cannot_takeover(app, client, monkeypatch):
+    """**先占邮箱**不得换来到手账号（v3.21.2 审计 High，接管类）。
+
+    R93 §93.1 修的是「第三方返回的邮箱不可信」这一半；另一半是**本地库里存的邮箱
+    同样没验证过**：`auth_register` / `routes.register` 对 email 只做 strip()，
+    无格式校验、无唯一约束、无所有权验证。于是攻击者可以：
+
+      1) 用受害者邮箱注册一个本地账号（密码自己知道）；
+      2) 等受害者第一次点「用 GitHub 登录」；
+      3) 旧实现 `User.query.filter_by(email=email).first()` 命中**攻击者**那个账号，
+         并把受害者的 provider sub 永久绑上去（sub 命中在邮箱匹配之前，之后每次
+         OAuth 登录都落进攻击者账号，且再也解不开）。
+
+    现在认领既有账号只保留「该账号已登录」这一个入口，所以未登录回调只会新建账号。
+    """
     _configure(app, "github")
     with app.app_context():
         victim_id, victim_email = _mkvictim()
+        attacker = User(username="attacker_" + secrets.token_hex(3),
+                        email=victim_email, role=ROLE_USER)   # 抢先把受害者邮箱注册成自己的
+        attacker.set_password("known-to-attacker")
+        db.session.add(attacker)
+        db.session.commit()
+        attacker_id = attacker.id
+        assert attacker_id != victim_id
 
     _github_flow(monkeypatch, verified=True, sub=1001, target_email=victim_email)
     with client.session_transaction() as sess:
         sess["oauth_provider"] = "github"
         sess["oauth_state"] = "st2"
+        sess["oauth_state_at"] = int(time.time())
     client.get("/api/auth/oauth/github/callback?code=C&state=st2")
 
     with client.session_transaction() as sess:
-        assert sess.get("user_id") == victim_id
+        uid = sess.get("user_id")
+        assert uid and uid not in (attacker_id, victim_id), \
+            "既不得落进抢先注册的账号，也不得凭空认领受害者账号"
     with app.app_context():
         link = OAuthAccount.query.filter_by(provider="github", sub="1001").first()
-        assert link.user_id == victim_id
+        assert link.user_id == uid
+        assert db.session.get(User, attacker_id).email == victim_email   # 攻击者账号未被绑走
+        assert OAuthAccount.query.filter_by(user_id=attacker_id).count() == 0
+
+
+def test_oauth_binds_to_currently_logged_in_account(app, client, monkeypatch):
+    """认领既有账号的唯一入口：**该账号当前已登录**（身份已由密码/第二因素证明）。"""
+    _configure(app, "github")
+    with app.app_context():
+        victim_id, victim_email = _mkvictim()
+        u = db.session.get(User, victim_id)
+        u.set_password("pw-for-login")
+        db.session.commit()
+        victim_name = u.username          # 出上下文即 detached，先取成标量
+        assert victim_name
+
+    client.post("/api/auth/login", json={"username": victim_name, "password": "pw-for-login"},
+                headers={"X-CSRF-Token": client.get("/api/csrf").get_json()["csrf_token"]})
+    with client.session_transaction() as sess:
+        assert sess.get("user_id") == victim_id
+        sess["oauth_provider"] = "github"
+        sess["oauth_state"] = "st2b"
+        sess["oauth_state_at"] = int(time.time())
+
+    _github_flow(monkeypatch, verified=True, sub=1002, target_email=victim_email)
+    client.get("/api/auth/oauth/github/callback?code=C&state=st2b")
+
+    with client.session_transaction() as sess:
+        assert sess.get("user_id") == victim_id, "已登录会话应绑到自己这个账号"
+    with app.app_context():
+        link = OAuthAccount.query.filter_by(provider="github", sub="1002").first()
+        assert link is not None and link.user_id == victim_id
 
 
 def test_google_unverified_email_not_bound(app, client, monkeypatch):
@@ -232,6 +311,7 @@ def test_google_unverified_email_not_bound(app, client, monkeypatch):
     with client.session_transaction() as sess:
         sess["oauth_provider"] = "google"
         sess["oauth_state"] = "st3"
+        sess["oauth_state_at"] = int(time.time())
     client.get("/api/auth/oauth/google/callback?code=C&state=st3")
 
     with client.session_transaction() as sess:

@@ -46,8 +46,11 @@ def twofa():
         if not enabled:
             flash("两步验证未启用（需设置环境变量 BLOG_TWOFA_ENABLED=true 并重启）")
         elif action == "enroll":
-            status, secret, uri = twofa_svc.enroll(user)
-            if status == "ok":
+            status, secret, uri = twofa_svc.enroll(
+                user, (request.form.get("code") or "").strip())
+            if status == "requires_code":
+                flash("该账号的两步验证**已生效**，重置需先输入当前动态码或一个恢复码")
+            elif status == "ok":
                 ctx.update(secret=secret, uri=uri, qr=_qr_svg(uri))
                 flash("已生成新密钥：请用验证器 App 扫码或手抄密钥，然后输入 6 位码确认绑定")
             else:
@@ -56,6 +59,9 @@ def twofa():
             code = (request.form.get("code") or "").strip()
             status, plain = twofa_svc.confirm(user, code)
             if status == "ok":
+                # 当场验证通过 = 本会话已过第二因素，否则 `enforce_twofa` 会把刚
+                # 绑定完的人立刻挡在后台之外（见 api/auth.py 同名分支的说明）。
+                session["twofa_ok"] = True
                 ctx["recovery_codes"] = plain
                 flash("绑定成功！请立即保存下方恢复码（每个只能用一次），手机丢失时靠它救回账号")
             elif status == "no_enroll":

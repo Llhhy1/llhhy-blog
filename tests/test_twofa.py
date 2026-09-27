@@ -288,8 +288,12 @@ def test_disable_requires_password_and_code(app, client, fake_clock):
     assert client.get("/api/auth/2fa/status").get_json()["enrolled"] is False
 
 
-def test_enroll_reset_disables_until_reconfirmed(app, client):
-    """重新 enroll 会打回未确认，避免「换了密钥但没验证」把用户锁在门外。"""
+def test_enroll_reset_disables_until_reconfirmed(app, client, fake_clock):
+    """重新 enroll 会打回未确认，避免「换了密钥但没验证」把用户锁在门外。
+
+    v3.21.2 审计加了前置条件：**已生效**的绑定不能被一个只过了密码的会话就地解除
+    （那等于把用户悄悄退回单因素），所以重置必须先出示当前动态码或恢复码。
+    """
     app.config["TWOFA_ENABLED"] = True
     with app.app_context():
         u = _mkuser()
@@ -298,8 +302,59 @@ def test_enroll_reset_disables_until_reconfirmed(app, client):
     s1 = _post(client, "/api/auth/2fa/enroll").get_json()["secret"]
     _post(client, "/api/auth/2fa/confirm", {"code": totp_at(s1)})
     assert client.get("/api/auth/2fa/status").get_json()["enrolled"] is True
-    _post(client, "/api/auth/2fa/enroll")
+
+    # 不带码 / 带错码 → 拒绝，且 2FA **保持生效**（这是本次修复的关键断言）
+    assert _post(client, "/api/auth/2fa/enroll").status_code == 403
+    assert _post(client, "/api/auth/2fa/enroll", {"code": "000000"}).status_code == 403
+    assert client.get("/api/auth/2fa/status").get_json()["enrolled"] is True
+
+    # 带当前有效码 → 允许重置，并打回未确认
+    # （换窗口取码：confirm 已消费掉窗口 1000，同一窗的码按防重放规则必须被拒）
+    fake_clock["c"] = 1001
+    assert _post(client, "/api/auth/2fa/enroll",
+                 {"code": totp_at(s1)}).status_code == 200
     assert client.get("/api/auth/2fa/status").get_json()["enrolled"] is False
+
+
+def test_ssr_password_login_cannot_bypass_second_factor(app, client, fake_clock):
+    """2FA 是**会话级闸门**，不是某条登录路径里的一个 if。
+
+    回归的缺陷（v3.21.2 审计 C1，Critical）：此前全仓库只有 `/api/auth/login`
+    判了第二因素，而 `POST /login`（前台表单）与 `POST /admin/login` 直接写
+    `session["user_id"]` 就放行，所有权限装饰器又只看 `user_id`。于是「知道密码」
+    就等于「过了 2FA」——攻击者只要从后台登录框输对密码即可拿到完整后台。
+
+    断言刻意从**新的 SSR 会话**发起：它复现的正是那条被漏掉的路径。
+    """
+    app.config["TWOFA_ENABLED"] = True
+    with app.app_context():
+        u = _mkuser()
+        uname = u.username
+    _login(client, uname)
+    secret = _post(client, "/api/auth/2fa/enroll").get_json()["secret"]
+    fake_clock["c"] = 1000
+    _post(client, "/api/auth/2fa/confirm", {"code": totp_at(secret)})
+
+    c2 = app.test_client()                       # 全新会话：只过密码，未过第二因素
+    c2.post("/login", data={"username": uname, "password": PASSWORD,
+                            "csrf_token": _csrf(c2)})
+    with c2.session_transaction() as sess:
+        assert sess.get("user_id"), "密码正确，登录态应已建立（问题正在于此）"
+        assert not sess.get("twofa_ok")
+
+    adm = c2.get("/admin/")
+    assert adm.status_code == 302 and "/twofa" in adm.headers["Location"], \
+        "未过第二因素的会话必须被赶到挑战页，实得 %r" % (adm.headers.get("Location"),)
+    api = c2.post("/api/auth/2fa/enroll", json={},
+                  headers={"X-CSRF-Token": _csrf(c2)})
+    assert api.status_code == 401, "改第二因素本身的接口不得对未验证会话开放"
+
+    fake_clock["c"] = 1001
+    ok = c2.post("/twofa", data={"code": totp_at(secret), "csrf_token": _csrf(c2)})
+    assert ok.status_code == 302
+    assert c2.get("/admin/").status_code == 302
+    loc = c2.get("/admin/").headers["Location"]
+    assert "/twofa" not in loc, "过完第二因素后不应再被挑战页拦住，实得 %r" % loc
 
 
 def test_admin_page_registered_and_renders(app, client):

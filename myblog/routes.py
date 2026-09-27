@@ -137,7 +137,39 @@ def login():
 @main_bp.route("/logout")
 def logout():
     session.pop("user_id", None)
+    session.pop("twofa_ok", None)        # 登出必须连第二因素状态一起清掉
     return redirect(url_for("main.index"))
+
+
+@main_bp.route("/twofa", methods=["GET", "POST"])
+def twofa_challenge():
+    """两步验证挑战页（v3.21.2 审计）。
+
+    存在理由：闸门 `app.enforce_twofa` 把「有登录态但没过第二因素」的会话一律赶到
+    这里，因此**新增登录入口不必再各自记得判 2FA**。它按 `session["user_id"]` 而不是
+    按挂起态取用户——因为绕过场景下 user_id 已经被写下了。
+    """
+    uid = session.get("user_id")
+    nxt = request.args.get("next") or ""
+    if not uid:
+        return redirect(safe_redirect(nxt, url_for("main.login")))
+    import twofa as twofa_svc
+    u = db.session.get(User, uid)
+    if not u or not twofa_svc.is_active(uid):
+        # 该账号并未启用第二因素：补上标记后放行，避免把人锁在挑战页
+        session["twofa_ok"] = True
+        return redirect(safe_redirect(nxt, url_for("main.index")))
+    if request.method == "POST":
+        code = (request.form.get("code") or "").strip()
+        # 6 位码空间只有 10^6，挑战页自身也必须限流（与 /api/auth/2fa/verify 同额度）
+        if not rate_limit(client_key("twofa_challenge"), limit=10, window=60):
+            flash("尝试过于频繁，请稍后再试")
+        elif twofa_svc.verify_login(u, code):
+            session["twofa_ok"] = True
+            return redirect(safe_redirect(nxt, url_for("main.index")))
+        else:
+            flash("验证码或恢复码错误")
+    return render_template("twofa.html", next=nxt)
 
 
 def _weak_password_text(raw):

@@ -71,13 +71,13 @@ def auth_login():
         # v3.1.6 中优：消除用户名枚举——失败统一文案（无论用户是否存在）+ 统一延迟，防时序侧信道
         _login_delay()
         return jsonify({"error": "用户名或密码错误"}), 401
-    log_login_attempt(username, True)
-    # v3.21.0 2FA：该账号已绑定两步验证且全局开启 → 先不建立登录态，要求二次验证码。
-    # 挂起态只记「待验证的用户 id + 起始时间戳」，5 分钟内有效（见 _TWOFA_PENDING_TTL）。
+    # v3.21.2 审计：密码对但**尚未通过第二因素**时不得记成登录成功——否则针对
+    # 2FA 挑战的爆破在审计日志里全都显示为「成功登录」，正好掩盖了最需要看的信号。
     if _twofa_on() and _twofa_active(u.id):
         session["twofa_pending_uid"] = u.id
         session["twofa_pending_at"] = int(time.time())
         return jsonify({"twofa_required": True, "username": u.username}), 200
+    log_login_attempt(username, True)
     return _login_user(u)
 
 
@@ -242,10 +242,17 @@ def twofa_enroll():
     # 限流：enroll 会写库生成新密钥，防被刷成写放大（与 confirm/disable 分开计数，互不挤占）
     if not rate_limit(client_key("api_2fa_enroll"), limit=10, window=60):
         return jsonify({"error": "操作过于频繁，请稍后再试"}), 429
-    status, secret, uri = twofa.enroll(u)
+    status, secret, uri = twofa.enroll(u, ((request.get_json(silent=True) or request.form)
+                                           .get("code") or "").strip())
+    if status == "requires_code":
+        return jsonify({"error": "重置已生效的两步验证需要当前动态码或恢复码"}), 403
     if status != "ok":
         return jsonify({"error": "密钥加密失败，请联系管理员检查 cryptography 依赖"}), 500
-    return jsonify({"secret": secret, "provisioning_uri": uri})
+    resp = jsonify({"secret": secret, "provisioning_uri": uri})
+    # 响应体含**明文 TOTP 密钥**：不留任何可被浏览器/代理缓存的副本
+    # （与同文件其它敏感响应一致；provisioning_uri 里同样带着密钥）。
+    resp.headers["Cache-Control"] = "no-store"
+    return resp
 
 
 @api_bp.route("/auth/2fa/confirm", methods=["POST"])
@@ -267,6 +274,10 @@ def twofa_confirm():
         return jsonify({"error": "密钥读取失败"}), 500
     if status == "bad_code":
         return jsonify({"error": "验证码错误或已过期"}), 400
+    # confirm 成功即「当场证明持有第二因素」，因此本会话直接算已过 2FA。
+    # 不做这一步的话，用户刚绑定完就会被 `enforce_twofa` 挡在所有接口之外——
+    # 而 `/api/auth/2fa/verify` 是登录第二步、要求挂起态，此时并无挂起态可用。
+    session["twofa_ok"] = True
     return jsonify({"ok": True, "recovery_codes": plain})
 
 
@@ -313,5 +324,5 @@ def twofa_verify():
         return jsonify({"error": "验证码或恢复码错误"}), 400
     session.pop("twofa_pending_uid", None)
     session.pop("twofa_pending_at", None)
-    return _login_user(u)
+    return _login_user(u, twofa_ok=True)
 

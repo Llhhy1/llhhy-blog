@@ -622,6 +622,41 @@ def create_app(enable_scheduler=True):
         session["last_active"] = now.isoformat()
         return None
 
+    # v3.21.2 审计（R93 复审）：2FA 必须是**会话级闸门**，不能只在某一条登录路径里判。
+    # 此前只有 `/api/auth/login` 检查了第二因素，而 `POST /login`（routes.py）、
+    # `POST /admin/login`（admin/auth.py）与 OAuth 回调（api/auth.py）都是直接写
+    # `session["user_id"]` 放行；所有权限装饰器又只看 `user_id` —— 结果是用密码
+    # 走前台/后台登录框就能拿到完整后台（含超管），第二因素形同装饰。
+    # 收口在这里而不是补到各条登录路径：闸门与 `enforce_session_version` 同层，
+    # 今后**新增**任何登录入口都自动被覆盖，不会再一次「漏了一条」。
+    # 放行清单只放「第二因素流程自身」与只读的身份探针：
+    # - `/twofa`：SSR 挑战页；`/api/auth/2fa/verify`：SPA 挑战接口
+    # - `/api/auth/2fa/status`：前端要据此决定要不要弹挑战框（只读，不改状态）
+    # - `/api/auth/logout`、`/logout`：必须允许「放弃并退出」
+    # - `/api/auth/me`、`/api/csrf`：无特权，前端拿它们判断当前会话身份
+    # ⚠️ 刻意**不放** `/api/auth/2fa/enroll|confirm|disable` —— 放行就等于让一个
+    # 只过了密码的会话去改动第二因素本身（v3.21.2 审计 C2 的同一条路径）。
+    _TWOFA_ALLOW = ("/twofa", "/static/", "/favicon.ico",
+                    "/api/auth/2fa/verify", "/api/auth/2fa/status",
+                    "/api/auth/logout", "/api/auth/me", "/api/csrf", "/logout")
+
+    @app.before_request
+    def enforce_twofa():
+        if not app.config.get("TWOFA_ENABLED"):
+            return None                              # 全局开关关 → 整条闸门休眠
+        uid = session.get("user_id")
+        if not uid or session.get("twofa_ok"):
+            return None
+        path = request.path
+        if any(path == p or path.startswith(p) for p in _TWOFA_ALLOW):
+            return None
+        import twofa as _twofa
+        if not _twofa.is_active(uid):
+            return None                              # 该账号未绑定第二因素：不改变原有行为
+        if path.startswith("/api/"):
+            return jsonify({"error": "twofa_required", "twofa_required": True}), 401
+        return redirect(url_for("main.twofa_challenge", next=path))
+
     # 首次运行时建表并写入默认设置、创建超级管理员
     with app.app_context():
         db.create_all()

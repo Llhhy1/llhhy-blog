@@ -156,10 +156,19 @@ def status_for(user):
     return {"enrolled": bool(row and row.enabled), "recovery_codes_left": remaining}
 
 
-def enroll(user):
-    """生成/重置密钥。返回 (status, secret, uri)；重置会把 enabled 打回 False。"""
+def enroll(user, code=None):
+    """生成/重置密钥。返回 (status, secret, uri)；重置会把 enabled 打回 False。
+
+    v3.21.2 审计：**已生效的 2FA 不得被就地解除**。重置密钥会把 `enabled` 打成 False，
+    而修复前只要有一个「仅密码」的会话就能调这个接口，受害者毫无察觉地退回单因素。
+    所以重置**已生效**的绑定必须先证明持有当前第二因素——复用 `verify_login()` 这同
+    一个原语，不另写一套判定。未绑定过的用户（row 不存在或 enabled=False）仍可直接
+    生成，首次绑定流程不受影响。
+    """
     from models import UserTwoFactor, db
     row = _row_for(user.id)
+    if row and row.enabled and not verify_login(user, code or ""):
+        return "requires_code", None, None
     if not row:
         row = UserTwoFactor(user_id=user.id, secret_enc="", enabled=False)
         db.session.add(row)

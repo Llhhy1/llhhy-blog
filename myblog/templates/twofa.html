@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block title %}两步验证{% endblock %}
+{% block content %}
+  <div class="auth-box">
+    <h1 class="page-title">两步验证</h1>
+    <p class="auth-tip">你的账号已开启两步验证，请输入验证器 App 当前显示的 6 位码（或一个恢复码）继续。</p>
+    <form method="post" action="{{ url_for('main.twofa_challenge', next=next) }}">
+      {{ csrf_input() }}
+      <label for="twofa-code">动态验证码</label>
+      <input id="twofa-code" type="text" name="code" inputmode="numeric" autocomplete="one-time-code"
+             pattern="[0-9A-Za-z-]{6,16}" required autofocus>
+      <button type="submit">验证</button>
+    </form>
+    <p class="auth-tip">验证器不可用？改用绑定时保存的恢复码（每个只能用一次）。</p>
+    <p class="auth-tip"><a href="{{ url_for('main.logout') }}">退出登录</a></p>
+  </div>
+{% endblock %}

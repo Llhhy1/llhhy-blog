@@ -92,6 +92,12 @@ def super_required(view):
         user = db.session.get(User, uid) if uid else None
         if not user or not user.is_super:
             abort(403)
+        # 与 login_required / admin_required 对齐：超管尚未完成首登设置前，除 setup 页
+        # 外一律先跳过去。此前只有那两道装饰器有这一关，而 29 条路由是**裸**
+        # @super_required（含 /admin/settings、/admin/backup、/admin/theme、MCP 服务、
+        # AI 摘要、收录控制台），等于在「默认密码窗口期」内全部可任意使用。
+        if user.must_change_password:
+            return redirect(url_for("admin.setup"))
         return view(*args, **kwargs)
     return wrapped
 

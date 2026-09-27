@@ -22,6 +22,7 @@ def publish_now(post_id):
         post.published = True
         post.scheduled_at = None
         db.session.commit()
+        fts.sync_post_quiet(post)   # 与 create_post 一致：翻published必须同步索引
         # v3.9.0 M1：文章发布 → 触发插件事件（订阅者异常已隔离）
         try:
             from plugins.signals import emit_post_published
@@ -194,6 +195,8 @@ def bulk_posts():
                 p.published = True
                 p.scheduled_at = None
         db.session.commit()
+        for p in posts:
+            fts.sync_post_quiet(p)
         flash(f"已批量发布 {len(posts)} 篇（未触发订阅推送）")
     elif action == "unpublish":
         for p in posts:
@@ -201,6 +204,10 @@ def bulk_posts():
                 p.published = False
                 p.scheduled_at = None
         db.session.commit()
+        # 转草稿同样要同步：`_indexable()` 会把未发布文章从索引里删掉，
+        # 不同步则草稿仍会被 /api/search 命中。
+        for p in posts:
+            fts.sync_post_quiet(p)
         flash(f"已批量转为草稿 {len(posts)} 篇")
     elif action in ("category", "series"):
         val = (request.form.get("value") or "").strip()

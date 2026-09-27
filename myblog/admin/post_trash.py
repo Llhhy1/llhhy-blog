@@ -31,6 +31,9 @@ def restore_post(rid):
         post.in_trash = False
         post.deleted_at = None
         db.session.commit()
+        # 入回收站时已 fts.delete_post()（post_manage.py），就地还原若不重新同步，
+        # 这篇就永久搜不到（走的是「重建快照」分支才会同步，容易漏）。
+        fts.sync_post_quiet(post)
         log_audit("restore", "post", post.id, f"从回收站还原：{rb.title}", user=_current_user_or_none())
         flash(f"已还原文章：{rb.title}")
     else:

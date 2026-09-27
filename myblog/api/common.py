@@ -132,15 +132,6 @@ def _post_summary(p):
     }
 
 
-def _is_visible(p):
-    """判断单篇文章当前是否对访客可见（已发布且未到定时发布时间）。"""
-    if not p or not p.published:
-        return False
-    if p.scheduled_at is not None and p.scheduled_at > utcnow():
-        return False
-    return True
-
-
 def lang_dedup(posts, lang):
     """列表按语言展示：同一 translation_group 优先返回 lang 版本，否则返回默认（首个）版本。
 

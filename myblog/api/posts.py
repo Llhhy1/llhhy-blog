@@ -7,7 +7,7 @@ import re as _re
 from flask import request, jsonify, current_app, session, Response
 from markupsafe import escape
 
-from .common import (api_bp, db, Post, Category, Tag, Comment, ReadLog, Setting, User, visible_posts_query, _current_user_or_none, _post_summary, _is_visible, _comment, _render_html, rate_limit, client_key, lang_dedup)
+from .common import (api_bp, db, Post, Category, Tag, Comment, ReadLog, Setting, User, visible_posts_query, _current_user_or_none, _post_summary, _comment, _render_html, rate_limit, client_key, lang_dedup)
 from models import hreflang_alternates
 import stats  # myblog/stats.py：client_ip / cached_region（浏览量去重与评论归属地）
 from utils import fmt_bj, to_beijing, BEIJING_TZ, site_base
@@ -421,13 +421,12 @@ def also_viewed(slug):
             sim += 1
         if sim > 0:
             scored[c.id] = scored.get(c.id, 0) + sim * 0.5
-    # 排序
-    ranked = sorted(scored.items(), key=lambda x: x[1], reverse=True)[:5]
-    items = []
-    for pid, _ in ranked:
-        post = db.session.get(Post, pid)
-        if post and post.id != p.id and _is_visible(post):
-            items.append(_post_summary(post))
+    # 排序。共读分支（ReadLog.post_id）会把**任意**文章 id 带进候选，其中可能是隐私/
+    # 回收站文章，所以读出时必须按访客可见性过滤；多取名额以补足被过滤掉的项。
+    ranked = [pid for pid, _ in sorted(scored.items(), key=lambda x: x[1], reverse=True)
+              if pid != p.id][:10]
+    by_id = {pp.id: pp for pp in visible_posts_query().filter(Post.id.in_(ranked)).all()}
+    items = [_post_summary(by_id[pid]) for pid in ranked if pid in by_id][:5]
     return jsonify({"items": items})
 # ---------- 全文搜索（FTS5 优先，失败回退 LIKE，B5；v3.0.0 功能3 增加分页 + 高亮）----------
 @api_bp.route("/search")
@@ -470,8 +469,12 @@ def search_api():
     # 改为 `if ids`：仅在 FTS 真正返回了命中（非空列表）时才用 FTS 结果；
     # 空列表（无命中）或 None（FTS 不可用）都回退到 LIKE 子串匹配（Issue② 修复）。
     if ids:
-        posts = [db.session.get(Post, i) for i in ids]
-        posts = [p for p in posts if _is_visible(p)]
+        # 可见性只能由 `visible_posts_query()` 判定：FTS 索引按 rowid 命中，而索引里
+        # 可能存在隐私/回收站/定时未到的行；`_post_summary()` 会把标题、摘要连正文
+        # 片段一起返回，漏一次就是正文外泄。保留 FTS 的 rank 顺序。
+        visible = {r[0] for r in visible_posts_query()
+                   .filter(Post.id.in_(ids)).with_entities(Post.id).all()}
+        posts = [db.session.get(Post, i) for i in ids if i in visible]
         engine = "fts5"
     else:
         like = f"%{q}%"
@@ -517,6 +520,8 @@ def publish_now(post_id):
     p.published = True
     p.scheduled_at = None  # 清空定时，避免后台线程重复触发
     db.session.commit()
+    import fts as _fts
+    _fts.sync_post_quiet(p)
     # v3.9.0 M1：文章发布 → 触发插件事件（订阅者异常已隔离）
     try:
         from plugins.signals import emit_post_published

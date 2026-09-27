@@ -13,7 +13,7 @@ import time
 import urllib.parse
 import urllib.request
 
-from models import db, Post, VisitLog, ReadLog, SearchLog, IpRegion, Comment, Subscriber
+from models import db, Post, VisitLog, ReadLog, SearchLog, IpRegion, Comment, Subscriber, visible_posts_query
 from flask import request
 from utils import detect_bot, fmt_bj, to_beijing, BEIJING_TZ
 from _time import utcnow
@@ -388,9 +388,13 @@ def _hot_posts(limit=10):
         db.func.sum(ReadLog.read_count).label("reads"),
         db.func.count(ReadLog.id).label("readers"),
     ).group_by(ReadLog.post_id).order_by(db.desc("reads")).limit(limit).all()
+    # ReadLog.post_id 是任意历史 id：隐私/回收站文章的标题与 slug 会顺着
+    # `/api/stats/summary`（未鉴权）直接外泄，所以按访客可见性取回。
+    ids = [r[0] for r in rows if r[0] is not None]
+    by_id = {p.id: p for p in visible_posts_query().filter(Post.id.in_(ids)).all()}
     result = []
     for post_id, reads, readers in rows:
-        p = db.session.get(Post, post_id)
+        p = by_id.get(post_id)
         if not p:
             continue
         result.append({"slug": p.slug, "title": p.title,

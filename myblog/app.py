@@ -769,6 +769,10 @@ def create_app(enable_scheduler=True):
                         p.published = True
                         p.scheduled_at = None  # 发布后清空，避免重复触发
                         db.session.commit()
+                        # 定时发布是**唯一**没有人工介入的发布路径，漏同步就等于这篇
+                        # 永久不在 FTS 索引里（ensure() 只在表空时回填，不会自愈）。
+                        import fts as _fts
+                        _fts.sync_post_quiet(p)
                         # v3.9.0 M1：文章定时到点发布 → 触发插件事件（订阅者异常已隔离）
                         try:
                             from plugins.signals import emit_post_published

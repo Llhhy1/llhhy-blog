@@ -131,14 +131,12 @@ def test_annual_review_hides_private_and_trashed_posts(app, client):
 # ---------- 1.5 AI 摘要泄露 + 后台提权 ----------
 def test_ai_summary_api_hides_private_post(app, client):
     """隐私文章的 AI 摘要/标签不得被匿名读取（修复前任意 slug 都能读到）。"""
-    from api.ai import _setting_set
+    # v3.24.0：摘要改存文章自己的列 Post.ai_summary（原先是 Setting KV 的 ai_summary_<id>）
     s = "p0-ai-private-" + _uid()
     with app.app_context():
         p = Post(title="P0 私密摘要", slug=s, content="secret", published=True, is_private=True)
+        p.ai_summary = "SECRET-SUMMARY-CONTENT"
         db.session.add(p)
-        db.session.commit()
-        pid = p.id
-        _setting_set("ai_summary_%d" % pid, "SECRET-SUMMARY-CONTENT")
         db.session.commit()
     try:
         r = client.get("/api/ai/summary/" + s)
@@ -146,9 +144,6 @@ def test_ai_summary_api_hides_private_post(app, client):
     finally:
         with app.app_context():
             Post.query.filter_by(slug=s).delete()
-            from models import Setting
-            Setting.query.filter(Setting.key.in_(
-                ["ai_summary_%d" % pid, "ai_tags_%d" % pid])).delete(synchronize_session=False)
             db.session.commit()
 
 

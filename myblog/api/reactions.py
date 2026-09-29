@@ -1,11 +1,15 @@
 # -*- coding: utf-8 -*-
 """v3.17.3：评论表情回应（👍 ❤️ 😂 🎉 🤔 👏）。
 
-设计（**不改表结构**，符合项目「能不改表就不改」纪律）：
-- 计数存 Setting KV（键 ``react_<comment_id>``，值为 JSON ``{"👍": 3}``）——
-  与 v3.17.0 的 ``ai_summary_<id>`` 同一模式，零迁移。
-- 每条评论一个独立 key：并发回应不同评论互不干扰，避免「整表 JSON 读-改-写」竞态。
-- GET 支持批量 ``ids=1,2,3``（上限 300），避免前端 N+1 请求。
+v3.24.0 存储改造（Setting 治理）：
+- **旧**：计数存 Setting KV（键 `react_<comment_id>`）——把 UGC 当设置存，随评论数
+  无限增长，且被 6 处 `Setting.query.all()` 全表加载一起拖出来。
+- **新**：存**评论自己的行**上的 `Comment.reactions`（JSON `{"👍": 3}`）。
+  评论本来就有一行，UGC 归到自己的行即可，**不需要新表**，也天然保持
+  「每条评论独立、并发回应不同评论互不干扰」这一原有优点（无需整表 JSON 读改写）。
+
+其余行为不变：
+- GET 支持批量 `ids=1,2,3`（上限 300），避免前端 N+1 请求。
 - POST 有 IP 限流（40 次/分钟）；仅允许对「已审核」评论回应；匿名可用（与评论一致）。
 """
 import json
@@ -13,35 +17,31 @@ import json
 from flask import request, jsonify
 
 from .common import api_bp
-from models import db, Comment, Setting
+from models import db, Comment
 from utils import rate_limit, client_key
 
 ALLOWED = ["\U0001F44D", "\u2764\uFE0F", "\U0001F602", "\U0001F389", "\U0001F914", "\U0001F44F"]
 _MAX_PER_EMOJI = 9999
 
 
-def _key(cid):
-    return "react_%d" % cid
-
-
 def _load(cid):
-    row = Setting.query.filter_by(key=_key(cid)).first()
-    if not row or not row.value:
+    """读取某条评论的表情计数（坏数据一律当空，不让前端炸）。"""
+    c = db.session.get(Comment, cid)
+    if not c or not c.reactions:
         return {}
     try:
-        data = json.loads(row.value)
+        data = json.loads(c.reactions)
         return data if isinstance(data, dict) else {}
     except Exception:
         return {}
 
 
 def _save(cid, counts):
-    val = json.dumps(counts, ensure_ascii=False)
-    row = Setting.query.filter_by(key=_key(cid)).first()
-    if row:
-        row.value = val
-    else:
-        db.session.add(Setting(key=_key(cid), value=val))
+    """写回某条评论的表情计数。"""
+    c = db.session.get(Comment, cid)
+    if not c:
+        return
+    c.reactions = json.dumps(counts, ensure_ascii=False)
     db.session.commit()
 
 
@@ -51,10 +51,10 @@ def comment_reactions_get():
     cids = [int(x) for x in raw.split(",") if x.strip().isdigit()][:300]
     items = {}
     if cids:
-        rows = Setting.query.filter(Setting.key.in_([_key(c) for c in cids])).all()
-        mp = {r.key: r.value for r in rows}
+        rows = Comment.query.filter(Comment.id.in_(cids)).all()
+        mp = {c.id: c.reactions for c in rows}
         for c in cids:
-            v = mp.get(_key(c)) or ""
+            v = mp.get(c) or ""
             try:
                 items[str(c)] = json.loads(v) if v else {}
             except Exception:

@@ -109,203 +109,20 @@ def _ensure_settings(app):
     db.session.commit()
 
 
-def _migrate_user_table():
-    """旧库的 user 表可能缺少 must_change_password 列，这里做轻量迁移（SQLite 加列）。"""
-    from sqlalchemy import inspect
-    ins = inspect(db.engine)
-    if "user" in ins.get_table_names():
-        cols = [c["name"] for c in ins.get_columns("user")]
-        # v3.1.6：会话版本号列（改密码/踢下线用），旧库自动补
-        if "session_version" not in cols:
-            db.session.remove()
-            db.engine.dispose()
-            with db.engine.begin() as conn:
-                conn.execute(db.text(
-                    "ALTER TABLE user ADD COLUMN session_version INTEGER DEFAULT 0"
-                ))
-            logger.info("已迁移 user 表：新增 session_version 列")
-            db.session.remove()
-            db.engine.dispose()
-        if "must_change_password" not in cols:
-            db.session.remove()
-            db.engine.dispose()
-            with db.engine.begin() as conn:
-                conn.execute(db.text(
-                    "ALTER TABLE user ADD COLUMN must_change_password BOOLEAN DEFAULT 1"
-                ))
-            logger.info("已迁移 user 表：新增 must_change_password 列")
+def _seed_default_badges():
+    """播种默认勋章（幂等；失败不得拖垮启动）。
 
+    v3.24.0：原先挂在 `_migrate_new_tables_v3()` 里，随 9 个 `_migrate_*` 一起退役，
+    这里单独拆出来 —— 播种是**数据**初始化，不是表结构，不能跟着一起删。
 
-def _migrate_post_table():
-    """旧库的 post 表可能缺少 author_id / series_id 列，轻量加列。"""
-    from sqlalchemy import inspect
-    ins = inspect(db.engine)
-    if "post" in ins.get_table_names():
-        cols = [c["name"] for c in ins.get_columns("post")]
-        specs = {"author_id": "INTEGER", "series_id": "INTEGER", "scheduled_at": "DATETIME",
-                  "is_pinned": "BOOLEAN", "seo_description": "TEXT", "seo_keywords": "VARCHAR(300)",
-                  "pin_requested": "BOOLEAN",
-                  # v3.0.0 新增列
-                  "word_count": "INTEGER DEFAULT 0", "reading_minutes": "INTEGER DEFAULT 0",
-                  "reward_enabled": "BOOLEAN DEFAULT 0", "reward_qr": "VARCHAR(500) DEFAULT ''",
-                  "is_private": "BOOLEAN DEFAULT 0", "in_trash": "BOOLEAN DEFAULT 0",
-                  "deleted_at": "DATETIME",
-                  # v3.9.1 正文渲染缓存列（旧库自动补，缺省为 NULL = 未缓存，首次访问时渲染并写入）
-                  "content_html": "TEXT", "content_hash": "VARCHAR(64)",
-                  # v3.21.0 内容多语言：lang + translation_group（旧库自动补，历史文默认为 zh / 独立）
-                  "lang": "VARCHAR(10) DEFAULT 'zh'", "translation_group": "VARCHAR(64) DEFAULT ''"}
-        need = [c for c in specs if c not in cols]
-        if need:
-            db.session.remove()
-            db.engine.dispose()
-            with db.engine.begin() as conn:
-                for c in need:
-                    conn.execute(db.text(f"ALTER TABLE post ADD COLUMN {c} {specs[c]}"))
-            logger.info("已迁移 post 表：新增 %s 列", ", ".join(need))
-
-
-def _migrate_comment_table():
-    """旧库的 comment 表补 ip / region / device / parent_id / reply_to / likes 列。"""
-    from sqlalchemy import inspect
-    ins = inspect(db.engine)
-    if "comment" in ins.get_table_names():
-        cols = [c["name"] for c in ins.get_columns("comment")]
-        specs = {
-            "ip": "VARCHAR(64) DEFAULT ''",
-            "region": "VARCHAR(64) DEFAULT ''",
-            "device": "VARCHAR(120) DEFAULT ''",
-            "parent_id": "INTEGER",
-            "reply_to": "VARCHAR(80) DEFAULT ''",
-            "likes": "INTEGER DEFAULT 0",
-            "is_read": "BOOLEAN DEFAULT 0",
-            "approved": "BOOLEAN DEFAULT 1",  # 审核流：1=已通过显示，0=待审核
-            "email_hash": "VARCHAR(32) DEFAULT ''",  # v3.15.3 功能1：邮箱 MD5 哈希
-        }
-        need = [c for c in specs if c not in cols]
-        if need:
-            db.session.remove()
-            db.engine.dispose()
-            with db.engine.begin() as conn:
-                for c in need:
-                    conn.execute(db.text(f"ALTER TABLE comment ADD COLUMN {c} {specs[c]}"))
-            logger.info("已迁移 comment 表：新增 %s 列", ", ".join(need))
-
-
-def _migrate_friendlink_table():
-    """旧库的 friend_link 表补 rss_url 列（友链 RSS 聚合用）。"""
-    from sqlalchemy import inspect
-    ins = inspect(db.engine)
-    if "friend_link" in ins.get_table_names():
-        cols = [c["name"] for c in ins.get_columns("friend_link")]
-        if "rss_url" not in cols:
-            db.session.remove()
-            db.engine.dispose()
-            with db.engine.begin() as conn:
-                conn.execute(db.text("ALTER TABLE friend_link ADD COLUMN rss_url VARCHAR(300) DEFAULT ''"))
-            logger.info("已迁移 friend_link 表：新增 rss_url 列")
-
-
-def _migrate_guestbook_table():
-    """旧库的 guestbook 表补 is_read 列（新消息提醒）。"""
-    from sqlalchemy import inspect
-    ins = inspect(db.engine)
-    if "guestbook" in ins.get_table_names():
-        cols = [c["name"] for c in ins.get_columns("guestbook")]
-        if "is_read" not in cols:
-            db.session.remove()
-            db.engine.dispose()
-            with db.engine.begin() as conn:
-                conn.execute(db.text("ALTER TABLE guestbook ADD COLUMN is_read BOOLEAN DEFAULT 0"))
-            logger.info("已迁移 guestbook 表：新增 is_read 列")
-
-
-def _migrate_subscriber_table():
-    """旧库的 subscriber 表补 unsub_token 列（邮件退订用）。"""
-    from sqlalchemy import inspect
-    ins = inspect(db.engine)
-    if "subscriber" in ins.get_table_names():
-        cols = [c["name"] for c in ins.get_columns("subscriber")]
-        if "unsub_token" not in cols:
-            db.session.remove()
-            db.engine.dispose()
-            with db.engine.begin() as conn:
-                conn.execute(db.text("ALTER TABLE subscriber ADD COLUMN unsub_token VARCHAR(64) DEFAULT ''"))
-            logger.info("已迁移 subscriber 表：新增 unsub_token 列")
-
-
-def _migrate_audit_log_table():
-    """v3.1.0：audit_log 表补 success 列（登录成功/失败区分）。"""
-    from sqlalchemy import inspect
-    ins = inspect(db.engine)
-    if "audit_log" in ins.get_table_names():
-        cols = [c["name"] for c in ins.get_columns("audit_log")]
-        if "success" not in cols:
-            db.session.remove()
-            db.engine.dispose()
-            with db.engine.begin() as conn:
-                conn.execute(db.text("ALTER TABLE audit_log ADD COLUMN success BOOLEAN DEFAULT 1"))
-            logger.info("已迁移 audit_log 表：新增 success 列")
-
-
-def _migrate_visit_log_table():
-    """v3.7.1：visit_log 表补 bot 识别三列（is_bot/bot_name/bot_category）。
-
-    db.create_all 只建「不存在的表」、不会给已存在表加列；旧库升级若没跑过
-    migrate_visit_log_bot.py，visit_log 就会缺这三列，导致后台统计页 500。
-    这里在启动时自愈，无需手动迁移。
+    ⚠️ 必须**无条件**调用：不能写成「只在刚建好新表时才播种」。因为 `db.create_all()`
+    先跑过，表在进本函数前就已存在，加那个判断会导致勋章永远播不进去 —— 表现为
+    「勋章表建好了但一条数据没有，读者永远拿不到勋章」的静默降级。
     """
-    from sqlalchemy import inspect
-    ins = inspect(db.engine)
-    if "visit_log" in ins.get_table_names():
-        cols = [c["name"] for c in ins.get_columns("visit_log")]
-        specs = {"is_bot": "BOOLEAN DEFAULT 0",
-                 "bot_name": "VARCHAR(60) DEFAULT ''",
-                 "bot_category": "VARCHAR(20) DEFAULT ''",
-                 "referrer": "VARCHAR(300) DEFAULT ''"}  # v3.17.3：访问来源（仅存 origin）
-        need = [c for c in specs if c not in cols]
-        if need:
-            db.session.remove()
-            db.engine.dispose()
-            with db.engine.begin() as conn:
-                for c in need:
-                    conn.execute(db.text(f"ALTER TABLE visit_log ADD COLUMN {c} {specs[c]}"))
-            logger.info("已迁移 visit_log 表：新增 %s 列", ", ".join(need))
-
-
-def _migrate_new_tables_v3():
-    """v3.0.0 新增表：若数据库中尚不存在这些表，则建表（幂等，可重复调用）。
-
-    新增：audit_log（审计日志）、recycle_bin（回收站）、link_application（友链申请）、
-    post_history（文章版本历史）。旧库升级时自动补建，无需手动 SQL。
-
-    v3.19.0 追加：seo_submission（主动推送收录记录）。该表同样**只靠本函数 + 
-    db.create_all() 自愈创建，不走 Alembic**——原因见 models.SeoSubmission docstring。
-    """
-    from sqlalchemy import inspect
-    from models import (AuditLog, RecycleBin, LinkApplication, PostHistory,
-                        SeoSubmission, Reader, PointLog, Badge, ReaderBadge, OAuthAccount,
-                        UserTwoFactor)
-    ins = inspect(db.engine)
-    existing = set(ins.get_table_names())
-    new_tables = [AuditLog, RecycleBin, LinkApplication, PostHistory, SeoSubmission,
-                  Reader, PointLog, Badge, ReaderBadge, OAuthAccount, UserTwoFactor]
-    need = [t for t in new_tables if t.__tablename__ not in existing]
-    if need:
-        try:
-            db.create_all()
-            logger.info("已迁移：新建数据表（%s）", ", ".join(t.__tablename__ for t in need))
-        except Exception as e:
-            logger.warning("建表失败（可忽略，下次启动重试）: %s", e)
-
-    # v3.21.0 gamification：播种默认勋章（幂等）。
-    # ⚠️ 必须放在 `if need:` **之外**：create_app 里 `db.create_all()` 先跑（第 619 行），
-    # 新表在进本函数前就已建好 → `need` 恒为空 → 放在里面则勋章永远播不进去，
-    # 表现为「勋章表建好了但一条数据没有，读者永远拿不到勋章」的静默降级。
     try:
         from gamify import seed_badges
         seed_badges()
     except Exception as e:  # noqa: BLE001  播种失败不能拖垮启动（下次启动会重试）
-        # 与同文件其它 _migrate_* 一致走 stdout；必须留痕，否则又变成静默降级
         logger.warning("默认勋章播种失败（可忽略，下次启动重试）: %s", e)
 
 
@@ -395,7 +212,6 @@ def _ensure_super_admin(app):
     - 首次创建时标记 must_change_password=True，登录后台后强制先设置新用户名/密码。
     """
     from models import ROLE_SUPER as _SUPER
-    _migrate_user_table()
     existing = User.query.filter_by(role=_SUPER).first()
     if existing:
         # 已存在超管：若从未设置过账号密码（旧库迁移后该列为空/True），保持待设置
@@ -454,26 +270,54 @@ def _is_json_client():
     return "application/json" in acc and "text/html" not in acc
 
 
-def create_app(enable_scheduler=True):
-    app = Flask(__name__)
-    app.config.from_object("config.Config")
+def claim_scheduled_post(post_id):
+    """原子认领一篇到点文章：跨进程、跨线程**只有一个**调用者能拿到 True。
 
+    背景：gunicorn 开 N 个 worker，而 `create_app()` 给每个 worker 各起一条调度线程，
+    于是同一篇定时文章会被 N 条线程同时扫到。原实现是「先查（published != True）
+    后改（赋 True 再 commit）」，两条线程都能通过查询，结果是同一篇文章被发布 N 次、
+    并触发 N 份 Telegram/邮件/新文推送 —— 对订阅者是实打实的 N 倍骚扰。
+
+    做法：把「判断 + 修改」合并成**一条 UPDATE**，用 `WHERE` 里的未发布条件做认领。
+    SQLite 的写操作本身串行，`rowcount == 1` 即抢到，其余为 0 直接跳过。
+
+    为什么不选「选主 + 心跳」（只让一个 worker 跑调度）：
+    `tasks.py` 的锁过期是 `LOCK_STALE = 3600`，若持锁进程被杀，要等最多 1 小时才有人
+    接管 —— 那等于定时发布停摆一小时，是新的可用性故障。原子认领没有持锁者概念，
+    因而没有这个失效窗口；代价是 N 条线程仍会各自扫一遍（一次带索引的小查询，可忽略）。
+    """
+    res = db.session.execute(
+        db.text("UPDATE post SET published = 1, scheduled_at = NULL "
+                "WHERE id = :id AND COALESCE(published, 0) != 1"),
+        {"id": post_id})
+    db.session.commit()
+    return res.rowcount == 1
+
+
+def _validate_required_env(app, migrate_only):
+    """安全启动校验：缺少关键密钥/管理员密码则直接拒绝启动，禁止使用弱默认值。
+
+    迁移模式（`migrate_only`）下不需要管理员凭据：见 create_app 的 BLOG_MIGRATE_ONLY 说明。"""
     # 安全启动校验：缺少关键密钥/管理员密码则直接拒绝启动，禁止使用弱默认值。
-    if not app.config.get("SECRET_KEY"):
+    if migrate_only:
+        # 仅用于命令行迁移，不会处理任何请求/会话；给一次性随机值即可，绝不落盘。
+        if not app.config.get("SECRET_KEY"):
+            app.config["SECRET_KEY"] = os.urandom(24).hex()
+    elif not app.config.get("SECRET_KEY"):
         raise RuntimeError(
             "缺少环境变量 SECRET_KEY。请设置随机长字符串后再启动，例如：\n"
             "  export SECRET_KEY=$(python -c 'import secrets;print(secrets.token_hex(32))')"
         )
-    if not app.config.get("ADMIN_PASSWORD"):
+    if not migrate_only and not app.config.get("ADMIN_PASSWORD"):
         raise RuntimeError(
             "缺少环境变量 ADMIN_PASSWORD。请设置初始管理员密码后再启动，例如：\n"
             "  export ADMIN_PASSWORD=$(python -c 'import secrets;print(secrets.token_hex(16))')"
         )
 
-    # v3.18.5：删除残留的 app.config["ADMIN_HASH"]。它全仓无任何读取方，且每次启动
-    # 白算一次 scrypt；密码校验一律走 User.check_password()。ADMIN_PASSWORD 仍由
-    # _ensure_super_admin() 在建库首次创建超管时使用，故保留在 config 中。
+def _setup_core(app):
+    """装配核心：结构化日志 → SQLite PRAGMA → db/Migrate → 蓝图 → Jinja 过滤器。
 
+    必须在 `_bootstrap_database()` 之前（`db.init_app` 要先于任何建表/查询）。"""
     # v3.23.0：结构化日志 + request_id（必须早于任何 logger 使用——否则迁移/启动
     # 阶段的日志拿不到 rid，且 root 无 handler 时 INFO 级会被直接丢弃）。
     import logging_setup
@@ -483,9 +327,12 @@ def create_app(enable_scheduler=True):
     # v3.9.1：SQLite WAL + busy_timeout（必须在建连/建表之前装好监听）
     _install_sqlite_pragmas()
     db.init_app(app)
-    # v3.11.0：登记 Flask-Migrate（可选）。仅登记，不改变建表主路径
-    # （db.create_all() + _migrate_* 仍负责生产建表/升级）。未来改 model 后用
-    # `flask db migrate` 生成迁移脚本，已有库一次性 `flask db stamp head` 即可。
+    # v3.11.0：登记 Flask-Migrate。
+    # v3.24.0 起 **Alembic 就是唯一的结构变更路径**：部署脚本（update.sh 的
+    # `apply_db_migrations`）会在覆盖代码后、重启前跑 `flask db upgrade`；
+    # 原先 9 个 `_migrate_*` 启动自愈函数已退役（改为迁移 `d4a7f08c2e91` 兜底补列）。
+    # `db.create_all()` 仍然保留，但它只负责「建缺失的表」（新建库 / 补齐新表），
+    # **不会**给已有表加列 —— 加列一律写迁移。
     # directory 显式指到本文件同级的 migrations/，使 `flask db` 在任意 cwd 下
     # 都能定位（部署后该目录随后端包落到运行目录，与开发态一致）。
     if Migrate is not None:
@@ -503,6 +350,11 @@ def create_app(enable_scheduler=True):
     from utils import fmt_bj
     app.jinja_env.filters["bj"] = fmt_bj
 
+def _register_request_hooks(app):
+    """注册 after/before_request 钩子。
+
+    ⚠️ Flask 的 `before_request` **按注册顺序执行**，因此本函数内部必须保持原
+    文本顺序：同源校验 → 预检放行 → 会话版本 → 闲置超时 → 2FA 闸门。"""
     # 前后端分离：仅在显式配置了 CORS_ORIGIN 时才允许跨域，且精确匹配来源（默认同源，不开通配）
     @app.after_request
     def add_cors_headers(resp):
@@ -668,33 +520,34 @@ def create_app(enable_scheduler=True):
             return jsonify({"error": "twofa_required", "twofa_required": True}), 401
         return redirect(url_for("main.twofa_challenge", next=path))
 
+def _bootstrap_database(app, migrate_only):
+    """首次运行自举：建缺失的表 → 播种勋章 → FTS → 默认设置 → 超管 → 插件。
+
+    `migrate_only` 时整块跳过（迁移命令不得产生任何业务副作用）。"""
     # 首次运行时建表并写入默认设置、创建超级管理员
-    with app.app_context():
-        db.create_all()
-        _migrate_user_table()
-        _migrate_post_table()
-        _migrate_comment_table()
-        _migrate_friendlink_table()
-        _migrate_guestbook_table()
-        _migrate_subscriber_table()
-        _migrate_audit_log_table()
-        _migrate_visit_log_table()
-        _migrate_new_tables_v3()
-        try:
-            import fts
-            fts.ensure()
-        except Exception as e:
-            logger.warning("FTS 初始化跳过: %s", e)
-        _ensure_settings(app)
-        _ensure_super_admin(app)
+    if migrate_only:
+        logger.info("迁移模式（BLOG_MIGRATE_ONLY=1）：跳过建表 / 超管兜底 / 设置播种 / FTS / 插件加载")
+    else:
+        with app.app_context():
+            db.create_all()
+            _seed_default_badges()
+            try:
+                import fts
+                fts.ensure()
+            except Exception as e:
+                logger.warning("FTS 初始化跳过: %s", e)
+            _ensure_settings(app)
+            _ensure_super_admin(app)
 
-        # v3.9.0：插件系统（M0）— 核心表/设置/超管就绪后加载；单插件崩溃不拖垮博客
-        try:
-            from plugins import load_plugins
-            load_plugins(app, app.config)
-        except Exception as e:
-            logger.warning("插件系统加载失败（已跳过，不影响博客启动）: %s", e)
+            # v3.9.0：插件系统（M0）— 核心表/设置/超管就绪后加载；单插件崩溃不拖垮博客
+            try:
+                from plugins import load_plugins
+                load_plugins(app, app.config)
+            except Exception as e:
+                logger.warning("插件系统加载失败（已跳过，不影响博客启动）: %s", e)
 
+def _register_template_context(app):
+    """注册模板上下文处理器 `inject_globals` 及其两个私有助手。"""
     # v3.1.6：确保每个请求都生成会话 CSRF Token（未登录访客也有，用于游客提交表单/API）
     def _csrf_generate():
         from utils import generate_csrf_token
@@ -795,58 +648,8 @@ def create_app(enable_scheduler=True):
             csrf_token=_session.get("csrf_token", ""),
         )
 
-    # ---------- 定时发布后台线程（v2.7.0）----------
-    # 守护线程每 60s 扫描「已设 scheduled_at 且到点、但尚未 published」的文章，
-    # 翻成 published 并触发新文章推送（Telegram/企业微信）+ 邮件群发订阅者。
-    # 线程内独立 app_context，避免与请求上下文冲突；所有异常静默，不影响主流程。
-    def _scheduler_loop():
-        import time as _time
-        while True:
-            _time.sleep(60)
-            try:
-                with app.app_context():
-                    now = utcnow()
-                    due = Post.query.filter(
-                        Post.scheduled_at.isnot(None),
-                        Post.scheduled_at <= now,
-                        Post.published != True,
-                    ).all()
-                    for p in due:
-                        p.published = True
-                        p.scheduled_at = None  # 发布后清空，避免重复触发
-                        db.session.commit()
-                        # 定时发布是**唯一**没有人工介入的发布路径，漏同步就等于这篇
-                        # 永久不在 FTS 索引里（ensure() 只在表空时回填，不会自愈）。
-                        import fts as _fts
-                        _fts.sync_post_quiet(p)
-                        # v3.9.0 M1：文章定时到点发布 → 触发插件事件（订阅者异常已隔离）
-                        try:
-                            from plugins.signals import emit_post_published
-                            emit_post_published(p)
-                        except Exception:
-                            pass
-                        try:
-                            import notify as _notify
-                            _notify.notify_new_post(p, app.config.get("SITE_URL", ""))
-                        except Exception:
-                            pass
-                        # v3.20.0：新文自动推送（默认关闭，见 seo_push.maybe_auto_push 的说明）
-                        try:
-                            import seo_push
-                            seo_push.maybe_auto_push(p)
-                        except Exception:  # noqa: BLE001, S110  (自动推送失败绝不影响发布主流程)
-                            pass
-                        try:
-                            import mail_notify as _mail
-                            _mail.notify_subscribers_async(p)
-                        except Exception:
-                            pass
-                    if due:
-                        logger.info("[定时发布] 已自动发布 %d 篇到点文章", len(due))
-            except Exception as e:
-                # 单轮异常不致命，下一轮继续；打印便于排查
-                logger.warning("[定时发布线程] 异常（已忽略，继续下一轮）: %s", e)
-
+def _register_cli(app):
+    """注册 CLI 命令。⚠️ 必须在 `create_app` return 之前注册，否则永不生效。"""
     # v3.18.5：CLI 命令必须在 return 之前注册，否则永不生效（此处曾是 return 之后的死代码）。
     @app.cli.command("seed")
     def seed_command():
@@ -884,6 +687,8 @@ def create_app(enable_scheduler=True):
         db.session.commit()
         logger.info("已插入示例文章、分类、标签和一条友情链接。")
 
+def _register_error_handlers(app):
+    """统一错误处理：`/api/` 前缀返回 JSON 信封，其余返回模板页。"""
     # v3.18.5：统一错误处理——/api/ 前缀返回 JSON 信封，其余返回模板页。
     # 修复前全仓 0 个 errorhandler，first_or_404() 对 JSON 客户端返回 Werkzeug
     # 默认 HTML 错误页，前端 resp.json() 解析失败，用户只看到「网络错误」。
@@ -922,14 +727,118 @@ def create_app(enable_scheduler=True):
             return jsonify({"error": "服务器内部错误，请稍后重试"}), 500
         return _render_error_page(500)
 
+def _start_scheduler(app):
+    """启动定时发布 + 保留策略清理的守护线程（每 60s 一轮）。"""
+    # ---------- 定时发布后台线程（v2.7.0）----------
+    # 守护线程每 60s 扫描「已设 scheduled_at 且到点、但尚未 published」的文章，
+    # 翻成 published 并触发新文章推送（Telegram/企业微信）+ 邮件群发订阅者。
+    # 线程内独立 app_context，避免与请求上下文冲突；所有异常静默，不影响主流程。
+    _last_prune_day = [None]   # 闭包内记录上次执行保留策略的日期（每日一次）
+
+    def _scheduler_loop():
+        import time as _time
+        while True:
+            _time.sleep(60)
+            try:
+                with app.app_context():
+                    now = utcnow()
+                    due = Post.query.filter(
+                        Post.scheduled_at.isnot(None),
+                        Post.scheduled_at <= now,
+                        Post.published != True,
+                    ).all()
+                    for p in due:
+                        # 原子认领：N 个 worker 的调度线程同时扫到同一篇时，只有一个能拿到
+                        # True，其余跳过 —— 避免重复发布与 N 倍推送（见 claim_scheduled_post）。
+                        if not claim_scheduled_post(p.id):
+                            continue
+                        db.session.refresh(p)   # 让 ORM 看到 published / scheduled_at 的新值
+                        # 定时发布是**唯一**没有人工介入的发布路径，漏同步就等于这篇
+                        # 永久不在 FTS 索引里（ensure() 只在表空时回填，不会自愈）。
+                        import fts as _fts
+                        _fts.sync_post_quiet(p)
+                        # v3.9.0 M1：文章定时到点发布 → 触发插件事件（订阅者异常已隔离）
+                        try:
+                            from plugins.signals import emit_post_published
+                            emit_post_published(p)
+                        except Exception:
+                            pass
+                        try:
+                            import notify as _notify
+                            _notify.notify_new_post(p, app.config.get("SITE_URL", ""))
+                        except Exception:
+                            pass
+                        # v3.20.0：新文自动推送（默认关闭，见 seo_push.maybe_auto_push 的说明）
+                        try:
+                            import seo_push
+                            seo_push.maybe_auto_push(p)
+                        except Exception:  # noqa: BLE001, S110  (自动推送失败绝不影响发布主流程)
+                            pass
+                        try:
+                            import mail_notify as _mail
+                            _mail.notify_subscribers_async(p)
+                        except Exception:
+                            pass
+                    if due:
+                        logger.info("[定时发布] 已自动发布 %d 篇到点文章", len(due))
+                    # v3.24.0：保留策略每日清理一次（point_log 2 年 / reader_badge 随
+                    # reader / reader 永久保留）。复用定时发布线程，失败只记日志。
+                    today = utcnow().date()
+                    if _last_prune_day[0] != today:
+                        _last_prune_day[0] = today
+                        try:
+                            import gamify as _gamify
+                            n = _gamify.prune_retention()
+                            if n["point_log"] or n["reader_badge"]:
+                                logger.info("[保留策略] 清理 point_log=%d reader_badge=%d",
+                                            n["point_log"], n["reader_badge"])
+                        except Exception as e:  # noqa: BLE001  清理失败绝不影响定时发布主流程
+                            logger.warning("[保留策略] 清理失败（已忽略，下一日重试）: %s", e)
+            except Exception as e:
+                # 单轮异常不致命，下一轮继续；打印便于排查
+                logger.warning("[定时发布线程] 异常（已忽略，继续下一轮）: %s", e)
+    # 是否启用由调用方决定（create_app 的 enable_scheduler）：测试传 False 可避免
+    # 每个用例都起一个守护线程（原实现 99 个测试最多 99 个后台线程）。
+    import threading as _threading
+    _sched_thread = _threading.Thread(target=_scheduler_loop, name="scheduled-publish", daemon=True)
+    _sched_thread.start()
+
+
+def create_app(enable_scheduler=True):
+    """应用工厂：装配扩展 → 请求钩子 → 建库自举 → 模板上下文 → CLI → 错误页 → 定时线程。
+
+    v3.24.0：本函数原为 510 行的上帝函数，按职责拆成上面一组 `_setup_*` / `_register_*`。
+    **拆分是纯搬运，不动任何一行逻辑**，两条顺序约束必须守住：
+    - `_setup_core()`（含 `db.init_app`）必须早于 `_bootstrap_database()`；
+    - `before_request` 的执行顺序 = 注册顺序，故钩子集中在 `_register_request_hooks()`
+      内按原顺序注册（见该函数 docstring）。
+    """
+    app = Flask(__name__)
+    app.config.from_object("config.Config")
+
+    # v3.24.0：迁移专用模式（`BLOG_MIGRATE_ONLY=1`）。
+    # `flask db upgrade` 必须构造出 app 才能拿到 Flask-Migrate 的扩展，但正常路径会做
+    # 一堆副作用（建表 / 超管兜底 / 设置播种 / FTS / 勋章播种），并且缺 SECRET_KEY、
+    # ADMIN_PASSWORD 就直接拒绝启动 —— 部署脚本里通常没有这两个变量，硬塞一个假的
+    # ADMIN_PASSWORD 又有「万一库里恰好没有超管，就用已知密码造出一个」的风险。
+    # 迁移模式一律跳过这些副作用：只保留 app + db + Migrate，不动任何业务数据。
+    migrate_only = os.environ.get("BLOG_MIGRATE_ONLY") == "1"
+
+    _validate_required_env(app, migrate_only)
+    _setup_core(app)
+    _register_request_hooks(app)
+    _bootstrap_database(app, migrate_only)
+    _register_template_context(app)
+    _register_cli(app)
+    _register_error_handlers(app)
+
     # v3.18.5：测试可传 enable_scheduler=False 关掉定时发布线程
     # （原实现每个 create_app() 都起一个守护线程 → 99 个测试最多 99 个后台线程）。
     if enable_scheduler:
-        import threading as _threading
-        _sched_thread = _threading.Thread(target=_scheduler_loop, name="scheduled-publish", daemon=True)
-        _sched_thread.start()
+        _start_scheduler(app)
 
     return app
+
 
 
 # 模块被导入时直接创建应用实例（供 flask run / gunicorn 使用）

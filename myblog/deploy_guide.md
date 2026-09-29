@@ -524,17 +524,34 @@ supervisorctl status
 3. **覆盖后端**：上传新版 `myblog-backend.zip` → 解压到上述真实目录。
    - ⚠️ zip 内自带一层 `myblog/`，解压后应合并进运行目录，**避免出现 `myblog/myblog/` 嵌套**；
    - 确认 `data/` 目录和 `blog.db` 还在（没删目录就一定在）。
-4. **重启后端（关键）**：宝塔「网站 → Python项目」→ 该项目 → **先点「停止」，再点「启动」**。
+4. **⚠️ 应用数据库迁移（v3.24.0 起为必做步骤）**：覆盖后端之后、重启之前，在站点目录执行一次：
+   ```bash
+   cd /www/wwwroot/myblog
+   BLOG_MIGRATE_ONLY=1 FLASK_APP=app:create_app /path/to/venv/bin/python -m flask db upgrade
+   ```
+   - **为什么必须做**：v3.24.0 之前，项目所有表结构变更都靠启动自愈（9 个 `_migrate_*`）完成，Alembic 只被 `stamp` 过、从未真正 upgrade。v3.24.0 起这些自愈函数已退役，改由 Alembic 迁移承担 —— 不跑这一步，迁移脚本里新增的索引/列**不会**落到生产。
+   - **为什么用 `BLOG_MIGRATE_ONLY=1`**：让 `create_app()` 跳过建表/超管兜底/设置播种/FTS/插件加载等启动副作用，只保留 app + db + Migrate。**因此不需要 `SECRET_KEY` / `ADMIN_PASSWORD`**，也避免了用假管理员密码误建超管的风险。
+   - **必须以站点运行用户执行**（宝塔通常是 `www`）：否则 `blog.db` / `-wal` 会被改成 root 属主，之后 www 写不进去。
+   - 用一键更新脚本（`update.sh`）时**无需手动做**——脚本已在「覆盖代码 → 应用迁移 → 重启」中自动包含该步骤；迁移失败会**中止且不重启**（服务继续跑旧代码），按脚本输出修复后重跑即可。
+5. **重启后端（关键）**：宝塔「网站 → Python项目」→ 该项目 → **先点「停止」，再点「启动」**。
    - ⚠️ 只点「重启」可能只是重载配置，gunicorn 旧进程没退出，页面还是旧版；
    - 可用 `ps -ef | grep gunicorn` 看进程启动时间，确认是新进程；
    - 若需对齐迁移基线，可在站点目录执行一次 `flask db stamp head`（幂等无害、不改变任何表结构；`flask db heads` 应显示基线 `f8f1f29b6ddf`）。
-5. **覆盖前端**：上传新版 `vue-frontend-dist.zip` 到 `/www/wwwroot/vue-frontend/` → 解压覆盖 `index.html` + `assets/`（**无需重启后端**）。
-6. **验证**：浏览器**无痕窗口**打开（避免缓存）：
+6. **覆盖前端**：上传新版 `vue-frontend-dist.zip` 到 `/www/wwwroot/vue-frontend/` → 解压覆盖 `index.html` + `assets/`（**无需重启后端**）。
+7. **验证**：浏览器**无痕窗口**打开（避免缓存）：
    - 后台左下角显示 `vX.Y.Z`，与 [GitHub Releases](https://github.com/Llhhy1/llhhy-blog/releases) 最新标签一致 → 后端升级成功；
    - 前台侧边栏出现「📬 邮件订阅」→ 前端升级成功。
-7. **环境变量**：只覆盖文件 + 重启，环境变量原样保留，无需重填；**若误删 Python 项目重建，必须重填 `SECRET_KEY` / `ADMIN_PASSWORD`**（缺失拒绝启动）。改 `SECRET_KEY` 会让已登录用户需要重新登录，属正常现象。
+8. **环境变量**：只覆盖文件 + 重启，环境变量原样保留，无需重填；**若误删 Python 项目重建，必须重填 `SECRET_KEY` / `ADMIN_PASSWORD`**（缺失拒绝启动）。改 `SECRET_KEY` 会让已登录用户需要重新登录，属正常现象。
 
 > ⚠️ **服务器上的 `update.sh` / `deploy.sh` 也务必与最新 Release 同版**：脚本经历过「假成功不覆盖 / 校验误报 / 无法自动重启」多轮加固，升级前先从最新 Release 覆盖一次脚本，再跑一键更新。
+
+> **v3.24.0（表结构改走 Alembic + 积分去重/保留策略 + 定时发布防重）升级要点**：**纯后端改动，只需覆盖后端包**（`vue-frontend/` 未动）。⚠️ 本版含**部署流程变更**，请先读第 1、2 条。
+> 1. **⚠️ 部署新增「应用数据库迁移」步骤（必做）**：本版退役了 9 个 `_migrate_*` 启动自愈函数，表结构变更**改由 Alembic 迁移承担**。升级必须在「覆盖代码后、重启前」执行一次 `flask db upgrade`（做法见上方通用流程第 4 步）。用 `update.sh` 一键更新**无需手工做**（脚本已内置，且迁移失败会中止、不重启）；**手动升级者务必手工补跑** —— 不跑不会报错，但新增索引不生效、功能不落地。
+> 2. **⚠️ 升级前先备份 `blog.db`（两条迁移都有删除动作）**：① `b3f6c1d84a72` 会**删除 `point_log` 里的重复行**（同读者 + 同原因 + 同文章 + 同天只留 id 最小的一条）——这是建唯一索引的必要前提，不去重索引建不出来；② `e5b8c3f17a24` 会把 `react_*` / `ai_summary_*` / `ai_tags_*` 这些 **setting 行**搬到评论 / 文章自己的列上，**然后删除原 setting 行**（含目标已删除的孤儿行）。两处都是「先复制、后删除」，内容不丢，但**务必先备份**。
+> 3. **功能改动**：① `point_log` 加 DB 级去重唯一索引 `uq_pointlog_dedup`、`reader.points` 加索引 `ix_reader_points`；② 新增保留策略（`gamify.prune_retention()`，调度线程每日一次）：**reader 永久 / point_log 2 年 / reader_badge 随 reader**；③ 定时发布改为**原子认领**（`app.claim_scheduled_post()`），多个 worker 的调度线程不再把同一篇文章重复发布、也不会重复推送/重复发订阅邮件；④ **Setting KV 治理**（见下条）；⑤ `create_app()` 拆分（510 行 → 35 行，纯重构无行为变化）。
+> 4. **Setting KV 治理**：评论表情回应改存 `comment.reactions`、AI 摘要/标签改存 `post.ai_summary` / `post.ai_tags`，**不再占用 setting 表**。原因：setting 有 6 处 `Setting.query.all()` 全表加载（后台每次渲染、天气默认坐标等），UGC 混在里面会随评论/文章数无限增长并被每次全表捞出。对外接口与页面行为**完全不变**。
+> 4. **新增环境变量 `BLOG_MIGRATE_ONLY`**：仅供迁移命令使用，让 `create_app()` 跳过建表/超管兜底/设置播种等副作用。**无需手工配置**（部署脚本自动带上）。
+> 5. **升级后验证**：`flask db current` 应为 `d4a7f08c2e91`；库中应能查到 `uq_pointlog_dedup` 与 `ix_reader_points` 两个索引；启动日志不再出现「已迁移 … 表」字样（`_migrate_*` 已退役），但**仍会有**「默认勋章播种」相关日志（已拆成独立步骤保留）。
 
 > **v3.23.0（可观测性 + 后台任务 + OAuth 自助解绑 + CI 门禁）升级要点**：**纯后端改动，只需覆盖后端包**（`vue-frontend/` 未动）。
 > - **新增运行期目录 `data/tasks/`**（后台任务状态 + 同名任务锁文件，`tasks.py` 自动创建，**无需手动迁移**；`update.sh` 不触碰 `data/`）。

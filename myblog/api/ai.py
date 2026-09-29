@@ -4,8 +4,10 @@
 设计：
 - 配置复用既有 Setting（games_llm_on / games_llm_base / games_llm_key_enc / games_llm_model），
   无需新增密钥与表结构。
-- 生成结果存 Setting（键 `ai_summary_<post_id>` / `ai_tags_<post_id>`）——零表结构变更，
-  符合项目「能不改表就不改」纪律。
+- v3.24.0：生成结果改存**文章自己的列** `Post.ai_summary` / `Post.ai_tags`。
+  原先存 Setting（键 `ai_summary_<post_id>` / `ai_tags_<post_id>`）虽「零表结构变更」，
+  但那是把每篇一份的 UGC 塞进设置表：随文章数无限增长，还被 6 处
+  `Setting.query.all()` 全表加载一起拖出来。UGC 挂在自己的行上才是正解。
 - GET 公开只读（供前台展示）；POST 仅超管（全局 CSRF 保护）。
 - 任何 LLM/网络异常都返回可读错误，绝不 500。
 """
@@ -15,22 +17,14 @@ import urllib.request
 from flask import request, jsonify, session
 
 from .common import api_bp
-from models import db, Post, Setting, User, visible_posts_query
+from models import db, Post, User, visible_posts_query
 from utils import get_setting, rate_limit
 from backup_settings import decrypt_secret
 
 
-def _setting_get(key, default=""):
-    row = Setting.query.filter_by(key=key).first()
-    return row.value if row else default
-
-
-def _setting_set(key, value):
-    row = Setting.query.filter_by(key=key).first()
-    if row:
-        row.value = value
-    else:
-        db.session.add(Setting(key=key, value=value))
+# v3.24.0：原先的 `_setting_get` / `_setting_set`（专用于 ai_summary_<id> / ai_tags_<id>）
+# 已随摘要改存 Post 列而移除——它们只服务那两个 UGC 键，留着就是死代码。
+# 真正的站点设置读写一律用 utils.get_setting / admin 侧的既有写法。
 
 
 # v3.17.7：摘要生成提示词提取为常量（后台「AI 摘要」管理页与 API 共用，保证口径一致）
@@ -93,9 +87,11 @@ def ai_summary_get(slug):
     p = visible_posts_query(user=user).filter_by(slug=slug).first()
     if not p:
         return jsonify({"error": "文章不存在"}), 404
+    # v3.24.0：摘要/标签改为读**文章自己的列**（Post.ai_summary / Post.ai_tags）。
+    # 原先存在 Setting KV 的 ai_summary_<id> / ai_tags_<id>，属「UGC 当设置存」。
     return jsonify({
-        "summary": _setting_get("ai_summary_%d" % p.id, ""),
-        "tags": _setting_get("ai_tags_%d" % p.id, ""),
+        "summary": p.ai_summary or "",
+        "tags": p.ai_tags or "",
     })
 
 
@@ -130,8 +126,9 @@ def ai_summary_make(slug):
     if not summary:
         return jsonify({"error": "模型返回为空"}), 502
 
-    _setting_set("ai_summary_%d" % p.id, summary)
+    # v3.24.0：写文章自己的列，不再写 Setting KV。
+    p.ai_summary = summary
     if tag_sug:
-        _setting_set("ai_tags_%d" % p.id, tag_sug)
+        p.ai_tags = tag_sug
     db.session.commit()
     return jsonify({"ok": True, "summary": summary, "tags": tag_sug})

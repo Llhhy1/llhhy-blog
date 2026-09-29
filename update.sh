@@ -491,6 +491,61 @@ install_deps() {
   log "   请手动执行: $py -m pip install -i $mirror -r $APP_DIR/requirements.txt"
 }
 
+# ===== 应用数据库迁移（v3.24.0 · Alembic 真正生效）=====
+# 背景：历史上**所有**表结构变更都靠启动自愈（create_all + 9 个 _migrate_*）完成，
+# Alembic 只在生产被 stamp 过、从未真正 upgrade —— 于是任何「只写在迁移脚本里」的
+# 结构变更都不会落到生产。v3.24.0 起部署流程显式跑一次 flask db upgrade。
+#
+# 两个关键点：
+# 1. 用 BLOG_MIGRATE_ONLY=1 让 create_app() 跳过建表 / 超管兜底 / 设置播种 / FTS /
+#    插件加载等副作用，只保留 app + db + Migrate。这样部署脚本不必持有
+#    SECRET_KEY / ADMIN_PASSWORD，也杜绝了「用假 ADMIN_PASSWORD 恰好在库里没超管时
+#    造出一个已知密码超管」的风险。
+# 2. 必须以站点运行用户执行（run_as）：否则 blog.db / -wal 会被改成 root 属主，
+#    之后 www 用户写不进去（宝塔上踩过）。
+apply_db_migrations() {
+  if [ ! -d "$APP_DIR/migrations" ]; then
+    log "   （无 migrations/ 目录，跳过数据库迁移）"
+    return 0
+  fi
+  local py=""
+  # 与 install_deps 同一套探测逻辑：优先复用 gunicorn 实际的解释器（即站点 venv）
+  if [ -n "$GUNICORN_BIN" ]; then
+    case "$GUNICORN_BIN" in
+      *python*|*/bin/python*|python*)
+        py="${GUNICORN_BIN% -m gunicorn}"
+        [ -x "$py" ] || py=""
+        ;;
+      *)
+        py="${GUNICORN_BIN%/bin/gunicorn}/bin/python"
+        [ -x "$py" ] || py="${GUNICORN_BIN%/gunicorn}/python"
+        [ -x "$py" ] || py=""
+        ;;
+    esac
+  fi
+  if [ -z "$py" ]; then
+    py=$(command -v python3 2>/dev/null || true)
+  fi
+  if [ -z "$py" ] || [ ! -x "$py" ]; then
+    log "   ⚠️ 未找到可用的 python，跳过数据库迁移（请手动执行 flask db upgrade）"
+    return 0
+  fi
+  mkdir -p "$WORK" 2>/dev/null || true
+  local mlog="$WORK/db_upgrade_${TS:-$(date +%s)}.log"
+  if run_as env "HOME=${APP_DIR%/*}" "PYTHONPATH=$APP_DIR" \
+        "BLOG_MIGRATE_ONLY=1" "FLASK_APP=app:create_app" \
+        timeout 300 "$py" -m flask db upgrade >"$mlog" 2>&1; then
+    log "   ✅ 数据库迁移已应用（flask db upgrade）。"
+    rm -f "$mlog"; return 0
+  fi
+  log "   ❌ 数据库迁移失败，输出最后 15 行："
+  tail -15 "$mlog" 2>/dev/null | while read -r l; do log "     $l"; done
+  rm -f "$mlog"
+  # 迁移失败时**不重启**：宁可让服务继续跑旧代码，也不要让新代码去访问旧表结构
+  # （后者会直接 500）。代码已覆盖，修复后重跑本脚本即可。
+  fail_exit "数据库迁移失败：暂不重启，服务仍在运行旧代码。请按上方日志修复后重跑；或手动执行：cd $APP_DIR && BLOG_MIGRATE_ONLY=1 FLASK_APP=app:create_app $py -m flask db upgrade"
+}
+
 # ===== 校验（v3.1.6 双源互证 + HMAC 可选）=====
 verify_checksum() {  # verify_checksum <file> <expected_name>
   local f="$1" expect_name="$2" want got
@@ -719,6 +774,11 @@ if [ -d "$FRONT_DIR" ]; then
 else
   log "   ⚠️ 前端目录 $FRONT_DIR 不存在，跳过（请检查路径）。"
 fi
+
+# 5b. 应用数据库迁移（v3.24.0 起：Alembic 真正生效，必须在重启之前）
+log "⑤b 应用数据库迁移（flask db upgrade）..."
+set_status "migrating" "正在应用数据库迁移"
+apply_db_migrations
 
 # 6. 自动重启后端
 set_status "restarting" "正在重启后端服务"

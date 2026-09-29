@@ -128,13 +128,15 @@ def test_cache_invalidated_when_content_changes(app):
             _del_post(app, pid)
 
 
-def test_cache_columns_migration_idempotent(app):
-    """_migrate_post_table 可重复执行（旧库升级加列，已有则不重复）。"""
+def test_cache_columns_present(app):
+    """post 表必须带渲染缓存两列（content_html / content_hash）。
+
+    v3.24.0：给已有表加列的活儿从 `_migrate_post_table()`（已随 9 个 `_migrate_*`
+    退役）改为两条路径 —— 新库由 `db.create_all()` 随模型建出，老库由迁移
+    `d4a7f08c2e91` 补齐。本用例钉住「列确实在」这条结果，不绑定具体由谁加的。
+    """
     from sqlalchemy import inspect
-    from app import _migrate_post_table
     with app.app_context():
-        _migrate_post_table()
-        _migrate_post_table()  # 再跑一次不应报错
         cols = [c["name"] for c in inspect(db_engine()).get_columns("post")]
     assert "content_html" in cols and "content_hash" in cols
 

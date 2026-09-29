@@ -3,6 +3,62 @@
 > 本文件承载 **历史版本** 记录。README 只保留最新版本与上手信息。
 > 各版本的安全审计结论见 `myblog/SECURITY_AUDIT.md`；功能规划见 `ROADMAP.md`。
 
+## v3.24.0（2026-09-30 · 表结构改走 Alembic + 积分去重/保留策略 + Setting KV 治理）
+
+> ⚠️ **本版含部署流程变更**：升级时**必须**在「覆盖后端之后、重启之前」执行一次
+> `BLOG_MIGRATE_ONLY=1 FLASK_APP=app:create_app <venv>/bin/python -m flask db upgrade`，
+> 否则迁移里的索引/列不会落到生产。详见 `myblog/deploy_guide.md` 升级流程第 4 步。
+>
+> ⚠️ **本版迁移含删除动作，升级前务必备份 `blog.db`**。
+> 安全审查见 `myblog/SECURITY_AUDIT.md` §R96。
+
+### 架构：单一 schema 真相源（部署侧 + 退役 9 个 `_migrate_*`）
+
+- **根因修复**：v3.24.0 之前，`update.sh` 与部署手册**从不执行 `flask db upgrade`**——线上升级
+  就是「覆盖代码 → 重启」，所有表结构变更靠启动自愈（`db.create_all()` + 9 个 `_migrate_*`）
+  完成，Alembic 只被 `stamp`、从未真正 upgrade。**只写在迁移脚本里的结构变更不会生效**。
+- `update.sh` 新增 `apply_db_migrations()`（step 5b，覆盖代码后、重启前）；迁移失败则**中止且
+  不重启**（宁可继续跑旧代码，也不让新代码访问旧表结构）。以站点用户执行，避免 `blog.db`
+  及其 `-wal` 变成 root 属主。
+- `BLOG_MIGRATE_ONLY=1` 新增迁移专用模式：正常构造 app 但**跳过** `create_all()`、
+  勋章播种、FTS、设置/超管兜底、插件加载等全部启动副作用。部署脚本因此**不必持有管理员凭据**，
+  也杜绝了「用占位 `ADMIN_PASSWORD` 而库里恰好无超管时造出已知密码超管」的风险。
+- 9 个 `_migrate_*` 全部退役，历史加列固化为迁移 `d4a7f08c2e91`（**冻结快照**、逐列查存在性：
+  生产空操作，老库补齐）。数据播种 `seed_badges()` 不是表结构，拆出为 `_seed_default_badges()`
+  并**无条件调用**（曾因写在 `if need:` 分支内导致勋章永远播不进去）。
+
+### 数据完整性：积分去重 + 保留策略 + 定时发布防重
+
+- `point_log` 加 DB 级去重唯一索引 `uq_pointlog_dedup`、`reader.points` 加索引 `ix_reader_points`；
+  配套迁移 `b3f6c1d84a72` 会**删除 `point_log` 里的重复行**（同读者 + 同原因 + 同文章 + 同天
+  只留 id 最小的一条），这是建索引的必要前提，不去重索引建不出来。
+- 新增保留策略（`gamify.prune_retention()`，调度线程每日一次）：**reader 永久 / point_log 2 年 /
+  reader_badge 随 reader**。
+- 定时发布改为**原子认领**（`app.claim_scheduled_post()`）：多 worker 的调度线程不再把同一篇
+  文章重复发布，也不会重复推送/重复发订阅邮件。
+
+### `Setting` KV 治理：UGC 各归其主
+
+- 两类 UGC 曾被当设置存进 `setting` 表——`react_<comment_id>`（评论表情）与
+  `ai_summary_<id>`/`ai_tags_<id>`（每篇文章的 AI 摘要）。后果：设置表随评论/文章数无限增长，
+  且因有 **6 处 `Setting.query.all()` 全表加载**（后台 `inject_globals`、天气默认坐标、后台设置页 ×3、
+  `api/common._settings_map`），每次渲染都把这些 UGC 一起捞出来建字典。
+- 改为挂到各自已有的主行上（**不新增表**）：`comment.reactions`（JSON `{"👍":3}`）、
+  `post.ai_summary` / `post.ai_tags`。保留了「每条评论独立、并发互不干扰」的设计优点
+  （无需整表 JSON 读改写）。迁移 `e5b8c3f17a24` 幂等搬迁并清理原 setting 行（含孤儿键）。
+- `api/reactions.py`、`api/ai.py`、`admin/ai_summary.py` 随之改造；后台摘要列表页顺带消除 N+1。
+  对外接口与页面行为**完全不变**。
+
+### 代码结构
+
+- `create_app()` 由 **510 行拆成 35 行**（拆成同文件 8 个私有函数：环境校验 / 核心装配 /
+  请求钩子 / 数据库引导 / 模板上下文 / CLI / 错误处理 / 调度线程）。纯机械按行块搬运，无一行代码
+  重写。守住两条顺序约束：`db.init_app` 须早于数据库引导；**Flask 的 `before_request` 执行顺序
+  = 注册顺序**，故 5 个钩子集中在同一函数内按原序注册。
+- 测试 357 → **362**（新增 `tests/test_setting_governance.py` 5 条）。
+
+---
+
 ## v3.23.0（2026-09-28 · 可观测性 + 后台任务 + OAuth 自助解绑 + CI 门禁）
 
 > 本版本**无表结构变更**；安全审查见 `myblog/SECURITY_AUDIT.md` §R95。

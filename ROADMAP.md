@@ -165,11 +165,27 @@
 - **前端质量 / a11y / SEO 细节**：全站零 `aria-live`、无 skip-link、每页 2 个 `<main>`、灯箱无 `role="dialog"`、表单 placeholder-only 无 `label`；4 组 token 对比度 < 4.5:1 且 `derive_dark` 无 WCAG 校验；`v-html` 未统一 `sanitizeHtml`（hljs 复写 innerHTML 后无二次清洗）；IntersectionObserver 与 scroll/resize 监听器未清理；22 个后台表格模板仅 2 个写了 `data-label`；`vite.config.js` 只有 `outDir`、构建目录名与版本号耦合（`_vite_build30`）。
 - **工程化**：CI 只有 `test + build`（无 lint / 覆盖率 / CVE 扫描 / CodeQL / gitleaks / dependabot / release 工作流）；`npm install` 未改 `npm ci`；无 `pyproject.toml` / `ruff` / `mypy`（**第 1 章一半缺陷 ruff 一条规则即可拦住**）；Python 单版本无矩阵；`verify_package_checksums.py` 与 `tools/check_i18n.py` 从未在 CI 跑。
 - **文档与仓库卫生**：文档 760 KB 入库（`SECURITY_AUDIT.md` 342 KB / `CHANGELOG.md` 134 KB / `ROADMAP.md` 116 KB）会吃光 LLM 上下文；版本号 5+ 处复制且 `update.sh` 用正则强绑 `APP_VERSION = "x.y.z"` 字面写法；3 份一次性审查文档常驻；`LICENSE` ×3；`deploy_guide.md` 让执行 `python tools/seed_games.py`（实际在 `myblog/tools/`）；311 处 `v3.x.y` 注释版本戳。
-- **结构**：`create_app()` 373 行上帝函数；`admin/_helpers.py` 用 `globals()` 拼 `__all__` + `import *` 全量灌命名空间（静态检查看不见）；调度线程随 gunicorn worker 数翻倍（N worker = N 线程，同一篇定时文章并发发布 + N 倍推送）；Alembic 基线是假的（`upgrade()` 直接 `db.create_all()`）+ 9 个手写 `_migrate_*` → **两份 schema 真相源**；`Setting` KV 被 UGC 当表用（每条评论一行 `react_<id>`）却有 6 处全表加载；226 处函数级 import 硬扛循环依赖。
+- **结构**：~~`create_app()` 373 行上帝函数~~ → **2026-09-30 已拆分**（实际拆分时已达 510 行）：按职责拆成同文件的 `_validate_required_env` / `_setup_core` / `_register_request_hooks` / `_bootstrap_database` / `_register_template_context` / `_register_cli` / `_register_error_handlers` / `_start_scheduler`，工厂本体降到 35 行。**纯搬运、零逻辑改动**；两条顺序约束写进了 docstring（`db.init_app` 早于建库自举；`before_request` 执行顺序 = 注册顺序，故钩子集中在一个函数内按原序注册）；`admin/_helpers.py` 用 `globals()` 拼 `__all__` + `import *` 全量灌命名空间（静态检查看不见）；~~调度线程随 gunicorn worker 数翻倍（N worker = N 线程，同一篇定时文章并发发布 + N 倍推送）~~ → **2026-09-30 已修**：`app.claim_scheduled_post()` 用 `UPDATE post ... WHERE COALESCE(published,0) != 1` 做**原子认领**（`rowcount==1` 者胜，其余跳过，只有赢家才发推送）。**刻意不做「选主 + 心跳」**：`tasks.py` 的 `LOCK_STALE=3600`，持锁进程死后要等最多 1 小时才有人接管，等于定时发布停摆一小时 —— 那是新的可用性故障。代价：N 条线程仍各自扫一遍（带索引的小查询，可忽略）；保留策略清理也会跑 N 次，但它幂等且廉价；~~Alembic 基线是假的（`upgrade()` 直接 `db.create_all()`）+ 9 个手写 `_migrate_*` → **两份 schema 真相源**~~ → **2026-09-30 已退役**（详见下方「§5.8 处置记录 · 部署模型变更」）：部署流程显式跑 `flask db upgrade`，9 个 `_migrate_*` 删除，历史加列固化为迁移 `d4a7f08c2e91`；~~`Setting` KV 被 UGC 当表用（每条评论一行 `react_<id>`）却有 6 处全表加载~~ → **2026-09-30 已治理**：UGC 各归其主（评论表情 → `comment.reactions`；AI 摘要/标签 → `post.ai_summary`/`post.ai_tags`），迁移 `e5b8c3f17a24` 搬迁并清理 setting 行；**未再动那 6 处全表加载**——UGC 搬走后它们只剩几十条真设置，为它引入缓存仍属收益小于复杂度（同 §5.9 的判断）；226 处函数级 import 硬扛循环依赖。
+
+> **§5.8 处置记录 · 部署模型变更（2026-09-30 · v3.24.0 已发版）—— 必读，这是本项目最容易被误解的一处**：
+> - **发现的真相**：`update.sh` 与 `deploy_guide` 历史**上从不执行 `flask db upgrade`**，线上升级就是「覆盖代码 → 重启」，所有表结构变更都靠启动自愈（`create_all()` + 9 个 `_migrate_*`）完成；Alembic 只在生产被 `stamp` 过、**从未真正 upgrade**。后果：任何只写在迁移脚本里的结构变更都不会落到生产（#47 写完才发现这一点）。
+> - **决策**：部署模型改为「覆盖代码 → **应用迁移** → 重启」。`update.sh` 新增 `apply_db_migrations()`（step 5b）；`deploy_guide` 通用流程新增第 4 步。手动升级者必须手工补跑。
+> - **`BLOG_MIGRATE_ONLY=1`**：`flask db upgrade` 必须构造 app，但 `create_app()` 缺 `SECRET_KEY`/`ADMIN_PASSWORD` 会直接抛错，且正常路径有建表/超管兜底/设置播种/FTS/插件等副作用。迁移模式跳过全部副作用（只留 app + db + Migrate），故**部署脚本无需持有管理员凭据**，也杜绝「用假 ADMIN_PASSWORD 恰好在库里没超管时造出已知密码超管」的风险（已实测：迁移模式下表数 0、超管数 0）。
+> - **`_migrate_*` 退役**：9 个函数删除；历史加列固化为迁移 `d4a7f08c2e91`（**冻结快照**，逐列检查存在性，对生产是空操作，对老库补齐；实测 post 5 列 → 23 列、幂等）。`seed_badges()` 是数据播种不是表结构，拆成 `_seed_default_badges()` 保留（⚠️ 必须无条件调用，曾因写在 `if need:` 里导致勋章永远播不进去）。
+> - 迁移执行**必须以站点用户（www）运行**，否则 `blog.db`/`-wal` 变 root 属主。
+> - 迁移失败 → `update.sh` **中止且不重启**（宁可跑旧代码，也不让新代码访问旧表结构）。
 
 > **§5.8 处置记录（2026-09-28 · v3.23.0）**：本节按「先实测再动手」处理了一批，另有两条结论**被实测推翻**：
 > - **已落地**：可观测性之结构化日志（`logging_setup.py`，request_id + `LOG_LEVEL`，运行时 `print(` 清零 47 处；⚠️ `/api/health` **早已存在**，§5.8 该条过时）；工程化之 CI 前端 CVE 门禁（`npm audit`）+ CodeQL（非阻断）（⚠️ lint/dependabot/pip-audit v3.20.0 已有，该条部分过时）；后台长任务 `tasks.py`（立即备份 300s / 游戏上传 LLM 审计 120s 移出请求路径——**Telegram 推送与 IP 属地查询实测早已异步**，§5.8 该两条过时）；`/api/weather` 出站缓存（公开端点串行最坏 ~17s）。
-> - **实测证伪后改判**：「Alembic 基线是假的 → 必须重建后才能改表」**不成立**——生产库已 `stamp` 到基线 head，且 autogenerate 对业务表**零漂移**（唯一漂移是 6 张 FTS5 虚拟表，须在 `env.py` 加 `include_object` 排除后再生成迁移，否则会生成 `DROP TABLE post_fts*`）。改表批次（PointLog 复合 UNIQUE + 索引 + 保留策略）因此解锁，**未实施**（保留策略需产品决策）。
+> - **实测证伪后改判**：「Alembic 基线是假的 → 必须重建后才能改表」**不成立**——生产库已 `stamp` 到基线 head，且 autogenerate 对业务表**零漂移**（唯一漂移是 6 张 FTS5 虚拟表，须在 `env.py` 加 `include_object` 排除后再生成迁移，否则会生成 `DROP TABLE post_fts*`）。改表批次（PointLog 复合 UNIQUE + 索引 + 保留策略）因此解锁。**2026-09-29 已实施 #47**，保留策略按产品决策：reader 永久 / point_log 2 年 / reader_badge 随 reader（迁移 `b3f6c1d84a72`，353 passed）。
+>
+>   **#47 的五个关键设计（别回退）**：
+>   - 唯一索引用 `COALESCE(post_id, -1)` **而非裸 `post_id`**：`post_id` 可空，而 SQLite 与 Postgres 的 UNIQUE 都把 NULL 视作「互不相同」，朴素四列唯一键对 visit/share 这类**无文章积分根本不生效**（已实测：同样两条 NULL 行能插入）。哨兵取 -1：`post_id` 实际取值 ≥ 1。
+>   - 迁移**必须先去重再建索引**：`gamify.award()` 是「先查后插」、存在 TOCTOU 竞态，既有库很可能已积累重复行，直接 `CREATE UNIQUE INDEX` 会失败并中断升级。
+>   - 迁移**必须幂等**：全新库由 `create_all()` 已随模型建好这两个索引，之后再跑 `upgrade` 不能撞 "index already exists"。
+>   - 表达式索引 **SQLAlchemy 反射不了**（警告 Skipped unsupported reflection），已在 `env.py` 的 `include_object` 中排除，否则 autogenerate 每次都会生成多余的 `op.create_index()`。
+>   - **配套必改 `award()`**：捕获 `IntegrityError` 并**回滚**（回滚同时撤销同事务里已执行的积分 UPDATE）。否则「静默重复积分」会变成公开读路径上的 500。
+>   - 保留策略本身是**应用逻辑**（`gamify.prune_retention()` + 调度线程每日一次），不涉及表结构，故迁移里不含。
 > - **仍未做**：热表索引（同前）、`create_app()` 拆分、`_migrate_*` 退役、`Setting` KV 治理、后台表格 `data-label` 覆盖（2/27，仅新增模板已带）、token 纯度（admin.css/global.css 各 ~230-250 处裸 hex）、a11y 其余项。
 
 ---

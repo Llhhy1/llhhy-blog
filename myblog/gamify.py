@@ -5,6 +5,7 @@
 - 统一发放积分 award()，带「同读者 + 同 reason + 同 post + 同一天」去重，避免刷量。
 - 按累计积分阈值自动授予勋章（_check_badges）。
 - 提供 reader_summary / leaderboard 供接口与前端展示。
+- 按保留策略清理过期数据 prune_retention()（见 POINT_LOG_RETENTION_DAYS）。
 
 设计约束：
 - 本模块不直接 import app（避免循环依赖）；仅在函数内 `from flask import request`。
@@ -12,6 +13,7 @@
 - 积分规则与勋章阈值集中在此文件，便于运营调整。
 """
 import contextlib
+import datetime
 import secrets
 
 from models import db, Reader, PointLog, Badge, ReaderBadge
@@ -80,7 +82,16 @@ def current_reader():
 
 
 def award(reader, reason, post_id=None, delta=None):
-    """给读者加积分（带去重：同 reader+reason+post+当天只计一次）。返回是否实际加分。"""
+    """给读者加积分（带去重：同 reader+reason+post+当天只计一次）。返回是否实际加分。
+
+    去重有两层，缺一不可：
+    - 应用层「先查后插」有 TOCTOU 竞态：4 worker × 2 线程下两个并发请求都能通过
+      `exists` 判断，于是都去 INSERT；
+    - 数据库层唯一索引 `uq_pointlog_dedup` 兜底，后来者撞键抛 IntegrityError。
+      这里**必须捕获并回滚**，否则「静默重复积分」会变成公开读路径上的 500。
+      回滚同时撤销本事务里已经执行的 `UPDATE reader SET points = ...`，避免重复加分。
+    """
+    from sqlalchemy.exc import IntegrityError
     if delta is None:
         delta = POINT_RULES.get(reason, 0)
     if delta <= 0:
@@ -97,7 +108,12 @@ def award(reader, reason, post_id=None, delta=None):
     db.session.execute(db.text(
         "UPDATE reader SET points = COALESCE(points, 0) + :d, updated_at = :u "
         "WHERE id = :r"), {"d": delta, "u": utcnow(), "r": reader.id})
-    db.session.commit()
+    try:
+        db.session.commit()
+    except IntegrityError:
+        # 并发下另一 worker 先记了同一条 → 本次放弃即可，不算失败（与 seed_badges 同策略）。
+        db.session.rollback()
+        return False
     db.session.refresh(reader)   # 让下面的阈值判定看到累加后的值
     _check_badges(reader)
     return True
@@ -157,3 +173,33 @@ def award_interaction(reason, post_id=None):
             from flask import current_app
             current_app.logger.warning("gamify award failed: %s", e)
         return None
+
+
+# ----------------------------------------------------------------------
+# 保留策略（2026-09-29 产品决策）
+#
+#   reader       —— **永久保留**。积分档案是读者的长期身份，不因时间删除。
+#                   本函数对它不做任何删除（下面刻意没有 reader 的 DELETE 语句）。
+#   point_log    —— 保留 2 年。流水只用于当日去重与对账，过期后不再有价值，
+#                   而它随匿名访客长期增长，是最需要设上限的一张表。
+#   reader_badge —— **随 reader**。不做时间维度删除，只在所属 reader 已不存在时
+#                   清理孤儿行（ORM 侧 `cascade="all, delete-orphan"` 已覆盖正常
+#                   删除路径，这里兜的是历史脏数据与不走 ORM 的删除）。
+# ----------------------------------------------------------------------
+POINT_LOG_RETENTION_DAYS = 730
+
+
+def prune_retention(point_log_days=POINT_LOG_RETENTION_DAYS):
+    """按保留策略清理过期/孤儿数据，返回各表删除行数。
+
+    幂等、可重复执行，由调度线程每日调用一次。**reader 永久保留，本函数不删。**
+    """
+    cutoff = utcnow() - datetime.timedelta(days=point_log_days)
+    n_logs = db.session.execute(
+        db.text("DELETE FROM point_log WHERE created_at < :cut"), {"cut": cutoff}
+    ).rowcount or 0
+    n_badges = db.session.execute(
+        db.text("DELETE FROM reader_badge WHERE reader_id NOT IN (SELECT id FROM reader)")
+    ).rowcount or 0
+    db.session.commit()
+    return {"point_log": n_logs, "reader_badge": n_badges}

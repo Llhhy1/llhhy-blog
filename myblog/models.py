@@ -64,6 +64,11 @@ class Post(db.Model):
     # 译文 = 独立 Post，各自独立 URL；渲染/OG/SEO 全复用现有机制。
     lang = db.Column(db.String(10), default="zh", nullable=False)
     translation_group = db.Column(db.String(64), index=True, default="")
+    # v3.24.0：AI 摘要与 AI 标签建议。**原先存在 Setting KV 的 `ai_summary_<id>` /
+    # `ai_tags_<id>` 里** —— 与 `react_<id>` 同为「UGC 当设置存」的反模式。
+    # 它们是**每篇文章一份**的内容，就该挂在文章自己的行上（区别于手填的 `summary`）。
+    ai_summary = db.Column(db.Text, nullable=True)
+    ai_tags = db.Column(db.Text, nullable=True)
 
     @classmethod
     def in_group(cls, group):
@@ -117,6 +122,11 @@ class Comment(db.Model):
     likes = db.Column(db.Integer, default=0)         # 评论点赞数
     is_read = db.Column(db.Boolean, default=False)   # 管理员是否已读（新消息提醒）
     email_hash = db.Column(db.String(32), default="")  # v3.15.3 功能1：邮箱 MD5（仅存哈希，明文不落库）
+    # v3.24.0：评论表情回应计数，JSON `{"👍": 3}`。**原先存在 Setting KV 的
+    # `react_<comment_id>` 里** —— 那是把 UGC 当设置存，会随评论数无限增长，
+    # 且被 6 处 `Setting.query.all()` 全表加载一起拖出来。评论本来就有一行，
+    # UGC 归到自己的行上即可，无需新表。
+    reactions = db.Column(db.Text, nullable=True)
 
 
 class FriendLink(db.Model):
@@ -523,7 +533,8 @@ class Reader(db.Model):
     token = db.Column(db.String(64), unique=True, nullable=False, index=True)
     user_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=True, index=True)
     display_name = db.Column(db.String(60), default="")      # 展示名（登录用户取 username，匿名留空）
-    points = db.Column(db.Integer, default=0)
+    # 排行榜按 points 排序，加索引避免全表排序（reader 表随匿名访客长期增长）
+    points = db.Column(db.Integer, default=0, index=True)
     created_at = db.Column(db.DateTime, default=utcnow)
     updated_at = db.Column(db.DateTime, default=utcnow, onupdate=utcnow)
     badges = db.relationship("ReaderBadge", backref="reader",
@@ -541,7 +552,11 @@ class Reader(db.Model):
 
 
 class PointLog(db.Model):
-    """积分流水（v3.21.0）。同一读者 + 同一 reason + 同一 post + 同一天只计一次（应用层去重）。"""
+    """积分流水（v3.21.0）。同一读者 + 同一 reason + 同一 post + 同一天只计一次。
+
+    去重有两层：**应用层**（`gamify.award()` 先查后插）+ **数据库层**（本表的唯一索引）。
+    应用层有 TOCTOU 竞态——多 worker 并发时两个请求都能通过「先查」，所以必须有 DB 层兜底。
+    """
     id = db.Column(db.Integer, primary_key=True)
     reader_id = db.Column(db.Integer, db.ForeignKey("reader.id"), nullable=False, index=True)
     reason = db.Column(db.String(20), nullable=False)   # read / comment / visit / share
@@ -549,6 +564,15 @@ class PointLog(db.Model):
     delta = db.Column(db.Integer, default=0)
     day = db.Column(db.String(10), index=True)          # YYYY-MM-DD（去重键一部分）
     created_at = db.Column(db.DateTime, default=utcnow)
+
+    # DB 级去重键。用 COALESCE 而非裸 post_id 的原因：post_id 可空，而 SQLite 与
+    # Postgres 的 UNIQUE 都把 NULL 视作「互不相同」，朴素四列唯一键对 post_id IS NULL
+    # 的行（visit / share 这类无文章的积分）根本不生效。哨兵取 -1：post_id 实际取值
+    # ≥ 1，不可能与之冲突。
+    __table_args__ = (
+        db.Index("uq_pointlog_dedup", "reader_id", "reason",
+                 db.text("COALESCE(post_id, -1)"), "day", unique=True),
+    )
 
 
 class Badge(db.Model):

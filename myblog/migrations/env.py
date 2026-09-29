@@ -59,6 +59,26 @@ def get_metadata():
     return target_db.metadata
 
 
+def include_object(object_, name, type_, reflected, compare_to):
+    """autogenerate 时排除 FTS5 虚拟表及其影子表。
+
+    `post_fts*` 是 SQLite FTS5 虚拟表（post_fts_data / _idx / _content / _docsize /
+    _config），由 `fts.py` 用裸 SQL 创建，**不在 SQLAlchemy metadata 里**。
+    不加这个钩子，autogenerate 会把它判成「DB 有、metadata 没有」而生成
+    `DROP TABLE post_fts*` —— 一跑就删掉全文索引。
+    """
+    if type_ == "table" and name.startswith("post_fts"):
+        return False
+    # 表达式索引无法被反射：SQLAlchemy 反射时会警告
+    # "Skipped unsupported reflection of expression-based index"。后果是 autogenerate
+    # 每次都「看不见」DB 里已存在的 uq_pointlog_dedup，于是每次都生成一个多余的
+    # op.create_index()。该索引由迁移显式创建、由 create_all() 随模型创建，
+    # 这里让 autogenerate 完全忽略它（既不建也不删）。
+    if type_ == "index" and name == "uq_pointlog_dedup":
+        return False
+    return True
+
+
 def run_migrations_offline():
     """Run migrations in 'offline' mode.
 
@@ -77,6 +97,7 @@ def run_migrations_offline():
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
         render_as_batch=True,
+        include_object=include_object,
     )
 
     with context.begin_transaction():
@@ -103,6 +124,7 @@ def run_migrations_online():
     conf_args = current_app.extensions["migrate"].configure_args
     # SQLite 原生不支持 ALTER，开启批次改写（幂等，覆盖 Flask-Migrate 默认值）。
     conf_args["render_as_batch"] = True
+    conf_args["include_object"] = include_object
     if conf_args.get("process_revision_directives") is None:
         conf_args["process_revision_directives"] = process_revision_directives
 

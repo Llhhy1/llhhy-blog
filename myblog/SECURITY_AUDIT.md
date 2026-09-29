@@ -3559,3 +3559,43 @@ R93 §93.1 排除了「provider 返回未验证邮箱」，但保留了「按邮
 - 新增可选环境变量 `LOG_LEVEL`（默认 INFO，不改任何默认行为）。
 - `/api/weather` 行为变化：同参数 10 分钟内返回缓存（含失败时回吐过期值），属预期。
 - 本版**无表结构变更、无 `_RENDER_VERSION` 变化**；`rebuild_fts.py` 无需重跑。
+
+---
+
+## R96 · v3.24.0 发版安全审查（表结构改走 Alembic + 积分去重/保留策略 + 定时发布防重 + Setting 治理 + create_app 拆分）
+
+> 审计对象：本轮 13 改 + 6 新增（基线 4d5ab38）。结论：**未发现新增对外暴露面**；新增一个运维态环境变量（`BLOG_MIGRATE_ONLY`），其风险已评估并收敛（见 96.2 第 1 条）。SQL 注入 / 越权 / CSRF / SSRF / 密钥 / 资源释放 / 限流七维逐项核对通过。
+
+### 96.1 新增/改动攻击面逐项核对
+
+| 改动 | 维度核对 | 结论 |
+| --- | --- | --- |
+| `app.py::claim_scheduled_post()`（定时发布原子认领） | SQL：一条 `UPDATE post ... WHERE id = :id AND COALESCE(published,0) != 1`，**全参数绑定**；无用户可控输入；越权：仅在调度线程内调用，非路由 | ✅ 通过 |
+| `app.py` `create_app()` 拆分（510→35 行） | 纯搬运、零逻辑改动；**`before_request` 注册顺序已用探针实证**保持一致（同源→预检→会话版本→闲置→2FA）；无新增路由/无新增暴露面 | ✅ 通过 |
+| `BLOG_MIGRATE_ONLY=1`（新增环境变量） | 见 96.2 第 1 条：仅在进程内注入一次性随机 `SECRET_KEY`，**不落盘、不生效于会话**；跳过全部启动副作用；属运维显式开关 | ✅ 通过（注记） |
+| `gamify.award()` 捕获 `IntegrityError` 并回滚 | 正确性+可用性：并发撞唯一键时不再 500；回滚同时撤销同事务里已执行的积分 `UPDATE`，防重复加分；异常不外抛到公开读路径 | ✅ 通过（修复） |
+| `gamify.prune_retention()`（保留策略清理） | SQL：`DELETE ... WHERE created_at < :cut` 与孤儿清理，**全参数绑定**；仅在调度线程内、包 `try/except` 记日志；无用户可控输入；不涉及删 `reader`（永久保留） | ✅ 通过 |
+| `models.py` 新增索引 | 表达式索引 `COALESCE(post_id, -1)` 为**代码内常量**，不接受任何输入；`ix_reader_points` 普通索引 | ✅ 通过 |
+| `models.py` 新增列 `comment.reactions` / `post.ai_summary` / `post.ai_tags` | 均为 TEXT，承载的是**原本就存在**的 UGC（原先在 `setting` 表），信任边界**不变**；无新增渲染出口 | ✅ 通过 |
+| `api/reactions.py` 存储改造 | SQL：`Comment.query.filter(Comment.id.in_(cids))`，`cids` 经 `isdigit()` 过滤转 int，ORM 参数化；XSS：仅返回 JSON；CSRF：POST 走全局 `_csrf_protect`（用例已实证需 `X-CSRF-Token`）；限流：保留 40 次/60s；越权：保留「仅已审核评论可回应」判定；JSON 解析坏数据一律当空（不让前端炸） | ✅ 通过 |
+| `api/ai.py` 摘要改读 `Post` 列 | 越权：**仍走 `visible_posts_query()`**（隐私/回收站/未到点仍 404）；XSS：仅返回 JSON；限流：超管生成保留 10 次/小时；删掉随之失效的 `_setting_get/_setting_set` 死代码 | ✅ 通过 |
+| `admin/ai_summary.py` 读写改走 Post 列 | 越权：全部路由仍 `@super_required` + `log_audit`；**保存/清除现改为先取 Post、不存在即 404**（比原先「不管文章在不在都写 Setting」更严）；无新增路由 | ✅ 通过（收紧） |
+| `migrations/env.py` `include_object` | 排除 `post_fts*` 与表达式索引 `uq_pointlog_dedup`。**安全意义**：防止 autogenerate 生成 `DROP TABLE post_fts*` 把全文索引删掉（属破坏性误操作防护） | ✅ 通过（加固） |
+| 3 个迁移脚本 | SQL：值一律参数绑定；表名/列名来自**代码内常量字典**（非用户输入）已注明；`PRAGMA table_info(%s)` 同理；无密钥操作 | ✅ 通过 |
+| `update.sh::apply_db_migrations()` | 以**站点运行用户**执行（`run_as`，防 `blog.db` 变 root 属主）；带 `BLOG_MIGRATE_ONLY=1`（部署机无需持有管理员凭据）；**迁移失败即中止且不重启**（fail-closed：不让新代码访问旧表结构）；`timeout 300` 防挂起 | ✅ 通过 |
+| 4 个测试文件（新增/改动） | 无密钥、无真实外部调用；新测试自带清理 fixtures（本轮踩坑见 96.2 第 3 条） | ✅ 通过 |
+
+### 96.2 本轮记录但未修改
+
+1. **`BLOG_MIGRATE_ONLY=1` 若被误配到生产常驻环境，会跳过 `SECRET_KEY`/`ADMIN_PASSWORD` 校验与超管兜底**（进程内随机 `SECRET_KEY` 会让既有会话失效）。评估为**低危且可接受**：它是显式 opt-in、仅由部署脚本的迁移步骤临时注入（`env` 前缀，不写入任何配置文件），且随机密钥只存在于进程内存。**缓解**：deploy_guide 已写明「仅迁移使用，无需手工配置」。若日后要更严，可在 `create_app` 里对该模式下发一次醒目的 `logger.warning`。
+2. **两条迁移含删除动作**：`b3f6c1d84a72` 删 `point_log` 重复行、`e5b8c3f17a24` 搬走后删 `setting` 中的 UGC 行（含孤儿）。均为「先复制、后删除」，内容不丢；**升级前必须备份 `blog.db`**（`update.sh` 会自动备份，手动升级者需自行备份）。已在 deploy_guide 显著标注。
+3. **`fts.rebuild_all()` 每批结束会 `db.session.expunge_all()`**，会把调用方持有的 ORM 实例摘出会话（本轮因测试污染才暴露）。生产调用方（`ensure()`/后台重建）不持有跨调用实例，属**低危**；已记入 ROADMAP 待办，不在本版改动（避免在发版窗口引入额外行为变化）。
+4. `Setting` 表仍保留 6 处 `Setting.query.all()` 全表加载：UGC 搬走后它只剩几十条真设置，**不再为它引入缓存**（与 §5.9 对 `inject_globals` 的同类判断一致：20 处写入无收口点，收益 < 复杂度）。
+
+### 96.3 部署注意
+
+- ⚠️ **部署流程变更**：本版退役 9 个 `_migrate_*`，表结构改由 `flask db upgrade` 承担。`update.sh` 已在「覆盖代码 → 应用迁移 → 重启」中内置该步骤；**手动升级者必须手工补跑**（不跑不报错，但新索引不生效）。
+- 新增环境变量 `BLOG_MIGRATE_ONLY`（运维内部使用，无需手工配置）。
+- **无 `_RENDER_VERSION` 变化**（未改正文渲染/Markdown/白名单），`rebuild_fts.py` **无需**重跑。
+- 无新增必填环境变量；无 Nginx 变更；前端 `vue-frontend/src` 未改动（无需重新 build）。
+- 上线后建议核对：库中应存在 `uq_pointlog_dedup` 与 `ix_reader_points` 两个索引；`setting` 表不再有 `react_*` / `ai_summary_*` / `ai_tags_*`。

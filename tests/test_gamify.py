@@ -21,18 +21,20 @@ def test_seed_badges_idempotent(app_ctx):
 
 def test_badges_seeded_even_when_tables_already_exist(app):
     """回归（v3.21.1）：`create_app` 里的 `db.create_all()` 会**先**把新表建好，
-    于是 `_migrate_new_tables_v3()` 算出的 `need` 恒为空 —— 若把 `seed_badges()`
-    写在 `if need:` 分支内，勋章就**永远播不进去**，线上表现为「勋章表建好了但
-    一条数据都没有，读者永远拿不到勋章」的静默降级（v3.21.0 首发即踩）。
+    于是「只在刚建好新表时才播种」的判断恒为假 —— 若把 `seed_badges()` 写进那个
+    分支，勋章就**永远播不进去**，线上表现为「勋章表建好了但一条数据都没有，
+    读者永远拿不到勋章」的静默降级（v3.21.0 首发即踩）。
 
-    本用例先清空勋章再跑迁移，精确复现「表已存在」这一路径。
+    本用例先清空勋章再跑播种入口，精确复现「表已存在」这一路径。
+    （v3.24.0：入口从退役的 `_migrate_new_tables_v3()` 换成 `_seed_default_badges()`，
+    但「必须无条件播种」这条不变量不变。）
     """
-    from app import _migrate_new_tables_v3
+    from app import _seed_default_badges
     with app.app_context():
         Badge.query.delete()
         db.session.commit()
         assert Badge.query.count() == 0
-        _migrate_new_tables_v3()          # 表都已存在 → need 为空
+        _seed_default_badges()            # 表都已存在 → 也必须完成播种
         assert Badge.query.count() >= 5, "表已存在时也必须完成勋章播种"
 
 

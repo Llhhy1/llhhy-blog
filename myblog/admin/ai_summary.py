@@ -3,25 +3,29 @@
 
 - 列出全部已发布文章的摘要状态；单篇生成 / 重新生成 / 手动编辑 / 清除；批量补齐（限 3 篇/次，防请求超时）。
 - LLM 复用「游戏收录」的 OpenAI 兼容配置（games_llm_*），本页只读展示状态；提示词与 API 共用同一常量。
-- 摘要仍存 Setting KV（ai_summary_<id> / ai_tags_<id>），前台展示逻辑不变、零表结构变更。
+- v3.24.0：摘要改存**文章自己的列** `Post.ai_summary` / `Post.ai_tags`（原先存在
+  Setting KV 的 ai_summary_<id> / ai_tags_<id>，属「每篇一份的 UGC 塞进设置表」）。
+  前台展示逻辑不变。
 - 全部写操作 super_required + log_audit。
   v3.18.5：本页从 @super_required 提权为 @super_required——它会调用管理员自设的
   LLM Base 并外发正文，属敏感配置（与备份 / MCP / SMTP 同级），普通管理员不应触及。
 """
 from flask import request, render_template, redirect, url_for, flash
 
-from models import db, Post, Setting
+from models import db, Post
 from utils import get_setting
 from ._helpers import admin_bp, super_required, log_audit, _current_user_or_none
-from api.ai import _llm_chat, _setting_get, _setting_set, AI_SUMMARY_SYSTEM, AI_SUMMARY_USER_TMPL
+from api.ai import _llm_chat, AI_SUMMARY_SYSTEM, AI_SUMMARY_USER_TMPL
 
 
-def _summary_of(pid):
-    return _setting_get("ai_summary_%d" % pid, "")
+def _summary_of(p):
+    """取文章的 AI 摘要。传 Post 对象（列表页已持有，避免 N+1 查询）。"""
+    return (p.ai_summary or "") if p else ""
 
 
-def _tags_of(pid):
-    return _setting_get("ai_tags_%d" % pid, "")
+def _tags_of(p):
+    """取文章的 AI 标签建议（同上）。"""
+    return (p.ai_tags or "") if p else ""
 
 
 def _generate_for(post):
@@ -42,9 +46,11 @@ def _generate_for(post):
             break
     if not summary:
         return False, "模型返回为空"
-    _setting_set("ai_summary_%d" % post.id, summary)
+    # v3.24.0：写文章自己的列，不再写 Setting KV。
+    post.ai_summary = summary
     if tag_sug:
-        _setting_set("ai_tags_%d" % post.id, tag_sug)
+        post.ai_tags = tag_sug
+    db.session.commit()
     return True, summary
 
 
@@ -52,7 +58,7 @@ def _generate_for(post):
 @super_required
 def ai_summary():
     posts = Post.query.filter_by(published=True).order_by(Post.id.desc()).all()
-    rows = [{"p": p, "summary": _summary_of(p.id), "tags": _tags_of(p.id)} for p in posts]
+    rows = [{"p": p, "summary": _summary_of(p), "tags": _tags_of(p)} for p in posts]
     llm = {
         "on": get_setting("games_llm_on", "0") == "1",
         "base": (get_setting("games_llm_base", "") or "").rstrip("/"),
@@ -88,7 +94,7 @@ def ai_summary_batch():
     for p in posts:
         if done >= 3:
             break
-        if _summary_of(p.id):
+        if _summary_of(p):
             continue
         ok, msg = _generate_for(p)
         log_audit("batch_generate" if ok else "batch_generate_fail", "post", p.id,
@@ -98,7 +104,7 @@ def ai_summary_batch():
             done += 1
         else:
             fail += 1
-    remain = sum(1 for p in posts if not _summary_of(p.id))
+    remain = sum(1 for p in posts if not _summary_of(p))
     flash("批量完成：本次生成 %d 篇%s；%s" % (
         done, ("，失败 %d 篇" % fail) if fail else "",
         ("仍有 %d 篇未覆盖，可继续点击" % remain) if remain else "已全部覆盖"))
@@ -108,12 +114,17 @@ def ai_summary_batch():
 @admin_bp.route("/ai-summary/save/<int:post_id>", methods=["POST"])
 @super_required
 def ai_summary_save(post_id):
+    p = db.session.get(Post, post_id)
+    if not p:
+        flash("文章不存在")
+        return redirect(url_for("admin.ai_summary"))
     text = (request.form.get("summary") or "").strip()
     tags = (request.form.get("tags") or "").strip()
     if text:
-        _setting_set("ai_summary_%d" % post_id, text)
+        p.ai_summary = text
     if tags:
-        _setting_set("ai_tags_%d" % post_id, tags)
+        p.ai_tags = tags
+    db.session.commit()
     log_audit("save", "post", post_id, "手动保存 AI 摘要", user=_current_user_or_none())
     flash("已保存")
     return redirect(url_for("admin.ai_summary"))
@@ -122,13 +133,15 @@ def ai_summary_save(post_id):
 @admin_bp.route("/ai-summary/clear/<int:post_id>", methods=["POST"])
 @super_required
 def ai_summary_clear(post_id):
+    # v3.24.0：清的是文章自己的列，不再是 Setting 行。
+    p = db.session.get(Post, post_id)
     n = 0
-    for k in ("ai_summary_%d" % post_id, "ai_tags_%d" % post_id):
-        row = Setting.query.filter_by(key=k).first()
-        if row:
-            db.session.delete(row)
-            n += 1
-    db.session.commit()
+    if p:
+        for col in ("ai_summary", "ai_tags"):
+            if getattr(p, col):
+                setattr(p, col, None)
+                n += 1
+        db.session.commit()
     log_audit("clear", "post", post_id, "清除 AI 摘要", user=_current_user_or_none())
     flash("已清除")
     return redirect(url_for("admin.ai_summary"))

@@ -2,7 +2,8 @@
 
 llhhy-blog 的后端：Flask + SQLite，服务端渲染前台 + `/api/*` JSON 接口 + Jinja2 管理后台。
 
-- 当前版本：**v3.23.0**
+- 当前版本：**v3.24.0**
+- **v3.24.0：表结构改走 Alembic + 积分去重/保留策略 + Setting KV 治理** —— ⚠️ **含部署流程变更**：升级时必须在「覆盖后端后、重启前」执行一次 `BLOG_MIGRATE_ONLY=1 FLASK_APP=app:create_app <venv>/bin/python -m flask db upgrade`（一键更新脚本已自动包含；手动升级务必手做）。**迁移含删除动作，升级前先备份 `blog.db`**。① **Alembic 首次真正在生产跑起来**：此前线上升级从不执行迁移，所有表结构变更靠 9 个启动自愈函数（`create_all()` + `_migrate_*`）完成，**只写在迁移脚本里的变更不会生效**——这是本版要修的根因。`update.sh` 新增迁移步骤（失败即中止且不重启，以站点用户执行避免 db 变 root 属主）。② **`BLOG_MIGRATE_ONLY=1` 迁移模式**：构造 app 但跳过建表/播种/FTS/超管兜底/插件加载等全部启动副作用，部署脚本**不必持有管理员凭据**。③ **9 个 `_migrate_*` 退役**，历史加列固化为幂等迁移 `d4a7f08c2e91` —— 消灭「Alembic + 手写自愈」两份 schema 真相源；数据播种拆出 `_seed_default_badges()` 并**无条件调用**。④ **积分 DB 级去重 + 保留策略**：`point_log` 唯一索引（迁移会删重复行，不去重索引建不出来）、`reader.points` 索引；`gamify.prune_retention()` 每日执行：reader 永久 / point_log 2 年 / reader_badge 随 reader。⑤ **定时发布原子认领**（`app.claim_scheduled_post()`）：多 worker 不再重复发布、重复推送、重复发订阅邮件。⑥ **`Setting` KV 治理**：评论表情 → `comment.reactions`、AI 摘要/标签 → `post.ai_summary`/`post.ai_tags`（**不新增表**，迁移 `e5b8c3f17a24` 搬迁并清理原 setting 行），设置表不再随内容无限增长，6 处全表加载随之瘦身，**对外接口与页面行为不变**。⑦ `create_app()` **510 行 → 35 行**（拆成 8 个私有函数，纯机械搬运零逻辑改动）。安全审计 **R96**。验证 **362 passed** + ruff 全绿 + 棘轮 601≤648 + i18n 通过 + 干净库迁移链串行通过 + 打包双源互证 20 项全通过。
 - **v3.23.0：可观测性 + 后台任务 + OAuth 自助解绑 + CI 门禁** —— **无表结构变更、无新增必填环境变量**。① **后台「第三方绑定」页**（`admin/oauth_bindings.py`，R94 §94.8-7 收口）：查看/解绑自己的 OAuth 绑定；解绑需输登录密码（= 证明仍有可用登录方式，OAuth 建号者输不出随机密码即被挡住），超管可代查代解但不得解掉他人最后一个绑定；② **结构化日志**（`logging_setup.py`）：每请求 `X-Request-ID`（形态校验防日志注入、回写响应头），日志带 `rid=` 可按请求串联，新增可选 `LOG_LEVEL`（默认 INFO）；运行时 `print(` 清零（47 处转 logger，CLI stdout 刻意保留）；③ **后台长任务**（`tasks.py`）：状态落盘 `data/tasks/`（跨 worker 可见、原子写）、同名任务跨进程锁文件互斥 + 过期清理、异常落盘不外抛；**立即备份**（最长 300s）与**游戏上传 LLM 审计**（120s）改后台执行 + 页面轮询；④ **`/api/weather` 缓存**：10 分钟进程内缓存（限容 200），上游全故障回吐过期值；⑤ **CI**：前端 `npm audit` 门禁（基线 0 漏洞，须显式官方 registry）+ CodeQL（SAST 非阻断）；lint 棘轮修复转绿（T20 66→21）。安全审计 **R95**。验证 **342 passed** + ruff 全仓全绿 + 棘轮 602≤648 + i18n 通过。
 - **v3.21.0：内容多语言 M1 + PWA + 读者积分勋章 + OAuth + 2FA** —— 四项新功能**默认全部休眠**（OAuth 需 provider 凭据、2FA 需 `BLOG_TWOFA_ENABLED=true`），**无新增必填环境变量、无新增依赖、无需改 Nginx、无需 Alembic**。① **多语言 M1**：`Post` 加 `lang` + `translation_group`，列表/详情支持 `?lang=` 且无译文自动回退原文，OG/sitemap/feed 输出 `hreflang` 互链；② **PWA**：`manifest.webmanifest` + `sw.js` + `offline.html` + 4 图标，导航 network-first、文章只读 API stale-while-revalidate，**后台与其余 `/api/*` 不缓存**；③ **积分勋章**（`gamify.py`）：匿名读者用 httpOnly cookie 标识，「同 reader + 同 reason + 同文章 + 同天」去重防刷，5 枚勋章按阈值自动授予，新增 `/api/reader/me` 与 `/api/reader/leaderboard`；④ **OAuth**（`oauth.py`）：GitHub / Google，出站固定白名单 URL + **禁跟随重定向**，未配凭据则 `start` 返 503；⑤ **2FA**（`twofa.py`）：**零新增依赖**（标准库实现 RFC 6238，官方 6 条测试向量自证），密钥 **Fernet 加密落库**、`last_counter` 防同窗重放、8 个一次性恢复码，关闭需「密码 + 动态码」双确认，走**新表** `UserTwoFactor`（SQLite `create_all()` 只建新表、不 ALTER 旧表）。新增 6 张表由 `_migrate_new_tables_v3()` **启动自愈**。🔴 **安全修复**：原实现用 GitHub `/user` 的**未验证公开邮箱**匹配本地账号 → 可被用来**接管他人账号**；已改为只信任 provider 断言「已验证」的邮箱。验证 **269 passed** + ruff 全绿 + 棘轮 648=648 + `vite build` 通过。安全审计 **R93**。
 - **v3.20.0：待办清单批次（工程化门禁 + 异步化 + 可观测性 + 前端 a11y + 统计深度 + SEO 自动推送）** —— 把 `ROADMAP` §5.8/§5.9 的延后批次先实测再动手：① 工程化门禁 —— `pyproject.toml`（ruff 高信号阻断集）+ `tools/lint_debt.py` lint 债务棘轮（只减不增）+ CI `lint` job（i18n / 发布公钥一致性 / pip-audit CVE 扫描）+ `dependabot.yml` + `npm ci`；② `gunicorn_conf.py` 入库；③ `GET /api/health` 存活探针；④ `notify.py` 通知异步化（后台线程，原最坏阻塞 12s）；⑤ 前端 a11y —— skip-link、toast 常驻 live region、修 `DocsView` IntersectionObserver 真泄漏、灯箱 `role=dialog` + 完整焦点陷阱、每页 2 个 `<main>` 修复；⑥ `/api/qr` 不再用 `request.host_url`（闭环 R90 待办②）；⑦ Atom 1.0 `/feed.atom`（nginx 需补 `location = /feed.atom`）；⑧ 统计深度（零表变更）—— 来源渠道 TOP / 实时在线 / 趋势环比 / CSV 导出（BOM + 公式注入防护）；⑨ SEO 自动推送 —— 废弃实测不可用的 ping 端点（Bing 410 / Google 超时），改为发布即自动 `enqueue`（`maybe_auto_push`，默认关闭、只推可见文章、复用限流去重）。验证 **221 passed** + ruff 全绿 + 棘轮 648=648 + i18n 通过 + 覆盖率 49% + pip-audit 无漏洞。安全审计 **R92**。
@@ -34,7 +35,7 @@ llhhy-blog 的后端：Flask + SQLite，服务端渲染前台 + `/api/*` JSON �
 
 ```
 myblog/
-├── app.py          # 应用工厂（自动迁移 + FTS 初始化 + CLI + 首建超管）
+├── app.py          # 应用工厂（35 行；v3.24.0 起表结构由 Alembic 迁移负责，不再启动自愈）
 ├── models.py       # 数据模型（文章/评论/用户/系列/公告/留言/订阅者等）
 │                   #   Post.content_html/content_hash = 正文渲染缓存（v3.9.1）
 ├── routes.py       # 前台页面 / 登录注册 / 评论 / 天气 / RSS
@@ -165,6 +166,12 @@ python app.py            # http://127.0.0.1:5000
 - **502**：gunicorn 未起来，看项目管理器状态与日志（端口冲突 / 依赖缺失最常见）。
 - **后台无样式（纯文本）**：Nginx 缺 `location /static/` 反代，详见 deploy_guide.md。
 - **更新后还是旧界面**：① `ls /www/wwwroot/*/data/blog.db` 确认真实运行目录；② 宝塔「停止 → 启动」（restart 不重载）；③ 看后台左下角版本号。
+- **v3.24.0 起手动升级必须跑迁移**：v3.24.0 之前表结构变更靠启动自愈，v3.24.0 起改由 Alembic 承担。
+  手动覆盖代码后、重启前须执行一次
+  `BLOG_MIGRATE_ONLY=1 FLASK_APP=app:create_app <venv>/bin/python -m flask db upgrade`，
+  否则迁移里的索引/列不会落到生产（用一键更新脚本 `update.sh` 的无需手动做）。
+  `BLOG_MIGRATE_ONLY=1` 让迁移跳过全部启动副作用，因此**无需提供 `SECRET_KEY`/`ADMIN_PASSWORD`**。
+  可用 `flask db heads` 确认当前应为 `e5b8c3f17a24 (head)`。
 - **RSS/sitemap 是 localhost**：设 `SITE_URL=https://你的域名` 并重启。
 - **写接口 403（CSRF）**：先 GET `/api/csrf` 取 token，再带 `X-CSRF-Token` 头提交。
 - **搜索降级 LIKE**：服务器 SQLite 无 FTS5，功能正常但较慢。

@@ -3599,3 +3599,25 @@ R93 §93.1 排除了「provider 返回未验证邮箱」，但保留了「按邮
 - **无 `_RENDER_VERSION` 变化**（未改正文渲染/Markdown/白名单），`rebuild_fts.py` **无需**重跑。
 - 无新增必填环境变量；无 Nginx 变更；前端 `vue-frontend/src` 未改动（无需重新 build）。
 - 上线后建议核对：库中应存在 `uq_pointlog_dedup` 与 `ix_reader_points` 两个索引；`setting` 表不再有 `react_*` / `ai_summary_*` / `ai_tags_*`。
+
+
+## R97（v3.24.1 · 2026-09-30）—— admin 包星号导入治理（纯结构，零行为变更）
+
+**范围**：`myblog/admin/` 23 个文件 + `tests/test_admin_explicit_imports.py`（新增）。v3.24.0 上线后的内部治理：`_helpers.__all__` 由 `globals()` 运行时快照改为显式清单，16 个业务子模块的 `from ._helpers import *` 全部改为显式导入，`__init__.py` 星号转发收敛为 `admin_bp` + `log_audit`/`log_login_attempt` 两个 re-export（grep 全仓核定外部消费面）。
+
+**七维核对**：
+| 维度 | 结论 |
+|---|---|
+| XSS | 不涉及（未改任何渲染/模板/输入路径） |
+| SQL 注入 | 不涉及（未改任何查询） |
+| 越权 | 不涉及（装饰器 `admin_required`/`super_required`/`login_required` 本体未动，仅导入方式变化；`@admin_required` 装饰的视图集经守卫测试证实全部可解析） |
+| SSRF | 不涉及（未改任何出站请求） |
+| CSRF | 不涉及（全局 `_csrf_protect` 钩子注册顺序未动，`_register_request_hooks` 未改） |
+| 密钥泄露 | 不涉及（无凭据相关改动；扫描无硬编码密钥） |
+| 资源泄漏/限流 | 不涉及 |
+
+**结构性安全收益**：星号 + 运行时 `__all__` 快照会把 `os`/`time`/`json` 等模块级名字与全部模型静默灌入每个后台模块——既是可维护性债，也让「某个后台模块意外拿到不该有的能力」无法被静态审查。治理后每个模块的依赖面显式、可 grep、被 ruff F821/F401 双向看住（本轮 F821 一度暴露 1076 处星号时代不可见的幽灵依赖，全部以显式导入收敛）；新增 4 条守卫测试（AST 禁星号、`__all__` 禁运行时快照、全模块 LOAD_GLOBAL 可解析的零 NameError 证明、re-export 面与外部消费面一致），并经变异验证（改回星号必红）。
+
+**验证**：366 passed / ruff 全仓全绿 / 棘轮 601→543（F401 171→113、T20 66→21）/ 变异验证通过 / admin 蓝图 113 条路由注册数与治理前一致。
+
+**升级要点**：无表结构变更、无迁移、无新增环境变量、无前端改动（无需 vite build）、无部署脚本变更（无需 deploy_scripts 包）；`rebuild_fts.py` 无需重跑。升级即「覆盖后端 → 重启」（update.sh 用户一键完成，其内置迁移步骤在 head 处为无操作）。

@@ -8,8 +8,10 @@
 """
 import io
 
-from ._helpers import *   # 复用导入、辅助函数与装饰器
+from ._helpers import login_required
 from . import admin_bp     # 同一蓝图对象
+from flask import flash, render_template, request, session
+from models import User, db
 
 
 def _qr_svg(uri):

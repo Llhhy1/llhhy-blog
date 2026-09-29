@@ -1,8 +1,15 @@
 # -*- coding: utf-8 -*-
 # 自动切片自 admin.py（v3.11.0）：原样搬运，路由/行为不变。
-from ._helpers import *   # 复用导入、辅助函数与装饰器
+from ._helpers import admin_required, super_required, unique_model_slug
 from . import admin_bp     # 同一蓝图对象
+from flask import current_app, flash, jsonify, redirect, render_template, request, url_for
+from models import Announcement, Category, Guestbook, SocialAccount, Subscriber, db
 from _time import utcnow
+from config import APP_VERSION
+import bot_guard
+import diagnostics
+import feed_agg
+import os
 
 @admin_bp.route("/categories", methods=["GET", "POST"])
 @admin_required

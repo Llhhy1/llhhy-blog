@@ -1,8 +1,10 @@
 # -*- coding: utf-8 -*-
 """版本历史：历史列表 / 回滚 / 版本对比。（v3.18.1 由 admin/posts.py 拆出，路由与行为不变）。"""
-from ._helpers import *   # 复用导入、辅助函数与装饰器  # noqa: F401,F403
+from ._helpers import _can_edit_post, _current_user_or_none, _save_post_history, log_audit, login_required
 from . import admin_bp     # 同一蓝图对象
-from _time import utcnow
+from flask import flash, redirect, render_template, request, url_for
+from models import Post, PostHistory, db
+import fts
 
 
 @admin_bp.route("/post/<int:post_id>/history")

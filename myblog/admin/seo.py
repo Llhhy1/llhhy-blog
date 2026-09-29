@@ -21,7 +21,7 @@ from flask import request, render_template, redirect, url_for, flash
 
 from models import db, Post, Setting, SeoSubmission
 from models import visible_posts_query
-from utils import get_setting, site_base, seo_shell_ua
+from utils import get_setting, site_base
 from ._helpers import admin_bp, super_required, log_audit, _current_user_or_none
 import seo_push
 

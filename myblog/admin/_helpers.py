@@ -1,28 +1,17 @@
 """后台管理：登录、写文章、分类/标签/友链/设置/评论管理、修改密码、用户管理。"""
 import functools
-import os
-import time
 import datetime
 
-from flask import (Blueprint, render_template, request, redirect, url_for,
-                   session, flash, current_app, abort, jsonify, send_file)
-from werkzeug.utils import secure_filename
+from flask import (Blueprint, request, redirect, url_for,
+                   session, current_app, abort)
 
-from models import (db, Post, Category, Tag, Comment, FriendLink, Setting,
-                    User, ROLE_SUPER, ROLE_ADMIN, ROLE_USER, SocialAccount,
-                    Series, Announcement, Guestbook, Subscriber,
-                    AuditLog, RecycleBin, LinkApplication, PostHistory,
-                    Moment, MomentComment)
+from models import (db, Post, Tag, Comment, User, Guestbook, AuditLog, PostHistory)
 from utils import (make_slug, count_words, validate_password, apply_slug_template,
-                   fmt_bj, BEIJING_TZ, get_client_ip, safe_redirect)
+                   BEIJING_TZ, get_client_ip, safe_redirect)
 from config import APP_VERSION
-import stats as stats_mod
 import fts
 import notify
-import bot_guard
 import mail_notify
-import feed_agg
-import diagnostics
 from _time import utcnow
 
 admin_bp = Blueprint("admin", __name__, url_prefix="/admin")
@@ -462,7 +451,30 @@ def unique_model_slug(model, base, exclude_id=None, max_len=80):
         i += 1
 
 
-# 让 from ._helpers import *（各业务子模块与包 __init__）也导出下划线辅助函数
-# （Python 默认 star-import 跳过下划线命名，会导致 edit_post 等视图调用的
-#  _can_edit_post / _save_post_history 等私有 helper 在子模块内 NameError）。
-__all__ = [n for n in globals() if not n.startswith("__")]
+# 显式导出清单（v3.24.0 治理：原先是 `[n for n in globals() if not n.startswith("__")]`
+# 运行时快照，会把 os / time / functools / Blueprint / db / Post… 等全部顶层名字
+# 一并导出，各业务子模块的 `from ._helpers import *` 于是把它们全灌进自己的命名空间。
+# 后果：① 每个模块带 15~20 个用不上的污染名；② 同名符号（time / utcnow / feed_agg /
+# current_app…）谁生效只取决于「星号行与自身 import 行的先后」，行序一变就 NameError，
+#    而任何静态检查都看不见这种依赖。
+#
+# 现在只导出「本模块自己定义的跨模块公共 API」，导入方一律写显式 import。
+# 下划线 helper 必须在列：Python 的 star-import 默认跳过下划线命名，若不列入，
+# from ._helpers import * 就拿不到 _can_edit_post / _save_post_history 等。
+__all__ = [
+    # 蓝图对象（各子模块与 app.py 的 admin_bp 必须是这一个）
+    "admin_bp",
+    # 访问控制装饰器
+    "admin_required", "super_required", "login_required",
+    # 审计
+    "log_audit", "log_login_attempt", "_audit_log_query_with_filters",
+    # 当前用户
+    "_current_user_or_none",
+    # 标签 / slug / 分类
+    "unique_slug", "unique_model_slug", "_sync_tags", "cleanup_orphan_tags",
+    "merge_duplicate_tags",
+    # 文章
+    "create_post_core", "_can_edit_post", "_save_post_history", "_parse_scheduled",
+    # 媒体 / 密码 / 统计
+    "allowed_file", "_detect_image_magic", "_weak_password",
+]

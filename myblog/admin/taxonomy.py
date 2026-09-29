@@ -1,8 +1,9 @@
 # -*- coding: utf-8 -*-
 """分类 / 标签 / 系列治理：改名、删除、就地新建、一键整理。（v3.18.1 由 admin/posts.py 拆出，路由与行为不变）。"""
-from ._helpers import *   # 复用导入、辅助函数与装饰器  # noqa: F401,F403
+from ._helpers import _current_user_or_none, admin_required, cleanup_orphan_tags, log_audit, merge_duplicate_tags, unique_model_slug
 from . import admin_bp     # 同一蓝图对象
-from _time import utcnow
+from flask import flash, redirect, render_template, request, url_for
+from models import Category, Series, Tag, db
 
 
 @admin_bp.route("/category/<int:cid>/delete", methods=["POST"])

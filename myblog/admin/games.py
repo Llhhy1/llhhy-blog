@@ -11,14 +11,13 @@
   页面只回显掩码；一切写操作 log_audit；
 - 收录目录 <myblog>/data/games/<slug>，删除即整目录移除。
 """
-import datetime
 import hashlib
 import json
 import os
 import shutil
 import urllib.request
 
-from flask import (request, render_template, redirect, url_for, flash, current_app)
+from flask import (request, render_template, redirect, url_for, flash)
 
 from models import db, Game
 import games_safety
@@ -27,6 +26,7 @@ from backup_settings import encrypt_secret, decrypt_secret
 from ._helpers import (admin_bp, admin_required, log_audit, _current_user_or_none,
                        unique_model_slug)
 from _time import utcnow
+import os
 
 
 def _root():

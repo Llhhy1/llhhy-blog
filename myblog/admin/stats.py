@@ -1,8 +1,13 @@
 # -*- coding: utf-8 -*-
 # 自动切片自 admin.py（v3.11.0）：原样搬运，路由/行为不变。
-from ._helpers import *   # 复用导入、辅助函数与装饰器
+from ._helpers import _audit_log_query_with_filters, _current_user_or_none, admin_required, log_audit, login_required, super_required
 from . import admin_bp     # 同一蓝图对象
+from flask import flash, redirect, render_template, request, send_file, url_for
+from models import AuditLog, Category, Comment, Post, db
+from utils import fmt_bj
 from _time import utcnow
+import bot_guard
+import datetime
 
 @admin_bp.route("/")
 @admin_required
@@ -98,7 +103,6 @@ def export_audit_logs():
     import io
     import csv
     import zipfile
-    import datetime as _dt
     q, frm, to = _audit_log_query_with_filters()
     logs = q.order_by(AuditLog.created_at.desc()).all()
 

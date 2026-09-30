@@ -35,15 +35,15 @@
       {% for m in rows %}
         <tr>
           <td><input type="checkbox" name="ids" value="{{ m.id }}" form="moment-batch" class="row-check"></td>
-          <td>{{ m.author.username if m.author else '（账号已注销）' }}</td>
-          <td title="{{ m.content }}">
+          <td data-label="作者">{{ m.author.username if m.author else '（账号已注销）' }}</td>
+          <td title="{{ m.content }}" data-label="内容">
             {% set txt = m.content.replace('\n', ' ') %}
             {{ txt[:60] }}{% if txt|length > 60 %}…{% endif %}
           </td>
-          <td>❤️ {{ m.likes or 0 }}</td>
-          <td>💬 {{ comment_counts[m.id] or 0 }}</td>
-          <td>{{ m.created_at | bj('%Y-%m-%d %H:%M') }}</td>
-          <td>
+          <td data-label="点赞">❤️ {{ m.likes or 0 }}</td>
+          <td data-label="评论">💬 {{ comment_counts[m.id] or 0 }}</td>
+          <td data-label="发布时间">{{ m.created_at | bj('%Y-%m-%d %H:%M') }}</td>
+          <td data-label="操作">
             <a class="link-btn" href="{{ url_for('admin.edit_moment', mid=m.id) }}">编辑</a>
             <form method="post" action="{{ url_for('admin.delete_moment', mid=m.id) }}" class="inline-form"
                   onsubmit="return confirm('确定删除这条动态？其下 {{ comment_counts[m.id] or 0 }} 条评论会一并删除，且不可恢复。');">

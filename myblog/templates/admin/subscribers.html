@@ -7,17 +7,17 @@
     <tbody>
       {% for s in rows %}
         <tr>
-          <td>{{ loop.index }}</td>
-          <td class="sub-email">{{ s.email }}</td>
-          <td>
+          <td data-label="#">{{ loop.index }}</td>
+          <td class="sub-email" data-label="邮箱">{{ s.email }}</td>
+          <td data-label="状态">
             {% if s.active %}
               <span class="badge badge-on">已启用</span>
             {% else %}
               <span class="badge badge-off">已停用</span>
             {% endif %}
           </td>
-          <td>{{ s.created_at | bj('%Y-%m-%d %H:%M') }}</td>
-          <td class="sub-actions">
+          <td data-label="订阅时间">{{ s.created_at | bj('%Y-%m-%d %H:%M') }}</td>
+          <td class="sub-actions" data-label="操作">
             <form method="post" action="{{ url_for('admin.toggle_subscriber', sid=s.id) }}" class="inline-form">
                   {{ csrf_input() }}
               <button type="submit" class="btn-mini">{{ '停用' if s.active else '启用' }}</button>

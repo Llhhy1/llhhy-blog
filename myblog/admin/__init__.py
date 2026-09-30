@@ -7,9 +7,11 @@
 """
 # ruff: noqa: F401  —— 副作用注册路由 + 包命名空间 re-export（见上），非死导入
 from ._helpers import admin_bp   # app.py 依赖 admin.admin_bp 是同一个蓝图对象
-# 包命名空间 re-export（外部按名导入的真实消费面，grep 全仓核定）：
-#   api/common.py、routes.py → log_login_attempt；api/theme.py → log_audit
-from ._helpers import log_audit, log_login_attempt
+# v3.25.0：**不再** re-export log_audit / log_login_attempt。
+# 原先 re-export 是为了 api/common.py、routes.py、api/theme.py 三处外部按名导入；
+# 审计写入搬到顶层 `audit.py` 后，这三处都改成 `from audit import ...`，
+# 消费面归零 → 按「re-export 面必须等于真实消费面」的纪律一并撤掉。
+# 包内 22 个子模块走的是 `from ._helpers import ...`（转发层），不依赖本行。
 from . import auth
 from . import comments
 from . import post_editor   # v3.18.1：posts.py 拆分 → 写作面板（新建/编辑/自动保存/预览）

@@ -15,10 +15,10 @@
     <tbody>
       {% for g in rows %}
         <tr class="{{ 'unread-row' if not g.is_read }}">
-          <td>{{ g.author }}</td>
-          <td>{{ g.content[:80] }}{% if g.content|length > 80 %}…{% endif %}</td>
-          <td>{{ g.created_at | bj('%Y-%m-%d %H:%M') }}</td>
-          <td>
+          <td data-label="昵称">{{ g.author }}</td>
+          <td data-label="内容">{{ g.content[:80] }}{% if g.content|length > 80 %}…{% endif %}</td>
+          <td data-label="时间">{{ g.created_at | bj('%Y-%m-%d %H:%M') }}</td>
+          <td data-label="操作">
             {% if not g.is_read %}
             <form method="post" action="{{ url_for('admin.mark_guestbook_read', gid=g.id) }}" class="inline-form">
                   {{ csrf_input() }}

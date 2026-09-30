@@ -1,7 +1,6 @@
 # -*- coding: utf-8 -*-
 # 自动切片自 admin.py（v3.11.0）：原样搬运，路由/行为不变。
-from ._helpers import _detect_image_magic, admin_required, allowed_file, login_required
-from . import admin_bp     # 同一蓝图对象
+from ._helpers import _detect_image_magic, admin_required, allowed_file, login_required, admin_bp     # 同一蓝图对象
 from flask import current_app, flash, jsonify, redirect, render_template, request, url_for
 from werkzeug.utils import secure_filename
 from models import Post

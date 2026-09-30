@@ -1,7 +1,6 @@
 # -*- coding: utf-8 -*-
 # 自动切片自 admin.py（v3.11.0）：原样搬运，路由/行为不变。
-from ._helpers import admin_required, log_audit, super_required
-from . import admin_bp     # 同一蓝图对象
+from ._helpers import admin_required, log_audit, super_required, admin_bp     # 同一蓝图对象
 from flask import flash, jsonify, redirect, render_template, request, send_file, url_for
 from models import Setting, db
 from utils import fmt_bj

@@ -75,6 +75,12 @@ def ensure():
         db.session.commit()
 
 
+# `rebuild_all()` 分页取数用到的列：**恰好是 `_indexable()` + `_insert()` 需要的全部**。
+# 见 rebuild_all() 内注释——这里刻意只取标量、不取 ORM 实体。
+_REBUILD_COLS = (Post.id, Post.title, Post.summary, Post.content, Post.slug,
+                 Post.published, Post.in_trash, Post.is_private, Post.scheduled_at)
+
+
 def rebuild_all():
     """全量重建 `post_fts`：清空后只写入通过 `_indexable()` 的文章。
 
@@ -93,11 +99,26 @@ def rebuild_all():
     kept = 0
     # 按 id 分页取，不 `yield_per`：流式游标尚未读完就在同一连接上写 post_fts，
     # SQLite/DBAPI 下会重置游标；也不 `Post.query.all()`：正文全文进内存会吃掉数百 MB。
+    #
+    # **用 Core `select()` 取标量行而不是 ORM 实体**（v3.25.0）。原先这里查 ORM 实体，
+    # 为避免几十万实体堆在会话里而在每批末尾 `db.session.expunge_all()`——但那是
+    # 整会话级操作，会把**调用方自己持有的实例**一并摘出去，调用方随后再碰这些对象
+    # 就是 detached（生产调用方 `tools/rebuild_fts.py` 不持实例，故一直只是低危；
+    # 测试里第一个受害者是 test_setting_governance 造的 Post）。
+    #
+    # 改成不产生 ORM 实体后，会话里压根没有需要摘的东西，`expunge_all()` 自然消失：
+    # ① 调用方实例不再被牵连；② 分页只留标量行，内存占用与原来同量级且不随批数累积；
+    # ③ 不再有「rebuild 顺手 detach 了别人对象」这种隐式行为变化。
+    # `_indexable()` / `_insert()` 是鸭子类型用法（只碰上述列），无需改动即可吃 Row。
     batch = 50
     last_id = 0
     while True:
-        rows = (Post.query.filter(Post.id > last_id)
-                .order_by(Post.id).limit(batch).all())
+        rows = db.session.execute(
+            db.select(*_REBUILD_COLS)
+            .where(Post.id > last_id)
+            .order_by(Post.id)
+            .limit(batch)
+        ).all()
         if not rows:
             break
         last_id = rows[-1].id
@@ -106,7 +127,6 @@ def rebuild_all():
                 continue
             _insert(p)
             kept += 1
-        db.session.expunge_all()
     db.session.commit()
     return {"ok": True, "indexed": kept}
 

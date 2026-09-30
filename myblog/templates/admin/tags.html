@@ -20,10 +20,10 @@
     <tbody>
       {% for t, used in tags %}
         <tr{% if used == 0 %} style="opacity:.55"{% endif %}>
-          <td>{{ t.name }}</td>
-          <td>{{ t.slug }}</td>
-          <td>{{ used }}</td>
-          <td>
+          <td data-label="名称">{{ t.name }}</td>
+          <td data-label="slug">{{ t.slug }}</td>
+          <td data-label="文章数">{{ used }}</td>
+          <td data-label="操作">
             <form method="post" action="{{ url_for('admin.delete_tag', tid=t.id) }}" class="inline-form" onsubmit="return confirm('确定删除？');">
                   {{ csrf_input() }}
               <button type="submit" class="link-danger" {% if used %}disabled title="该标签正被文章使用"{% endif %}>删除</button>

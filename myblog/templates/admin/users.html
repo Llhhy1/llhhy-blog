@@ -28,10 +28,10 @@
     <tbody>
       {% for u in users %}
         <tr>
-          <td>{{ u.id }}</td>
-          <td>{{ u.username }}{% if u.id == current_user.id %}（我）{% endif %}</td>
-          <td>{{ u.email or '—' }}</td>
-          <td>
+          <td data-label="ID">{{ u.id }}</td>
+          <td data-label="用户名">{{ u.username }}{% if u.id == current_user.id %}（我）{% endif %}</td>
+          <td data-label="邮箱">{{ u.email or '—' }}</td>
+          <td data-label="角色">
             {% if u.is_super %}
               <span class="role-tag role-super">超级管理员</span>
             {% else %}
@@ -44,8 +44,8 @@
               </form>
             {% endif %}
           </td>
-          <td>{{ u.created_at | bj('%Y-%m-%d') if u.created_at else '—' }}</td>
-          <td>
+          <td data-label="注册时间">{{ u.created_at | bj('%Y-%m-%d') if u.created_at else '—' }}</td>
+          <td data-label="操作">
             {% if u.is_super %}
               <span class="muted">不可操作</span>
             {% else %}

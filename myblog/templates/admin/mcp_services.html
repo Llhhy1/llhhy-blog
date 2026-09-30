@@ -13,14 +13,14 @@
       </thead>
       <tbody>
         <tr>
-          <td><b>只读诊断</b><br><span class="stats-tip" style="margin:0;">健康查询 / 日志脱敏 / 版本一致性</span></td>
-          <td><code>POST /mcp</code></td>
-          <td>{{ '🟢 运行中' if diag_enabled else '🔴 已停止（对外 404）' }}</td>
-          <td>
+          <td data-label="服务"><b>只读诊断</b><br><span class="stats-tip" style="margin:0;">健康查询 / 日志脱敏 / 版本一致性</span></td>
+          <td data-label="端点"><code>POST /mcp</code></td>
+          <td data-label="状态">{{ '🟢 运行中' if diag_enabled else '🔴 已停止（对外 404）' }}</td>
+          <td data-label="Token（环境变量）">
             {% if diag_token_ok %}<code>{{ diag_token_masked }}</code>{% else %}<span style="color:#c0392b;">未配置 → 端点关闭</span>{% endif %}
             <br><span class="stats-tip" style="margin:0;">MCP_AUTH_TOKEN</span>
           </td>
-          <td>
+          <td data-label="操作">
             <a class="link-btn" href="{{ url_for('admin.mcp_instruction', kind='diag') }}">AI 接入指令</a>
             <form method="post" action="{{ url_for('admin.mcp_services_toggle', which='diag') }}" class="inline-form"
                   onsubmit="return confirm('{{ '确定停止只读诊断服务？停止后 /mcp 对外返回 404，所有 AI 连接立即失效。' if diag_enabled else '确定开启只读诊断服务？' }}');">
@@ -31,14 +31,14 @@
           </td>
         </tr>
         <tr>
-          <td><b>写能力</b><br><span class="stats-tip" style="margin:0;">AI 远程发文（默认草稿）</span></td>
-          <td><code>POST /mcp-write</code></td>
-          <td>{{ '🟢 运行中' if write_enabled else '🔴 已停止（对外 404）' }}</td>
-          <td>
+          <td data-label="服务"><b>写能力</b><br><span class="stats-tip" style="margin:0;">AI 远程发文（默认草稿）</span></td>
+          <td data-label="端点"><code>POST /mcp-write</code></td>
+          <td data-label="状态">{{ '🟢 运行中' if write_enabled else '🔴 已停止（对外 404）' }}</td>
+          <td data-label="Token（环境变量）">
             {% if write_token_ok %}<code>{{ write_token_masked }}</code>{% else %}<span style="color:#c0392b;">未配置 → 端点关闭</span>{% endif %}
             <br><span class="stats-tip" style="margin:0;">MCP_WRITE_TOKEN</span>
           </td>
-          <td>
+          <td data-label="操作">
             <a class="link-btn" href="{{ url_for('admin.mcp_instruction', kind='write') }}">AI 接入指令</a>
             <form method="post" action="{{ url_for('admin.mcp_services_toggle', which='write') }}" class="inline-form"
                   onsubmit="return confirm('{{ '确定停止写能力服务？停止后 /mcp-write 对外返回 404，所有 AI 连接立即失效。' if write_enabled else '确定开启写能力服务？' }}');">
@@ -74,11 +74,11 @@
       <tbody>
         {% for r in ext_rows %}
         <tr>
-          <td><b>{{ r.name }}</b>{% if r.desc %}<br><span class="stats-tip" style="margin:0;">{{ r.desc }}</span>{% endif %}</td>
-          <td style="max-width:280px;word-break:break-all;"><code>{{ r.url }}</code><br><span class="stats-tip" style="margin:0;">Header: {{ r.header }}</span></td>
-          <td>{% if r.token_masked %}<code>{{ r.token_masked }}</code>{% else %}<span class="stats-tip">未登记</span>{% endif %}</td>
-          <td>{{ '🟢 启用' if r.enabled else '⚫ 已停用' }}</td>
-          <td>
+          <td data-label="名称"><b>{{ r.name }}</b>{% if r.desc %}<br><span class="stats-tip" style="margin:0;">{{ r.desc }}</span>{% endif %}</td>
+          <td style="max-width:280px;word-break:break-all;" data-label="URL"><code>{{ r.url }}</code><br><span class="stats-tip" style="margin:0;">Header: {{ r.header }}</span></td>
+          <td data-label="Token">{% if r.token_masked %}<code>{{ r.token_masked }}</code>{% else %}<span class="stats-tip">未登记</span>{% endif %}</td>
+          <td data-label="状态">{{ '🟢 启用' if r.enabled else '⚫ 已停用' }}</td>
+          <td data-label="操作">
             <a class="link-btn" href="{{ url_for('admin.mcp_instruction', kind=r.id) }}">指令</a>
             <form method="post" action="{{ url_for('admin.mcp_services_update', sid=r.id) }}" class="inline-form">
               {{ csrf_input() }}

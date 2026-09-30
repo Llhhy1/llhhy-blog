@@ -47,7 +47,14 @@
 
 ### D5 文档同步（项目铁律）
 - 四份文档随版本同步：`README.md`（根）、`myblog/README.md`、`deploy_guide.md`、`ROADMAP.md`
-- 安全改动必须追加 `SECURITY_AUDIT.md` 新轮次章节
+- 安全改动必须追加 `myblog/SECURITY_AUDIT.md` 新轮次章节
+- ⚠️ **v3.25.0 起长文档已分段**：R1~R80 在 `docs/archive/SECURITY_AUDIT_r01-r80.md`，
+  v3.18.5 及以前版本记录在 `docs/archive/CHANGELOG_v1-v3.18.5.md`。
+  新内容一律写**主文件**；只有需要给历史段补交叉引用时才动归档件。
+  查历史先去归档件，不要在主文件里翻。
+  ⚠️ **回滚长文档一律先 `git stash`**：`git checkout <file>` 会连带 revert 掉该文件
+  **未提交**的改动。v3.25.0 归档时用它回滚 CHANGELOG.md，把同一次会话里刚写的
+  v3.25.0 段一起冲掉了，只能凭上下文重写。长文档按 hunk 回退，或先 stash。
 - `APP_VERSION`（`myblog/config.py`）与 Git tag 一致；改动部署脚本时挂 deploy 固定包
 
 ---
@@ -166,6 +173,6 @@
 | 本标准 | `CODE_REVIEW.md`（仓库根） | 审查依据与流程 |
 | 审查工具 | `tools/review/`（钩子 + 检查脚本） | L3 自动门禁 |
 | WorkBuddy 审查 Skill | `~/.workbuddy/skills/code-review/` | 一键代跑 L1/L2 |
-| 安全审计历史 | `myblog/SECURITY_AUDIT.md` | D2 维度依据 |
+| 安全审计历史 | `myblog/SECURITY_AUDIT.md`（R81+）／`docs/archive/SECURITY_AUDIT_r01-r80.md`（R1~R80） | D2 维度依据 |
 | 冒烟测试 | 仓库根 `smoke_*.py` | L1 回归 |
 | 路线图 | `ROADMAP.md` | 🟡💭 整改去向 |

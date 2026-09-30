@@ -8,11 +8,11 @@
     <tbody>
       {% for v in versions %}
         <tr>
-          <td>{{ v.created_at | bj('%Y-%m-%d %H:%M') }}</td>
-          <td>{{ v.author or '—' }}</td>
-          <td>{{ v.title }}<br><span class="muted">{{ (v.content or '')[:40] }}{% if (v.content or '')|length > 40 %}…{% endif %}</span></td>
-          <td>{{ (v.content or '')|length }}</td>
-          <td>
+          <td data-label="版本时间">{{ v.created_at | bj('%Y-%m-%d %H:%M') }}</td>
+          <td data-label="编辑者">{{ v.author or '—' }}</td>
+          <td data-label="标题">{{ v.title }}<br><span class="muted">{{ (v.content or '')[:40] }}{% if (v.content or '')|length > 40 %}…{% endif %}</span></td>
+          <td data-label="正文字数">{{ (v.content or '')|length }}</td>
+          <td data-label="操作">
             <a class="link-btn" href="{{ url_for('admin.post_diff', post_id=post.id, a=v.id) }}">对比当前</a>
             <form method="post" action="{{ url_for('admin.rollback_post', post_id=post.id, hid=v.id) }}" class="inline-form" onsubmit="return confirm('确定回滚到该版本？当前内容会先自动备份一份。');">
                   {{ csrf_input() }}

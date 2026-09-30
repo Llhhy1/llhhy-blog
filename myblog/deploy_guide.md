@@ -513,7 +513,9 @@ supervisorctl status
 ## 版本升级（通用流程 · 任意旧版 → 最新版）
 
 > 适用：服务器已部署过旧版本，要升级到最新 Release。**只需覆盖代码 + 重启，不要删目录。**
-> 各版本的逐版升级说明已归档至仓库根目录 [`CHANGELOG.md`](../CHANGELOG.md)，本手册只保留当前最新版的全量部署与运维口径。
+> 各版本的逐版升级说明见仓库根目录 [`CHANGELOG.md`](../CHANGELOG.md)（v3.18.6 起）；
+> v3.18.5 及以前见 [`docs/archive/CHANGELOG_v1-v3.18.5.md`](../../docs/archive/CHANGELOG_v1-v3.18.5.md)。
+> 本手册只保留当前最新版的全量部署与运维口径。
 
 1. **备份（最重要）**：到「文件」下载留底：
    - `/www/wwwroot/myblog/data/blog.db`（全部数据）
@@ -544,6 +546,14 @@ supervisorctl status
 8. **环境变量**：只覆盖文件 + 重启，环境变量原样保留，无需重填；**若误删 Python 项目重建，必须重填 `SECRET_KEY` / `ADMIN_PASSWORD`**（缺失拒绝启动）。改 `SECRET_KEY` 会让已登录用户需要重新登录，属正常现象。
 
 > ⚠️ **服务器上的 `update.sh` / `deploy.sh` 也务必与最新 Release 同版**：脚本经历过「假成功不覆盖 / 校验误报 / 无法自动重启」多轮加固，升级前先从最新 Release 覆盖一次脚本，再跑一键更新。
+
+> **v3.25.0（WCAG 对比度治理 + 手机端表格字段名 + 包级循环依赖清零 + FTS 会话隔离）升级要点**：**后端与前端都改了 → 两个包都要覆盖**（`myblog-backend.zip` + `vue-frontend-dist.zip` —— 本版改了 `vue-frontend/src/styles/tokens.css` 的主题色）。
+>
+> - **无表结构变更、无 Alembic 迁移**（head 仍为 `e5b8c3f17a24`）、无新增环境变量、无部署脚本变更。`flask db upgrade` 在 head 处为空操作（`update.sh` 会自动跑）。
+> - `tools/rebuild_fts.py` **不需要**重跑 —— 本轮未改 `_indexable()` 判定条件，只改了遍历方式。
+> - ⚠️ **本版含可见视觉变更**：14 套 preset 的品牌色被压深以满足 WCAG SC 1.4.3（正文 4.5:1 / 大字 3:1），后台表格在 **≤760px** 下卡片化后会显示字段名抬头。**升级后必须**在这两种条件下各过一遍：① 手机 UA 打开任意后台表格，确认每格都有字段名；② 深色模式下切换全部 14 套 preset。
+> - **验收**：`grep APP_VERSION config.py` 应为 `3.25.0`；抽查一篇含 SEO 推送记录的文章，确认「百度 / Bing」两列状态**各自正确**（修复前有个 bug 会把两列都渲染成「百度」）。
+> - 安全审计 **R98**。
 
 > **v3.24.1（admin 包显式导入治理）升级要点**：**纯内部重构、零行为变更**——无表结构变更、无迁移、无新增环境变量、无前端改动、无部署脚本变更。升级即覆盖 `myblog-backend.zip` → gunicorn「停止 → 启动」（`update.sh` 一键完成，其内置迁移步骤在 head 处为无操作）；升级后 `grep APP_VERSION config.py` 应为 `3.24.1`，后台各页面应正常打开（admin 蓝图路由数与上一版一致）。`rebuild_fts.py` **无需**重跑。
 
@@ -705,7 +715,8 @@ python verify_package_checksums.py
 
 ## MCP 配置指南（两个端点一次配好：只读 `/mcp` ＋ 写能力 `/mcp-write`）
 
-> 本节是**统一操作手册**；两端各自的来龙去脉（引入背景与安全设计）见仓库根目录 `CHANGELOG.md` 的 v3.10.0 / v3.12.2 条目。
+> 本节是**统一操作手册**；两端各自的来龙去脉（引入背景与安全设计）见仓库根目录 `CHANGELOG.md` 的 v3.10.0 / v3.12.2 条目
+> （这两版早于 v3.18.6，已随v3.25.0 归档至 `docs/archive/CHANGELOG_v1-v3.18.5.md`）。
 > 两个端点**完全独立**（各自 token / 各自开关 / 互不影响），但环境变量、Nginx、AI 助手接入可以**一次配完**。
 >
 > **v3.13.0 起：以下大部分操作可在后台点按钮完成**——登录后台 → 左侧「系统设置」→「🔌 MCP 服务」：

@@ -7,9 +7,9 @@
  * 当前 Phase 0 仅落地文件，不改任何组件样式。
  */
 :root {
-  --accent: #1a73e8;
+  --accent: #196ddd;
   --accent-hover: #1765cc;
-  --accent-soft: rgba(26, 115, 232, .10);
+  --accent-soft: rgba(25, 109, 221, .10);
   --on-accent: #ffffff;
 
   --bg: #f7f8fa;
@@ -17,17 +17,23 @@
   --surface-2: #f4f6f8;
   --surface-3: #e9ecef;
 
+  /* 文本（v3.25.0 起满足 WCAG SC 1.4.3）。⚠️ 必须与 themes.py 的 _BASE_LIGHT
+   * 求解值**逐字相等**：后台无任何 JS 注入，本文件是后台**唯一**主题来源；
+   * 而前台 SPA 上 applyThemeTokens() 会用 _BASE_LIGHT 覆盖它。不同值 =
+   * 前后台灰阶不一致。--text-faint 走大字档 3:1（强拉 4.5 会与 --text-muted
+   * 亮度差仅 0.003、三档层级塌成两档）。详见 vue-frontend/src/styles/tokens.css
+   * 同处注释与 tests/test_wcag_contrast.py） */
   --text: #2c2c2c;
-  --text-muted: #6b7280;
-  --text-faint: #9aa0a6;
+  --text-muted: #6a717f;
+  --text-faint: #7d838f;
 
   --border: #ececec;
   --border-strong: #d9dde3;
 
   --success: #188038;
   --warning: #e8a33d;
-  --danger:  #e5484d;
-  --info:    #1a73e8;
+  --danger:  #d34247;
+  --info:    #196ddd;
 
   --radius-xs: 4px;
   --radius-sm: 8px;
@@ -64,13 +70,21 @@
   --surface-3: #2a2e35;
   --text: #d7d9dc;
   --text-muted: #9aa0a6;
-  --text-faint: #6b7280;
+  --text-faint: #8d9298;   /* 与 themes.py 求解值逐字一致，正文 4.5 守（暗色下层级不塌） */
   --border: #2a2e35;
   --border-strong: #333a44;
   --success: #7bc47f;
   --warning: #e8a33d;
-  --danger: #f28b82;
+  --danger: #f05d5f;       /* 白字压它 2.39:1 -> 4.53:1 */
+  /* v3.25.0：暗色 --accent。原先暗色块**根本没定义**它 —— 纯 CSS 兜底
+   * 路径（无 applyThemeTokens 注入时）下暗色模式没有品牌色。值取自
+   * themes.py: derive_dark(_BASE_LIGHT) 的求解结果。 */
+  --accent: #3f8fff;
+  --accent-hover: #196ddd;
   --info: #8ab4ff;
+  /* v3.25.0：暗色 --on-accent 必须是深字。白字压暗色 accent（被提到
+   * OKLCH L 0.66~0.72）实测 14/14 全崩，最低 2.43:1。详见前端同名文件注释。 */
+  --on-accent: #0b0f14;
   --shadow-sm: 0 1px 3px rgba(0, 0, 0, .40);
   --shadow-md: 0 6px 18px rgba(0, 0, 0, .35);
   --shadow-lg: 0 16px 48px rgba(0, 0, 0, .50);

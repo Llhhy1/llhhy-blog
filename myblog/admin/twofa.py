@@ -8,8 +8,7 @@
 """
 import io
 
-from ._helpers import login_required
-from . import admin_bp     # 同一蓝图对象
+from ._helpers import login_required, admin_bp     # admin_bp = 同一蓝图对象
 from flask import flash, render_template, request, session
 from models import User, db
 

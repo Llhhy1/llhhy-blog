@@ -1,5 +1,154 @@
 # 更新日志（CHANGELOG）
 
+> **📦 历史归档**：v3.18.5 及以前的版本记录已归档至 `docs/archive/CHANGELOG_v1-v3.18.5.md`；本文件从 v3.18.6 起。
+
+## v3.25.0（2026-10-01 · WCAG 对比度治理 + 手机端表格字段名 + 包级循环依赖清零 + FTS 会话隔离 + 文档归档 + 裸 hex 收敛）
+
+> **本版本含可见视觉变更**（主题色被压深、后台表格手机端显示字段名），
+> 与前几个「纯内部重构」的版本不同，升级后请在**手机端**与**深色模式**下各过一遍。
+> 无表结构变更、无 Alembic 迁移（head 仍为 `e5b8c3f17a24`）、无新增环境变量。
+> 安全审计见 `myblog/SECURITY_AUDIT.md` **R98**。
+
+### WCAG SC 1.4.3 对比度治理
+
+**先纠正一个错误结论**：上一轮认定「`{{ theme_css }}` 会用 `themes.py` 的值整体覆盖
+CSS 变量」——**这是错的**。`app.py:621` 的 `theme_css` 只含 `--theme-radius` /
+`--theme-font-size`，**不含任何颜色**。真实链路是**两条互不覆盖**的：
+
+| 渲染面 | 主题色来源 | 机制 |
+|---|---|---|
+| 前台 SPA | `myblog/themes.py` | `vue-frontend/src/store.js: applyThemeTokens()` 逐个 `setProperty("--surface-2", …)` 写 `:root` |
+| 后台 admin | `myblog/static/tokens.css` | **纯 CSS 兜底，后台零 JS 注入** |
+| SSR/SEO 页 | `tokens.css` + 内联 `--accent` | Jinja，无 JS |
+
+**两份真相源都得改，只改一份等于只改一半。** 已新增两条守卫钉住
+（`test_admin_has_no_theme_token_injection` / `test_theme_css_carries_no_colors`），
+防止再次有人按错误结论去改。
+
+修掉的 4 类缺陷（实测远多于原记录的「4 组 token」）：
+
+1. **暗色 `text_faint` 层级坍缩（14/14 preset 全中）** —— 根因不是二分精度，而是
+   `themes.py:_scan` 里方向标志算错：`cand = _at_lum(base_hex, want_l, lighter if sign > 0 else (not lighter))`。
+   暗色（`lighter=False`）下 `sign=-1` 会传 `True` 进「向白插值」分支，而该分支
+   `t=0` 就返回基准色本身 → 兜底轮直接返回 muted，表现为 faint == muted（间隔 0.000）。
+   改为 `sign > 0`（第三参只该看 `want_l` 相对 `base_l` 的方向，与主题的 `lighter` 无关）。
+2. **`_at_lum` 系统性「差一口气」** —— 二分取 `hi` 侧（`lum >= want_l`）使返回值总比
+   目标略亮，调用方拿它卡「对比度 >= 4.5」就系统性不达标（实测目标 L=0.1696 时
+   实际只有 4.11~4.15）。改取 `lo` 侧（保守方向），并新增 `test_at_lum_never_overshoots`。
+3. **暗色主按钮白字崩（14/14 preset，最低 2.43:1）** —— `--accent` 在暗色下同时是
+   「主按钮底色」和「链接/标签前景」双重身份。白字需 `L ≤ 0.60`，作文字需 `L ≥ 0.65`，
+   在深底上**真互斥**。新增 `_on_accent_for(*block_hexes, page_bg_hex)` 自适应求解
+   `--on-accent`（深字），实测 4.55~6.52。该函数按**变参全量校验**所有色块 ——
+   因为同一个 `on_accent` 同时压在 `accent` 与 `danger` 两个色块上。
+4. **暗色 `--danger` 前景身份漏判** —— 注释断言「暗色 danger 零 `color:` 用法」是错的，
+   `admin.css:315` `.link-danger`（13px 危险操作链接）与 `:604` `.side-logout:hover`
+   都是前景身份。提到 L=0.67 档后实测 4.75~4.81。
+
+**14 套 preset 品牌色压深**（用户确认口径「压深品牌色」而非「新增 `--accent-text` token」）：
+
+| preset | 原值 | 新值 | preset | 原值 | 新值 |
+|---|---|---|---|---|---|
+| classic-blue | `#1a73e8` | `#1a6ddf` | sakura-pink | `#e64980` | `#bd3c6a` |
+| aurora-green | `#12b886` | `#0d7f5d` | teal | `#0d9488` | `#0c7d75` |
+| twilight-purple | `#7c5cff` | `#7354ec` | amber-gold | `#ca8a04` | `#966703` |
+| maple-orange | `#ff6b35` | `#b94f27` | cyan-electric | `#06b6d4` | `#047a90` |
+| rose-red | `#e5484d` | `#c73e43` | terracotta / graphite / indigo | 不变 | 原本已达标 |
+| lime-citrus | `#65a30d` | `#4e7c0b` | | | |
+| deep-ocean | `#0ea5e9` | `#0b76a9` | | | |
+
+**已知取舍（用户拍板「保层级，faint 走大字门槛」）**：亮色 `--text-faint` 从
+2.44:1 提到 **3.51:1** —— 达不到正文 4.5:1，但过了 WCAG **大字档 3:1**。之所以不硬推
+4.5:1，是因为那会吃掉 `text` / `text_muted` / `text_faint` 三档的亮度层级
+（`min_gap` 守不住），浅灰变深灰后「弱化文本」的语义就没了。
+
+新增 `tests/test_wcag_contrast.py`：**16 条守卫 + 14 项变异验证全红**。
+
+### 后台表格 `data-label` 补全（手机端可读性）
+
+`base.html:42` 的 `.admin-table td[data-label]::before` 只在 ≤760px 生效，
+而此前 44 个后台模板里**只有 3 个**写了标注 —— 手机端表格卡片化后表头隐藏，
+单元格只剩裸值（「2026-09-30 10:00」这种时间完全失去上下文）。
+
+补标 **115** 处（21 张 `.admin-table`）。过程中发现并修掉 3 个真问题：
+
+1. **`oauth_bindings.html` 的 5 个 `data-label` 是死标注** —— 它用 `.stats-table`
+   类，而 `.stats-table` 在 `admin.css:928` 走的是**横向滚动**兜底，全站没有它的
+   `::before` 规则，属性在、字段名永不渲染。改为 `admin-table` 后当场生效。
+2. **`ai_summary.html` / `seo.html` 是「套娃表」** —— 写法为
+   `<div class="admin-table"><table>`，而 `.admin-table` 的规则全是**后代选择器**
+   （`.admin-table td`），外层 div 照样把内层裸 table 卡片化了。等于
+   「卡片化了一半、字段名全丢」，比纯横滚更糟。
+3. **`seo.html` 用 `{% for cell in (r.baidu, r.indexnow) %}` 在一个 `<tr>` 里生成
+   两列** —— 两列共用同一段 `<td>` 源码，只能标同一个 `data-label`，实测 Bing 列被
+   写成「百度」。已改为 `{% macro seo_push_cell(cell) %}` 显式两次调用。
+
+新增 `tests/test_admin_table_data_label.py`：**52 条断言 + 12 项变异验证全红**。
+其中 `test_每个表格都纳管` 是被变异逼出来的：原先漏标检查与「class 是否含
+`admin-table`」耦合，把类名改掉整张表就从视野消失而守卫仍绿。
+
+### 包级循环依赖清零 + FTS 重建会话隔离
+
+见 `ROADMAP.md §结构` 与 `myblog/SECURITY_AUDIT.md` R98。
+
+一句话摘要：新增顶层模块 `myblog/audit.py`，把横切关注点（审计写入）从 `admin/_helpers.py` 搬出来，
+拆掉 `api → admin` 与 `admin → api` 两条顶层边 —— 原先这两个包处在**同一个 21 模块强连通分量**里。
+反向变异验证给出的不是「测试变红」而是 **pytest 收集期真实 ImportError**，
+证明那个环从来不是理论风险，而是「一条边写回去整个后台就起不来」的硬故障。
+
+### 文档归档（主文件 1,088 KB → 531 KB，-51%）
+
+两份长期文档已分段归档到 `docs/archive/`，**内容零丢失**（脚本末尾做逐字包含校验）：
+
+| 主文件 | 归档前 | 归档后 | 归档件 |
+|---|---|---|---|
+| `myblog/SECURITY_AUDIT.md` | 436 KB | **98 KB** | `SECURITY_AUDIT_r01-r80.md`（327 KB，R1~R80） |
+| `CHANGELOG.md` | 218 KB | **82 KB** | `CHANGELOG_v1-v3.18.5.md`（137 KB，v3.18.5 及更早） |
+
+另整份归档两份一次性快照：`INDEPENDENT_SECURITY_REVIEW_v3.8.1.md` / `REVIEW_v3.18.0.md`。
+目的是让文档体积不再随轮次线性吃掉 LLM 上下文；归档仍在版本控制内、可检索，
+主文件头部各留一行指针。守卫 `tests/test_doc_archival.py`（13 条）。
+
+**踩坑记录**：`git checkout <file>` 会连带 revert 该文件**未提交**的改动 ——
+本轮回滚时用它，把刚写好的 v3.25.0 段落一起冲掉了，只能凭上下文重写。
+**长文档回滚务必先 `git stash` 或按 hunk 回退。**（已写入 `tools/review/check-staged.py` 注释）
+
+### CSS 裸 hex 收敛（`style.css` 11 处）
+
+沿用 v3.17 起本项目的 `var(--token, #原值)` 兜底约定，**零像素差**：token 缺失时行为不变、
+旧缓存不掉色。三重判据（任一条不满足就不换）：① 值必须**逐字相等**（「长得像灰」不等于可换）；
+② 只在**亮色作用域**成立（暗色块里的值换过去会跟着变亮 = 改设计）；③ **语义一致**
+（`#ffffff` 作背景是 `--surface`、作文字是 `--on-accent`，不能同一个值到处换）。
+
+同时测绘了 `admin.css`：**190 处几乎无可换的**，分三类 —— 暗色块专用值 /
+无对应 token 的独立灰阶 / 渐变端点；且该文件早在 v3.17 就已用 17 个 `var()`。
+结论是「230 处裸 hex」这个数字本身不构成技术债，已写入棘轮基线
+`tests/test_css_token_ratchet.py`（admin.css 190 / style.css 177）。
+
+### 主题求解器畸形输入加固（发版审计 newly found）
+
+`myblog/themes.py` 的 `_at_lum()` 有两处问题，安全审计 R98 实测发现并已修：
+
+1. **重复死代码块** —— 同一份二分逻辑写了两遍，第一段缺 `else: hi = mid` 且结果被
+   第二段整体覆盖。纯死代码，但是真陷阱：后来人只会改到第一段，改完看不到任何效果。
+2. **畸形色值直接抛异常** —— 当前生产路径已由 `_tier_for` 的 try/except 挡住（不可达），
+   但模块 docstring 明写「绝不抛异常导致页面 500」，「靠调用方守」太脆。已改为
+   畸形返回 `None`（与既有「目标不可达」语义一致）。
+
+新增守卫 2 条 / 参数化组合 11 条，3 项变异全部精确变红。
+**教训**：第一轮手感探针把畸形值传在**第 2 个参数**得出「全部存活」的假阴性，
+写成真守卫时传在第 1 个参数（被调色的原色）才暴露真真空 ——
+**探针的调用姿势必须与生产调用姿势逐参数对齐。**
+
+### 升级要点
+
+- **需要 vite build**（改了 `vue-frontend/src/styles/tokens.css`），发布物含 `vue-frontend-dist.zip`。
+- 无表结构变更 → `flask db upgrade` 在 head 处为空操作（`update.sh` 会自动跑）。
+- `tools/rebuild_fts.py` **不需要**重跑（本轮未改 `_indexable()` 判定条件，只改了遍历方式）。
+- **上线后 checklist**：① 抽查含 SEO 推送记录的文章，确认「百度 / Bing」两列状态各自正确
+  （不再都显示「百度」）；② 手机 UA 下任取一张后台表格，确认卡片化后每格都带字段名抬头；
+  ③ 深色模式下过一遍全部 14 套 preset。
+
+
 > 本文件承载 **历史版本** 记录。README 只保留最新版本与上手信息。
 > 各版本的安全审计结论见 `myblog/SECURITY_AUDIT.md`；功能规划见 `ROADMAP.md`。
 
@@ -724,721 +873,3 @@ token / key 走 `backup_settings.encrypt_secret()`（PBKDF2-HMAC-SHA256 200k + F
 - **明确保留不动**：`/login` `/register` `/logout`（认证页 SSR——`app.py` 的会话失效跳转依赖 `url_for("main.login")`）、`/post/<slug>/comment` 与 `/post/<slug>/like`（两个 POST 入口，是 `DocsView` 公开文档里的 API，且不渲染模板）、`/api/weather`（在 `/api/` 前缀下，Nginx 反代）、`feed.xml` / `sitemap.xml` / `robots.txt` / `feed/comments`。
 - **SEO 现状（更正 v3.18.5 的表述）**：`/post/*` **有**聚合通道——Nginx 的 bot 规则会把匹配爬虫 UA 的请求改写为 `/api/og/post/<slug>`（服务端渲染 OG meta 的文章页），该通道不依赖已退役的 SSR 路由；但**只有 OG、没有 JSON-LD**，而 JSON-LD 原本只存在于已退役的 SSR 文章页 → **现在彻底没有了**。`/`、`/archive`、`/category/*`、`/tag/*`、`/about`、`/links` 仍是 SPA 空壳，**无任何服务端 meta**。
 - **验证**：**119 passed**（112 基线 + 7 条新增 `tests/test_ssr_retirement.py`：8 个路径 410、endpoint 名守恒、认证页仍 200、机器接口仍 200、退役模板确已删除且认证/错误页未被误删）；`compileall` 通过。**无表结构变更、无新依赖、无新增环境变量、前端产物零变化**（前端未动）。
-
-## v3.18.5（2026-09-20 · 第三方独立审计 P0 批次：8 项真实缺陷修复 + 测试库隔离）
-
-> 起因：一份对 tag `v3.18.4` 的第三方独立静态审计报告（8 章 / 240 文件 / 17,490 行 Python）指出「不是可以更好，是现在是坏的」的 8 项缺陷。本轮**全部核对复现并修复**，另附带修 3 项同源的连带缺陷。安全审计见 `SECURITY_AUDIT.md` **R85**。
-
-- **① 会话失效即 500（`redirect` 未导入）**：`app.py` 三处 `return redirect("/login?next=" + …)` 中 `redirect` 从未导入 → 「账号不存在 / session_version 不符（改密或被踢）/ 闲置超时」命中且访问非 `/api/` 路径时 `NameError` → 500。现补导入，并统一改为 `redirect(safe_redirect(url_for("main.login", next=request.path)))`（顺带做 URL 编码与站内白名单）；`admin/_helpers.py` 的 `login_required`/`admin_required` 两处同类手拼路径一并收口。
-- **② 前台登录不写 `session_version` → 改密后被永久踢出**：`routes.py` 注册/登录只写 `session["user_id"]`，而 `app.py` 会比对 `session_version`；任何改过密码或被踢过线的用户（`session_version >= 1`）从前台登录后**下一个请求即判失效**（叠加 ① 表现为 500）。现两处均补写（正确实现本就在 `admin/auth.py`）；API 登录路径（`api/common.py`）原本已正确。
-- **③ `return app` 之后的 CLI 死代码**：`flask seed` 定义在 `return app`（`app.py:730`）之后，永不注册；`init_db_command` 更是连装饰器都没有。现将 `seed` 注册移到 `return` 之前，删除无用的 `init_db_command` 与第二个不可达 `return app`。
-- **④ 年度回顾泄露隐私空间 + 回收站文章**：`api/review.py` 自建的 `_visible_posts()` 只过滤 `published` + `scheduled_at`，缺 `in_trash` / `is_private` → 超管只要把文章设为「隐私 + 已发布」，其**标题与 slug 就会被公网匿名枚举**（`/api/review/annual` 的 `hot_posts`）。现删除本地副本，统一改用 `models.visible_posts_query()`（全站可见性唯一真相源）。`SECURITY_AUDIT.md` R70-1 关于该接口「无敏感数据」的结论**已更正为假**。
-- **⑤ AI 摘要接口无可见性过滤**：`GET /api/ai/summary/<slug>` 原为 `Post.query.filter_by(slug=slug)`，不含任何可见性判定 → 任意 slug（草稿/回收站/隐私）都能读到 `ai_summary_<id>`。现改走 `visible_posts_query(user=当前用户)`。同时把后台「AI 摘要」管理页（`admin/ai_summary.py` 的 5 个路由）从 `@admin_required` **提权为 `@super_required`**——它会调用管理员自设的 LLM Base 并外发正文，与备份 / MCP / SMTP 同级敏感；导航链接同步移入超管可见区（普通管理员访问返回 403）。
-- **⑥ Markdown 表格被 sanitize 静默剥空**：`render_markdown` 开启了 markdown 的 `tables` 扩展，但 `clean_html` 的 bleach 白名单**不含任何 table 系标签**，`strip=True` 把整张表格的标签连同排版一起剥掉（不报错，因此长期未被发现）。现补齐 `table/thead/tbody/tfoot/tr/th/td/caption/colgroup/col` 与 `colspan/rowspan/align/scope`，并 **`_RENDER_VERSION` 2 → 3** 让历史文章的旧渲染缓存失效后重渲染。
-- **⑦ 零错误处理器**：全仓 `@app.errorhandler` 计数为 **0**，`first_or_404()`（12 处 JSON 路由）对 JSON 客户端返回 Werkzeug **HTML** 错误页 → 前端 `resp.json()` 解析失败，用户只看到「网络错误」。现注册 `400/403/404/405/422/500`：`/api/*` 与 MCP 端点返回统一 `{"error": …}` JSON，其余返回模板页；新增 `templates/404.html`、`403.html`、`500.html`、`error.html`（共用 `_error_base.html`），并在渲染失败时兜底纯 HTML。
-- **⑧ 测试直接读写开发库**：`tests/conftest.py` 的 `app` fixture 是裸 `create_app()`，`DATABASE_URL` 未覆盖 → 本地 `pytest` 在**真实开发库** `myblog/data/blog.db` 上建表/删数据（如 `test_mcp_write.py` 的 `Post.title.like("MCPW%").delete()`）；CI 上是新库故「碰巧干净」掩盖了问题。现改为固定临时库（`%TEMP%/llhhy-blog-pytest`，每轮开始先清空）+ **`create_app(enable_scheduler=False)`**（原先 99 个测试最多起 99 个定时线程**）。验收：全量测试跑完后 `myblog/data/blog.db` 的 **sha256 与 mtime 均不变**。
-- **附带修复（同源真实缺陷）**：
-  - **审计日志 IP 可任意伪造**：`admin/_helpers.py` 的 `log_audit` / `log_login_attempt` 直接取 `X-Forwarded-For` **最左段**（全站其余路径早已统一走 `utils.net.get_client_ip()`）。现两处改走 `get_client_ip()`，爆破者无法再往审计日志写任意 IP。R41-2「已修复」结论**对该路径为假**，已更正。
-  - **`/admin/?category_id=abc` → 500**：`int(cat_id)` 未捕获 `ValueError`，现非法值按「不筛选」处理。
-  - **未鉴权接口回显异常详情**：`/api/stats/dashboard` 出错时回显 `str(e)`（可泄露路径/库结构），现只写日志、对外返回不透明错误码。
-  - 删除无用残留：`app.config["ADMIN_HASH"]`（全仓无读取方，每次启动白算一次 scrypt）、`app.py` 的 `_orig_after` 死赋值与 `re` / `render_template` 等未用导入。
-- **验证**：**112 passed**（99 基线 + 13 条新增 P0 回归测试 `tests/test_p0_regressions.py`，修复前逐一失败、修复后全绿）；`compileall` 通过；开发库 sha256 与 mtime **零变化**。本轮**未改任何表结构、未新增依赖、未改前端产物**。
-- **未纳入本轮（审计报告第 2~8 章，见 `ROADMAP.md`）**：在线更新链 fail-open（报告判为最高风险，需引入分离物签名与密钥托管决策）、索引/查询/缓存性能批次、阻塞调用挪出请求路径、可观测性、双前端结构（Nginx 让 `/post/*` 永远收不到流量，SEO 对国内引擎实际失效）等。这些改动面大、可回归风险高，按报告建议**逐批投喂**，不在一个补丁版里混做。
-
-## v3.18.4（2026-09-19 · 补齐 i18n：导航 3 项 + 抽屉/顶栏文案 + 死键接线 + tooltip 纠正）
-
-- **导航栏补全**：`回顾`(/annual)、`社交`(/social)、`游戏`(/games) 三项原先硬编码中文（点 EN 后导航中英混排）→ 新增 `annual`/`social`/`games` 键并接入 `t()`；导航栏现在 **100% 随语言切换**（含移动抽屉与桌面顶栏）。
-- **抽屉与顶栏文案**：抽屉的 `后台` / `写文章` / `退出登录` / `登录` / `注册` / `主题：`，顶栏用户区的 `后台` / `写文章`，通知面板（`通知（N 未读）` / `全部已读` / `暂无通知`），`回到顶部`，以及汉堡与抽屉的 `aria-label`（打开菜单 / 关闭菜单 / 导航菜单）与主题按钮 `aria-label` 全部接入词典。
-- **消除 3 个死键**：`admin`（「后台」）、`write`（「写文章」）、`search_placeholder`（侧栏搜索框占位符）原先定义了却**从未接线** → 现已接入。词典 **17 → 31 键**，且**实际使用 = 31 键（0 死键、0 缺失）**。
-- **修复 tooltip 错绑**：语言按钮 `:title="t('theme')"` 导致悬停显示「主题 / Theme」→ 改为 `t('switch_lang')`（切换语言 / Switch language）。
-- **范围说明**：本轮只补**导航与公共部件**；各内容页与组件（`CommentForm` / `Sidebar` / `PostView` / `StatsView` / `DocsView` 等）的界面文案仍为中文——正文与内容的翻译需翻译服务，不在界面 i18n 范围。
-- **验证**：词典键 zh/en 完全一致；实际使用数 = 词典数（0 死键 / 0 缺失）；前端 `vite build` 通过；`99 passed`。
-
-## v3.18.3（2026-09-19 · 移除内置插件 page_translate + 恢复核心中英切换）
-
-- **移除**：删除 v3.18.0 引入的内置插件 `page_translate`（`myblog/plugins/page_translate/`、前端远程组件 `myblog/static/plugins/page_translate/widget.js`、`tests/test_plugin_page_translate.py`），`myblog/static/plugins/` 目录一并移除。
-- **配置**：`ENABLED_PLUGINS` 默认值由 `page_translate` **恢复为空**（回到 v3.10.0 起的约定：仓库不内置插件，装自写插件才填 slug）。
-- **保留**：插件框架（加载器 / 失败隔离 / 事件总线 / 后台「🧩 插件管理」/ 前端 nav·sidebar·footer·html·remote_components 槽位 / `/api/plugins`）**全部保留**。`tests/test_plugin_system.py` 两处断言恢复为「默认无插件」。
-- **恢复核心中英切换**：v3.18.0 移除的核心 i18n **全量恢复**（自 v3.17.14 逐字节还原）——`store.js` 的 `I18N` 词典 / `t()` / `setLang()` / `initLang()` / `state.lang`、`App.vue` 的 24 处 `t()` 调用与顶栏·抽屉两个语言按钮、`global.css` 的 `.lang-toggle`；后台 `site_lang` 重新生效（优先级：本地选择 > `site_lang` > 默认中文）。
-- **验证**：`99 passed`（113 − 14 条插件测试）；`compileall` 通过；`/api/plugins` 返回空清单。
-
-## v3.18.1（2026-09-19 · 超长文件拆分：utils.py 与 admin/posts.py，纯重构零行为变更）
-
-- **目标**：了结 v3.17.14 留下的技术债①「超长文件拆分」。**只移动代码、不改逻辑、不改表结构、不夹带功能**。
-- **`utils.py`（784 行）→ `myblog/utils/` 包**：按领域拆成 8 个子模块——`timeutil`（北京时间转换）/ `render`（Markdown 渲染 + HTML 白名单清洗 + 正文缓存指纹）/ `net`（限流 / 可信代理 / 客户端 IP）/ `slug`（slug 生成 + 标签归一 + slug 模板）/ `text`（JS 转义 / 字数 / UA 设备 / 爬虫识别）/ `security`（密码强度 + CSRF）/ `settings`（读 Setting）/ `web`（安全重定向 + @ 提及通知）。`__init__.py` **全量重导出全部 44 个名字（含私有名）**，故 27 个导入点的 `from utils import X` 与 `utils.X` **零改动**。
-- **`admin/posts.py`（852 行 / 26 路由）→ 5 个领域模块**：`post_editor`（写作面板：新建 / 编辑 / 自动保存 / 免登录预览 / 正文预览）、`post_manage`（列表 / 批量 / 定时发布 / 置顶审批 / 软删除）、`post_trash`（回收站）、`post_history`（版本历史 / 回滚 / 对比）、`taxonomy`（分类 / 标签 / 系列治理）。**同一 `admin_bp`、函数名不变 → endpoint 与 `url_for` 完全不受影响**；`admin/__init__.py` 改为导入 5 个新模块，原 `posts.py` 删除。
-- **验证（纯移动的可证性）**：
-  - 逐名 `ast.dump` 等价性证明：utils **44/44** 名、posts **31/31** 名，**0 处结构差异**（含装饰器）→ 确认无代码丢失 / 错位 / 改写；
-  - endpoint 守恒：原 26 条路由全部在位；模板与代码中 **99 处 `url_for('admin.*')` 全部可解析**；
-  - 全量回归 **113 passed**；`compileall` 通过。
-  - 唯一测试适配：`tests/test_render_cache.py` 的补丁目标由 `utils.render_markdown` 改为 `utils.render.render_markdown`（该函数与 `render_post_html` 同在 `render.py`，补丁须打在**定义模块**上才生效；测试意图与断言不变）。
-- **收益**：最大 Python 文件从 **852 / 784 行降到 448（`admin/_helpers.py`）/ 294（`admin/post_editor.py`）行**；`utils/` 内最大 171 行。无新增/删除依赖，无 DB 迁移，无新增环境变量。
-
-## v3.18.0（2026-09-13 · 全站翻译插件化：移除核心中英切换 + 新增 page_translate）
-
-- **移除核心中英切换**（原为「鸡肋」且无法全局生效）：删除 `store.js` 的 `I18N` 词典（仅 17 键）、`t()`、`setLang()`、`initLang()`、`state.lang`，删除 `App.vue` 顶栏与抽屉的语言按钮及 24 处 `t()` 调用（导航文案改固定中文），清理 `global.css` 的 `.lang-toggle`。根因：旧实现只翻译十几个硬编码导航文案，**文章正文 / 各视图 / 动态数据都不在内**，故无法全局生效。
-- **新增插件 `page_translate`（全站翻译）**：以插件框架的**远程预构建组件**形态提供，`slots: []`、不占核心槽位，**前端无需重新构建即可注入**（与旧 `article_toc` 同款机制）。
-  - 前台：左下角浮层「翻译整页 / 显示原文」按钮；点击即**整页翻译**——遍历导航 / 界面 / **文章正文** / 页脚等全部可译文本节点（跳过 `code`/`pre`/脚本/输入框/`data-no-translate`）。
-  - **双引擎**：优先浏览器内置 `Translator` API（免费离线，Chrome/Edge 新版），不可用或失败自动回退后端 `POST /api/plugin/page_translate/translate`（复用站点「游戏收录 / AI 摘要」的 OpenAI 兼容配置 `games_llm_*`，**无需新增密钥**）。
-  - **体验**：译文 `localStorage` 缓存（按目标语言分桶，二次访问零成本）、`WeakMap` 存原文一键还原、`MutationObserver` 适配 SPA 路由与异步内容续译、状态持久化（上次开着则进入自动翻译）、随主题 token 自适应深浅色。
-  - **安全（见 SECURITY_AUDIT R81）**：POST 走全局 CSRF（`X-CSRF-Token`）；按 IP 40 次/分 + 全局 240 次/分**双层限流**（防刷爆 LLM 账单）；目标语言白名单 + 单次 ≤40 段 / ≤4000 字符上限；纯转发**不落库**；译文由前端以 `textContent` 写入（不经 `innerHTML`，无 XSS 面）。
-- **配置**：`ENABLED_PLUGINS` 默认值由空改为 `page_translate`（可经环境变量覆盖；`DISABLED_PLUGINS=page_translate` 可紧急关停，重启生效）。后台「🧩 插件管理」可显隐。
-- **验证**：`113 passed`（99 基线 + 14 新增插件测试）；`node --check widget.js` 通过；前端 `vite build` 通过。
-
-## v3.17.14（2026-09-12 · 安全：依赖 CVE 修复 + utcnow 弃用清理 + 技术债推进）
-
-- **依赖安全升级（修复 13 条 advisory，覆盖 4 个包）**：经 OSV 全量扫描（R79），将 4 个存在已知漏洞的依赖升至已修复版本——
-  - `Flask` 3.0.3 → **3.1.3**（CVE-2026-27205，LOW）
-  - `markdown` 3.6 → **3.8.1**（CVE-2025-69534，MODERATE）
-  - `bleach` 6.1.0 → **6.4.0**（GHSA-8rfp-98v4-mmr6 LOW + GHSA-gj48-438w-jh9v MODERATE）
-  - `cryptography` 46.0.7 → **50.0.1**（CVE-2026-69247 HIGH、CVE-2026-69248 MODERATE、CVE-2026-69249 HIGH、GHSA-537c-gmf6-5ccf HIGH【捆绑 OpenSSL】）
-  - 根因：此前 `cryptography` 上限卡在 `<47` 挡住了全部修复；本次放宽至 `>=50.0.0,<51.0.0`，其余三包同步取最新安全版。前端 `npm audit --production` 0 漏洞。
-- **`utcnow()` 弃用清理（技术债①）**：新增 `myblog/_time.py` 集中导出 `utcnow()`（语义不变：返回 naive UTC，与旧 `datetime.utcnow()` 字节级一致，DB 列均为 naive），替换 17 处直接调用（含 `models.py` 的 `default=`/`onupdate=` 工厂），消除 Python 3.12+ 的 `DeprecationWarning`。
-- **技术债核查（R80）**：②「84 处裸 `except` 需补日志」经逐文件核查**不成立**——仓库 0 处裸 `except:`（均为 `except Exception:` 或具体异常），无需改动，与 R76 结论一致；③「超大文件拆分」（`admin/posts.py` 851 行等）本次先做**前置安全网**——新增 5 条 characterization 测试（发布 / 编辑 / 软删入回收站 / 回收站恢复 / 立即发布），锁死最高风险行为，拆分留待后续单独排期。
-- **部署前置（重要）**：运行环境最低 Python 升至 **≥3.10**（由 `bleach 6.4.0` 的 `requires_python>=3.10` 决定；`cryptography 50.0.1` 亦要求 `!=3.9.0,!=3.9.1,>=3.9`）。服务器须 Python ≥3.10 才能 `pip install -r requirements.txt` 装齐本文件。宝塔文档环境为 3.13.5，满足；上线前仍建议 `python --version` 复核。
-- **验证**：`99 passed`（94 基线 + 5 新增 characterization）；后端 `python -m compileall` 通过；无 `datetime.utcnow` 弃用告警残留。安全审计结论见 `myblog/SECURITY_AUDIT.md` R79 / R80。
-
-## v3.17.13（2026-09-12 · UI：后台备份页移动端重构 + 前台导航图标统一）
-
-- **后台「数据备份」页移动端重构**（原问题：手机上看不美观、数据不全面）：
-  - 新增**概览卡**（7 项关键运维数据）：本地备份数 / 备份总占用 / 数据库大小 / 上传目录大小+文件数 / 保留周期 / 最近一次时间 / 异地容灾配置数（OSS·SCP·WebDAV 三态标签）。数据由 `backup.py` 新增 `fmt_size` / `file_size` / `dir_stat`（带 60s TTL 缓存，避免每次遍历上传目录）/ `backup_stamp` 计算，`admin/settings.py` 一次性装配为 `summary` 传给模板，**零新增表/字段**。
-  - 备份列表表格改为**响应式**：窄屏（≤720px）每行自动变卡片（`data-label` + 媒体查询），不再横向溢出；完整性状态红绿配色；保留下载/恢复操作。
-- **前台导航图标统一**（原问题：手机抽屉菜单样式不齐）跨后台一致：13 个菜单项（首页/归档/统计/回顾/关于/友链/广场/社交/系列/游戏/热门标签/文档/留言板）全部加上 `<span class="nav-emoji">` 固定宽图标，**抽屉与桌面顶栏同步**；风格对齐后台 `.side-nav .nav-emoji`（固定 20px 宽、居中、不压缩）。
-- **验证**：`94 passed`；前端 `npm run build` 通过；备份页路由 import 冒烟通过。
-
-## v3.17.12（2026-09-12 · 补充修复：RSS 聚合抓取加超时 + 纪律零 gitignore 兜底）
-
-- **修复：博客圈 RSS 聚合抓取无超时**（`feed_agg.py:212`）——`feedparser.parse()` 内部走 urllib、默认无超时，任一友链源挂起会把 `/api/feed/circle` 请求**连同 gunicorn worker 一起拖住**；R54 的 socket 超时加固只覆盖了诊断探针 `_probe_rss`，漏了聚合主路径。现与探针同手法加 `setdefaulttimeout(12)` + `finally` 还原。
-- **加固：`.gitignore` 补纪律零黑名单**——`_verify_*.py` / `_make_release_*.py` / `smoke_*.py` / `_review_*.py` / `_rescan*.py`，在钩子之外于 gitignore 层再兜一道，避免 `git add -A` 误入版。
-- **补扫确认（无问题）**：7 处 `urlopen` 均带显式超时、SMTP 2 处 `timeout=20`、全项目无 `requests` 依赖、`target="_blank"` 均带 `rel`、gitignore 覆盖完整、历史审计轮次无未清遗留。
-- **复核后仍不做（附理由）**：`datetime.utcnow()` 32 处（当前 Python 无影响，宜随「Python 升级」专项集中替换）、84 处降级 `except` 全量改造（既定范式）、超长文件拆分（属重构，需先补测试）。详见 `myblog/SECURITY_AUDIT.md` R77。
-- **本环境无法完成**：依赖 CVE 扫描需联网（`pip-audit` / `npm audit`），已在 R77 给出可执行命令。
-
-## v3.17.11（2026-09-12 · 全项目审查修复：SSR 高亮本地化 + 限流 fail-closed + CSS 注入面 + 依赖上限 + 核心面补测）
-
-- **修复：SSR 文章页代码高亮从未生效**——`post.html` 从 bootcdn 加载 highlight.js 的 CSS/JS，被本站 CSP（`script-src/style-src 'self'`）拦截；同时是 M2「CDN 供应链加固」的**漏改点**（当时只改了 Vue 前端）。改为**本地静态资源**（`myblog/static/vendor/hljs/highlight.min.js`，esbuild 从 `highlight.js/lib/common` 打包 + `github.min.css` / `github-dark.min.css`），模板 4 处引用改 `url_for('static', ...)`；**不放宽 CSP**、零外部源。
-- **修复：MCP 写端点限流 fail-open**——`utils.rate_limit` 内部已自带 Redis 异常→内存回退，`mcp_write.py` 外层的 `try/except: pass` 属冗余，且会让写接口在限流器异常时**静默失去限流**；已删除，改为显式 500（**fail-closed**）。
-- **加固：`custom_css` 注入 `<style>` 的逃逸面**——新增 `app.py::_safe_css()` 转义 `</style` 与 `<!--` 后再注入，一处修复**前后台两模板同时生效**（CSS 语义不受影响）。
-- **修复：未登录访问超管页触发 SAWarning**——`admin/_helpers.py:86` 的 `db.session.get(User, session.get("user_id"))` 在未登录时为 `get(User, None)`，改为先判空再查（行为等价，消除 SQLAlchemy 未来版本将升级为错误的告警）。
-- **可复现性**：`requirements.txt` 可选依赖补上限（`redis<7`、`Pillow<13`、`cryptography<47`、`segno<2`）。
-- **测试**：新增 `tests/test_api_posts.py`（5 例）与 `tests/test_api_auth.py`（4 例）——覆盖此前无专测的**公开内容面与认证面**（分页参数不可被客户端放大、搜索高亮 XSS 防护、草稿匿名 404、`/api/csrf` 可用、未登录 `me` 不泄露、登录失败统一文案且不回显口令）；**全量 94 passed**（原 84 + 新 10）。
-- **全项目代码审查结论**（审查范围、六类发现项、逐项证据与未采纳项的工程判断）已合并进 `myblog/SECURITY_AUDIT.md` **R76** 轮次。
-
-## v3.17.10（2026-09-12 · update.sh 清理旧 assets + 文档页代码高亮修复）
-
-- **update.sh：前端覆盖前先清 `assets/`**（用户要求）——assets 文件名带内容 hash、由 `index.html` 引用，新包含全部所需文件，清理可避免历史 chunk 无限堆积（此前每次升级残留数份）。已同步服务器现有部署并清理存量残留（**214 → 39 个文件**，先备份到 `/www/wwwroot/backups/assets_backup_*`；清理依据「index.html 引用链递归解析」校验，页面与懒加载 chunk 全部正常）。
-- **修复：文档页（`/docs`）代码高亮从未生效**——highlight.js 的 CSS/JS 原从 cdnjs 动态注入，被本站 CSP（`style-src/script-src 'self'`）拦截。改为**本地打包**（`highlight.js/lib/core` + bash/js/json/python 按需注册 + `styles/github-dark.css`），不再依赖 CDN，也不放宽 CSP。
-- **修复：游戏目录（`/games`）显示异常**——卡片内文字写死浅色（`#777/#999/#666/#888`）在深色模式下不可读，统一改主题 token（`--text-muted` / `--text-faint` / `--border`）；**封面图加载失败自动回退为「首字母」占位**（此前封面地址失效会留裂图）；窄屏（≤560px）改单列并加大按钮点击区。
-- **优化：后台侧栏点击菜单不再跳回最顶部**——侧栏 `.side-nav` 的滚动位置记入 `sessionStorage`，跨页面跳转后自动恢复；首次进入（无记忆）时把当前激活菜单滚入视野（仅桌面宽度，避免抽屉模式下页面跳动）。
-- **修复：后台「游戏收录」页（`/admin/games`）显示异常**——说明文字与「LLM 自动审计已开启」原为内联写死浅色（`#666/#2e7d32`），深色模式下不可读 → 改为类 + 深色覆盖；**操作列内多个表单/按钮/输入框并排挤压错位** → 新增 `.row-ops` 统一 flex 换行（窄屏下驳回原因输入框占满一行）；审计摘要 `<pre>` 加 `overflow-wrap:anywhere`，避免长内容撑破表格。
-
-## v3.17.9（2026-09-11 · 复制修复 + 后台移动端补齐 + AI 摘要完整显示 + 社交墙独立成页）
-
-- **修复：全站一键复制失效**——前台 `SharePanel / DocsView / PostView` 与后台 `edit_post / mcp_instruction / media_lib / theme_center` 共 7 处统一改为「三层兜底」复制：`navigator.clipboard`（需 https + 权限）→ 临时 textarea + `execCommand('copy')`（兼容 http / 微信内置浏览器 / 权限被拒）→ `prompt()` 手动兜底（保证永不失效）。前台新增 `lib/clipboard.js`；后台在 `base.html` 注入全局 `window.__copyText`。
-- **修复：后台移动端显示异常（备份配置页 / 诊断助手页）**——「备份配置」内联 `grid-template-columns:1fr 1fr 1fr 1fr` 强制 4 列致手机挤压：`.stats-grid` 窄屏单列规则加 `!important` 覆盖内联，并新增通用规则 `[style*="grid-template-columns"]` 窄屏单列；「诊断助手」（`/admin/feed-diag`）用的 `.stats-table` 补齐横滚与内联列宽解除（此前只处理了 `.admin-table` / `.rank-table`）。
-- **修复：AI 摘要显示不全**——后台「AI 摘要」页原用 `details` 折叠且只显示前 60 字，改为**默认完整展示**摘要与标签（`white-space: pre-wrap` 换行），编辑表单折叠在「✏️ 编辑」内。
-- **新增：社交账号墙独立成页 + 更多平台**——新增前台独立页 `/social`（「🔗 找到我」卡片墙：平台图标/主题色自动匹配；QQ/微信填号码点击复制、填图片地址展示二维码；邮箱自动补 `mailto:`），主页新增「找到我」区块（前 6 个 + 全部入口），导航（桌面 + 抽屉）加「🔗 社交」；广场页关注 tab 保留精简版并引导到独立页；后台「社交账号」表单加 20 个平台预设下拉与填写说明。
-
-## v3.17.8（2026-09-11 · 修复 LLM Base 填完整端点时 URL 拼接错误）
-
-- **修复：`games_llm_base` 填完整端点（如 `https://open.bigmodel.cn/api/paas/v4/chat/completions`）时，代码再拼一次 `/chat/completions` → 请求 404/挂起**——游戏 LLM 审计与 AI 摘要都受影响。现在 `_llm_chat` 与游戏审计均自动归一化 Base（剥离尾部 `/chat/completions`），两种填法都兼容。
-- 线上实测定位：该配置下游戏审计与摘要生成从未成功过；修复后 URL 正确（智谱接口另有 RPM 限流，遇 429 稍后重试即可）。
-
-## v3.17.7（2026-09-11 · 后台「AI 摘要」独立管理页）
-
-- **后台新增「🤖 AI 摘要」页**（侧栏「访问统计」后）：列出全部已发布文章的摘要覆盖状态（已覆盖 x/y）；单篇**生成 / 重新生成 / 手动编辑**（摘要 + 标签建议，`<details>` 行内展开）/ **清除** / **批量补齐**（每次最多 3 篇防请求超时，多次点击直至全覆盖）；顶部显示 LLM 配置状态（复用「游戏收录」的 `games_llm_*` 配置并附跳转，未配置时按钮禁用）。
-- 提示词提取为 `api/ai.py` 公开常量 `AI_SUMMARY_SYSTEM / AI_SUMMARY_USER_TMPL`（管理页与 API 共用，口径一致）；全部写操作 `admin_required + log_audit`；仍存 Setting KV，**零表结构变更**。
-
-## v3.17.6（2026-09-11 · 访客地图菜单入口）
-
-- **前台菜单新增「📅 回顾」**（桌面导航 + 移动端抽屉，位于「统计」之后）——直达 `/annual` 年度回顾页（访客地图 / 成就徽章 / 年度数据）。此前该页只能手动输入网址访问。
-- **后台侧栏新增「🗺️ 访客地图」**（「访问统计」之后，新窗口打开前台 `/annual`）。
-
-## v3.17.5（2026-09-11 · 修复归档页深色模式文字看不清）
-
-- **修复：归档时间线深色模式对比度（用户报障）**：Vue 版 `global.css` 的归档时间线写死浅色系颜色（标题 `#333`、月份 `#999`、日期 `#aaa`、时间线竖线 `#e6e6e6`，空态 `#999`），深色背景下全部不可读——SSR 版 `style.css` 有 `[data-theme=dark]` 覆盖而 Vue 版漏了。统一改为主题 token（`var(--text)/var(--text-muted)/var(--text-faint)/var(--border)`），深浅色自动跟随。
-
-## v3.17.4（2026-09-11 · 修复首页 Bento 概览卡错位）
-
-- **修复：Bento Grid 布局错乱（用户截图报障）**：友链卡原用「跨 2 行」（`bento-tall`），6 张卡在 4 列网格下必然留出空格——第二行错位、友链卡被拉长、下方大片空白。改为**对角双宽卡**布局：第一行 文章(跨2)＋阅读＋分类、第二行 标签＋友链(跨2)＋评论，正好铺满；窄屏两列时评论卡占满一行，同样不空格。纯前端 CSS/模板改动。
-
-## v3.17.3（2026-09-11 · 评论表情回应 + 访客来源分析）
-
-- **评论表情回应（D 项）**：每条评论（含回复）新增 👍❤️😂🎉🤔👏 表情条——`GET /api/comments/reactions?ids=` 批量取计数、`POST /api/comments/<id>/reactions` 点/取消（IP 限流 40/分钟、全局 CSRF、仅已审核评论）；计数存 Setting KV（`react_<评论id>`，**零表结构变更**，与 `ai_summary_<id>` 同模式；每评论独立 key 避免并发读改写竞态）；前端乐观更新 + 失败回滚 + localStorage 记本机已选（与点赞机制一致）。
-- **访客来源分析（F 项，经用户确认加列）**：`visit_log` 新增 `referrer` 列（**仅存 origin**，完整 URL 的 query 可能含 token/隐私参数不入库）；新增幂等迁移脚本 `myblog/migrate_visit_log_referrer.py`（PRAGMA 检查 + ALTER，与 v3.7.1 bot 字段迁移同模式，可重复运行）；前端埋点上报 `document.referrer`（仅真实入口有值）；新增 `GET /api/stats/referrers?days=N`（来源 TOP10，排除 bot 与本站自引用，单独计「直接访问」）；统计页新增「🧭 访客来源 Top 10」卡。
-- **访客地图（B 项补全，地图合规）**：`/annual` 新增「🗺️ 访客地图」——自绘墨卡托 SVG + 省份热力着色（`color-mix` 跟随主题色，含港澳台与南海诸岛完整版图）；底图用**阿里云 DataV 行政区划 GeoJSON**（国标审图号数据，不用 OSM/Mapbox 等不合规源），后端磁盘缓存 7 天（`GET /api/geo/china.json`，拉取失败前端自动降级为地域榜）；数据 `GET /api/geo/visitors`（按 `VisitLog.region` 省级部分聚合 + 简称→全称映射，**仅省级计数，不含任何个人位置数据**）。
-- 回归：pytest 84 passed；compileall、vite build 通过。
-
-## v3.17.2（2026-09-10 · 后台移动端系统性修复 + 打印优化 + 成就徽章）
-
-- **后台移动端系统性防溢出**（用户报：仪表盘已修好但**其他菜单仍异常**）：`admin.css` 新增 `@media (max-width:760px)` 规则组——表单控件取消 `min-width:180/200px` 并在窄屏占满（`!important` 覆盖模板内联固定宽度）、写作面板 `.md-body` 分屏改单列、工具条/筛选/批量操作改换行而非撑宽、`pre/code` 允许横向滚动、`.edit-form/.auth-box/.section-box/.hero-card` 宽度上限解除、`img/video/canvas/iframe` 自适应。
-- **打印优化（阅读体验补全）**：新增 `@media print` —— 隐藏导航/侧栏/抽屉/评论/分享/灯箱/Toast/回到顶部等交互元素，正文全宽、黑字白底、外链附 URL、代码块换行、图片与表格避免跨页断裂、页边距 14mm。
-- **成就徽章（游戏化补全）**：新增 `GET /api/milestones`（公开只读聚合，**无表结构变更**）——8 枚里程碑（起步 / 勤笔不辍 / 著作等身 / 千人共读 / 万人瞩目 / 热络互动 / 坚持更新 / 长期主义），附**连续更新天数**与**开博天数**；`/annual` 页新增徽章区，未解锁自动置灰并显示进度（如 `7/10`）。
-- 回归：pytest **84 passed**；compileall、vite build 通过。
-
-## v3.17.1（2026-09-10 · 修复导航 CSS 选择器被转义致深色修复不生效）
-
-- **根因**：v3.17.0 注入的导航配色选择器写作 `html:not([data-theme="dark"])`，含双引号；Jinja **autoescape** 把 `"` 转义为 `&#34;`，线上实际渲染成 `html:not([data-theme=&#34;dark&#34;])`——这在 CSS 中不是合法选择器，整条规则失效，导致**后台与 SSR 页面的深色白条修复实际未生效**（前台 Vue 走 JS 内联变量，不受影响）。
-- **修复**：改用**无引号属性选择器** `html:not([data-theme=dark])`（CSS 合法等价写法），从根上规避转义；同时补回被编辑波及的 `theme_css` 定义（圆角/字号变量）。
-- **回归测试**：新增 `tests/test_theme_nav_css.py` —— 断言 SSR 输出含可用选择器、不含 `&#34;`、且 `--theme-radius/--theme-font-size` 仍在，防止再次踩坑。
-
-## v3.17.0（2026-09-10 · 深色修复 + 动效/无障碍 + AVIF + 年度回顾 + AI 摘要）
-
-- **修复：深色模式顶部白条（前后台 + SSR，同源根因）**：`nav_style`（独立设置）把 `--nav-bg` 写死白色，且写在了压过 `[data-theme="dark"]` 的优先级位置——前台是 `store.js` 的元素内联 style（最高优先级），后台/SSR 是 `base.html` 里位于 `link admin.css` 之后的 `<style>:root{…}`（同特异性后者胜）。修法：`app.py` 把导航配色拆成 `theme_nav_css` 并限定 `html:not([data-theme="dark"])`；`admin/base.html`、`templates/base.html` 各注入一次；`store.js` 不再写死导航变量（新增 `applyNavVars` 仅作无主题包兜底）；SSR 前台 `style.css` 的 `.site-header` 改用 `var(--nav-bg)`；顺带修 `global.css` 的 `--nav-fg: var(--nav-fg)` 自引用（该变量此前变为无效值）。
-- **修复：主题包换肤实际未生效**：`themes.py` 的 token key 用下划线（`nav_bg`/`surface_2`），CSS 变量用短横线（`--nav-bg`），而 `applyThemeTokens` 原样拼接 `"--" + k` → 写入的是无效变量名。已改为统一转换（`_`→`-`）并在写入前清除上一轮变量（避免亮/暗切换残留）。
-- **修复：后台表格手机端无法浏览全文**：`admin/base.html` 的 `admin-responsive-base` 内 `@media (max-width:760px)` 升级为**卡片化堆叠**（隐藏表头、每行成卡片、单元格纵向、取消 `min-width:560px` 与首列 sticky），彻底消除横向滚动，长文本可换行完整阅读。
-- **P0 体验/无障碍**：`prefers-reduced-motion: reduce` 全局降级（前后台）；首页骨架屏（`HomeView` loading + `.skel-*`）；新增轻量 Toast（`src/lib/toast.js`）替换前台 4 处原生 `alert`。
-- **设计 token 补齐**：前后端 `tokens.css` 增加 `--radius-xs`、`--transition-fast/-slow`、`--ease-standard`，动效统一走变量。
-- **P1 动效/响应式**：路由过渡（`App.vue` `<Transition name="page">`）、滚动渐入指令 `v-reveal`（`main.js` IntersectionObserver，reduced-motion 下自动跳过）、容器查询（`.content{container-type:inline-size}` + `@container`）。
-- **P2 视觉/趣味**：首页 Bento Grid 概览卡（文章/阅读/分类/标签/友链/评论，数据取 `/api/site`）；排版升级（流式字阶 `clamp` + 阅读行高）；移动端手势导航（左缘右滑开抽屉、抽屉内左滑关闭）；键盘彩蛋（依次输入 `llhhy`）。
-- **AVIF 图片优化（零新增依赖）**：`maybe_convert_webp` 在 Pillow 支持时额外生成同名 `.avif` 旁路（`features.check("avif")`，不支持则静默跳过）；渲染管线 `utils.render_markdown` 在清洗后把站内 `.webp` 图片升级为 `<picture><source type="image/avif">`（仅当同名 avif 磁盘存在，避免 404）；`_RENDER_VERSION` 1→2 触发正文缓存一次性重渲染。
-- **游戏化：年度回顾 + 访客地域榜**：新增公开只读 `GET /api/review/annual?year=YYYY`（`myblog/api/review.py`）聚合发文/阅读/评论/访客/字数、月度发文、最热文章 Top5、高频标签、地域 Top8；前端新增 `/annual` 页（`AnnualView.vue`）。**地域用条形列表呈现，不渲染地图**（规避地图数据合规问题与重依赖）。
-- **A 内容 AI：文章摘要 / 标签建议**：新增 `GET /api/ai/summary/<slug>`（公开只读）与 `POST /api/ai/summary/<slug>`（仅超管，全局 CSRF）——复用「游戏收录」的 OpenAI 兼容配置（`games_llm_*`），结果存 `Setting`（`ai_summary_<id>` / `ai_tags_<id>`），**零表结构变更**；后台文章编辑页新增「🤖 生成 AI 摘要」按钮，前台文章页展示摘要与标签建议。
-- **回归**：全量 pytest **82 passed**；后端 compileall 通过；前端 `vite build` 通过（`_vite_build21`）。
-
-
-
-- **主题中心（新模块，仅超管）**：`myblog/themes.py` 用 OKLCH 感知色彩空间（纯标准库）从单个亮色 accent 推导暗色，提供 14 套预设主题包（亮色单源 / 暗色自动、每包含 `light.accent` 与 `dark.bg` 等语义 token）。`myblog/api/theme.py` 暴露 `GET /api/theme`（公开列预设 + 当前 `pack_id`）与 `POST /api/theme`（仅超管，应用预设包或自定义 JSON，全局 CSRF）。`myblog/admin/theme_center.py` + `templates/admin/theme_center.html` 后台实时预览网格 + 自定义 JSON 导入/导出；后台 `base.html` 新增「🎨 主题中心」导航。`api/site.py` 下发 `theme_pack`/`theme_tokens`/`theme_dark_tokens`，`store.js`/`App.vue` 前端整体换肤；应用预设即写入 `Setting`（重启即时生效，`/api/site` 联动）。
-- **分享卡重做收尾**：`myblog/og_image.py`（Pillow 绘制 1200×630 分享卡 PNG + 磁盘缓存 + 缺依赖/字体即降级回退 `og-default.png`）、`myblog/api/og.py`（动态 OG 图 `/api/og/post/<slug>.png` + 站点二维码 `/api/qr` SVG + 文章级 OG meta SSR）；`vue-frontend/src/components/SharePanel.vue`（SVG 图标分享面板，聚合微博/QQ/微信/X/Telegram/Facebook/LinkedIn）、`PostView.vue`（图片灯箱 + 代码复制 + 阅读时长）。`requirements.txt` 加 `segno`（二维码）。
-- **安全加固（R69）**：写接口严格限超管 + 全局 CSRF；读接口（预设/OG/QR）公开只读且经 SSRF（封面仅站内、QR 仅同 host）/限流（`/api/qr` 30/60s）/降级三重加固。已知低风险：自定义主题值未做颜色白名单（管理员→自身 CSS 视觉篡改，无 JS 执行），威胁模型内已接受并记录。**R69 结论：0 遗留（1 已记录低风险）**。详见 `myblog/SECURITY_AUDIT.md`。
-- **兼容/收尾**：主题中心与 OG/QR 全部复用既有 `Setting` 表与 `db.create_all` 自愈，**无新表、无新列、无 Alembic 迁移**；全量 pytest **82 passed**（新增 8 条主题中心测试，并抓出「`admin/theme_center.py` 漏注册到 `admin/__init__.py` 致 404」已修复）；`APP_VERSION` → 3.16.0。
-- **发版**：`myblog-backend.zip` + `vue-frontend-dist.zip` + `sha256.txt` 双源互证；升级需**前后端包都覆盖**（主题中心依赖新后台路由 + 新 `index.html`）。
-
-## v3.15.3（2026-09-08 · 评论邮箱字段 + Cravatar 头像）
-
-- **评论邮箱字段**：评论表单新增邮箱输入框，站点设置「评论邮箱必填」开关可一键切换必填/选填（默认选填）。邮箱**仅用于获取 Gravatar 风格头像，明文不落库**，仅存 MD5 哈希（Gravatar 协议标准）。
-- **Cravatar 头像接入**：评论列表（前台 SSR + Vue 前台 + 后台管理）自动展示头像；服务端走 `cn.cravatar.com` 国内 CDN（拿不到邮箱哈希时回退 `?d=mp` 神秘人）。**首次引入第三方头像服务**，placeholder 与模板已注明「仅用于头像，不会公开」。
-- **配置 API**：新增 `GET /api/comment/config` 公开返回 `{email_required}`，Vue 前台据此动态决定邮箱输入框 `required` 属性（不影响 SSR 表单 SSR 已用 `comment_email_required` 模板变量）。
-- **数据迁移**：`myblog/app.py _migrate_comment_table` 幂等新增 `email_hash VARCHAR(32) DEFAULT ''`，老库重启自动补列；老评论无邮箱哈希时头像静默隐藏，行为向前兼容。回滚 `git revert` 后不影响其他评论功能。
-- **安全护栏沿用**：评论提交仍受原有限流（60s/10 条）与验证码机制保护（form post 与 API 双入口均覆盖）；邮箱格式 `^[^@\s]+@[^@\s]+\.[^@\s]+$`，先 `.strip()` 后校验。
-- **收尾**：PR #3 squash merge（ridd1ot 贡献，4 项原项目方审计通过）；本地静态自检 0 遗留；APP_VERSION → 3.15.3。
-- **仓库清理**：撤销《桃源岛》3D 开放世界 4 个 WIP commit（`a297274` `1889570` `12ea8a4` `f40f4c1`），main 历史保留 4 个反向 commit 作为诚实留痕（工作树已无 openland 相关文件；桃源岛代码仍可在原 commit 历史中恢复）。
-
-## v3.15.2（2026-09-08 · 分享卡片 SSR / 社交分享面板 / 修复 / 新游戏）
-
-- **分享卡片 SSR**：新增 `GET /api/og/post/<slug>` 服务端渲染文章级 OG meta（title/摘要/封面/绝对 URL）；nginx 对爬虫/社交抓取 UA 访问 `/post/…` 自动分流到 SSR，真人仍走 SPA——微信/微博等外链卡片不再依赖前端 JS。
-- **社交分享面板**：文章页「📤 分享到…」聚合微博/QQ/微信(复制)/X/Telegram/Facebook/LinkedIn，链接统一携带文章卡片信息。
-- **修复**：后台「标签管理」500（`from myblog.utils` 错误包式导入 → 顶层 `from utils`）。
-- **新游戏**：《恐龙快跑 dino-run》（PR #2，ridd1ot 贡献）审计通过并入内置。
-- **收尾**：R67 审计 0 遗留；APP_VERSION → 3.15.2。
-
-## v3.15.1（2026-09-07 · 响应式基座 / 分享卡片收尾 / 游戏调整）
-
-- **响应式基座重构**（根治移动端文章排版错乱/超模）：主布局 Grid `minmax(0,1fr)`、全站 `min-inline-size:0` 防溢出基线、流式 `clamp()` 字阶、媒体/宽表/长串全局兜底、`text-size-adjust`；后台同步结构级基座（表格滚动、容器 min-width、窄屏舒适化）。新增 `vue-frontend/src/styles/responsive.css`。
-- **微信分享卡片收尾**：文章页动态 OG 图址绝对化 + 无封面自动回退站点分享图（og-default.png），配合站点级 og/twitter meta。
-- **内置游戏调整**：撤下《就是开车》；保留《就是按一下》。后续 3D 开放世界新作另行发布。
-- **收尾**：R66 审计 0 遗留；APP_VERSION → 3.15.1。
-
-## v3.15.0（2026-09-07 · 标签治理 / 分享卡片 / 游戏平台）
-
-> 开发分支 `v314-dev`，未发版。功能分两条线：前台体验修复 + 游戏平台。
-
-- **标签治理**：保存文章/写作面板标签自动去重（兼容中英文逗号顿号分号、大小写与空白变体归一复用），不再越积越多；0 使用标签自动清理；后台「标签管理」新增使用数、一键整理（合并重复 + 清理未使用）、在用标签禁删。
-- **微信分享卡片**：站点级 OG/twitter meta 与默认分享图 `og-default.png`；文章页动态 OG 修正为绝对图片地址 + 无封面自动回退。
-- **移动端溢出加固**：正文宽图/宽表/iframe 超屏修复（配合 v3.12.2 长文本断词）。
-- **游戏平台**：后台可收录 zip（安全解包：防目录穿越、扩展名/大小/数量白名单）→ manifest 校验 → 静态可疑代码扫描（11 规则打分）→ 待审/上架/驳回/下架；可配置 OpenAI 兼容大模型做代码安全审计（Key 加密落库）；前台沙箱托管（iframe sandbox + CSP `connect-src 'none'` + nosniff，仅已上架可见）；前台 `/games` 卡片厅、`/games/:slug` 播放、`/games/dev` 开发者接入文档。
-- **内置首款游戏《就是按一下》**：双关卡（静态狂按 2400 + 会逃跑按钮 1200），预计约 40 分钟马拉松；开场登记 ID，页内大神榜记录前三，通关按真实用时弹出「你的人生因此浪费了 X 分 Y 秒」。
-- **内置第二款《就是开车》**：一条没有尽头的公路——左右滑动/方向键控车（对向来车、擦肩计数、撞车只减速被嘲讽不掉血）；正式模式孤独 40 分钟、另附 1 分钟试驾模式；通关按真实用时弹「你孤独地浪费了 X 分 Y 秒」并记 ID 大神榜。纯自绘原创，不涉及任何既有游戏资产。
-- **收尾**：R65 九维安全审计 **0 遗留**（详见 `myblog/SECURITY_AUDIT.md`）；全量 pytest **74 passed**；内置游戏由 `myblog/tools/seed_games.py` 与后台上传同安全链路收录；APP_VERSION → 3.15.0。
-- **部署**：后端包 + 前端包都要覆盖（游戏厅新增前端路由）；gunicorn「停止 → 启动」后新表 `game` 自动创建；站点目录执行 `python tools/seed_games.py` 收录两枚官方内置游戏；无新增环境变量、无新 Nginx 规则。
-
-## 已回滚版本（强制记录，避免重复踩坑）
-
-> 纪律：任何「发布后回滚」的版本都必须在此留痕——版本号 / 回滚时间 / 回滚原因 / 复盘结论。
-
-### v3.10.7（Redis 业务缓存层）— 已回滚
-
-- **回滚时间**：2026-08-29
-- **回滚动作**：`git revert` 回 v3.10.6（commit `87827c0`，删 `myblog/cache.py` + `tests/test_cache_layer.py`），GitHub Release 撤回、tag `v3.10.7` 本地+远程删除；当前 `main` 与 `APP_VERSION` 均回到 3.10.6。
-- **回滚原因**：新增 Redis 业务缓存层（feed_agg / stats / setting 三类键，复用 rate_limit 降级范式）部署到服务器后出问题，评估修复成本后决定放弃而非硬扛。
-- **复盘结论**：
-  1. 引入新外部依赖（Redis）的大功能，发布前必须在**服务器端实跑验证**，不能只靠单元测试 + 安全审计兜底；
-  2. 「发布出问题立即回滚、不硬扛」的决断力是对的，保持；
-  3. FastAPI 迁移评估结论不变（SQLite 上 async 比 sync 慢 1.25–1.27x，维持 Flask 栈）。
-
-## v3.14.0（2026-09-07 · 写作面板升级 + 文章管理独立页 + 媒体库 + 版本对比 + 草稿预览）
-
-- **写作面板重做（`edit_post.html` 全量重写 + `admin/posts.py`）**：
-  - Markdown 工具栏（加粗 / 斜体 / H2 / H3 / 引用 / 无序·有序列表 / 代码块 / 表格 / 链接 / 插图），插入走 `textarea` 选区操作不破坏手写内容；
-  - 视图切换「编辑 / 分屏 / 预览」三态；实时预览 400ms 防抖走后端 `/admin/md-preview`——与前台**同一渲染管线**（`utils.render_markdown` → bleach 白名单），所见即所得；
-  - 快捷键 `Ctrl+S` 保存 / `Ctrl+B` 加粗 / `Ctrl+K` 插链接；
-  - **云端自动保存**：`POST /admin/post/<id>/autosave`（4s 防抖，仅内容类字段：标题/正文/摘要/封面/分类/系列/标签/SEO——不记版本历史、不触发发布与推送，避免悄悄执行用户没勾选的动作）；
-  - 未发布稿一键「🔗 复制免登录预览链接」：`/admin/preview/<token>`，HMAC（SECRET_KEY）签名 + 24h 过期，仅对「未发布 + 非私密 + 非回收站」签发，其余 404，页面 `noindex,nofollow`。
-- **「📄 文章管理」独立成页（`my_posts` 重写）**：管理员看全站（普通用户仅自己的）；关键词 / 状态 / 分类 / 系列四维筛选 + 创建·更新·阅读·字数·标题多列排序 + 分页；**批量操作** `/admin/posts/bulk`（发布 / 转草稿 / 移入分类 / 移入系列 / 移回收站，权限沿用单篇规则；批量发布刻意不触发订阅推送，避免一次几十封打扰）。
-- **就地新建分类 / 系列**：写作页下拉选「＋新建…」即出现输入框，随保存/自动保存一起提交（`_ensure_category_by_name` / `_ensure_series_by_name`，同名自动复用、slug 走 `unique_model_slug` 全局唯一），**不需要退出编辑页**。
-- **「🖼️ 媒体库」（`admin/media.py`）**：`GET /admin/media` 浏览 `static/uploads`（时间倒序、标注大小 / 上传时间 / 疑似引用的文章，删前提醒）；`POST /admin/media/delete` 删除（`basename` + `abspath` 前缀防路径穿越，仅管理员）。
-- **版本历史逐行对比**：`/admin/post/<id>/history/diff? a=<版本id>`，difflib 生成增删行 + 少量上下文，避免长文整页刷屏。
-- **分类 / 系列管理增强**：`rename_category` / `rename_series`（改名 slug 自动重算并保持唯一，分类撞名拦截并提示「用删除转移做合并」）；分类删除支持「把文章转移到另一分类」后再删（`move_to`，转移循环后 `flush()` 防 SQLAlchemy 把子外键置 NULL）。
-- **修复 stock bug（图片上传必 500）**：`admin/_helpers.py` 自 v3.11.0 由单文件 `admin.py` 切片后**遗失 `_MAGIC_PATTERNS`（图片魔数表）**，`_detect_image_magic` 引用未定义名 → 后台任何图片上传都 500。本轮补回 png/jpg/gif/webp 魔数表，恢复 v3.1.6 魔数校验原貌。
-- **测试 / 验证**：`py_compile` 通过；隔离临时库全量 pytest **65 passed**（无新增测试文件，基线复核）；开发期 13 项端到端冒烟场景全绿（上传魔数、就地建分类/系列 slug 唯一、批量发布/转草稿、预览令牌过期与状态 404、diff 边界，脚本已按纪律零删除）。R64 九维审计 **0 遗留**（详见 `myblog/SECURITY_AUDIT.md` 第六十四轮）。
-- **部署注意**：**纯后端改动，前端产物无变化**（`vue-frontend/` 未动）——全部代码在 `myblog/` 包内（视图 / 后台模板 / `admin.css` / `script.js`）。覆盖 `myblog-backend.zip` 后「停止 → 启动」gunicorn；**无 DB 迁移**，无需 `flask db`；无新增环境变量、无新 Nginx 配置。验证：后台左下角 v3.14.0；左侧出现「📄 文章管理」「🖼️ 媒体库」；编辑未发布草稿可见「复制未发布预览链接」。后台静态已带版本参数自动破缓存，必要时硬刷新一次。APP_VERSION 已升 v3.14.0。
-
-## v3.13.1（2026-09-06 · 插件重载崩溃修复）
-
-- **修复**：后台「🧩 插件管理 → 重载」按钮（`POST /api/plugins/reload`）在**应用已处理过至少一个请求后**点击，会抛 `AssertionError: The setup method 'register_blueprint' can no longer be called on the application. It has already handled its first request`，导致该接口直接 500（v3.13.0 及之前均存在）。
-- **根因**：`myblog/plugins/__init__.py` 的 `load_plugins` 对 `plugins_sys` 系统蓝图做**无条件重注册**；而 `reload_plugins` 先调 `_unregister_blueprints(app, None)` 把系统蓝图（登记在 `SLUG_BLUEPRINTS["__sys__"]`）也一并卸掉，随后 `load_plugins` 在运行时再次 `register_blueprint`——Flask 在 `_got_first_request=True` 后禁止该操作，遂崩溃。
-- **修复点**（`myblog/plugins/__init__.py`）：
-  - `load_plugins` 的 `plugins_sys` 注册改为**幂等 + 崩溃安全**：仅在 `app.blueprints` 缺失时补注册；即便运行时缺失也吞掉 `AssertionError` 跳过（路由级变更本就需重启 gunicorn，符合「不热加载」架构红线），避免一次重载把整个接口打挂。
-  - `_unregister_blueprints(slug=None)` 整体重载时**跳过 `"__sys__"` 键**，系统蓝图常驻，使 `/api/plugins` 自身在运行时重载后不 404。
-- **测试**：新增 `tests/test_plugin_system.py::test_reload_after_first_request_does_not_crash`（模拟 `_got_first_request=True` 后 `reload_plugins` / 重复 `load_plugins` 均不崩溃、系统蓝图常驻、`/api/plugins` 仍可访问）；全量 pytest **65 passed**（64 + 1）。R63 九维审计 **0 遗留**（详见 `myblog/SECURITY_AUDIT.md` 第六十三轮）。
-- **部署注意**：**纯后端改动，前端产物无变化**（`vue-frontend/` 未动）。覆盖 `myblog-backend.zip` 后「停止 → 启动」gunicorn；**无 DB 迁移**，无需任何 `flask db` 命令；无新增环境变量。APP_VERSION 升为 v3.13.1。
-
-## v3.13.0（2026-09-06 · 后台 MCP 服务管理面板 + AI 脱敏接入指令）
-
-- **新增 `myblog/admin/mcp_services.py`**（admin 包新子模块，超管专属 `super_required`，全部写操作 `log_audit`）：
-  - `GET /admin/mcp-services` —— 面板：内置服务状态（运行 / 停止 + token 掩码一览）、外部服务列表、指令对外域名配置（留空 = 自动用当前访问域名）。
-  - `POST /admin/mcp-services/toggle/<diag|write>` —— 内置端点**运行时启停**：存 Setting 键 `mcp_diag_disabled` / `mcp_write_disabled`，「停止」= 端点对外 **404**（不暴露端点存在）；`get_setting` 无缓存即时生效，**无需重启站点**。
-  - `POST /admin/mcp-services/add` / `update/<sid>` / `delete/<sid>` —— 外部 MCP 服务登记 / 更新 / 启停 / 删除：存 Setting 表 JSON（`mcp_external_services`，**不建新表**）；token 用 `backup_settings.encrypt_secret`（Fernet，密钥源自 SECRET_KEY）加密单独存键 `mcp_service_token_<id>`，**库中不落明文**，页面只回显掩码；URL 强校验 http(s)（杜绝 javascript: 注入面）、名称作 mcp.json 键做字符白名单；删除联动清 token 键；上限 20 条。
-  - `GET /admin/mcp-services/instruction/<kind>`（kind = `diag` / `write` / 外部服务 id）—— **AI 接入指令页**：生成「脱敏版」（token 占位符，可放心转发给 AI）与「完整版」（`?full=1`，含真实 token，AI 拿到即可直接写 mcp.json / 执行安装）；**完整版每次查看写审计**（action=`mcp_full`）；指令含 curl 探活命令与 mcp.json 片段，与 `deploy_guide.md` 手工口径逐字一致。
-- **`mcp_diag.py` / `mcp_write.py`**：端点最前新增面板总开关检查（停止 → 404；开关读取异常时按未设置处理，不影响端点自身可用性）。
-- **后台导航**：侧边栏「系统设置」组「🧩 插件管理」后新增「🔌 MCP 服务」入口。
-- **测试**：新增 `tests/test_mcp_services_admin.py`（5 例）：超管权限（未登录 / 普通管理员一律 403）、内置启停对端点即时生效（404↔200 实测）、外部服务 CRUD + Fernet 密文落库（库中无明文、可解回原值）、脱敏版不含真实 token / 完整版含且记审计、URL 非法 scheme 拒绝、`?edit=` 编辑态渲染。全量 pytest 64 passed。
-- **顺带修复（打包脚本）**：`package.py` 的 `EXCLUDE_DIRS` 补 `.pytest_cache`——此前该缓存目录随 `myblog-backend.zip` 进发布包（v3.12.2 起即存在），本轮起剔除。
-
-## v3.12.0（2026-09-01 · 微动态后台管理）
-
-- **背景**：广场 / 个人动态（模型 `Moment`）此前只有发布 / 点赞 / 评论接口（`/api/moment*`），一旦发布在前后台都**无法编辑、无法删除**，只能直接改数据库。
-- **新增 `myblog/admin/moments.py`**（admin 包新子模块，5 条后台路由）：
-  - `GET /admin/moments` —— 列表：关键词搜索 + 按作者筛选 + 分页（20/页），顶部显示动态总数与评论总数，每条显示作者 / 内容摘要 / 点赞数 / 评论数 / 发布时间；支持勾选批量删除。
-  - `GET,POST /admin/moment/<mid>/edit` —— 编辑正文（500 字上限，与前台 `post_moment` 口径一致），同页列出该动态的全部评论并支持逐条删除。
-  - `POST /admin/moment/<mid>/delete` —— 删除动态，**级联删除其下评论**（复用 `Moment.comments` 的 `cascade="all, delete-orphan"`，不留孤儿行）。
-  - `POST /admin/moment/<mid>/comment/<cid>/delete` —— 删单条评论；`cid` 必须与 `mid` 匹配，不匹配返回 404（防改 id 越权删别家评论）。
-  - `POST /admin/moments/batch-delete` —— 批量删除。
-  - 编辑 / 删除 / 批量删除均调用 `log_audit` 写入「🧾 操作日志」。
-- **后台导航**：侧边栏「内容管理」组「🌐 社交账号」之后新增「💭 微动态」入口。
-- **样式**：`admin.css` 补 `.pagination`（后台分页此前无样式，仅前台 `style.css` 有）与 `.auth-box textarea`（明暗双主题）。
-- **设计决策**：**不新增数据库列、不改表结构** —— 编辑痕迹走 `log_audit` 而非加 `edited_at`，避免 Alembic 基线 `f8f1f29b6ddf` 漂移与线上迁移风险；作者 / 发布时间 / 点赞数保持不变。
-- **验证**：`py_compile` 通过；全量 pytest **42 passed**（新增 `tests/test_moments_admin.py` 5 例：编辑生效 + 审计日志、空内容/超 500 字被拒、删除级联评论、跨动态删评论 404、普通用户被拦）；隔离临时库冒烟 **44 项全通过**；admin 端点数 77 = 基线 72 + 新增 5，零回归。
-- **⚠️ 部署注意**：**纯后端改动，前端产物无变化**（微动态前台展示逻辑未动）。覆盖 `myblog-backend.zip` 后「停止 → 启动」gunicorn（restart 不重载）即生效；无 DB 迁移、无需 `flask db` 操作。R59 七维审计 **0 遗留**（详见 `myblog/SECURITY_AUDIT.md` 第五十九轮）。APP_VERSION 升为 v3.12.0。
-
-## v3.12.1（2026-09-04 · UI 设计系统 token 纯度 Phase 1「铲除散点暗色」）
-
-- **目标**：铲除两套**活** CSS 里的散点硬编码色，统一改为引用 `tokens.css` 语义变量，为后续换肤 / 主题扩展打底。
-- **改动**（2 个文件，git diff 计 **70 增 / 70 删**）：
-  - `myblog/static/admin.css` —— 后台活 CSS（Jinja 模板在用），顶部已 `@import url("tokens.css");`，硬编码色 → `var(--...)`。
-  - `vue-frontend/src/styles/global.css` —— 前台全局样式，剩余硬编码色 → `var(--...)`。
-- **替换策略（外观零变化的前提）**：仅当某颜色在对应主题上下文里 token 取值与原始值**完全相等**时才替换——主题无关 token（`--accent` / `--on-accent` / `--accent-soft` 等）直接换；随主题变化的 token（`--border` / `--surface` / `--text` 等）仅在存在同选择器暗色覆盖规则时才转换。无对应 token 的自定义灰 / 状态徽标色（`#eee` / `#fafbfc` / `#fdeaea` / `#6aa9ff` 等）按纪律**保留原样**，本次不动 `tokens.css` 定义。
-- **验证**：写校验脚本对两文件全部规则（admin 399 条 + global 846 条）在 light/dark 上下文下，分别把原始 hex 与替换后的 `var(--token)` 解析为计算色并逐条比对 → **0 处色差**，明暗外观像素级不变；幂等（二次替换 = 0）。全量 pytest **42 passed**。
-- **⚠️ 部署注意（与 v3.12.0 不同）**：本次**含前端源码改动**，`vue-frontend/src/styles/global.css` 必须**重新构建**并随 `vue-frontend-dist.zip` 一并覆盖才会生效；`myblog/static/admin.css` 随后端包走。覆盖后 gunicorn「停止 → 启动」（restart 不重载）。无 DB 迁移、无需 `flask db`。**R60 审计 0 遗留**（详见 `myblog/SECURITY_AUDIT.md` 第六十轮）。APP_VERSION 升为 v3.12.1。
-
-## v3.12.2（2026-09-05 · 写能力 MCP `/mcp-write` ＋ 移动端文章页溢出修复）
-
-- **背景**：只读诊断 MCP（`/mcp`，v3.10.0）让 AI 能「读」博客健康状态；本版补齐「写」——让 AI 助手在授权下远程创建文章（自动发文），与只读端点**完全隔离**（独立端点 / 独立 token / 独立配置 / 默认不发布）。
-- **新增 `myblog/mcp_write.py`**（Blueprint `mcp_write_bp`，无 url_prefix，端点 `/mcp-write`）：沿用只读 MCP 的 Streamable HTTP 最小子集（仅 POST、JSON-RPC `initialize`/`tools/list`/`tools/call`、非 POST 405）。提供两工具：`create_post`（建文，默认草稿）、`list_recent_posts`（查重，不含正文）。
-- **抽出 `myblog/admin/_helpers.py::create_post_core`**：把 `admin/posts.py::new_post()` 的 141-173 行发文逻辑抽成后台表单与 MCP 共用的唯一入口（调用顺序不变：count_words → Post → add → flush → apply_slug_template → _sync_tags → _save_post_history → commit → fts.sync_post → 发布时通知/群发）；`new_post()` 改为调用它，对外行为完全不变（全量 pytest 零回归验证）。
-- **`myblog/config.py` 新增 4 项配置**（紧跟 `MCP_AUTH_TOKEN` 块）：`MCP_WRITE_TOKEN`（缺失整体 404，fail-closed，须与 `MCP_AUTH_TOKEN` 不同值）、`MCP_WRITE_DEFAULT_PUBLISH`、`MCP_WRITE_ALLOW_NOTIFY`、`MCP_WRITE_ALLOW_SUPER_FIELDS`。
-- **硬性安全闸门（逐条实现，缺一不可）**：① 独立 token 缺失即 404；② 默认草稿；③ 强制草稿开关（`DEFAULT_PUBLISH!=1` 时即便传 `publish=true` 也转草稿并在 `warnings` 注明）；④ 禁止提权字段（`is_pinned/is_private/reward_*/author_id/views/likes` 一律不收，仅 `ALLOW_SUPER_FIELDS=1` 才接受前四个且校验目标用户）；⑤ 群发默认关闭（仅 `ALLOW_NOTIFY=1` 且显式 `notify_subscribers=true` 才触发）；⑥ 幂等（同 `idempotency_key` 或同标题+当日 24h 内重复调用返回已存在文章，不新建，`deduplicated=true`）；⑦ slug 冲突不覆盖（append `-2/-3`）；⑧ 每次调用写一条 `AuditLog`（action=`mcp_create_post`、username=`mcp`、记 token 前 8 位与来源 IP、成败均记）；⑨ 正文超 200000 字符拒绝不落库；⑩ 正文渲染走既有管线，不自己拼 HTML。
-- **`myblog/app.py`**：顶部 `from mcp_write import mcp_write_bp`；注册 blueprint（注释「未配置 MCP_WRITE_TOKEN 时自动关闭」）；CSRF 豁免元组加入 `/mcp-write`。复用 `mcp_diag` 的 `_token_ok`/`_origin_ok`/限流写法（限流 `rate_limit(client_key("mcp_write"), limit=10, window=60)`，比只读更严，异常时放行）。
-- **验证**：全量 pytest **59 passed**（新增 `tests/test_mcp_write.py` 17 例：404/401/默认草稿/强制草稿+warning/提权忽略与接受/群发默认关闭与允许/幂等/slug 冲突不覆盖/每次审计/空标题与超长拒绝/list_recent 不含正文/握手/tools-list/GET 405/Origin 校验）。未改动数据库表结构（审计复用现成 `AuditLog`）。
-- **前端移动端溢出修复（`vue-frontend/src/styles/global.css` · 同版追加并真正构建部署）**：`/post/*` 详情页在手机端横向溢出、内容被 `.site-frame` 的 `overflow:hidden` 裁掉「无法完整展示」。根因（已线上复现 `/post/post-5`）：正文 `.post-body` 缺失断词规则，长 URL / 长英文词（post-5 正文含多条 90–127 字符无空格外链，如 cnbctv18 116 字符链接）默认不折行撑破视口——此前源码虽写过 `break-word` 版但**从未 build 部署**，故线上旧 `assets/index-*.css` 里 `.post-body` 仍无断词规则。修复：`.post-body` 改用 `overflow-wrap:anywhere; word-break:break-word`（较旧 `break-word` 更激进，令容器可收缩到内容宽度，彻底消除横向溢出），并新增 `.post-body a, .post-body code` 断词规则覆盖链接 / 行内 code 内的长 token；`<pre>` 代码块仍保持 `white-space:pre` + `overflow-x:auto` 整行横向滚动不折行（`.post-body pre code` 特异性更高不受影响）。纯 CSS，无逻辑 / 安全面变化；已 `vite build` 验证产物含新规则（`.post-body{...overflow-wrap:anywhere;word-break:break-word}`）。
-- **⚠️ 部署注意**：本次**既有后端（写 MCP）也有前端（溢出修复）改动**。后端：覆盖 `myblog-backend.zip` 后 gunicorn「停止 → 启动」即生效，无 DB 迁移；服务器 Nginx 需照 `deploy_guide.md` 里的 `location = /mcp` 复制一条 `location = /mcp-write`（否则被 Vue SPA 兜底成 index.html）；并填 `MCP_WRITE_TOKEN` 等环境变量（token 由你自己生成，须与 `MCP_AUTH_TOKEN` 不同值）。前端：覆盖 `vue-frontend-dist.zip` 到 `/www/wwwroot/vue-frontend`（更新 index.html + assets/），并**强刷浏览器 / 清 Nginx 缓存**（否则旧 `assets/index-*.css` 仍被缓存，溢出依旧）。发布时 APP_VERSION 升为 v3.12.2。
-
-### v3.0.0 新增（14 项功能）
-
-- **系列目录页 + 阅读进度增强**：系列详情页新增带编号的章节目录（系列 TOC）；前台全局阅读进度条（App.vue）持续可用。
-- **字数统计 + 阅读时长**：每篇文章自动统计中文字数 / 词数并估算阅读分钟数，前台详情页展示。
-- **评论管理升级**：后台评论列表支持**批量勾选通过 / 删除**；新增**垃圾评论关键词过滤**（站点设置 `comment_spam_keywords`，命中即拒收）。
-- **后台操作日志（审计 trail）**：超管可见所有关键后台操作流水（新建/编辑/删除/审批/还原等），支持清空；隐私且只读。
-- **文章版本历史 / 回收站**：每次保存文章自动留存历史版本（每篇上限 20）；删除改为**软删除**进入回收站，可一键还原或彻底清除。
-- **友情链接申请 + 自助审核**：前台访客自助提交友链申请（限流 + URL 格式校验 + 去重），后台超管审核通过 / 拒绝。
-- **标签 / 分类云 + 热门标签页**：新增「热门标签」云（按文章数 ×2 + 阅读量加权排序），前台独立页面。
-- **「看了又看」协同过滤**：文章详情页底部推荐从「共同阅读人群」共现 + 标签/分类相似度加权，取代原简单相关推荐。
-- **访客趋势图**：后台统计页新增近 30 天 PV / UV 折线趋势图（纯 SVG，无外部依赖）。
-- **RSS 按分类 / 标签订阅**：新增 `/api/rss/category/<slug>` 与 `/api/rss/tag/<slug>` 两个订阅源。
-- **多语言 / i18n**：前台内置中 / 英双语切换（导航 + 抽屉 + 部分界面文案），后台可设默认语言 `site_lang`。
-- **超级管理员隐私空间**：超管可将文章标记为「隐私」，仅本人登录后可见，前台及 API 对其余人一律 404。
-- **文章打赏**：仅超管可在每篇文章结尾开关「打赏」并填收款码；前台展示站点默认收款码或文章自定义收款码。
-
-### v3.1.0 新增（审计日志 + 前台大框）
-
-- **后台登录审计日志**：每次后台登录（含成功 / 失败、尝试用户名、来源 IP）均写入审计日志（`action='login'`），可在「操作日志」页查看，支持按成功 / 失败区分。
-- **审计日志 30 天保留**：登录日志与操作日志超过 30 天自动清理（原 7 天），避免表无限膨胀；后台清理按钮文案同步更新。
-- **审计日志打包下载**：后台「操作日志」页新增「📦 打包下载」按钮，超管可一键导出 **CSV + TXT 压缩包**（内存打包，不落盘）。
-- **前台统一大框（视觉对齐后台）**：前台所有内容（公告 / 便签 / 正文 / 页脚）外面包一层大框架（`.site-frame`），视觉风格与后台 `.section-box` 一致，明暗主题跟随。
-- **修复**：手机端汉堡菜单不随深色模式切换（根因为 `App.vue` 初始化时强制把主题重置为 light，已改为站点设置加载后据 localStorage 修正 + 系统主题跟随）。
-
-### v3.1.1 修复（抽屉深色模式）
-
-- **修复**：手机端抽屉菜单（`.drawer`）在深色模式下仍为白底的问题。根因为 `[data-theme="dark"]` 段未重定义 `--nav-bg / --nav-fg / --nav-border` 导航变量，抽屉依赖这些变量导致不跟随。已在暗色段重定义三个变量为暗色值，并补充抽屉 hover / 链接背景的暗色适配（R9 审计通过，纯前端 CSS，无安全风险）。
-
-### v3.1.2 部署脚本修复（不含代码变更）
-
-- **修复**：一键更新第⑥步跨用户 `kill` 权限失败（`Operation not permitted`）。`update.sh`/`deploy.sh` 默认 `PROJECT_NAME="myblog"`，重启优先走 `supervisorctl restart myblog`（supervisor 以 www 身份停+起，绕开跨用户 kill）；root 身份运行时自动加 `sudo -u www` 保护。仅更新部署脚本，APP_VERSION 仍为 v3.1.1。
-
-### v3.1.3 抽屉深色补充修复
-
-- **修复**：在 `[data-theme="dark"]` 区块末尾追加 4 条直接写死暗色值的菜单抽屉规则（`.drawer` / `.drawer-nav a` / `.drawer-nav a:hover` / `.drawer-foot`），彻底覆盖旧变量规则，确保深色模式下抽屉视觉稳定（R10，纯前端 CSS，无后端改动）。APP_VERSION 升为 3.1.3。
-
-### v3.1.4 部署脚本根因修复（不含代码变更）
-
-- **修复**：纠正 v3.1.2 的错误假设——宝塔 Python 项目**不是** supervisor 管理，且 gunicorn 属主是 **`mw`（非 `www`）**。重启逻辑改为：宝塔 CLI（`bt stop/start`）优先 → 以 `mw` 身份 `runuser -u mw` 真杀 + 宝塔真实 gunicorn 路径（`/ww/server/pyporject_evn/blog_env/bin/gunicorn -c gunicorn_conf.py`）重新拉起 → 提示手动。彻底消除跨用户 `kill` 权限失败（Operation not permitted）。仅更新部署脚本，APP_VERSION 仍为 v3.1.3。
-
-### v3.1.5 安全加固四项
-
-- **FTS 搜索转义**：全文搜索（搜索建议接口）对用户输入做 FTS5 特殊字符转义，防止语法错误 / 查询异常。
-- **密码最小长度 6 → 8**：注册、改密、创建用户、重置密码、首次设置统一为 8 位下限（前后端一致）。
-- **审计日志 CSV 公式注入防护**：导出审计日志时，对以 `= + - @` 开头的单元格加前缀，防止 Excel 打开执行恶意公式。
-- **一键更新哈希校验**：`update.sh` 下载部署包后比对 Release 附带的 `sha256.txt`，不一致直接终止更新，防中间人篡改 / 下载损坏（由 `package.py` 自动生成校验文件）。APP_VERSION 升为 v3.1.5。
-
-### v3.1.6 安全加固 12 项（全量落地）
-
-- **更新包完整性双重互证**：`package.py` 将各 zip 的「内容区」SHA256（剥离 EOCD 尾注释后的字节）写入 zip 注释，`sha256.txt` 记录含注释的整文件哈希；`update.sh` 同时比对 `sha256.txt` + zip 注释 + 可选 `UPDATE_HMAC_KEY` HMAC 签名——解决「sha256.txt 本身被替换」的漏洞（R13）。注释哈希按内容区计算，不能对含注释的整文件算（注释参与字节后必然对不上）。
-- **上传文件魔数校验**：后缀白名单 + PNG / JPG / GIF / WebP 文件头 magic bytes 双重校验，伪造扩展名文件被拒。
-- **SMTP 密码不存库**：`SMTP_PASSWORD_ENV_FIRST`（默认 true）——SMTP 密码优先读环境变量，库值仅兜底（数据库泄露时密码不直接暴露）。
-- **多 worker 全局限流**：`REDIS_URL` 配置后走 Redis INCR+EXPIRE 全局计数（多 worker 共享）；未配置自动回退内存滑动窗口（单 worker 等价）。
-- **CSRF Token 双重防护**：同源校验 + 会话绑定 HMAC Token，全局 POST / PUT / DELETE / PATCH 均校验；前端 apiPost 自动携带 `X-CSRF-Token`，服务端表单自动注入隐藏域。
-- **RSS DNS 重绑定缓解**：`feed_agg` 先解析域名再校验解析结果不含内网 / 回环 / 保留地址。
-- **弱密码黑名单 + 复杂度开关**：`STRONG_PASSWORD`（黑名单 + 字母/数字）与 `STRONG_PASSWORD_MIXED_CASE`（大小写混合）可独立开关，前后端统一提示。
-- **登录防枚举 + 会话踢下线**：失败统一文案 + `LOGIN_DELAY_SECONDS`（默认 1s）统一延迟，消除用户名枚举与时序侧信道；`session_version` 机制 + 超管「踢下线」路由实现「改密码销毁全部旧会话」。
-- **审计日志时间筛选与保留**：后台支持 `?from=&to=` 日期筛选；`AUDIT_LOG_DAYS`（默认 90）自动清理超期日志；导出支持筛选。
-- **可开关验证码**：`CAPTCHA_ENABLED`（默认 true）——注册 / 评论 / 留言图形验证码，一次性票据防重放，未装 Pillow 自动降级关闭。
-- **安全响应头**：`SECURITY_HEADERS`（默认 true）——全局追加 X-Frame-Options / CSP / X-Content-Type-Options / Referrer-Policy。
-- **会话超时 + Webhook 防重放**：`SESSION_IDLE_MINUTES`（默认 60）闲置超时强制重登；Webhook 必须带 `X-Deploy-Time` 时间戳（`WH_REPLAY_WINDOW` 默认 300s 窗口校验）。APP_VERSION 升为 v3.1.6。
-
-### v3.1.7 修复：CSRF 隐藏域乱码（R14 审计通过）
-
-- **根因**：`csrf_input()` 返回普通字符串的 `<input>` 隐藏域，Jinja2 默认 autoescape 把标签转义成 `&lt;input&gt;` 源码文本，导致登录后台后页面显示乱码。
-- **修复**：`csrf_input()` 改用 `markupsafe.Markup` 包装（服务端生成的 HMAC 签名 Token，无用户可控输入），隐藏域以原生 HTML 渲染。所有模板 `{{ csrf_input() }}` 调用一处修复全局生效。
-- **验证**：真实渲染验证（隔离临时库 + test_client）——后台 dashboard（`/admin/`）+ 前台登录页（`/login`）均含原生隐藏域、无转义乱码。无新增依赖（markupsafe 为 Flask 自带）。APP_VERSION 升为 v3.1.7（后被 v3.1.8 接续）。
-
-
-### v3.1.8 修复：后台退出按钮 405（R15 审计通过）
-
-- **根因**：v3.1.6 引入 CSRF 时把后台退出表单改成 POST + 隐藏域（base.html `method="post"`），但 `/admin/logout` 路由仍是默认 GET-only，POST 请求命中 GET-only 路由 → **405 Method Not Allowed**（点退出按钮失效）。
-- **修复**：`admin.py` 的 `/admin/logout` 路由改为 `methods=["GET", "POST"]`——POST 服务退出表单（带 CSRF 隐藏域），GET 保留兼容旧链接。全仓库排查确认这是唯一「表单 POST 但路由未声明 POST」的遗漏。
-- **验证**：隔离临时库 + test_client 实测——登录后 POST `/admin/logout` 返回 302 不再 405；GET 兼容 302；退出后访问后台被重定向回登录页。无回归（py_compile + 冒烟 11 组全过）。APP_VERSION 升为 v3.1.8。
-
-### v3.2.0 新增：后台验证码独立设置页 + Pillow 依赖修复（R16 审计通过）
-
-- **后台验证码设置页**：`/admin/captcha-settings`（超管专属）可单独配置——全局开关、验证码长度（3–8）、干扰强度（低/标准/高）、排除易混字符，以及**注册 / 评论 / 留言三个场景各自独立开关**。配置存 `Setting` 表，前端按场景自动显隐验证码框。
-- **修复「验证码用不了」根因**：`requirements.txt` 此前漏写 Pillow，导致服务器未装图像库时验证码整块降级停用。现补 `Pillow>=10.0.0`；**服务器升级后务必 `pip install Pillow` 并停止再启动**，验证码图片才会正常出图（设置页也会实时提示 Pillow 是否可用）。
-- `api.py` 新增 `GET /api/captcha/config`（返回全局/场景开关 + Pillow 可用性）；`/api/captcha` 图片接口按场景（`from` 参数）判断是否出图。
-- **验证**：py_compile + 前端 build（dist_v316）+ `smoke_v320.py` 专项冒烟（默认配置 / 单场景关闭 / 全局关闭 / 长度配置 / 后台页面登录 GET·POST 保存）全部通过。APP_VERSION 升为 v3.2.0。
-
-### v3.2.1 修复：前台平板断点（768–1004px）头部竖排（R17 审计通过）
-
-- **背景**：用户反馈前台在视口宽度 `768px ≤ W < 1004px` 时，顶部导航文字变成纵向排布、非常难看。
-- **根因**：头部存在两套互相打架的响应式断点——`max-width:760px` 隐藏桌面 nav 走汉堡抽屉，`max-width:768px` 又给头部加 `flex-wrap` 让导航换行堆叠。在 761–768px 区间桌面 nav 仍显示却被强制换行→竖排；769–1004px 区间内联导航 9+ 链接放不下→溢出/拥挤。
-- **修复**：把汉堡/抽屉断点从 `760px` 提到 `1004px`，整个平板区间统一走「汉堡 + 抽屉」干净布局，桌面内联 nav 仅在大屏（>1004px）显示；并删除 768px 断点里与抽屉冲突的头部换行规则，根除竖排。因平板区间桌面 nav 被隐藏，原 nav 内的语言切换按钮一并消失，遂在抽屉底部补一个等价语言切换按钮，保持功能一致。
-- **验证**：前端 build（dist_v317）编译通过；纯前端改动，无后端代码变动、无新增安全面（R17 五维全 ✅）。APP_VERSION 升为 v3.2.1。
-
-### v3.3.0 新增：数据备份与异地容灾（R18 审计通过）
-
-- **痛点**：此前只有手动打包，缺自动备份与多目的地容灾；服务器误删 / 被黑 / 磁盘坏道会导致文章与上传图片永久丢失。
-- **可插拔后端**（`myblog/backup.py`，纯标准库，零新增依赖）：
-  - **local**：本地滚动保留（默认开，`BACKUP_DIR` / `BACKUP_RETENTION_DAYS`，默认 14 天）。
-  - **oss**：对象存储（阿里云 OSS / 腾讯云 COS / S3 兼容，需 `boto3`，未装则跳过）。
-  - **scp**：`scp` 到备用机（需 SSH 互信或 `BACKUP_SCP_KEY`）。
-  - **webdav**：网盘/云盘（坚果云 / Nextcloud / 群晖 Drive，需系统 `curl`）。
-  - 各目的地由环境变量**独立开关**；未配置自动跳过；任何远程异常**只记录不阻断**本地落盘（避免备份脚本拖垮发文章主流程）。
-- **完整性与安全**：备份包内嵌 `manifest.json`（每文件 SHA256 + 整包哈希）；`verify()` 强制校验且路径白名单（`data/`、`static/uploads/`）拒绝 `..`/绝对路径防穿越；密钥只走环境变量，不落库、不在任何接口回显。
-- **恢复安全**：高危操作——CLI 需 `--yes`；后台端点需**超管 + 全局 CSRF + 二次确认(confirm=yes) + 恢复前自动快照 + 写审计日志**，并提示宝塔「停止→启动」使数据库生效。
-- **后台页** `/admin/backup`（超管）：远程状态卡、立即备份、列表/下载/恢复（带二次确认）。
-- **定时任务**：`myblog/backup.sh` 供宝塔定时任务 `0 4 * * *` 调用（已随包分发）。
-- **验证**：`py_compile` 全量通过；隔离临时库 roundtrip 实测（创建 → verify → restore → 快照）全部通过。APP_VERSION 升为 v3.3.0。
-
-### v3.3.1 修复：后台「立即更新」CSRF 校验失败（R19 审计通过）
-
-- **背景**：后台「系统设置 → 立即更新」报错「CSRF 校验失败，请刷新页面后重试」。
-- **根因**：该按钮用 `fetch()` 发 JSON POST 到 `/api/version/update`，但请求头漏带全局 CSRF 要求的 `X-CSRF-Token`（v3.1.6 起所有 POST 都必须带会话绑定 token），点击即被 `_csrf_protect()` 拒绝。
-- **修复**：`myblog/templates/admin/base.html` 的 fetch 请求头补上 `'X-CSRF-Token': '{{ csrf_token }}'`（模板上下文本就注入该值）。**单行改动，未把该接口加入豁免名单，CSRF 防护完整保留。**
-- **验证**：隔离临时库冒烟——带 token 调用返回 400「未找到更新脚本」（CSRF 放行，本地无 update.sh 属预期）；不带 token 仍 403（防护未失效）。`py_compile` 通过。R19 四维审计全 ✅（详见 `myblog/SECURITY_AUDIT.md` 第二十九轮）。APP_VERSION 升为 v3.3.1。
-
-### v3.4.0 新增：备份配置后台化 + 立即备份 500 修复（R20 审计通过）
-
-- **500 修复**：后台「💾 数据备份 → 立即备份一次」此前点击报 500。根因：`admin.py` backup 路由 4 处把审计函数名误写为未定义的 `add_audit`（正确为 `log_audit`），备份文件实际已生成，但写审计日志抛 `NameError` → 再次抛 500。已全部修正，立即备份正常返回 200 并成功写审计。
-- **备份配置后台化**（不再依赖环境变量）：新增后台「⚙️ 备份配置」页（`/admin/backup-settings`，超管专属）——本地目录/保留天数/OSS/SCP/WebDAV 目的地与密钥全部在后台直接填写保存。
-  - **密钥加密存储**：OSS SecretKey / WebDAV 密码 / SCP 私钥路径用 **SECRET_KEY 派生的 Fernet 密钥加密**（PBKDF2-HMAC-SHA256、固定盐）后存库，页面只回显掩码（`Su****23`），**绝不落明文、绝不回显明文**。
-  - **读取优先级**：非密钥「后台配置优先 → 环境变量兜底」；密钥「环境变量优先 → 后台加密值兜底」——老环境变量配置无需迁移。
-  - **保存即可生效**：后台保存后当前进程立即生效；`backup.sh` CLI 定时任务（无 Flask 上下文）自动读后台配置（sqlite3 直连 Setting 表，保持纯标准库可独立运行）。
-- **需新增依赖**：`cryptography>=41.0.0`（Fernet 加密必需）。**升级后必须 `pip install cryptography` 并「停止→启动」站点**，后台备份配置页的加密保存/解密才可用；不装则旧备份/恢复功能不降级，仅配置页加密保存报错。
-- **验证**：`py_compile` 全量通过；500 复现修复（POST 200 + 审计写入）；备份配置冒烟 7 项全过（加密落库无明文/掩码回显/合并配置/CLI 独立/环境变量优先）；前端本轮无改动（复用 dist_v317）。R20 七维审计全 ✅（详见 `myblog/SECURITY_AUDIT.md` 第三十轮）。APP_VERSION 升为 v3.4.0。
-
-### v3.4.1 前台视觉升级 + 汉堡菜单深色修复（R21 审计通过，纯前端）
-
-- **深色汉堡菜单不可读修复**（用户反馈「深色模式下汉堡菜单文字看不清」）：
-  - 根因：`vue-frontend/src/store.js#applyThemeVars()` 用内联 style 写死导航变量（--nav-fg 浅色 #555555），内联优先级高于 `[data-theme="dark"]` 的 CSS 变量重定义 → 暗色下抽屉 logo/关闭/导航/操作按钮文字仍是深灰，看不清。
-  - 修复① `App.vue#applyTheme()`：切暗色时内联覆盖导航变量为暗色值，切浅色按后台 nav_style 回写；修复② `global.css`：暗色下抽屉文字直接写死浅色，JS 未执行也兜底可读（双保险）。
-- **前台视觉整体升级**（与后台 inis 风格统一）：首页渐变 hero 横幅、页面标题主题色装饰条、卡片/widget hover 上浮、输入框 focus ring、按钮 ghost/danger 变体、分页胶囊、空态虚线卡片、热门标签云补齐、天气组件暗色适配、评论/留言/登录区明细补齐。
-- **部署**：纯前端升级——用新构建产物 `vue-frontend-dist.zip` 覆盖 `/www/wwwroot/vue-frontend`，无需动后端与数据库；CDN/浏览器缓存建议先清再验证。
-- **验证**：前端构建 `_vite_build15` 成功、`vite preview` HTTP 200；后端零改动。R21 七维审计全 ✅（详见 `myblog/SECURITY_AUDIT.md` 第三十一轮）。APP_VERSION 升为 v3.4.1。
-
-### v3.4.2 一键更新脚本双源互证校验修复（R22 审计通过，脚本修复）
-
-- **故障现象**：用户反馈「一键更新走到下载 sha256.txt 后静默退出(码1)，未执行更新」——日志无 ❌ 行、仅见「脚本异常退出(码1)」+「详见 data/update_log.txt」。
-- **根因**：`update.sh` / `deploy.sh` 的 `verify_checksum` ②「zip 注释内嵌哈希校验」写成链式比较 `内容区哈希 == 注释内嵌哈希 == 整文件哈希`，其中「注释内嵌哈希」是**内容区**（剥离注释）哈希、「sha256.txt」记录的是**整文件**（含注释）哈希，二者恒不等 → python3 校验恒失败返回非 0 → 被 `set -e` 静默终止、且无 ❌ 日志。
-- **修复**：改为「本地剥离 zip 注释重算内容区哈希 == 注释内嵌 SHA256」两源互证（数学上正确的双源互证）；命令替换加 `|| true` 兜底，python3 缺失/异常时降级为跳过该层，不再因 `set -e` 炸脚本。
-- **验证**：本地双路径闭环——正常发布包 `PASS`、中间人篡改包体`REJECT`；`bash -n` 语法通过；CRLF=0。
-- **⚠️ 升级顺序**：若服务器仍用 v3.4.1（含）之前的 `update.sh`，必须先覆盖 **Release v3.4.2 的 `deploy_scripts_v342fix.zip`** 再跑一键更新，否则新包会被旧脚本误判终止。
-- **验证**：`py_compile` 全量通过（后端本轮零改动）；R22 七维审计全 ✅（详见 `myblog/SECURITY_AUDIT.md` 第三十二轮）。
-- **⚠️ 已知缺陷（v3.4.3 已修复）**：`deploy_scripts_v342fix.zip` 的校验段仍用 `sys.exit(0/1)` 传结果，而 bash 命令替换 `$(...)` 捕获的是 stdout 而非退出码 → 正常包也误报「zip 注释内嵌 SHA256 与包内容不一致」。**该包已废弃，请使用 v3.4.3 的 `deploy_scripts_v343fix.zip`。**
-
-### v3.4.3 一键更新脚本输出机制修复（R23 审计通过，脚本修复）
-
-- **故障现象**：v3.4.2 修复版脚本在**正常发布包**上误报「❌ myblog-backend.zip 的 zip 注释内嵌 SHA256 与包内容不一致：包或注释可能被单独篡改。已终止更新。」
-- **根因**：v3.4.2 虽把比较改对为两向，但仍用 `sys.exit(0/1)` 传校验结果——`sys.exit()` **不产生任何 stdout**，而 bash 命令替换 `comment_ok=$(python3 -c ...)` 捕获的是 stdout → `comment_ok` 恒为空串 → `"" != "0"` → 永远走失败分支 → 正常包也误报。（已用 `gh api` 下载 v3.4.2 真实资产验证：内容区哈希 == 注释内嵌哈希，包本身无问题。）
-- **修复**：校验段 Python 改为 `print('OK'/'BAD'/'NO'/'ERR')` + `sys.exit(0)`；bash 用 `case "$comment_ok"` 按内容判断——OK→通过、BAD→终止、NO/ERR/无输出→降级为仅靠 sha256.txt 比对。
-- **验证**：双路径闭环——正常包 → `OK`、篡改包 → `BAD`；`bash -n` 通过；CRLF=0。R23 七维审计全 ✅（详见 `myblog/SECURITY_AUDIT.md` 第三十三轮）。APP_VERSION 升为 v3.4.3。
-- **⚠️ 升级顺序（重要）**：服务器上的 `update.sh` / `deploy.sh` 若来自 v3.4.2 及更早 Release，**必须先覆盖 Release v3.4.3 的 `deploy_scripts_v343fix.zip`**（内含 print 修复）再跑一键更新——**绝对不要用已废弃的 `deploy_scripts_v342fix.zip`**，它对正常包必误报。
-
-### v3.4.4 一键更新解压目录唯一化（R24 审计通过，脚本修复）
-
-- **故障现象**：v3.4.3 更新走到「④ 覆盖后端代码」报 `mkdir: cannot create directory 'backend_extract': File exists` 后退出——`/tmp/llhhy_update/` 残留了历史失败更新的 `backend_extract` 目录。
-- **根因**：脚本解压用**固定目录名** `backend_extract` / `frontend_extract`；删除残留失败被 `|| true` 吞掉，`mkdir` 无兜底 + `set -e` → 静默终止。任何一次更新中途失败都会留下半解压目录，下次更新即炸。
-- **修复**：解压目录改为**唯一时间戳名** `backend_extract_$TS` / `frontend_extract_$TS`，彻底免疫残留目录；脚本启动时尽力清理旧残留（`|| true` 不阻断）。
-- **验证**：模拟残留目录存在时解压仍成功；`bash -n` 通过；CRLF=0。R24 七维审计全 ✅（详见 `myblog/SECURITY_AUDIT.md` 第三十四轮）。APP_VERSION 升为 v3.4.4。
-- **⚠️ 升级顺序（重要）**：服务器 `update.sh` / `deploy.sh` **须覆盖 Release v3.4.4 的 `deploy_scripts_v344fix.zip`**（v3.4.3 及更早脚本在 /tmp 有残留时仍会炸）。已卡住的服务器可先手动 `rm -rf /tmp/llhhy_update /tmp/llhhy_deploy`，或直接换新脚本后重跑（新脚本不依赖清理）。
-
-### v3.4.5 多项后端 bug 修复（R25+R26 审计通过）
-
-- **修复内容**：① 一键更新覆盖段「假成功」修复 + 覆盖后版本号硬校验（R25，杜绝后端长期未被真正覆盖）；② **评论提交 500**——`utils.py` 的 `notify_mentioned` 函数体曾被误贴进 `csrf_input` 的 `return` 之后成为死代码，请求时 `ImportError`；已恢复为独立函数（v3.1.7 起潜伏的 @通知失效 + 评论必 500 一并修复）；③ **统计埋点 403**——`/api/stats/read|visit|search` 匿名信标加入 CSRF 豁免，恢复访问统计记录并消除控制台报错。
-- **验证**：`py_compile` 全模块通过；AST 校验 `notify_mentioned` 为顶层函数且签名匹配调用点；桩模块实测 `from utils import notify_mentioned` 成功；app.py 豁免三埋点路径已确认。R25/R26 七维审计全 ✅（详见 `myblog/SECURITY_AUDIT.md` 第三十五/三十六轮）。APP_VERSION 升为 v3.4.5。
-- **⚠️ 升级顺序（重要）**：服务器 `update.sh` / `deploy.sh` **必须覆盖 Release v3.4.5 的 `deploy_scripts_v345fix.zip`**（含覆盖段修复 + 版本校验 + 后端 bug 修复）。**务必先手动覆盖脚本再跑一键更新**——否则旧脚本仍会「假成功」不覆盖后端，评论 500 / stats 403 依旧。
-
-### v3.4.6 CSRF 多 worker 下 403「抽风」修复 + 一键更新自动重启加固（R27+R28 审计通过）
-
-- **后端修复（R28 · CSRF token 跨 worker 轮换导致 403「抽风」）**：登录用户发评论、后台批量审核/删除评论均间歇性 `403 (Forbidden)`（登录账号评论「总是抽风」）。根因：gunicorn 以 `-w 3`（3 worker）启动，旧 `generate_csrf_token()` 用**进程级 `_CSRF_CACHE`** 判断 token 是否「新鲜」——每个 worker 各持一份缓存，落到不同 worker 的请求会认为「缓存里没有当前 token」从而重新生成并**覆盖 session 里的 token**，前端缓存的 token 随之失效 → 后续 POST 全 403（看哪个 worker 接手，时好时坏，故称「抽风」）。前端 `ensureCsrfToken()` 仅在 token 为空时拉一次并永久缓存，403 时无自愈，token 一旦失效即永久 403 直到刷新页面。修复：移除 `_CSRF_CACHE`，改为**签名校验复用**——只要 session 中已有「签名有效」（HMAC(SECRET_KEY, `"csrf:"`+raw)，天然防伪造/防跨服务复用）的 token 即直接复用，token 在整段会话内保持稳定，不再随 worker 切换而轮换；仅当 token 缺失或签名失效（被篡改 / SECRET_KEY 已轮换）时才重新生成。
-- **运维脚本加固（R27 · 一键更新自动重启）**：v3.4.5 覆盖已正确，但后端进程不会真正重载，仍需去宝塔「Python项目 → 停止 → 启动」手动重启。根因：旧 `stop_backend` 只 TERM master、没杀干净 worker，残留进程占端口 → 新 gunicorn 因「Address already in use」起不来，自动重启段形同虚设。本轮加固：`stop_backend` 改 `pkill -TERM -f "gunicorn.*$APP_DIR"` 杀光所有 worker + 端口释放检查；`start_backend` 改 `setsid`+`< /dev/null` 彻底脱离脚本会话 + 启动后扫 `gunicorn.log` 致命错误并打印末尾；并修正重启注释（宝塔 `bt` 是交互式菜单，不支持 `bt stop 项目名`）。
-- **验证**：`py_compile` 全模块通过；双 worker 共享 session 模拟：worker1 生成 T1(new=True)、worker2 直接复用 T1(new=False)，`check_csrf_token` 对合法 / 篡改 / 无格式 / 空 token 判断均正确（ALL PASS）；`bash -n` 双脚本通过；R27+R28 七维审计全 ✅（详见 `myblog/SECURITY_AUDIT.md` 第三十七 / 三十八轮）。APP_VERSION 升为 v3.4.6。
-- **⚠️ 升级顺序（重要）**：服务器 `update.sh` / `deploy.sh` **必须覆盖 Release v3.4.6 的 `deploy_scripts_v346fix.zip`**（v3.4.5 及更早脚本的自动重启段仍是旧逻辑，覆盖后仍需手动重启）。**务必先手动覆盖脚本再跑一键更新**，即可免除手动重启 + 生效 CSRF 修复。
-
-### v3.4.7 评论者 IP 定位恢复（IP 属地多源兜底 + 防注入 + 自愈）+ 后台筛选表单美化（R29 审计通过）
-
-- **修复①「评论者 IP 定位没了」**：原 `stats.py` 的 IP 属地解析只依赖 `api.vore.top`（已超时挂掉）与 `ip-api.com`（已 403 被封）两个源，二者全挂后所有评论/访问的 `region` 恒为空 → 前台 `📍 {{ c.region }}` 不渲染，像「定位组件没了」。改为**国内源优先 + 国际源依次兜底**（太平洋 pconline → ipwho.is → api.ip.sb → ipinfo.io）；并修复旧逻辑「解析失败(空)也被缓存、永久不重试」的坑——改为**仅缓存成功结果、外部源恢复后自动回填**（含历史空属地评论）。
-- **加固（严格审计发现并修复）**：
-  - 新增 `_is_safe_public_ip()`：仅合法**公网** IP 才查外部（排除私网/环回/链路本地/保留/CGNAT `100.64/10`），杜绝 XFF 伪造污染与内网 IP 无意义外发；
-  - `short_region` 补英文/ISO2→中文归一（如 `CN Guangdong`→`中国广东`、`United States California`→`美国加利福尼亚`），根治海外属地脏数据 `UnitedStatesCalifornia` 与 ipinfo 的 `CN` 码误判；
-  - `_RECENT_FAIL` 加 `_FAIL_MAX=5000` 容量护栏，防公网被扫描时内存无界增长。
-- **修复②后台筛选表单美化**：`我的文章`/`仪表盘` 的文章筛选表单改为卡片化（圆角容器 + 🔍 搜索图标 + 统一 38px 控件 + accent 焦点环 + 主/ghost 按钮层级），并适配深色模式；样式抽进 `admin.css` 的 `.filter-form`，去掉内联 style。
-- **验证**：`py_compile` 全模块通过；离线桩冒烟 14/14 PASS（四解析器 + 中文归一 + 公网/私网/保留/CGNAT 拦截）；R29 七维审计 0 Blocker（详见 `myblog/SECURITY_AUDIT.md` 第三十九轮）。APP_VERSION 升为 v3.4.7；前端复用既有 `vue-frontend-dist.zip`（无前台改动）。
-- **⚠️ 升级顺序（重要）**：服务器 `update.sh` / `deploy.sh` **必须覆盖 Release v3.4.7 的 `deploy_scripts_v347fix.zip`**（沿用 v3.4.6 自动重启加固）再跑一键更新，方可覆盖后端新代码 + 免除手动重启。
-
-### v3.4.8 全量安全审计加固（R30 审计通过 · 3 Blocker + 5 建议全部修复）
-
-- **🔴 后台 4 处模板 JS 上下文存储型 XSS（已修复）**：`users.html`（用户名）、`subscribers.html`（邮箱）、`backup.html`（备份文件名）、`audit_logs.html`（保留天数）的 `onsubmit="return confirm('...')"` 把用户可控值直接拼进 **JS 单引号字符串**——Jinja 在 HTML 属性上下文 autoescape **不转义单引号 `'`**，任何注册用户可用 `'` 或 `</script>` 构造存储型 XSS，后台一浏览即触发。修复：4 处全改 `|tojson` 过滤器（JSON 字符串字面量天然 JS 上下文安全）；`utils.py` 新增 `js_escape()` 作非模板场景等价备选。
-- **🔴 `/api/version/update` 权限收窄（已修复）**：原普通管理员（`is_admin_role`）即可触发服务器 `update.sh` 脚本执行（运维级脚本执行暴露给非超管）→ 收窄为 `is_super`，非超管 403。
-- **🔴 `/api/version/status` 补鉴权（已修复）**：原完全无鉴权，任何人可读更新进度并可配合防重入锁制造 409 DoS → 加 `is_super` 鉴权，未登录/非超管一律 403。
-- **🟡 TOCTOU 防重入（已修复）**：`version_update` 原是「读 status 文件判断 idle → Popen」非原子，两并发请求可同时读到 idle 各起一个 `update.sh` → 新增模块级 `_UPDATE_LOCK`（threading.Lock）+ 抽出 `_do_version_update()` 在锁内完成「检查+启动」原子段（status 文件保留作跨 worker 双保险），并发触发立即 409。
-- **🟡 XFF 伪造收口（已修复）**：`stats.client_ip()` 与 `utils.client_key()` 原无条件取 `X-Forwarded-For` 首段（可伪造任意 IP 绕过注册/登录/评论/点赞限流并刷爆埋点）→ 仅当 XFF 首段为**合法公网 IP**（`ipaddress` + `is_global`，排除私网/环回/保留/CGNAT）才采纳，否则回退 `request.remote_addr`（Nginx 直连 TCP 地址不可伪造）。
-- **🟡 限流补齐（已修复）**：三个 stats 埋点（`/api/stats/visit|read|search`）加 `rate_limit`（visit 60次/分钟、read 60次/分钟、search 120次/小时），**超限静默丢弃**不打扰正常访客；前台 `/login` POST 加 `rate_limit 10次/60s` 防暴力破解。
-- **🟡 `add_user` 用户名限长（已修复）**：入库前 `username[:40]` 截断 + 超长提示（与模型 `String(40)` 一致）。
-- **验证**：`py_compile` 全模块通过（`-W error::SyntaxWarning` 无无效转义警告）；隔离临时库冒烟 `smoke_audit_r30.py` 14 项 ALL PASS（鉴权收窄/埋点限流/登录限流/XFF 收口/模板 tojson 渲染）；R30 全量审计 3 Blocker + 5 建议全部修复（详见 `myblog/SECURITY_AUDIT.md` 第四十轮）。APP_VERSION 升为 v3.4.8。
-- **🅰️ 升级顺序（本轮调整 · 无需换脚本包）**：R30 **未改动部署脚本**（`update.sh`/`deploy.sh`），服务器**可直接跑一键更新**（沿用 v3.4.7 已在服脚本）；**若更新过程报错再覆盖 Release v3.4.8 的 `deploy_scripts_v348fix.zip`**（正常情况不需要）。
-
-### v3.4.9 评论 IP 属地 GBK 解码乱码修复（R31 审计通过）
-- **根因**：`stats._http_get_json` 用 `decode("utf-8","ignore")`（永不抛错），太平洋 IP 库（GBK）中文被静默吞成乱码，GBK 兜底分支形同虚设 → 前台评论 IP 定位显示 `㽭ʡ` 类乱码。
-- **修复**：逐编码严格解码（utf-8→gbk 兜底）+ 新增 `_looks_corrupted()` 历史脏缓存自愈（脏则在线重查覆盖）。
-- **验证**：`py_compile` 通过；`smoke_gbk.py` 15/15 ALL GREEN。R31 聚焦审计 0 Blocker。APP_VERSION 升为 v3.4.9；前端无改动，直接跑一键更新即可。
-
-### v3.5.0 自定义链接后缀 + 5 项功能/修复 + 抽屉毛玻璃美化（R32 审计通过）
-
-- **① 自定义链接后缀（slug）**：编辑/新建文章新增「链接后缀」字段，可手动填中文/英文/数字/下划线/连字符生成短链接（如 `/post/我的笔记`）；留空则按标题自动生成。后端 `clean_slug()` 复用 `make_slug()` 清洗并查重（冲突自动 `-2/-3`），清洗为空回退标题生成，绝不写出空 slug 触发路由冲突；仅影响自己文章的 URL，沿用既有 `new_post`/`edit_post` 鉴权。
-- **② 前台模糊搜索修复**：根因 FTS5 无匹配返回空列表 `[]` 时，旧守卫 `if ids is not None` 把「空结果」误判为「有结果」，永不走 LIKE 兜底 → 前台搜索恒报「无结果」。改为 `if ids:`（`[]`/`None` 均走 LIKE 兜底），FTS5 不可用（`None`）也已覆盖；无异常路径。
-- **③ 分类/标签页前台无文章修复**：根因后端 `posts_by_category`/`posts_by_tag` 下发 `{items, name}`，前端 `CategoryView`/`TagView` 却读 `data.posts`（恒 undefined）→ 永远渲染空。改为读 `data.items`，`name` 缺失时回退 slug。
-- **④ 后台评论单独删除 405 修复**：根因行内「删除/通过」按钮嵌在批量表单的嵌套 `<form>` 里，浏览器丢弃内层表单与 CSRF → 单删 405。改为行内按钮用 `formaction` 共享外层 `batch-form` 的 CSRF token（单 POST 表单），未新增任何裸 POST 表单；顺手删掉重复「通过」按钮。
-- **⑤ 英文窄屏菜单/LOGO 纵向错位修复**：抽屉断点 `1004px` → `1100px`，`.header-inner` 加 `flex-wrap:nowrap; min-width:0`，`.logo` 加 `flex-shrink:0`，较长英文导航不再换行顶乱布局。
-- **⑥ 前台抽屉毛玻璃圆角美化**：汉堡抽屉改为浮动毛玻璃卡片（背景 `rgba(255,255,255,.72)` + `backdrop-filter:blur(20px) saturate(180%)` + 20px 圆角 + 阴影），深色模式同步适配（`rgba(29,32,37,.62)` + 浅色描边）。
-- **运维脚本**：新增 `tools/reset_stats.py`（标准库，运维手动用）——清空 `visit_log/read_log/search_log/ip_region` 四表，执行前 `post` 表预检防误伤他库、自动时间戳备份、默认 `YES` 二次确认（`--yes` 跳过），不入库不取密钥。
-- **验证**：`py_compile` 全模块通过；前端构建 `_vite_build15` 成功、`vite preview` HTTP 200（含 `backdrop-filter` + `border-radius:20px`）。R32 七维审计 **0 Blocker，0 高危**（详见 `myblog/SECURITY_AUDIT.md` 第四十二轮）。APP_VERSION 升为 v3.5.0。
-- ⚠️ 升级顺序：R32 **未改动部署脚本**（沿用 v3.4.9 已在服脚本），服务器**直接跑一键更新**即可（后端 + 前端 `vue-frontend-dist.zip` 一并覆盖）；覆盖后端后须在宝塔「停止 → 启动」gunicorn 方真正重载（restart 不重载）。
-
-### v3.5.1 英文桌面端菜单换行修复 + 深色抽屉毛玻璃回归修复（R33 审计通过）
-
-- **① 英文桌面端顶部菜单换行修复**：v3.5.0 只给 `.logo`/`.header-inner` 加了 `nowrap`，**漏给顶部 inline 导航 `.site-header nav` 约束**，且抽屉断点只到 `1100px`；导致常见桌面宽度（约 1280px）下切英文时顶部菜单栏因英文文案更宽而换行成两行、LOGO 文字顶乱。本轮给 `.site-header nav` 加 `flex-wrap:nowrap; min-width:0`、`.site-header nav a` 加 `white-space:nowrap` 并把左间距归零首子项，抽屉断点 `1100px` → `1280px`，顶部 inline 导航所有宽度下保持单行。
-- **② 深色模式抽屉毛玻璃回归修复**：删除一条遗留的 `[data-theme="dark"] .drawer { background:#1d2025; border-color:#2a2e35 }` 不透明覆盖规则——它压死了 v3.5.0 的毛玻璃（深色抽屉退回不透明深底、丢失 `backdrop-filter`）。现在深色抽屉改由毛玻璃基样式（带 alpha 背景 + `backdrop-filter` + 浅描边）渲染，仅保留文字色兜底保证可读性。
-- **验证**：`py_compile` 全模块通过（`compileall` 无语法错误）；前端构建 `_vite_build15` 成功、产物 CSS 含 `max-width:1280px` 断点 + `.logo`/`nav a` 的 `white-space:nowrap` + 抽屉 `backdrop-filter`。R33 七维审计 **0 Blocker，0 高危**（详见 `myblog/SECURITY_AUDIT.md` 第四十三轮）。APP_VERSION 升为 v3.5.1。
-- ⚠️ 升级顺序：R33 **纯前端改动**（外加 `APP_VERSION` 升版本号），服务器**直接跑一键更新**即可（后端 + 前端 `vue-frontend-dist.zip` 一并覆盖）；覆盖后端后须在宝塔「停止 → 启动」gunicorn 方真正重载（restart 不重载）。
-
-### v3.5.2 链接后缀全局模板 + 预制可选/自定义（R34 审计通过）
-
-- **① 链接后缀提升为独立全局设置**：后台「站点设置」新增「🔗 链接后缀规则」区块，把文章 URL 后缀的生成变成可统一配置的全局规则（存 `Setting` 表 `slug_mode`/`slug_template`）。
-- **② 预制 5 个模板 + 自定义**：下拉可选 `仅标题`（默认，与旧行为一致）/`标题-日期`/`纯 ID`/`日期-标题`/`分类-标题`，另提供「自定义模板」可填任意串，支持占位符 `{slug}`（标题短名）`{id}`（文章 ID）`{date}`（YYYYMMDD）`{category}`（分类短名），可混排固定文字。
-- **③ 实时预览**：设置页带即时预览（新增只读 GET 端点 `/api/slug-preview`，基于示例标题/ID/分类返回生成的 slug）。
-- **④ 语义「单篇覆盖 + 全局模板」**：文章编辑页「链接后缀」框仍是**单篇硬覆盖**（填了优先）；留空则套用后台全局模板生成。老文章编辑时若标题未变则保持原 slug 不变（绝不悄悄改旧 URL）。默认 `title` 模式与升级前行为完全一致，**零破坏**。
-- **验证**：`py_compile` + `render_slug_template` 单测 + 临时库 DB 功能测试（6 模式 + 唯一化 `-2/-3`）全通过；`settings.html` 渲染验证通过。R34 七维审计 **0 Blocker，0 高危**（详见 `myblog/SECURITY_AUDIT.md` 第四十四轮）。APP_VERSION 升为 v3.5.2。
-- ⚠️ 升级顺序：R34 **纯后端改动**（无 DB 迁移、无前端构建），服务器**直接跑一键更新**即可（后端 + 前端 `vue-frontend-dist.zip` 一并覆盖）；覆盖后端后须在宝塔「停止 → 启动」gunicorn 方真正重载（restart 不重载）。
-
-### v3.6.0 API 解耦重构（api.py → api/ 包）+ 新增 API.md（R35 审计通过）
-
-- **① API 按功能拆包**：`myblog/api.py`（单文件 1312 行 / 53 路由）解耦为 `myblog/api/` 包——`auth`/`site`/`posts`/`stats`/`social`/`series`/`guestbook`/`subscribe`/`notifications`/`system` 十个功能模块 + `common.py`（共享辅助）+ `__init__.py`（`api_bp` 聚合导出，`from api import api_bp` 兼容）。
-- **② 零破坏**：全 54 条路由与基线快照 `diff` 零差异；CSRF 豁免清单 / 限流 / 鉴权级别全部不变；函数体逐行保真搬移。
-- **③ 新增 API.md**：`myblog/API.md` 完整接口文档（通用约定 + 全部端点 + 如何新增 API + 错误码速查）。
-- **④ 拆包补测修复 6 处跨模块引用缺失（NameError）**：5 个功能模块对顶层 `stats` 的引用未导入（`stats.client_ip` / `stats.cached_region` / `stats.record_*` / `stats.compute_*`）→ 请求时 500；补 `import stats`（`posts.py` 补 `User`，`stats.py`/`series.py` 补 `Post`），新增 `smoke_api_pkg.py` 10 项断言全通过（含 visit 落库读回、评论/留言/友链写路径）。
-- **验证**：`compileall myblog` 无语法错误；路由快照 54 条 diff 零差异；`smoke_api_pkg.py` 10/10。R35 七维审计 **0 Blocker，0 高危**（详见 `myblog/SECURITY_AUDIT.md` 第四十五轮）。APP_VERSION 升为 v3.6.0。
-- ⚠️ 升级顺序：R35 **纯后端改动**（无 DB 迁移、无前端构建，前端沿用 `_vite_build15`），服务器**直接跑一键更新**即可；覆盖后端后须在宝塔「停止 → 启动」gunicorn 方真正重载（restart 不重载）。升级后后台左下角显示 `v3.6.0`。
-
-### v3.6.1 修复：编辑文章改链接后缀（slug）保存报 500（R36 审计通过）
-
-- **① 根因**：`admin.py` 的 `edit_post` 第 662 行 `if post.content != content` 引用了**从未赋值的局部变量 `content`**（该缺陷自 v3.0.0 引入版本历史时即存在）→ `NameError` → 500。以前新建文章走 `new_post` 不经过此路径，故长期未触发。
-- **② 修复**：627 行先取新内容到局部变量 `content`、保留 `old_content` 旧值后再覆盖；版本历史判断改为 `post.content != old_content`（新 vs 旧，语义才正确）；删除 664/665 死代码。
-- **③ 附带修复（前端草稿丢 slug）**：后台编辑页草稿自动保存 `fields` 数组补 `"slug"`，改链接后缀后若不点保存（如刷新页面）草稿恢复不再丢 slug。
-- **验证**：完整 HTTP 链路复现（改 slug / 改内容 / 无变化保存均 200，修复前改 slug 即 500）；`py_compile` 通过；`smoke_v320.py` 回归通过。R36 七维审计 **0 Blocker，0 高危**（详见 `myblog/SECURITY_AUDIT.md` 第四十六轮）。APP_VERSION 升为 v3.6.1。
-- ⚠️ 升级顺序：R36 **纯后端 + 模板改动**（无 DB 迁移、无前端构建，前端沿用 `_vite_build15`），服务器**直接跑一键更新**即可；覆盖后端后须在宝塔「停止 → 启动」gunicorn 方真正重载（restart 不重载）。升级后后台左下角显示 `v3.6.1`。
-
-### v3.7.0 链接后缀（slug）强制全局设置 · 取消单篇手动覆盖（R37 审计通过）
-
-- **① 行为变更（用户可见）**：编辑/新建文章页**移除「链接后缀」输入框**，slug 一律由后台「🔗 链接后缀规则」全局设置（`slug_mode`/`slug_template`）强制生成，作者不再能单篇手写覆盖。后台全局设置页（预制模板 / 自定义占位符）保持不变，仍是唯一定义 slug 形态的地方。
-- **② 保留原则**：编辑已有文章时**仅当标题变化才按全局模板重建 slug**；标题未变则保持原 slug 不动——避免悄悄改掉旧 URL 造成外链/SEO 失效（与 v3.5.2 既有原则一致）。
-- **③ 删除死代码**：后端 `clean_slug()`（单篇覆盖专用）已无调用方，随之删除，避免误导「仍可单篇覆盖」。
-- **④ 前端**：`edit_post.html` 删除 slug 输入框 DOM，并加一行提示「slug 由后台全局设置自动生成」；草稿自动保存 `fields` 数组移除 `slug`（输入框没了，快照不再引用空元素）。
-- **⑤ 验证**：新增 `smoke_v370.py`（10 项断言全通过）覆盖 new_post 强制全局、edit_post 标题变/不变、title/id/category-slug 三种模式、前端无 slug 输入框；`py_compile` 通过。R37 七维审计 **0 Blocker，0 高危**（详见 `myblog/SECURITY_AUDIT.md` 第四十七轮）。APP_VERSION 升为 v3.7.0。
-- ⚠️ 升级顺序：R37 **纯后端 + 模板改动**（无 DB 迁移、无前端构建，前端沿用 `_vite_build15`），服务器**直接跑一键更新**即可；覆盖后端后须在宝塔「停止 → 启动」gunicorn 方真正重载（restart 不重载）。升级后后台左下角显示 `v3.7.0`。
-
-### v3.7.1 访问统计新增 Bot/爬虫识别（R38 审计通过）
-
-- **① 新增能力**：后台「📊 访问统计」新增**爬虫识别**维度——访问记录时从 User-Agent 自动识别是否为 Bot/爬虫，并细分**搜索引擎(search)/AI(ai)/工具脚本(tool)/未知(unknown)** 四类。
-- **② 数据落库**：`VisitLog` 新增 `is_bot`/`bot_name`/`bot_category` 三字段（SQLite 迁移脚本 `myblog/migrate_visit_log_bot.py`，幂等可重跑）；`stats.record_visit` 在记录访问时调用 `detect_bot()` 落库，`compute_summary` 新增 `bot_visits`/`human_visits`/`bot_today`/`bot_breakdown`。
-- **③ 后台可视化**：统计看板新增「🤖 爬虫访问」占比卡片 + 「🤖 爬虫/Bot 来源排行」（列出 Googlebot/Bingbot/Baiduspider/GPTBot/CCBot/ClaudeBot 等具体爬虫名与类型标签、次数、占比）。
-- **④ 验证**：新增 `smoke_v371.py`（19 项断言全通过）覆盖 detect_bot 五类 UA、record_visit 落库、compute_summary 维度；`py_compile` 通过。R38 七维审计 **0 Blocker，0 高危**（详见 `myblog/SECURITY_AUDIT.md` 第四十八轮）。APP_VERSION 升为 v3.7.1。
-- ⚠️ 升级顺序：R38 **有 SQLite DB 迁移**（visit_log 加 3 列）。覆盖后端后**先跑迁移** `python myblog/migrate_visit_log_bot.py`（或 `BLOG_DB=/www/wwwroot/你的站点/data/blog.db python myblog/migrate_visit_log_bot.py`），再宝塔「停止 → 启动」gunicorn 方真正重载。无前端构建改动，前端沿用 `_vite_build16`。升级后后台左下角显示 `v3.7.1`。
-
-### v3.8.0 反爬限流保护 + SEO 服务增强（R39 审计通过）
-
-- **① 反爬限流保护（bot_guard，默认关闭）**：基于 v3.7.1 的 Bot 识别，对高频/可疑请求做限流与封禁。搜索引擎（Google/Baidu/Bing 等）默认白名单豁免，不影响 SEO 抓取；坏 Bot（tool/unknown 类，如 AhrefsBot/SemrushBot）走更严格阈值；达到拦截次数阈值才封禁一段时间。新增 `BotBlock` 表记录触发/封禁，后台「🛡️ 反爬限流保护」看板可查看并解封。
-- **② SEO 服务增强**：文章页新增 JSON-LD `BlogPosting` 结构化数据 + Open Graph / Twitter Card 元标签；`sitemap.xml` 增强（lastmod/changefreq/priority/封面图）；`robots.txt` 支持后台配置屏蔽指定坏 Bot；RSS/feed 增强（dc:creator 作者 + category 分类）。
-- **③ 安全加固**：R39 审计发现并修复 1 处高危——后台解封表单原本缺失 CSRF Token（全局 `_csrf_protect` 对所有非豁免 POST 生效），会导致「解封」按钮必定 403；已补全 `{{ csrf_input() }}`。其余 XSS / 注入 / 越权 / SSRF / 限流 / 资源泄漏维度均通过。
-- **④ 验证**：新增 `smoke_v380.py`（18 项断言全通过）覆盖 BotBlock 自动建表、默认关闭放行、搜索引擎豁免、真人/坏 Bot 限流与封禁、解封、已封禁拦截、sitemap/robots/feed/JSON-LD、关闭后放行；`py_compile` 通过。R39 七维审计 **1 高危已修，0 遗留**（详见 `myblog/SECURITY_AUDIT.md` 第四十九轮）。APP_VERSION 升为 v3.8.0。
-- ⚠️ 升级顺序：R39 **纯后端 + 模板改动（无 DB 迁移、无前端构建）**。`BotBlock` 新表由 `app.py` 的 `db.create_all()` 在重启时自动创建，无需手工迁移脚本。服务器**直接跑一键更新**即可；覆盖后端后须在宝塔「停止 → 启动」gunicorn 方真正重载（restart 不重载）。后台开关位于「⚙️ 站点设置 → 反爬限流」，**默认关闭**，按需开启。升级后后台左下角显示 `v3.8.0`。
-
-### v3.8.1 补丁：修复后台统计页 500（R40）
-
-- **① 根因**：`/admin/stats` 依赖 `visit_log` 表的 bot 三列（`is_bot` / `bot_name` / `bot_category`，v3.7.1 引入）。`db.create_all()` 只建「不存在的表」、不给已存在的表加列；若部署库未跑过 v3.7.1 迁移脚本，`visit_log` 缺这三列，`compute_summary()` 执行 `VisitLog.query.count()`（SQLAlchemy 会包一层全字段子查询）即报 `no such column: visit_log.is_bot` → 后台统计页 500。
-- **② 修复**：`app.py` 启动序列新增 `_migrate_visit_log_table()`，每次启动幂等补列（先 PRAGMA 检查、缺才 `ALTER TABLE ... ADD COLUMN`），**彻底取消对 v3.7.1 手动迁移脚本的依赖**——旧库升级自动自愈，无需任何手工步骤。
-- **③ 验证**：`_debug_admin500.py` 复现夹具确认「修复前 500 / 修复后 `compute_summary` + `guard_stats` + 三个后台模板（含 bot_guard.html 与 settings 新区块）全部正常」；`smoke_v380.py` 18/18 无回归。APP_VERSION 升为 v3.8.1。
-- ⚠️ 升级：纯后端一行迁移逻辑（无新表、无前端构建）。覆盖后端 → 宝塔「停止 → 启动」gunicorn。重启即自动补列，后台不再 500。
-
-### v3.8.2 安全补丁：合并独立复审 PR#1（M1-M4 + L6）
-
-- **背景**：第三方独立安全复审（基于 v3.8.1，完整报告见 `myblog/INDEPENDENT_SECURITY_REVIEW_v3.8.1.md`）发现若干纵深防御缺口，已评审确认属实并合并修复。
-- **① M1 SSR 验证码绕过**：`/register`、`/post/<slug>/comment` 两个 SSR 表单路由原本未接入图形验证码（仅 API 路由有），可直连绕过批量注册/刷评论。现与 API 口径统一（`_captcha_fail` fail-closed），模板按需渲染验证码输入框。
-- **② M2 XFF 限流伪造绕过**：`client_ip` / `client_key` 原无条件信任 `X-Forwarded-For` 首段（只要公网 IP 即采纳），攻击者可轮换公网 IP 绕过注册/登录/评论/点赞限流。现收口为 `utils.get_client_ip()`：仅当 TCP 直连对端为可信代理（新增 `TRUSTED_PROXIES` 环境变量，留空时安全默认=仅内部地址可信）才采纳 XFF，且取**最右端**真实客户端 IP，丢弃左侧伪造前缀。
-- **③ M3 Webhook 部署密钥泄露/重放可关**：`/api/webhook/deploy` 原接受 `?token=` URL 参数（会写入 Nginx/GitHub 投递日志），且 `WH_REPLAY_WINDOW=0` 可完全关闭重放保护。现只接受 `X-Deploy-Token` 请求头，重放窗口强制 ≥30s 且始终启用时间戳校验。
-- **④ M4 `/api/weather` 坐标未校验**：`lat`/`lon` 原未经校验直接拼进出站 URL（SSRF/CRLF 面）。现强校验浮点与范围（lat∈[-90,90]、lon∈[-180,180]），非法拒绝或回落默认；出站参数统一 `quote` 转义；新增限流。
-- **⑤ L6 `backup.py` 命令注入陷阱**：`_run()` 原保留 `shell=True` 分支（str 命令即走 shell），现强制 list 参数、str 一律 `TypeError` 拒绝。
-- **验证**：`smoke_audit_r30.py`（含 XFF 收口 4 项新断言）、`smoke_api_pkg.py`(10)、`smoke_backup_settings.py`(7) 全部通过；`smoke_v380.py` 18/18 无回归（测试夹具补充注册 `api_bp` 以解析验证码图片路由）。APP_VERSION 升为 v3.8.2。
-- ⚠️ 部署前置：若站点跑在「remote_addr 为公网 IP」的前置代理/CDN（Cloudflare、云 LB）之后，必须配置 `TRUSTED_PROXIES`（见 `config.py` 注释），否则真实访客 IP 会显示为代理 IP；Nginx 仍建议 `proxy_set_header X-Forwarded-For $remote_addr;`（替换非追加）。
-
-### v3.8.3：SMTP 发送异常可观测性修复（R42）
-
-- **背景**：后台「📧 邮件设置」点「发送测试邮件」报错「错误详情见后端日志」，但日志里查不到 SMTP 详情——原 `_send_smtp()` 静默吞掉异常（`except Exception: return False`）。
-- **修复**：异常分支现把完整栈打到 `sys.stderr`，由 gunicorn 写入 `gunicorn.log`（搜 `[SMTP ERROR]` 即可定位）。纯可观测性增强，无新路由/表/模板/前端改动；R42 七维审计 0 遗留。
-- **排错**：重部署后填对 SMTP（授权码≠登录密码、465 勾 SSL / 587 取消勾选、出站端口放行），点测试邮件；`tail -n 60 /www/wwwroot/<站点>/gunicorn.log | grep "SMTP ERROR"` 看真实报错（535 认证失败 / 超时 / SSL 握手 / 连接拒绝）。详见 `myblog/deploy_guide.md`「邮件设置」排错块。
-- ⚠️ 升级：纯后端一行改动（无 DB 迁移、无前端构建）。覆盖后端 → 宝塔「停止 → 启动」gunicorn 方真正重载（restart 不重载）。升级后后台左下角显示 `v3.8.3`。
-
-### v3.8.4：修复点赞不累加 + 友链 RSS 聚合可观测性（R43）
-
-- **① 点赞不累加（BUG）**：v3.1.6 起后端严格校验所有 POST 的 CSRF Token；前端 `LikeButton.vue`（Vue 文章页）与 `script.js`（SSR 文章页）用裸 `fetch` POST 不带 token，被 403 拦截，服务端 `likes` 从未 +1。更槽的是前端 `catch` 分支还「本地假加一 + 假置已赞」误导用户以为成功。
-  - 修复：`LikeButton.vue` 改用项目已有的 `apiPost`（自动带 `X-CSRF-Token`），`script.js` 从 `csrf_input` 隐藏域取 token 带上；移除 catch 假加一逻辑，失败如实报错。
-- **② 友链 RSS 不聚合到广场（可观测性）**：`feed_agg.py` / `api/social.py` 原静默吞掉友链抓取异常，现场无迹可查（与 SMTP 同类病）。现把失败原因打到日志，区分四类：
-  1. 友链未填 RSS 地址（后台友链管理里补填即可）
-  2. RSS 地址未过 SSRF 安全校验（私有地址拦截）
-  3. 服务器未装 `feedparser`（日志提示 `pip install feedparser==6.0.11`）
-  4. 抓取/解析异常（含具体错误类型与消息，便于定位超时/证书/格式问题）
-- **验证**：R43 七维审计 0 遗留（无 XSS/注入/越权/SSRF/CSRF/密钥泄露/资源泄漏）；前端用 `node --check` 校验语法。APP_VERSION 升为 v3.8.4。
-- ⚠️ 升级：**含前端构建产物**——必须重新 `vite build` 并打包（见下方构建说明），仅覆盖后端不会生效。宝塔「停止 → 启动」gunicorn 重载前端静态资源。
-
-### v3.8.5：新增 API 文档页面（懒方案）
-
-- **需求**：用户想把 API 文档做成智谱风格（左侧导航 + 右侧内容 + 代码高亮）。
-- **懒方案**：复用现有 Vue 前端，新增 `/docs` 路由 → `DocsView.vue`（纯 HTML）+ 左侧导航（硬编码）+ 代码高亮（CDN highlight.js）。
-- **优势**：3 个文件改完即可，无需额外框架（VitePress / Docusaurus / VuePress）、无需独立文档站点、无需学习新工具链。
-- **访问**：http://your-domain.com/docs
-- **内容**：认证 + 通用说明 + 文章 API（列表/详情/点赞）+ 评论 API（列表/创建）+ RSS 订阅 + 博客圈聚合。
-- **跳过的**：搜索功能（初期 Ctrl+F 够用）、多语言（初期只中文）、版本管理（初期 git 标签即可）、接口自动生成（初期手写）。
-- APP_VERSION 升为 v3.8.5。
-
-### v3.8.6：博客圈自诊断 + 系列热门标签 + 文档页导航（R41–R44 审计通过）
-
-- 博客圈自诊断（`feed_agg._LAST_DIAG` + `/api/feed/circle` 附 `debug` 块，前端直显原因）、系列详情页热门标签云、文档页导航入口（App.vue 桌面 + 抽屉）、文档页内容充实（完整 API 参考 + 二次开发指南）、endpoint 卡片主题色。**含前端构建产物**，须重新 `vite build` + `package.py`。APP_VERSION 升为 v3.8.6。
-
-### v3.8.7：前台移除诊断面板 + 后台全站体检中心 + 文档页 BigModel 风格（R45 审计通过）
-
-- **① 前台移除诊断面板**：`SquareView.vue` 博客圈仅留「↻ 刷新聚合」。**② 后台全站健康体检中心**（`diagnostics.py` · 仅超管）：`feed_diag` 路由（`@super_required` + CSRF）调用 `run_all()` 汇总 9 维 checker（数据库/依赖/配置/备份/SEO/待办/前端构建/存储/RSS 聚合），单点异常降级为 error 不拖垮整页。**③ 文档页 BigModel 风格**：三栏（左导航 + 中内容 + 右「本页目录」TOC 滚动高亮）+ 代码块复制按钮 + 深色模式适配。含前端构建产物。APP_VERSION 升为 v3.8.7。
-
-### v3.8.8：补丁——修复「全站体检」500 与文档页显示不全（R46 审计通过）
-
-- **① 修复后台「🩺 全站体检」打开 500**：根因为 `feed_diag.html` 的 `sec.items` 被 Jinja 解析为 Python `dict.items` 方法（而非数据键），`{% for it in sec.items %}` 报 `TypeError: 'builtin_function_or_method' object is not iterable`。将 `diagnostics.py` 结果数据键 `items` 重命名为 `rows`（彻底规避该陷阱），模板同步改为 `sec.rows`。已本地冒烟验证：超管访问 `/admin/feed-diag` 返回 200 并渲染 9 维仪表盘。
-- **② 修复文档页 `/docs` 显示不全**：`.site-frame` 限宽 `max-width:1100px` + `overflow:hidden` 把文档页设计的三栏（1400px）压窄，且 `@media(max-width:1100px){.docs-toc{display:none}}` 直接隐藏右侧「本页目录」、overflow 还破坏了 sticky 侧栏。`App.vue` 给 `/docs` 路由加 `site-frame--wide` 类，`global.css` 对该类放开 `max-width:1500px` 与 `overflow:visible`，文档页恢复完整三栏 + TOC + sticky。`DocsView.vue` 把 highlight.js 的 `<link>/<script>` 从模板移入 `onMounted` 动态幂等加载（避免重复注入与告警）。
-- **③ 验证**：后端 `py_compile` 全过；前端 `vite build`（`_vite_build16`）70 模块全部转换成功；隔离临时库 + test_client 冒烟确认 500→200。R46 七维审计 **0 遗留**（详见 `myblog/SECURITY_AUDIT.md` R46 轮）。
-- **④ 部署注意**：**含前端构建产物**，须重新 `vite build` + `package.py` 打包；宝塔「停止 → 启动」gunicorn 重载前端静态资源（restart 不重载）；前端 SPA 由 Nginx 服务，上线后请硬刷新 / 清浏览器与 Nginx 缓存。APP_VERSION 升为 v3.8.8。
-
-### v3.8.9：修复 RSS 订阅失败 + 导航栏「文档」不切英文（R47 审计通过）
-
-- **① 修复 RSS 订阅失败（Nginx 未反代 feed.xml）**：朋友用 RSS 阅读器订阅 `域名/feed.xml` 失败。代码本身健康（本地 `GET /feed.xml` → `200 + application/rss+xml` 合法 RSS），但线上 Nginx 只反代 `/api/`、`/admin`、`/static/` 给 Flask，其余走 Vue SPA 兜底，`/feed.xml`（及 `/sitemap.xml`、`/robots.txt`）被兜底成 `index.html` → 阅读器拿到网页而非 XML。修复：`deploy_guide.md` 补 Nginx 精确反代段（`location = /feed.xml` 等三块反代到 `127.0.0.1:8686`）；`bot_guard.py` 的 `_SKIP_PREFIXES` 增加 `/feed.xml`，防止将来开启反爬限流时误封 RSS 阅读器（与 `/robots.txt`、`/sitemap.xml` 同级）。
-- **② 修复前台导航栏「文档」不切英文**：导航栏其他项用 `t('...')` 接自研 i18n（`store.js`），唯独「文档」两项（桌面 + 移动抽屉）硬编码中文，且 `I18N` 词典缺 `docs` key，故切 EN 不变。修复：`store.js` 词典加 `docs`（zh「文档」/ en「Docs」），`App.vue` 两处导航项改用 `{{ t('docs') }}`（已 `vite build _vite_build17`）。
-- **③ 验证**：`py_compile` 通过；本地冒烟 `/feed.xml`/`/sitemap.xml`/`/robots.txt` 均正常；前端重建 70 模块通过；R47 审计 0 遗留（含 i18n 维度）。
-- **④ 部署注意（强提醒）**：**含前端构建产物**，须覆盖 `vue-frontend-dist.zip` 到 Nginx 根 + 后端覆盖 `myblog-backend.zip` 后「停止 → 启动」gunicorn + 硬刷新清缓存；**且宝塔 Nginx 必须补三段 feed/sitemap/robots 反代并「重载配置」**，朋友才能订阅、「文档」英文才生效。APP_VERSION 升为 v3.8.9。
-
-### v3.9.0：全栈插件系统（M0/M1/M2/M3）+ 文章目录侧栏插件（R48 审计通过）
-
-- **① 插件系统（全栈，分阶段落地）**：新增 `myblog/plugins/` 动态加载框架——扫描 `ENABLED_PLUGINS`、importlib 加载 `myblog/plugins/<slug>/__init__.py` 的 `register(app, cfg)`，失败隔离（单插件崩溃不拖垮博客）；设计文档 `PLUGIN_SYSTEM.md` 同仓。
-- **② 事件总线（M1）**：`myblog/plugins/signals.py` 基于 blinker 定义发布/评论/插件加载等 5 个信号，`emit_*` 助手吞掉订阅者异常。
-- **③ 前端槽位 + 路由级启停（M2）**：`App.vue` 新增 nav/sidebar/footer 结构化 `<a>` 槽位（不用 v-html）；后端 `/api/plugins` 暴露槽位声明；新增 `/api/plugins/<slug>/set-enabled`、`/api/plugins/reload` 运行时启停 API（写/删 `disabled` 标记 + 内存覆盖，前端槽位即时生效；路由级启停需重启 gunicorn）。
-- **④ 后台插件管理页 + 远程组件（M3）**：后台「运维诊断 → 🧩 插件管理」列出插件状态与启停；html 富文本经 `vue-frontend/src/lib/sanitize.js`（DOMPurify）消毒后渲染；远程组件走同源 `/static/plugins/` 前缀 + `<component :is>`（runtime-only Vue 渲染函数，零改动核心代码）。
-- **⑤ 首个真实插件 `article_toc`（文章目录侧栏）**：自包含原生 JS 扫描 `.post-body` 的 h2/h3/h4，以 sticky 形态注入文章页右侧栏顶部、随滚动高亮当前章节、点击平滑滚动、窄屏（≤820px）隐藏（由核心内联 TOC 兜底）。默认启用 `contact_card,article_toc`。
-- **验证**：pytest 15 passed；前端 `vite build`（`_vite_build17`）通过；R48 七维审计 **0 遗留**（详见 `myblog/SECURITY_AUDIT.md` R48 轮）。
-- **⚠️ 部署注意（强提醒）**：**含前端构建产物**——须重新 `vite build` + `package.py` 打包；覆盖后端 `myblog-backend.zip` + 前端 `vue-frontend-dist.zip` 后「停止 → 启动」gunicorn（restart 不重载）+ 硬刷新清缓存。新环境变量 `ENABLED_PLUGINS`/`DISABLED_PLUGINS`（紧急关停某插件）见 `myblog/README.md` 与 `deploy_guide.md`。APP_VERSION 升为 v3.9.0。
-
-### v3.9.1：正文渲染缓存 + SQLite WAL（打开文章从「每次重算」到「秒开」· R49 审计通过）
-
-- **① 修复：文章页每次打开都要重算 Markdown（长文 ~87ms）**。根因：`render_markdown()`（Markdown 解析 + bleach 白名单清洗）在**每次请求**都跑一遍——文章详情接口 `/api/post/<slug>`、SSR 首页/文章页/分类/标签/搜索结果（`routes.py::_render()`）无一例外，正文越长越慢，且与内容是否被修改无关。修法：`Post` 新增 `content_html`（渲染结果）+ `content_hash`（指纹）两列，新增 `utils.render_post_html()` 作为唯一渲染出口——命中缓存直接返回，未命中才渲染并写回。指纹 = `sha256(渲染版本号 | 正文 | HTML)`，正文一改指纹即变、缓存自动失效（**无需在保存文章的各处手工清缓存**）；把 HTML 也算进指纹，缓存被意外改坏时会自动重新渲染自愈。实测（1 万字符长文样本）：`87ms → 2.7ms`（约 30×）。
-- **② 修复：并发下偶发 `database is locked`**。根因：SQLite 默认 rollback journal，且未设 `busy_timeout`，gunicorn 多 worker 下每个访客都在写（阅读量 + 统计埋点），读写互相阻塞即报错。修法：`app.py::_install_sqlite_pragmas()` 挂 SQLAlchemy `connect` 事件，逐连接执行 `PRAGMA journal_mode=WAL` + `busy_timeout=5000` + `synchronous=NORMAL`（PRAGMA 是连接级的，只设一次不够；非 SQLite 与 `:memory:` 自动跳过）。WAL 让**读不阻塞写、写不阻塞读**。
-- **③ 配套（不做则启用 WAL 有数据风险）**：WAL 模式下 `cp blog.db` 会漏掉「已提交但未 checkpoint」的数据，备份静默不完整、恢复可能报 `database disk image is malformed`。故同步改造：① `backup.py` 备份改用 sqlite3 **在线备份 API**（`snapshot_db()`，产出自包含 .db；失败回退直拷），恢复后删除 `-wal`/`-shm` 残留（`drop_wal_sidecars()`，否则旧 WAL 会回放新库）；② `update.sh` / `deploy.sh` 升级前备份优先用 `sqlite3 .backup`，无该命令时退化为 `cp` 且连 `-wal` 一起拷；③ 后台「🩺 全站体检 → 数据库健康」新增 `journal_mode` 与 `busy_timeout` 两行，便于部署后核验。
-- **④ 核实（不做无谓改动）**：传言中的「评论 XSS（`_comment()` 返回未消毒原文 + 前端 `v-html`）」经核实为**误判**——`CommentForm.vue` 用 `{{ c.content }}` 文本插值，前台 4 处 `v-html` 的内容均经服务端 `clean_html()` / `escape()` 处理。本次未改动评论链路。
-- **验证**：pytest **23 passed**（新增 8 条：缓存写入/命中不重算/正文变更失效/篡改自愈/迁移幂等/WAL PRAGMA 生效/备份快照完整性/清理 WAL 残留）；R49 十维审计 **0 遗留**（详见 `myblog/SECURITY_AUDIT.md` R49 轮）。
-- **⚠️ 部署注意**：**纯后端改动，不含前端构建产物**（前端 dist 无需重建，但发布包仍会整体重打）。覆盖 `myblog-backend.zip` 后「停止 → 启动」gunicorn；升级后请到后台「运维诊断 → 🩺 全站体检 → 数据库健康」确认 `日志模式 journal_mode` 显示 **WAL**、`写锁等待 busy_timeout` 显示 **5000 ms**（若显示 `delete` 说明 `data/` 目录不可写，检查属主与权限）。首次访问文章会触发一次渲染并落缓存，属正常现象。`data/` 目录下新增的 `blog.db-wal`、`blog.db-shm` 是 WAL 正常产物，**请勿手动删除**。APP_VERSION 升为 v3.9.1。
-
-### v3.10.0：只读诊断 MCP + 内置插件全部下线（R50 审计通过）
-
-- **① 新增只读诊断 MCP 端点 `/mcp`**（`myblog/mcp_diag.py`）：把「应用层健康状态」暴露给 AI 助手远程诊断，补的是云主机监控看不到的那一层。实现 MCP Streamable HTTP 传输的**最小子集**（仅 POST、响应单 JSON，不流式），因此无需 ASGI / 新依赖 / 新进程，Flask 直接承载。提供 5 个只读工具：`health_overview`（全站体检 9 维）、`db_status`（journal_mode + 渲染缓存命中率）、`version_info`（版本与迁移一致性）、`recent_errors`（日志尾部，自动打码）、`content_stats`（内容与待办统计）。
-- **② 安全是设计出来的，不是靠自觉**（四条都是代码级约束 + 测试兜底）：
-  - **认证 fail-closed**：未配置 `MCP_AUTH_TOKEN` 时端点整体返回 401，绝不存在「忘了配就裸奔」；校验用 `hmac.compare_digest` 恒定时间比较防时序爆破。
-  - **强制只读**：源码层不含任何写操作，由 `test_mcp_source_is_readonly` 静态审查（禁 commit/add/delete/os.remove/subprocess/eval）守住红线。
-  - **日志必脱敏**：`SECRET_KEY`、`password`、`token`、`api_key`、`Bearer xxx` 统一打码。
-  - **路径不可遍历**：日志文件只能由环境变量 `MCP_LOG_FILES` 显式指定，不接受客户端传路径。
-  - 另：按 IP 限流 60 次/分钟、MCP 规范要求的 Origin 校验（防 DNS 重绑定）、`/mcp` 加入 CSRF 豁免与 bot_guard 白名单（避免反爬误封）。
-- **③ 内置插件全部下线**：移除 `contact_card`、`article_toc` 两个插件及 `static/plugins/` 下两个远程组件；**插件框架保留**（加载器、事件总线、后台管理页、前端槽位），`ENABLED_PLUGINS` 默认值改为空。文章目录回退到核心 `PostView.vue` 的内联 TOC（文首显示、不随滚动高亮）。测试改为「临时插件驱动」（改写 plugins 包 `__path__` 指向 tmp 目录），不再依赖任何内置插件。
-- **验证**：pytest **31 passed**（新增 11 条 MCP 测试 + 重写 10 条插件框架测试）；发布包冒烟验证 MCP 握手/鉴权/Origin/5 工具/脱敏/错误码全通过；R50 十二维审计 **0 遗留**。
-- **⚠️ 部署注意（必做）**：**纯后端改动，前端产物无变化**。① 生成 token 填进宝塔环境变量 `MCP_AUTH_TOKEN`；② **Nginx 必须补 `location = /mcp` 反代**（否则被 Vue SPA 兜底成 index.html），站点强制 HTTPS；③ 建议对 `/mcp` 再加 IP 白名单；④ 上线后按 deploy_guide 的 curl 三步核验（无 token 必须 401）。本机接入：在 `~/.workbuddy/mcp.json` 加一条 `type: "http"` + `headers.Authorization`，再到连接器管理页点「信任」。APP_VERSION 升为 v3.10.0。
-
-### v3.10.1：修复全站体检「前端构建产物」部署态误报（R51 审计通过）
-
-- **改的什么（纯后端，仅 `myblog/diagnostics.py` 一处）**：全站体检的「前端构建产物」维度在**部署态**永远误报 warn（「未找到 `_vite_build*`」）。根因：旧逻辑只查 `vue-frontend/_vite_build*`，但部署布局是 `vue-frontend-dist.zip` 平铺到站点根目录 `/www/wwwroot/vue-frontend/`，直接是 `index.html + assets/`，无 `_vite_build*` 子目录。改为查 **SPA 入口 `index.html` 是否存在**——部署态优先查 `fe_dir/index.html`，回退本地 `_vite_buildN` / `dist` 构建目录，两种布局都能正确识别。友链 RSS 某源解析 0 条属对方源为空（非本博客 bug），不在本轮修复范围。
-- **验证**：`py_compile` 通过；用模拟服务器布局（部署态 `vue-frontend/index.html`）验证返回 `ok`、本地无构建返回 `warn`（符合预期）；全量 pytest 预期保持 **31 passed**（本轮未动测试文件）。R51 九维审计 **0 遗留**（详见 `myblog/SECURITY_AUDIT.md` R51 轮）。
-- **⚠️ 部署注意**：**纯后端改动，前端产物无变化**。覆盖 `myblog-backend.zip` 后「停止 → 启动」gunicorn（restart 不重载）即生效；体检「前端构建产物」维度在部署态应直接显示 `ok`。APP_VERSION 升为 v3.10.1。
-
-### v3.10.2：诊断助手增强——SMTP 误报修复 + 新增 2 维度（R52 审计通过）
-
-- **① 修复「邮件 SMTP」误报（根因）**：`diagnostics.py::check_config()` 原查 `get_setting("smtp_host")`，但后台「邮件设置」存库的 key 实为 `mail_host`（`mail_notify.load_mail_config()` 读取 `mail_host`/`mail_username`/…），且用户是在后台面板配、没用 `SMTP_HOST` 环境变量 → 诊断永远判「未配置」误报 warn。改为 `get_setting("mail_host") or os.environ.get("SMTP_HOST")`，与实际发信配置一致（仅显示 SMTP 服务器域名，不回显账号/密码）。
-- **② 新增 2 个诊断维度（9 维 → 11 维）**：
-  - **安全配置概览**（`check_security`）：汇总图形验证码 / 评论开关 / 强密码策略(`STRONG_PASSWORD`) / 安全响应头(`SECURITY_HEADERS`) / 接口限流 状态；开着评论却关验证码、或未开安全头/强密码时告警，暴露安全短板。
-  - **渲染缓存命中率**（`check_render_cache`）：统计 `Post.content_html` 已缓存占比；全部未缓存则预警（性能退化 + 可能缓存写回失败）。
-  - 两个新维度自动纳入 `run_all()`，后台「🩺 全站体检」与 MCP `health_overview` 同步可见，无需改 MCP 代码。
-- **验证**：`py_compile` 通过；全量 pytest **31 passed**（无回归）；R52 九维审计 **0 遗留**（详见 `myblog/SECURITY_AUDIT.md` R52 轮）。
-- **⚠️ 部署注意**：**纯后端改动，前端产物无变化**。覆盖 `myblog-backend.zip` 后「停止 → 启动」gunicorn（restart 不重载）即生效；体检维度由 9 增至 11。APP_VERSION 升为 v3.10.2。
-
-### v3.10.3：新增评论 RSS 订阅源 `/feed/comments`（R53 审计通过）
-
-- **改的什么**：用户访问 `/feed/comments/` 被 Nginx SPA 兜底返主界面——根因是该路由博客从未实现（只有文章 feed `/feed.xml`）。本次在 `routes.py` 新增 `comments_feed` 路由（`/feed/comments` + `/feed/comments/`），输出 RSS 2.0：取最近 50 条「`approved=True` 且所属文章已发布」的评论，每项含文章链接锚点 `#comment-<id>`、评论摘要、作者；评论内容/作者/文章标题全部 `escape` 转义防 XSS。同步：① `bot_guard._SKIP_PREFIXES` 加 `/feed/comments`，避免开启反爬后 RSS 阅读器被限流/封禁；② `diagnostics.check_seo` 路由存在性检查加 `/feed/comments`，防止未来 Nginx 反代漏配导致再次返主界面。
-- **验证**：`py_compile` 通过 + 本地冒烟测试（临时 sqlite + `test_client` 验证 `/feed/comments/` 与 `/feed/comments` 均返回 200 + `application/rss+xml`，`<item>` 存在、`<script>` 转义为 `&lt;script&gt;`、锚点正确）；R53 审计 **0 遗留**（详见 `myblog/SECURITY_AUDIT.md` R53 轮）；pytest **31 passed** 保持。
-- **⚠️ 部署注意**：**纯后端改动，前端产物无变化**。覆盖 `myblog-backend.zip` 后「停止 → 启动」gunicorn（restart 不重载）即生效；评论订阅源 `https://你的域名/feed/comments/` 即可被 RSS 阅读器订阅。APP_VERSION 升为 v3.10.3。
-
-### v3.10.4 修复：博客圈 RSS 卡死（R54 审计通过）
-
-- **修复**：后台点「强制刷新聚合」即触发 502/罢工。根因：`feed_agg.get_circle_feed` 抓友链 RSS 时 `feedparser.parse` 默认**无 socket 超时**，单个不可达源（如被墙的外站 hedelei）会让 worker 永久挂起、拖垮整站。改为抓取前 `socket.setdefaulttimeout(8)`（取 `current_app.config["FEED_FETCH_TIMEOUT"]`，环境变量 `FEED_FETCH_TIMEOUT` 可覆盖，`try/finally` 还原），坏源超时被 `except` 捕获标记 `skipped/error`、**不再无限挂起**。同时：① `diagnostics.check_feed_agg` 改**实时读库**计数，消除多 gunicorn worker 下内存快照滞后（填了 RSS 仍长时间误报「没有任何友链填写 RSS」）；② `admin.set_link_rss` 保存后**软校验** RSS 可达性（填错 `/feed/` 这类路径立即 warning，保存照常）。纯后端改动，**无需 vite build**。
-- **验证**：`py_compile` 通过（feed_agg/diagnostics/admin/config 四文件）；R54 九维审计 **0 遗留**（详见 `myblog/SECURITY_AUDIT.md` R54 轮）；pytest **31 passed** 保持。
-- **⚠️ 部署注意**：**纯后端改动，前端产物无变化**。覆盖 `myblog-backend.zip` 后「停止 → 启动」gunicorn（restart 不重载）即生效。若此前因强制刷新罢工，先「停止 → 启动」恢复；后台「友链管理」建议先清空 `hedelei` 的 RSS（避开被墙源），保留自身 `https://www.llhhy.cn/feed.xml`（同服务器秒回）；恢复后「诊断助手」点「强制刷新聚合」验证博客圈出文章、`feed_agg` 转 ok。APP_VERSION 升为 v3.10.4。
-
-### v3.10.5 全站时间转北京时间（R55 审计通过）
-
-- **改的什么**：此前全站时间显示用的是数据库里 UTC 值直接 `strftime`，国内访客看到的时间比北京晚 8 小时；定时发布输入框把用户输入当 UTC，导致「填 20:00 实际次日凌晨 04:00 才发布」。本次统一在展示层转「北京时间（UTC+8）」：新增 `myblog/utils.py` 的 `to_beijing()` / `fmt_bj()`（固定偏移，不依赖服务器 OS 时区），`app.py` 注册 Jinja 过滤器 `bj` 供后台模板使用；API JSON（`api/common.py`/`notifications.py`）、RSS（`routes.py` 文章/评论源 + `api/posts.py` 分类/标签源，偏移由 `+0000` 改为 `+0800`）、sitemap、JSON-LD（`datePublished`/`dateModified` 改带 `+08:00` 的 ISO）、后台模板（13 处）、后台审计导出与诊断/聚合/统计的可见时间全部走 `fmt_bj`。**定时发布语义修正**：`_parse_scheduled` 把编辑页 `datetime-local` 输入当北京时间、换算回 UTC 存储，输入框默认值也按北京时间展示，彻底消除 8 小时错位。
-- **验证**：`py_compile` 通过（utils/app/common/notifications/posts/routes/admin/diagnostics/feed_agg/stats 共 10 文件）；R55 审计 **0 遗留**（详见 `myblog/SECURITY_AUDIT.md` R55 轮）；pytest **31 passed** 保持。
-- **⚠️ 部署注意**：**纯后端改动，前端产物无变化**。覆盖 `myblog-backend.zip` 后「停止 → 启动」gunicorn（restart 不重载）即生效；后台左下角显示 `v3.10.5`。存量「已排定未发布」的定时文章不受影响（存储值不变，仅展示偏移 +8）。APP_VERSION 升为 v3.10.5。
-
-### v3.10.6 修复：后台统计 & 文档页移动端长文本穿模（R56 审计通过）
-
-- **改的什么**：窄屏（手机）下两处「长文本横向溢出穿模」：① 后台 `/admin/stats`「最受关注文章」长标题撑破单元格、压到右侧阅读热度进度条；② 公开站 `/docs` 文档页的长路径(`.path`)、长表格(`.params-table`)、长 inline `code` 溢出视口。修复：
-  - 后台 `myblog/static/admin.css`：`.rank-title`/`.rank-title a` 加 `overflow-wrap:anywhere; word-break:break-word; min-width:0`；移动端媒体查询去掉 `.rank-table` 的 `white-space:nowrap`（改 `normal`，长标题换行而非溢出）；同页「常搜词汇」`.search-tag` pill 长关键词溢出一并加固。
-  - 公开站 `vue-frontend/src/views/DocsView.vue`：`.docs-main`/`.doc-section` 加 `min-width:0`/`overflow-wrap`；`.path`、`.params-table` 单元格、inline `code` 加 `word-break/overflow-wrap` 换行；移动端媒体查询 `.params-table` 改 `table-layout:fixed`，并对端点行/路径/表格做紧凑化（小屏不挤压正文字号）。
-- **验证**：`py_compile` 通过（admin.css 纯静态、DocsView.vue 仅样式）；R56 审计 **0 遗留**（详见 `myblog/SECURITY_AUDIT.md` R56 轮）；pytest 全部通过（29 passed；唯一失败为预存 flaky `test_backup_snapshot_is_consistent`，与本次改动无关）。
-- **⚠️ 部署注意**：**本版含前端改动**（`DocsView.vue`），需重建前端产物——`vue-frontend-dist.zip` 随之更新（源自新构建 `_vite_build18`）；覆盖后端 `myblog-backend.zip` + 前端 `vue-frontend-dist.zip` 后「停止 → 启动」gunicorn（restart 不重载）即生效。后台左下角显示 `v3.10.6`。APP_VERSION 升为 v3.10.6。

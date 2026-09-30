@@ -13,6 +13,10 @@ from .common import api_bp, jsonify
 from flask import request, session
 from models import User, Setting, db
 from themes import THEME_PRESETS, PRESET_MAP, current_theme, derive_dark
+# v3.25.0：审计写入搬到顶层 `audit.py` 后，本模块**可以正常顶层导入**了 ——
+# 原先 `from admin import log_audit` 只能塞进函数里延迟导入，因为
+# `admin.ai_summary → api` 构成包级循环，模块顶层导出会直接 ImportError。
+from audit import log_audit
 
 
 @api_bp.route("/theme", methods=["GET"])
@@ -61,8 +65,8 @@ def theme_post():
         return jsonify({"error": "unknown pack_id"}), 400
 
     db.session.commit()
+    # 审计失败不该让主题应用失败；`log_audit` 自身已全异常静默，这里只是双保险
     try:
-        from admin import log_audit
         log_audit("theme", target="应用主题", detail=pack_id or "custom")
     except Exception:
         pass

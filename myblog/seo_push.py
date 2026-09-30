@@ -59,6 +59,11 @@ RESP_READ = 2000      # 单次读取上游响应的上限（防大响应）
 
 ENGINES = ("baidu", "indexnow")
 
+# v3.25.0：审计写入搬到顶层 `audit.py` 后可以正常顶层导入了。
+# 原先只能函数内 `from admin._helpers import log_audit`，因为 `admin/seo.py` 会导入
+# 本模块，顶层导 admin 构成包级循环（见 `_write_audit` 的历史注释）。
+from audit import log_audit
+
 # 百度当日剩余配额的 Setting 键（页面展示用，非密钥）
 QUOTA_KEY = "seo_baidu_quota"
 
@@ -478,11 +483,11 @@ def _write_audit(actor_name, actor_ip, engine, ids, summary, fail):
 
     IP 必须在**请求线程**里取（后台线程没有请求上下文），由 `enqueue` 传入。
 
-    ⚠️ `log_audit` 只能**延迟导入**：`admin/seo.py` 会导入本模块，模块顶层导入
-    `admin._helpers` 会形成循环导入。
+    v3.25.0：`log_audit` 已可在模块顶层导入（原注释说只能延迟导入，因为
+    `admin/seo.py` → 本模块 → `admin._helpers` 成环；审计搬到顶层 `audit.py`
+    后该环消失）。
     """
     try:
-        from admin._helpers import log_audit
         from models import User
         u = User.query.filter_by(username=actor_name).first() if actor_name else None
         log_audit("seo_push", engine, ids[0] if ids else None,

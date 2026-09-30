@@ -30,11 +30,11 @@
       <tbody>
         {% for r in rows %}
         <tr>
-          <td>
+          <td data-label="文章">
             <a href="{{ url_for('admin.edit_post', post_id=r.p.id) }}" target="_blank" rel="noopener">{{ r.p.title }}</a>
             <div class="stats-tip">{{ r.p.slug }} · {{ r.p.created_at | bj('%Y-%m-%d') }}</div>
           </td>
-          <td class="ai-sum-cell">
+          <td class="ai-sum-cell" data-label="AI 摘要（前台展示内容，可编辑）">
             {% if r.summary %}
               <div class="ai-sum-text">{{ r.summary }}</div>
               {% if r.tags %}<div class="ai-sum-tags">🏷️ {{ r.tags }}</div>{% endif %}
@@ -51,7 +51,7 @@
               <span class="stats-tip">❌ 未生成</span>
             {% endif %}
           </td>
-          <td>
+          <td data-label="操作">
             <form method="post" action="{{ url_for('admin.ai_summary_generate', post_id=r.p.id) }}" style="display:inline;">
               {{ csrf_input() }}
               <button type="submit" class="btn small">{{ '🔄 重新生成' if r.summary else '🤖 生成' }}</button>

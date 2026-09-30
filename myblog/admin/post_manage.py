@@ -1,7 +1,6 @@
 # -*- coding: utf-8 -*-
 """文章管理：列表 / 批量操作 / 定时发布 / 置顶申请与审批 / 软删除。（v3.18.1 由 admin/posts.py 拆出，路由与行为不变）。"""
-from ._helpers import _can_edit_post, log_audit, login_required, super_required
-from . import admin_bp     # 同一蓝图对象
+from ._helpers import _can_edit_post, log_audit, login_required, super_required, admin_bp     # 同一蓝图对象
 from flask import current_app, flash, redirect, render_template, request, session, url_for
 from models import Category, Post, RecycleBin, Series, User, db
 from _time import utcnow

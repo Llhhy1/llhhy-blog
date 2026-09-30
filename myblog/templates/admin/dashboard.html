@@ -97,9 +97,9 @@
           <tbody>
             {% for p in posts %}
               <tr>
-                <td><a href="{{ url_for('admin.edit_post', post_id=p.id) }}">{{ p.title }}</a></td>
-                <td>{{ p.category.name if p.category else '—' }}</td>
-                <td>
+                <td data-label="标题"><a href="{{ url_for('admin.edit_post', post_id=p.id) }}">{{ p.title }}</a></td>
+                <td data-label="分类">{{ p.category.name if p.category else '—' }}</td>
+                <td data-label="状态">
                   {% if p.scheduled_at and not p.published %}
                     <span class="status-scheduled">⏰ 定时 {{ p.scheduled_at | bj('%m-%d %H:%M') }}</span>
                     <form method="post" action="{{ url_for('admin.publish_now', post_id=p.id) }}" class="inline-form">
@@ -115,8 +115,8 @@
                   {% if p.is_pinned %}<span class="status-pinned">📌 置顶</span>{% endif %}
                   {% if p.pin_requested and not p.is_pinned %}<span class="status-requested">🔔 待审批</span>{% endif %}
                 </td>
-                <td>{{ p.views }}</td>
-                <td>
+                <td data-label="阅读">{{ p.views }}</td>
+                <td data-label="操作">
                   <a href="{{ url_for('admin.edit_post', post_id=p.id) }}">编辑</a>
                   {% if current_user and current_user.is_super %}
                     {% if p.pin_requested and not p.is_pinned %}

@@ -123,6 +123,13 @@ def test_theme_post_requires_super(app, client):
 # ---------------------------------------------------------------------------
 
 def test_apply_preset_writes_settings(app, client):
+    # v3.25.0：accent 不再硬编码 —— preset 品牌色按 WCAG 压深过（aurora-green
+    # #12b886 -> #0d7f5d，理由见 themes.py: THEME_PRESETS 与
+    # tests/test_wcag_contrast.py）。写死旧值会让每次调色都红，而这条要验的是
+    # 「API 是否把 preset 的 token 原样落库/返回」，不是「品牌色恰好是多少」。
+    from themes import PRESET_MAP
+    expect_accent = PRESET_MAP["aurora-green"]["light"]["accent"]
+
     with app.app_context():
         superu = _mkuser()
         sid = superu.id
@@ -133,21 +140,21 @@ def test_apply_preset_writes_settings(app, client):
         assert r.status_code == 200
         data = r.get_json()
         assert data["pack_id"] == "aurora-green"
-        assert data["theme_tokens"]["accent"] == "#12b886"
+        assert data["theme_tokens"]["accent"] == expect_accent
         assert data["theme_dark_tokens"]["bg"].startswith("#")
 
         with app.app_context():
             # Setting 落库三项
             assert Setting.query.filter_by(key="theme_pack").first().value == "aurora-green"
-            assert Setting.query.filter_by(key="accent_color").first().value == "#12b886"
+            assert Setting.query.filter_by(key="accent_color").first().value == expect_accent
             toks = json.loads(Setting.query.filter_by(key="theme_tokens").first().value)
-            assert toks["light"]["accent"] == "#12b886"
+            assert toks["light"]["accent"] == expect_accent
             assert toks["dark"]["bg"].startswith("#")
 
             # /api/site 同步暴露新主题（前端整体换肤依赖）
             s = client.get("/api/site").get_json()
             assert s["theme_pack"] == "aurora-green"
-            assert s["theme_tokens"]["accent"] == "#12b886"
+            assert s["theme_tokens"]["accent"] == expect_accent
             assert s["theme_dark_tokens"]["bg"].startswith("#")
     finally:
         with app.app_context():

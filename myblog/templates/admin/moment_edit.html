@@ -30,11 +30,11 @@
     <tbody>
       {% for c in comments %}
         <tr>
-          <td>{{ c.author }}</td>
-          <td>{{ c.content }}</td>
-          <td><code style="font-size:12px;">{{ c.region or c.ip or '—' }}</code></td>
-          <td>{{ c.created_at | bj('%Y-%m-%d %H:%M') }}</td>
-          <td>
+          <td data-label="昵称">{{ c.author }}</td>
+          <td data-label="内容">{{ c.content }}</td>
+          <td data-label="来源"><code style="font-size:12px;">{{ c.region or c.ip or '—' }}</code></td>
+          <td data-label="时间">{{ c.created_at | bj('%Y-%m-%d %H:%M') }}</td>
+          <td data-label="操作">
             <form method="post" action="{{ url_for('admin.delete_moment_comment', mid=m.id, cid=c.id) }}" class="inline-form"
                   onsubmit="return confirm('确定删除这条评论？');">
               {{ csrf_input() }}

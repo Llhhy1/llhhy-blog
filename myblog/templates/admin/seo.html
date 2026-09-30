@@ -122,12 +122,15 @@
         <tbody>
           {% for r in rows %}
           <tr>
-            <td>
+            <td data-label="文章">
               <a href="/post/{{ r.p.slug }}" target="_blank" rel="noopener">{{ r.p.title }}</a>
               <div class="stats-tip">{{ r.p.slug }} · {{ r.p.created_at | bj('%Y-%m-%d') }}</div>
             </td>
-            {% for cell in (r.baidu, r.indexnow) %}
-            <td>
+            {# v3.25.0：原本这里是 {% for cell in (r.baidu, r.indexnow) %} 生成两列，
+               但 data-label 必须逐列写死（手机端卡片化时它就是字段名），
+               循环里没法按列取不同的表头 —— 静态标注脚本会把两列都写成「百度」。
+               故改为显式两次调用，标签由调用处传入。 #}
+            {% macro seo_push_cell(cell, engine_label) %}
               {% if not cell %}
                 <span class="stats-tip">— 未推送</span>
               {% elif cell.status == 'ok' %}
@@ -145,9 +148,10 @@
               {% if cell and cell.submitted_at %}
                 <div class="stats-tip">{{ cell.submitted_at | bj('%m-%d %H:%M') }}</div>
               {% endif %}
-            </td>
-            {% endfor %}
-            <td>
+            {% endmacro %}
+            <td data-label="百度">{{ seo_push_cell(r.baidu, '百度') }}</td>
+            <td data-label="Bing">{{ seo_push_cell(r.indexnow, 'Bing') }}</td>
+            <td data-label="操作">
               <form method="post" action="{{ url_for('admin.seo_push_now') }}" style="display:inline;">
                 {{ csrf_input() }}
                 <input type="hidden" name="post_id" value="{{ r.p.id }}">

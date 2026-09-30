@@ -93,7 +93,7 @@
         {% for p in posts %}
           <tr>
             <td><input type="checkbox" name="ids" value="{{ p.id }}" class="row-check"></td>
-            <td>
+            <td data-label="标题 / 分类">
               <a href="{{ url_for('admin.edit_post', post_id=p.id) }}">{{ p.title }}</a>
               {% if p.category %}<span class="post-tag">{{ p.category.name }}</span>{% endif %}
               {% if p.series %}<span class="post-tag post-tag-series">{{ p.series.name }}</span>{% endif %}
@@ -101,7 +101,7 @@
                 <br><span class="muted">作者：{{ p.author.username }}</span>
               {% endif %}
             </td>
-            <td>
+            <td data-label="状态">
               {% if p.scheduled_at and not p.published %}
                 <span class="status-tag status-scheduled">⏰ {{ p.scheduled_at | bj('%m-%d %H:%M') }}</span>
               {% elif p.published %}
@@ -113,10 +113,10 @@
               {% if p.pin_requested and not p.is_pinned %}<span class="status-tag status-requested">🔔 待审批</span>{% endif %}
               {% if p.is_private %}<span class="status-tag status-private">🔒 私密</span>{% endif %}
             </td>
-            <td>{{ p.word_count or 0 }}</td>
-            <td>{{ p.views }}</td>
-            <td>{{ p.updated_at | bj('%m-%d %H:%M') }}</td>
-            <td class="row-ops">
+            <td data-label="字数">{{ p.word_count or 0 }}</td>
+            <td data-label="阅读">{{ p.views }}</td>
+            <td data-label="更新时间">{{ p.updated_at | bj('%m-%d %H:%M') }}</td>
+            <td class="row-ops" data-label="操作">
               <a href="{{ url_for('admin.edit_post', post_id=p.id) }}">编辑</a>
               {% if not p.published %}
                 <form method="post" action="{{ url_for('admin.publish_now', post_id=p.id) }}" class="inline-form">

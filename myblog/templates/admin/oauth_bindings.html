@@ -24,7 +24,13 @@
     </div>
   {% else %}
     <div class="auth-box" style="max-width: 680px; margin: 0;">
-      <table class="stats-table" style="width:100%;">
+      <!--v3.25.0：class由 stats-table 改为 admin-table。
+           原来的 stats-table 在 admin.css:928 走的是 ≤900 的**横向滚动**兜底，
+           全站没有它的 td[data-label]::before 规则 —— 也就是说下面 5 个
+           data-label 是**死标注**：属性在、字段名永不渲染，手机端仍要横滚。
+           改成 admin-table 即复用 base.html:42 已验证的 ≤760 卡片化机制，
+           5 个标注当场生效，且不新增任何 CSS。 -->
+      <table class="admin-table" style="width:100%;">
         <thead>
           <tr><th>渠道</th><th>第三方 ID</th><th>邮箱</th><th>绑定时间</th><th>操作</th></tr>
         </thead>

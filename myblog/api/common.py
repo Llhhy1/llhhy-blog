@@ -1,7 +1,7 @@
 """API 蓝图共享辅助模块（api 包内部用，不定义任何路由）。
 
 存放原本集中在 myblog/api.py 顶部的：
-- 顶层导入（models / utils / stats / admin.log_login_attempt）
+- 顶层导入（models / utils / stats / audit.log_login_attempt）
 - 模块级常量（_UPDATE_LOCK、_VER_CHECK_CACHE）
 - 各功能模块共用的辅助函数（序列化、登录会话、CSRF、可见性判断等）
 
@@ -38,8 +38,9 @@ from utils import (render_markdown, clean_html, render_post_html,
 # `from .common import ...` 取用（避免循环依赖）。故这些导入在本文件内「未使用」
 # 是设计使然，不是死代码 —— 删掉会破坏下游的 `from .common import X`。
 import stats  # noqa: F401
-# v3.1.0：记录登录审计（log_login_attempt 定义在 admin 模块，admin 不依赖 api，无循环）
-from admin import log_login_attempt
+# v3.1.0：记录登录审计。v3.25.0 起实现位于顶层 `audit.py` —— 原先从 `admin` 取，
+# 与 `admin.ai_summary → api` 一起把 admin 与 api 拉进同一个 21 模块强连通分量。
+from audit import log_login_attempt
 from _time import utcnow
 
 

@@ -1,7 +1,6 @@
 # -*- coding: utf-8 -*-
 # 主题中心后台页（v3.16.0）：仅超管可进入；实际「应用」走 /api/theme（AJAX + CSRF）。
-from . import admin_bp
-from ._helpers import super_required
+from ._helpers import super_required, admin_bp     # admin_bp = 同一蓝图对象
 from flask import render_template
 from themes import THEME_PRESETS, current_theme
 

@@ -19,8 +19,7 @@
 """
 import contextlib
 
-from ._helpers import log_audit, login_required
-from . import admin_bp     # 同一蓝图对象
+from ._helpers import log_audit, login_required, admin_bp     # 同一蓝图对象
 from flask import flash, redirect, render_template, request, session, url_for
 from models import User, db
 from models import OAuthAccount

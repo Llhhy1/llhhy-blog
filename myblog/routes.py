@@ -15,8 +15,9 @@ from models import db, Post, Comment, Setting, User, ROLE_USER, visible_posts_qu
 from utils import (safe_redirect, rate_limit, client_key, validate_password,
                    get_setting, fmt_bj, setting_bool as _setting_bool,
                    site_base as _site_base_impl)
-# v3.1.0：登录审计（log_login_attempt 定义于 admin 模块，admin 不依赖 routes，无循环）
-from admin import log_login_attempt
+# v3.1.0：登录审计。v3.25.0 起实现位于顶层 `audit.py`（原先从 `admin` 取，
+# 虽当时「admin 不依赖 routes」成立，但审计是横切关注点，寄居 admin 迟早出事）。
+from audit import log_login_attempt
 
 main_bp = Blueprint("main", __name__)
 

@@ -13,9 +13,9 @@
     <tbody>
       {% for c in cats %}
         <tr class="cat-row">
-          <td><b>{{ c.name }}</b><br><span class="muted">/{{ c.slug }}</span></td>
-          <td>{{ c.posts.filter_by(in_trash=False).count() }}</td>
-          <td class="row-ops">
+          <td data-label="名称"><b>{{ c.name }}</b><br><span class="muted">/{{ c.slug }}</span></td>
+          <td data-label="文章数">{{ c.posts.filter_by(in_trash=False).count() }}</td>
+          <td class="row-ops" data-label="操作">
             <button type="button" class="link-btn" data-edit-row="edit-{{ c.id }}">✏️ 编辑</button>
             <form method="post" action="{{ url_for('admin.delete_category', cid=c.id) }}" class="inline-form del-form" onsubmit="return confirm('直接删除该分类？其下文章会变成「无分类」。');">
                   {{ csrf_input() }}

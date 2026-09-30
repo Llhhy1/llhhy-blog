@@ -32,20 +32,20 @@
       {% for c in comments %}
         <tr class="{{ 'unread-row' if not c.is_read }}{{ ' pending-row' if not c.approved }}">
           <td><input type="checkbox" name="ids" value="{{ c.id }}" class="row-check"></td>
-          <td>
+          <td data-label="状态">
             {% if c.approved %}<span class="badge-ok">已通过</span>{% else %}<span class="badge-pending">待审核</span>{% endif %}
           </td>
-          <td><a href="{{ url_for('main.post', slug=c.post.slug) }}">{{ c.post.title }}</a></td>
-          <td>{% if c.email_hash %}<img src="https://cn.cravatar.com/avatar/{{ c.email_hash }}?d=mp&s=24" alt="" style="width:24px;height:24px;border-radius:50%;vertical-align:middle;margin-right:4px;">{% endif %}{{ c.author }}</td>
-          <td>{{ c.content }}</td>
-          <td>
+          <td data-label="文章"><a href="{{ url_for('main.post', slug=c.post.slug) }}">{{ c.post.title }}</a></td>
+          <td data-label="昵称">{% if c.email_hash %}<img src="https://cn.cravatar.com/avatar/{{ c.email_hash }}?d=mp&s=24" alt="" style="width:24px;height:24px;border-radius:50%;vertical-align:middle;margin-right:4px;">{% endif %}{{ c.author }}</td>
+          <td data-label="内容">{{ c.content }}</td>
+          <td data-label="归属地 / 设备">
             {% if c.region %}<span class="muted">📍 {{ c.region }}</span>{% endif %}
             {% if c.device %}<br><span class="muted">{{ c.device }}</span>{% endif %}
             {% if not c.region and not c.device %}<span class="muted">—</span>{% endif %}
           </td>
-          <td><code>{{ c.ip or '—' }}</code></td>
-          <td>{{ c.created_at | bj('%Y-%m-%d %H:%M') }}</td>
-          <td class="row-actions">
+          <td data-label="IP"><code>{{ c.ip or '—' }}</code></td>
+          <td data-label="时间">{{ c.created_at | bj('%Y-%m-%d %H:%M') }}</td>
+          <td class="row-actions" data-label="操作">
             {% if not c.approved %}
             <button type="submit" formaction="{{ url_for('admin.approve_comment', cid=c.id) }}" class="link-mark">通过</button>
             <button type="submit" formaction="{{ url_for('admin.reject_comment', cid=c.id) }}" class="link-danger" onclick="return confirm('确定驳回并删除该评论？');">驳回</button>

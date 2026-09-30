@@ -13,17 +13,17 @@
     <tbody>
       {% for a in rows %}
         <tr>
-          <td>{{ a.name }}</td>
-          <td><a href="{{ a.url }}" target="_blank" rel="noopener">{{ a.url }}</a></td>
-          <td>{{ a.description or '—' }}</td>
-          <td>{{ a.email or '—' }}<br><span class="muted">{{ a.applicant_ip or '' }}</span></td>
-          <td>
+          <td data-label="站点名">{{ a.name }}</td>
+          <td data-label="链接"><a href="{{ a.url }}" target="_blank" rel="noopener">{{ a.url }}</a></td>
+          <td data-label="描述">{{ a.description or '—' }}</td>
+          <td data-label="申请人">{{ a.email or '—' }}<br><span class="muted">{{ a.applicant_ip or '' }}</span></td>
+          <td data-label="状态">
             {% if a.status == 'pending' %}<span class="badge-pending">待审核</span>
             {% elif a.status == 'approved' %}<span class="badge-ok">已通过</span>
             {% else %}<span class="badge-rejected">已拒绝</span>{% endif %}
           </td>
-          <td>{{ a.created_at | bj('%Y-%m-%d %H:%M') }}</td>
-          <td>
+          <td data-label="时间">{{ a.created_at | bj('%Y-%m-%d %H:%M') }}</td>
+          <td data-label="操作">
             {% if a.status == 'pending' %}
             <form method="post" action="{{ url_for('admin.approve_link_application', aid=a.id) }}" class="inline-form">
                   {{ csrf_input() }}

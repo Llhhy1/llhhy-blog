@@ -38,10 +38,10 @@
     <tbody>
       {% for a in accounts %}
         <tr>
-          <td>{{ a.platform }}</td>
-          <td>{{ a.handle }}</td>
-          <td><a href="{{ a.url }}" target="_blank" rel="noopener">{{ a.url }}</a></td>
-          <td>
+          <td data-label="平台">{{ a.platform }}</td>
+          <td data-label="展示名">{{ a.handle }}</td>
+          <td data-label="链接"><a href="{{ a.url }}" target="_blank" rel="noopener">{{ a.url }}</a></td>
+          <td data-label="操作">
             <form method="post" action="{{ url_for('admin.delete_social', aid=a.id) }}" class="inline-form" onsubmit="return confirm('确定删除？');">
                   {{ csrf_input() }}
               <button type="submit" class="link-danger">删除</button>

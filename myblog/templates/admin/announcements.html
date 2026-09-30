@@ -21,10 +21,10 @@
     <tbody>
       {% for a in items %}
         <tr>
-          <td>{{ a.content[:60] }}{% if a.content|length > 60 %}…{% endif %}</td>
-          <td>{{ a.level }}</td>
-          <td>{{ '启用' if a.active else '停用' }}</td>
-          <td>
+          <td data-label="内容">{{ a.content[:60] }}{% if a.content|length > 60 %}…{% endif %}</td>
+          <td data-label="级别">{{ a.level }}</td>
+          <td data-label="状态">{{ '启用' if a.active else '停用' }}</td>
+          <td data-label="操作">
             <form method="post" action="{{ url_for('admin.toggle_announcement', aid=a.id) }}" class="inline-form">
                   {{ csrf_input() }}
               <button type="submit" class="btn-sm">{{ '停用' if a.active else '启用' }}</button>

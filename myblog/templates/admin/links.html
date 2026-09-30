@@ -16,17 +16,17 @@
     <tbody>
       {% for l in links %}
         <tr>
-          <td>{{ l.name }}</td>
-          <td><a href="{{ l.url }}" target="_blank" rel="noopener">{{ l.url }}</a></td>
-          <td>{{ l.description }}</td>
-          <td>
+          <td data-label="名称">{{ l.name }}</td>
+          <td data-label="链接"><a href="{{ l.url }}" target="_blank" rel="noopener">{{ l.url }}</a></td>
+          <td data-label="描述">{{ l.description }}</td>
+          <td data-label="RSS 地址">
             <form method="post" action="{{ url_for('admin.set_link_rss', lid=l.id) }}" class="inline-form link-rss-form">
                   {{ csrf_input() }}
               <input type="text" name="rss_url" value="{{ l.rss_url or '' }}" placeholder="https://.../feed.xml">
               <button type="submit">保存</button>
             </form>
           </td>
-          <td>
+          <td data-label="操作">
             <form method="post" action="{{ url_for('admin.delete_link', lid=l.id) }}" class="inline-form" onsubmit="return confirm('确定删除？');">
                   {{ csrf_input() }}
               <button type="submit" class="link-danger">删除</button>

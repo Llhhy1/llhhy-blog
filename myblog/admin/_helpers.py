@@ -9,6 +9,7 @@ from models import (db, Post, Tag, Comment, User, Guestbook, AuditLog, PostHisto
 from utils import (make_slug, count_words, validate_password, apply_slug_template,
                    BEIJING_TZ, get_client_ip, safe_redirect)
 from config import APP_VERSION
+import audit as _audit
 import fts
 import notify
 import mail_notify
@@ -113,72 +114,21 @@ def _can_edit_post(user, post):
 def log_audit(action, target="", target_id=None, detail="", user=None, ip="", success=True):
     """记录一条后台操作审计日志（v3.0.0 功能4）。
 
-    自动填操作人（传入 user 或当前会话用户）、用户名、来源 IP。
-    所有后台写操作（增删改文章/评论/用户/设置/友链等）调用本函数，便于事后追溯。
-    success：是否成功（登录失败/操作失败时为 False）。
-    异常静默：单条日志失败不影响主流程。
+    v3.25.0：实现已迁至顶层 `audit.py`（横切关注点，api / routes / seo_push 都要用）。
+    这里保留同名薄转发，**`admin._helpers.log_audit` 这个既有 API 不破** ——
+    包内 22 个子模块与外部调用方无需改动。
     """
-    try:
-        if user is None:
-            uid = session.get("user_id")
-            user = db.session.get(User, uid) if uid else None
-        # v3.18.5：审计日志的 IP 必须走 get_client_ip()（与 stats/mcp_write/client_key
-        # 同一收口）——原先直接取 X-Forwarded-For 最左段，爆破者可在审计日志里写入
-        # 任意 IP（含内网/他人 IP），导致事件追溯与人工封禁决策失效。
-        try:
-            ip = ip or get_client_ip()
-        except Exception:
-            ip = ""
-        db.session.add(AuditLog(
-            user_id=user.id if user else None,
-            username=user.username if user else "",
-            action=action, target=target, target_id=target_id,
-            detail=(detail or "")[:300], ip=ip[:64], success=success,
-        ))
-        db.session.commit()
-    except Exception:
-        pass
+    return _audit.log_audit(action, target, target_id, detail, user, ip, success)
+
 
 def log_login_attempt(username, success, ip=""):
-    """记录一次后台登录尝试（v3.1.0 新增）。
+    """记录一次后台登录尝试（v3.1.0 新增）。v3.25.0 起实现位于顶层 `audit.py`。"""
+    return _audit.log_login_attempt(username, success, ip)
 
-    无论成功失败都写入审计日志（action='login'），便于追溯异常登录与爆破。
-    success=True 记 target='成功'，False 记 target='失败'（含尝试的用户名）。
-    无请求上下文时（如离线脚本）安全降级，不抛异常。
-    """
-    if not ip:
-        try:
-            # v3.18.5：同 log_audit——不再信任 XFF 最左段（可伪造），走统一收口。
-            ip = get_client_ip()
-        except Exception:
-            ip = ""
-    try:
-        db.session.add(AuditLog(
-            user_id=None, username=(username or "")[:40],
-            action="login", target=("成功" if success else "失败"),
-            target_id=None, detail=(f"登录尝试：{username}" if not success else "后台登录"),
-            ip=ip[:64], success=success,
-        ))
-        db.session.commit()
-    except Exception:
-        pass
-    # 顺带清理超过保留周期的旧审计日志（含登录日志），避免表无限膨胀（v3.1.0；v3.1.6 周期可配）
-    try:
-        from flask import current_app as _app
-        days = _app.config.get("AUDIT_LOG_DAYS", 90)
-    except Exception:
-        days = 90
-    _purge_audit_logs_older_than(days)
 
 def _purge_audit_logs_older_than(days):
-    """清理超过 N 天的审计日志（含登录日志）。轻量：仅当存在时才删除。"""
-    try:
-        cutoff = utcnow() - datetime.timedelta(days=days)
-        deleted = AuditLog.query.filter(AuditLog.created_at < cutoff).delete()
-        if deleted:
-            db.session.commit()
-    except Exception:
-        pass
+    """清理超过 N 天的审计日志。v3.25.0 起实现位于顶层 `audit.py`。"""
+    return _audit._purge_audit_logs_older_than(days)
 
 def _audit_log_query_with_filters():
     """按 query 参数（from / to）构造审计日志查询（v3.1.6 中优·导出时间筛选）。

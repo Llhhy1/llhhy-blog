@@ -1,7 +1,6 @@
 # -*- coding: utf-8 -*-
 """回收站：列出 / 还原 / 彻底清除。（v3.18.1 由 admin/posts.py 拆出，路由与行为不变）。"""
-from ._helpers import _current_user_or_none, admin_required, log_audit, login_required, unique_slug
-from . import admin_bp     # 同一蓝图对象
+from ._helpers import _current_user_or_none, admin_required, log_audit, login_required, unique_slug, admin_bp     # 同一蓝图对象
 from flask import flash, redirect, render_template, url_for
 from models import Post, RecycleBin, db
 import fts

@@ -9,10 +9,15 @@
  * 此处给出与现有一致的默认值，实际以 global.css :root + 后台注入为准。
  */
 :root {
-  /* 品牌色（默认值；运行时由后台 accent_color 覆盖） */
-  --accent: #1a73e8;
+  /* 品牌色（默认值；运行时由后台 accent_color 覆盖）
+   * v3.25.0：#1a73e8 -> #196ddd。--accent 身兼两职 ——「链接文字色」（126 处
+   * color: var(--accent)）与「主按钮底色」（配 --on-accent 白字）。两个身份
+   * 都要求 WCAG 亮度 L <= 0.17，**不互斥**（实测同时可满足）。原 #1a73e8
+   * 作文字只有 4.16:1。14 套 preset 的 accent 已按同一口径压深，见
+   * myblog/themes.py: THEME_PRESETS。 */
+  --accent: #196ddd;
   --accent-hover: #1765cc;
-  --accent-soft: rgba(26, 115, 232, .10);
+  --accent-soft: rgba(25, 109, 221, .10);
   --on-accent: #ffffff;
 
   /* 表面层级（亮色） */
@@ -21,20 +26,28 @@
   --surface-2: #f4f6f8;
   --surface-3: #e9ecef;
 
-  /* 文本 */
+  /* 文本（v3.25.0 起全部满足 WCAG SC 1.4.3，见 tests/test_wcag_contrast.py）
+   * ⚠️ 这三个值必须与 myblog/themes.py 的 _BASE_LIGHT **逐字相等**：
+   * 前台 SPA 上 `store.js: applyThemeTokens()` 会用 _BASE_LIGHT 求解出的值
+   * 覆盖本文件（实测求解值 #7d838f ≠ 早先手填的 #8a8f95）。两边不同值
+   * 意味着「后台和前台灰阶不一样」，由 test_base_light_matches_token_files 钉住。
+   * --text-faint 走**大字档 3:1** 而非正文 4.5:1：实测强拉到 4.5 会落到
+   * 与 --text-muted 亮度差仅 0.003 的位置，三档文本层级视觉塌成两档。
+   * 这是刻意取舍 —— 用可辨性换数字达标，且只适用于 ≥18px（或 ≥14px 粗体）
+   * 的弱化文本；消费点（11-13px 小字说明）合规性见守卫注释。 */
   --text: #2c2c2c;
-  --text-muted: #6b7280;
-  --text-faint: #9aa0a6;
+  --text-muted: #6a717f;
+  --text-faint: #7d838f;
 
   /* 边框 / 分隔 */
   --border: #ececec;
   --border-strong: #d9dde3;
 
-  /* 状态色 */
+  /* 状态色（--danger 亦作 .btn.danger 底色，配白字，故需 4.5:1） */
   --success: #188038;
   --warning: #e8a33d;
-  --danger:  #e5484d;
-  --info:    #1a73e8;
+  --danger:  #d34247;
+  --info:    #196ddd;
 
   /* 形状（--radius-md 运行时由后台 theme_radius 覆盖） */
   --radius-xs: 4px;
@@ -77,13 +90,34 @@
   --surface-3: #2a2e35;
   --text: #d7d9dc;
   --text-muted: #9aa0a6;
-  --text-faint: #6b7280;
+  /* v3.25.0：与 themes.py 求解值逐字一致（#8d9298，白字档外、正文 4.5:1）。
+   * 暗色下修到位后与 --text-muted 亮度间隔仍有 0.06+，三档层级不塌，
+   * 所以这里按正文 4.5 守（不像亮色要退到大字档）。 */
+  --text-faint: #8d9298;
   --border: #2a2e35;
   --border-strong: #333a44;
   --success: #7bc47f;
   --warning: #e8a33d;
-  --danger: #f28b82;
+  /* v3.25.0：#f28b82 -> #f05d5f。**提亮**而非压深 —— 暗色下它有两个
+   * 身份且在深底上互斥（白字压它需 L<=0.60，它作文字需 L>=0.65，实测
+   * L 扫 0.30~0.78 无交集）。解法是提亮到 0.67 档守住「作文字」，
+   * 按钮字改由深色 --on-accent 压（5.89:1）。
+   * ⚠️ 更正：「该色零 color: 用法」不成立 —— admin.css:315 .link-danger
+   * （13px 危险操作链接，无背景覆盖）与 :604 .side-logout:hover 都是前景。 */
+  --danger: #f05d5f;
+  /* v3.25.0：暗色 --accent。原先暗色块**根本没定义**它 —— 纯 CSS 兜底
+   * 路径（无 applyThemeTokens 注入时）下暗色模式没有品牌色。值取自
+   * themes.py: derive_dark(_BASE_LIGHT) 的求解结果。 */
+  --accent: #3f8fff;
+  --accent-hover: #196ddd;
   --info: #8ab4ff;
+  /* v3.25.0：暗色下 --on-accent **不能是白字**。暗色 accent/danger 会被提到
+   * OKLCH L>=0.66（否则深底上当文字不够亮），白字压它们必然崩 ——
+   * 实测 14/14 preset 全崩，最低 2.43:1（电光青）、2.55:1（极光绿）。
+   * .btn { background: var(--accent); color: var(--on-accent) } 是全站主
+   * 按钮，这就是实打实看不清。改为深字（取页面背景色系），实测 14/14
+   * 全部 >= 4.5:1。themes.py 侧由 _on_accent_for() 按每个 accent 单独求解。 */
+  --on-accent: #0b0f14;
   --shadow-sm: 0 1px 3px rgba(0, 0, 0, .40);
   --shadow-md: 0 6px 18px rgba(0, 0, 0, .35);
   --shadow-lg: 0 16px 48px rgba(0, 0, 0, .50);

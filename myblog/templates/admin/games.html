@@ -17,14 +17,14 @@
     <tbody>
       {% for g in games %}
         <tr>
-          <td>{{ g.id }}</td>
-          <td><strong>{{ g.title }}</strong><br><small>{{ g.slug }} · {{ g.description or '' }}</small></td>
-          <td>{{ g.author or '-' }} / {{ g.version }}</td>
-          <td>{{ { 'pending':'待审','approved':'已上架','rejected':'已驳回','removed':'已下架' }.get(g.status, g.status) }}</td>
-          <td>{{ g.audit_score if g.audit_score is not none else '-' }}</td>
-          <td>{{ g.file_count }}</td>
-          <td>{{ g.created_at | bj('%Y-%m-%d %H:%M') }}</td>
-          <td>
+          <td data-label="ID">{{ g.id }}</td>
+          <td data-label="游戏"><strong>{{ g.title }}</strong><br><small>{{ g.slug }} · {{ g.description or '' }}</small></td>
+          <td data-label="作者/版本">{{ g.author or '-' }} / {{ g.version }}</td>
+          <td data-label="状态">{{ { 'pending':'待审','approved':'已上架','rejected':'已驳回','removed':'已下架' }.get(g.status, g.status) }}</td>
+          <td data-label="静态分">{{ g.audit_score if g.audit_score is not none else '-' }}</td>
+          <td data-label="文件数">{{ g.file_count }}</td>
+          <td data-label="收录时间">{{ g.created_at | bj('%Y-%m-%d %H:%M') }}</td>
+          <td data-label="操作">
             <div class="row-ops">
             {% if g.status == 'pending' %}
               <form method="post" action="{{ url_for('admin.game_action', gid=g.id) }}" class="inline-form">

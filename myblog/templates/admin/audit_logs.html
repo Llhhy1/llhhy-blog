@@ -22,13 +22,13 @@
     <tbody>
       {% for l in logs %}
         <tr>
-          <td>{{ l.created_at | bj('%Y-%m-%d %H:%M') }}</td>
-          <td>{{ l.username or '—' }}</td>
-          <td><span class="badge-ok">{{ l.action }}</span></td>
-          <td>{{ l.target }}{% if l.target_id %} #{{ l.target_id }}{% endif %}</td>
-          <td>{% if l.success %}<span class="badge-ok">成功</span>{% else %}<span class="badge-bad">失败</span>{% endif %}</td>
-          <td>{{ l.detail or '—' }}</td>
-          <td><code>{{ l.ip or '—' }}</code></td>
+          <td data-label="时间">{{ l.created_at | bj('%Y-%m-%d %H:%M') }}</td>
+          <td data-label="操作人">{{ l.username or '—' }}</td>
+          <td data-label="动作"><span class="badge-ok">{{ l.action }}</span></td>
+          <td data-label="对象">{{ l.target }}{% if l.target_id %} #{{ l.target_id }}{% endif %}</td>
+          <td data-label="结果">{% if l.success %}<span class="badge-ok">成功</span>{% else %}<span class="badge-bad">失败</span>{% endif %}</td>
+          <td data-label="说明">{{ l.detail or '—' }}</td>
+          <td data-label="来源 IP"><code>{{ l.ip or '—' }}</code></td>
         </tr>
       {% else %}
         <tr><td colspan="7">暂无操作日志{% if filter_from or filter_to %}（当前筛选条件下无记录）{% endif %}</td></tr>

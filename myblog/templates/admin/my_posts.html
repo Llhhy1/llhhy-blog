@@ -16,7 +16,7 @@
     <form method="get" class="filter-form">
       <span class="ff-field">
         <span class="ff-icon">🔍</span>
-        <input type="text" name="q" value="{{ filter_q or '' }}" placeholder="搜索标题/正文">
+        <input aria-label="搜索标题或正文" type="text" name="q" value="{{ filter_q or '' }}" placeholder="搜索标题/正文">
       </span>
       <select name="status">
         <option value="">全部状态</option>

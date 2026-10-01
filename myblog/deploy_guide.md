@@ -547,6 +547,14 @@ supervisorctl status
 
 > ⚠️ **服务器上的 `update.sh` / `deploy.sh` 也务必与最新 Release 同版**：脚本经历过「假成功不覆盖 / 校验误报 / 无法自动重启」多轮加固，升级前先从最新 Release 覆盖一次脚本，再跑一键更新。
 
+> **v3.25.1（深色模式可读性修复 + 表单可访问名补全）升级要点**：**后端与前端都改了 → 两个包都要覆盖**（`myblog-backend.zip` + `vue-frontend-dist.zip`，本版改了 `vue-frontend/src/styles/global.css` 与 26 个后台模板）。
+>
+> - **无表结构变更、无 Alembic 迁移**（head 仍 `e5b8c3f17a24`）、无新增环境变量、无部署脚本变更。
+> - ⚠️ **本版修的是深色模式的可读性缺陷**（用户报告「天气文字看不清、文章目录颜色太白」）。**升级后必须切到深色模式**过一遍：天气组件、文章目录、系列目录、评论正文、侧边栏标题、排行榜与相关文章链接 —— 这 6 处修复前都是 1.2~1.8:1 的「等于看不见」。
+> - 同时补了 **71 处**表单控件的可访问名（placeholder-only），亮色模式下视觉无变化，屏幕阅读器与「点标签聚焦」行为改善。
+> - **验收**：`grep APP_VERSION config.py` 应为 `3.25.1`。
+> - 安全审计 **R99**。
+
 > **v3.25.0（WCAG 对比度治理 + 手机端表格字段名 + 包级循环依赖清零 + FTS 会话隔离）升级要点**：**后端与前端都改了 → 两个包都要覆盖**（`myblog-backend.zip` + `vue-frontend-dist.zip` —— 本版改了 `vue-frontend/src/styles/tokens.css` 的主题色）。
 >
 > - **无表结构变更、无 Alembic 迁移**（head 仍为 `e5b8c3f17a24`）、无新增环境变量、无部署脚本变更。`flask db upgrade` 在 head 处为空操作（`update.sh` 会自动跑）。

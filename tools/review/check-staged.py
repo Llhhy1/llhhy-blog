@@ -36,14 +36,16 @@ BLOCKLIST_EXACT = (
 )
 
 # 文档同步检查：后端代码改动时，这些文档必须同时有改动
-# v3.25.0：历史轮次已归档到 docs/archive/ —— 但**归档件也要跟着改**
-# （新审计轮次可能需要在归档里补交叉引用），所以一并纳入。
+# ⚠️ **只放「活的」主文档，不放 docs/archive/ 下的归档件**（v3.25.1 更正）：
+#    v3.25.0 归档时曾把归档件一并纳入必改清单 —— 结果每次发版都被迫「虚假地」
+#    改一下归档件才能过门禁。但归档件是**历史快照**（R1~R80 / v3.18.5 及更早），
+#    内容本就不该随新版本变化；真要在归档里补交叉引用时自然会把它们放进提交，
+#    不需要门禁逼。实测 v3.25.1 发版时该警告对两份归档件误报。
 # ⚠️ 归档时踩过：`git checkout <file>` 会连带revert 掉该文件**未提交**的改动
 #    （当时把 v3.25.0 的 CHANGELOG 段一起revert 了，只能重写）。回滚长文档
 #    务必先 `git stash` 或按 hunk 回退，不要整文件 checkout。
 DOCS = ("README.md", "myblog/README.md", "myblog/deploy_guide.md", "ROADMAP.md",
-        "myblog/SECURITY_AUDIT.md", "docs/archive/SECURITY_AUDIT_r01-r80.md",
-        "docs/archive/CHANGELOG_v1-v3.18.5.md")
+        "myblog/SECURITY_AUDIT.md")
 BACKEND_SRC = "myblog/"
 FRONTEND_SRC = "vue-frontend/src/"
 

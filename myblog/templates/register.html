@@ -7,20 +7,20 @@
     <form method="post" action="{{ url_for('main.register') }}">
           {{ csrf_input() }}
       {% if captcha_on %}
-      <label>验证码</label>
+      <label for="captcha">验证码</label>
       <img src="{{ url_for('api.captcha_image', from='register') }}" alt="验证码"
            title="点击刷新" style="cursor:pointer;vertical-align:middle"
            onclick="this.src='{{ url_for('api.captcha_image', from='register') }}&t='+Date.now()">
-      <input type="text" name="captcha" placeholder="请输入上方验证码" autocomplete="off" required>
+      <input id="captcha" type="text" name="captcha" placeholder="请输入上方验证码" autocomplete="off" required>
       {% endif %}
-      <label>用户名</label>
-      <input type="text" name="username" minlength="2" maxlength="20" required>
-      <label>邮箱（可选）</label>
-      <input type="email" name="email">
-      <label>密码（至少 8 位）</label>
-      <input type="password" name="password" minlength="6" required>
-      <label>确认密码</label>
-      <input type="password" name="confirm_password" minlength="6" required>
+      <label for="username">用户名</label>
+      <input id="username" type="text" name="username" minlength="2" maxlength="20" required>
+      <label for="email">邮箱（可选）</label>
+      <input id="email" type="email" name="email">
+      <label for="password">密码（至少 8 位）</label>
+      <input id="password" type="password" name="password" minlength="6" required>
+      <label for="confirm_password">确认密码</label>
+      <input id="confirm_password" type="password" name="confirm_password" minlength="6" required>
       <button type="submit">注册</button>
     </form>
     <p class="auth-tip">已有账号？<a href="{{ url_for('main.login') }}">去登录</a></p>

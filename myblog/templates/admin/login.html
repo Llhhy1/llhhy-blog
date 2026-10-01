@@ -31,10 +31,10 @@
 
       <form method="post" action="{{ url_for('admin.login') }}">
             {{ csrf_input() }}
-        <label>用户名</label>
-        <input type="text" name="username" autocomplete="username" required autofocus>
-        <label>密码</label>
-        <input type="password" name="password" autocomplete="current-password" required>
+        <label for="username">用户名</label>
+        <input id="username" type="text" name="username" autocomplete="username" required autofocus>
+        <label for="password">密码</label>
+        <input id="password" type="password" name="password" autocomplete="current-password" required>
         <button type="submit" class="btn">登 录</button>
       </form>
       <p class="auth-tip">

@@ -8,7 +8,7 @@
   <p class="stats-tip">广场 / 个人动态的统一管理入口：可修改正文、删除动态（其下评论一并删除）、逐条清理评论。所有操作写入「操作日志」。</p>
 
   <form method="get" class="inline-form" style="margin:12px 0;">
-    <input type="text" name="q" value="{{ kw or '' }}" placeholder="搜索动态内容…" style="min-width:220px;">
+    <input aria-label="搜索动态内容" type="text" name="q" value="{{ kw or '' }}" placeholder="搜索动态内容…" style="min-width:220px;">
     <select name="author_id">
       <option value="">全部作者</option>
       {% for a in authors %}

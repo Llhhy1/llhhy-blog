@@ -4,10 +4,10 @@
   <h1 class="page-title">友情链接管理</h1>
   <form method="post" action="{{ url_for('admin.links') }}" class="link-form">
         {{ csrf_input() }}
-    <input type="text" name="name" placeholder="名称" required>
-    <input type="text" name="url" placeholder="https://..." required>
-    <input type="text" name="description" placeholder="描述（可选）">
-    <input type="text" name="rss_url" placeholder="RSS 地址（可选，用于博客圈聚合）">
+    <input aria-label="名称" type="text" name="name" placeholder="名称" required>
+    <input aria-label="链接地址" type="text" name="url" placeholder="https://..." required>
+    <input aria-label="描述" type="text" name="description" placeholder="描述（可选）">
+    <input aria-label="RSS 地址" type="text" name="rss_url" placeholder="RSS 地址（可选，用于博客圈聚合）">
     <input type="number" name="sort" value="0" title="排序，越小越靠前">
     <button type="submit" class="btn">添加</button>
   </form>
@@ -22,7 +22,7 @@
           <td data-label="RSS 地址">
             <form method="post" action="{{ url_for('admin.set_link_rss', lid=l.id) }}" class="inline-form link-rss-form">
                   {{ csrf_input() }}
-              <input type="text" name="rss_url" value="{{ l.rss_url or '' }}" placeholder="https://.../feed.xml">
+              <input aria-label="RSS 地址" type="text" name="rss_url" value="{{ l.rss_url or '' }}" placeholder="https://.../feed.xml">
               <button type="submit">保存</button>
             </form>
           </td>

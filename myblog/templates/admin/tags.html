@@ -4,7 +4,7 @@
   <h1 class="page-title">标签管理</h1>
   <form method="post" action="{{ url_for('admin.tags') }}" class="inline-form">
         {{ csrf_input() }}
-    <input type="text" name="name" placeholder="新标签名称" required>
+    <input aria-label="新标签名称" type="text" name="name" placeholder="新标签名称" required>
     <button type="submit" class="btn">添加</button>
   </form>
   <form method="post" action="{{ url_for('admin.tags') }}" class="inline-form" style="margin-top:10px;">

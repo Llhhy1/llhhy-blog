@@ -18,10 +18,10 @@
         <form method="post" action="{{ url_for('admin.twofa') }}" style="margin-top: 14px;">
           {{ csrf_input() }}
           <input type="hidden" name="action" value="disable">
-          <label>登录密码（确认身份）</label>
-          <input type="password" name="password" required>
-          <label>当前动态码或恢复码</label>
-          <input type="text" name="code" inputmode="numeric" autocomplete="one-time-code" placeholder="6 位动态码 / 恢复码" required>
+          <label for="password">登录密码（确认身份）</label>
+          <input id="password" type="password" name="password" required>
+          <label for="code">当前动态码或恢复码</label>
+          <input id="code" type="text" name="code" inputmode="numeric" autocomplete="one-time-code" placeholder="6 位动态码 / 恢复码" required>
           <button type="submit">关闭两步验证</button>
         </form>
       </div>
@@ -51,7 +51,7 @@
           <form method="post" action="{{ url_for('admin.twofa') }}">
             {{ csrf_input() }}
             <input type="hidden" name="action" value="confirm">
-            <input type="text" name="code" inputmode="numeric" autocomplete="one-time-code"
+            <input aria-label="6 位动态码" type="text" name="code" inputmode="numeric" autocomplete="one-time-code"
                    pattern="[0-9]*" maxlength="6" placeholder="6 位动态码" required>
             <button type="submit">确认绑定</button>
           </form>

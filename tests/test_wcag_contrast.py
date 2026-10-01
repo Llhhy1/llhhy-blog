@@ -561,3 +561,213 @@ def test_contrast_rules_cover_every_foreground_token():
     assert not out_of_contract, (
         "这些 token 承载文字但不在契约表里，新增/改名后会静默失去校验：\n"
         + "\n".join(out_of_contract))
+
+# ---------- v3.25.1：深色「浅底压浅字」缺口守卫 ----------
+_GLOBAL_CSS = ROOT / "vue-frontend" / "src" / "styles" / "global.css"
+
+
+def test_dark_mode_no_light_text_on_light_background():
+    """深色模式下不得出现「浅色文字压在浅色背景上」（v3.25.1 线上实测缺陷）。
+
+    **背景**：用户报告深色模式下「天气文字看不清」「文章目录颜色太白」。实测：
+    - `.weather-widget .w-text` 写死 `#333`、**深色无覆盖** → 深字压深底 1.42:1；
+    - `.toc` 容器背景写死 `#fafbfc`、**深色无覆盖**，而 `.toc a` / `.toc-title`
+      早已被深色覆盖成浅灰（`#c7ccd1` / `#b9bfc6`）→ **浅字压白底 1.56 / 1.79:1**。
+
+    **为什么这类缺陷守得住**：它不是「忘了加某个 token」，而是**两个方向相反的
+    遗漏碰在一起** —— 容器停在亮色、文字却跟着深色翻了。单独看任一半都合理，
+    只有把它们放到同一上下文算对比度才暴露。故这条守卫做**交叉比对**：
+    找出「写了深色文字覆盖」的选择器，再找它所在容器的背景是否被深色覆盖。
+
+    **为什么不用「背景必须 token 化」当判据**：那样会误杀 8 处**合法**的浅底
+    （`.post-body pre` 代码块 / `.reward-box` / `.trend-chart` …）—— 它们文字
+    没被深色覆盖，保持「深字压浅底」，可读且是设计选择。真正致命的只有
+    「两边方向相反」的组合。
+    """
+    if not _GLOBAL_CSS.exists():
+        pytest.skip("前端样式不存在")
+    css = _GLOBAL_CSS.read_text(encoding="utf-8")
+
+    def _lum(h):
+        h = h.lstrip("#")
+        if len(h) == 3:
+            h = "".join(c * 2 for c in h)
+        out = []
+        for i in (0, 2, 4):
+            c = int(h[i:i + 2], 16) / 255
+            out.append(c / 12.92 if c <= 0.04045 else ((c + 0.055) / 1.055) ** 2.4)
+        return 0.2126 * out[0] + 0.7152 * out[1] + 0.0722 * out[2]
+
+    def _ratio(f, b):
+        a, c = _lum(f), _lum(b)
+        return (max(a, c) + 0.05) / (min(a, c) + 0.05)
+
+    def _strip_comment(sel):
+        """剥掉选择器里的 CSS 注释。
+
+        ⚠️ **这是本守卫最容易写错的地方**（变异验证抓出来的假绿灯）：
+        `global.css` 里大量写成 `/* TOC（v3.4.1：…） */.toc {`，
+        注释与选择器**同行**。不剥掉的话 `light_bg` 的 key 会变成
+        `/* TOC（…） */.toc`，而 `dark_text` 的 key 是干净的 `.toc a` ——
+        两边永远匹配不上，守卫恒绿、形同虚设。
+        """
+        return re.sub(r"/\*.*?\*/", "", sel).strip()
+
+    # 收集「深色块里被显式改成浅色的文字」：选择器 -> 颜色
+    dark_text = {}
+    for m in re.finditer(r'\[data-theme="dark"\]\s+([^{]+)\{([^}]*)\}', css):
+        sel, body = _strip_comment(m.group(1)), m.group(2)
+        # ⚠️ 这里必须是 \s 不是 /s —— 用 bash heredoc 写本文件时 Git Bash 会把
+        #    `\s` 转成 `/s`（MSYS 路径转换），正则当场失效、守卫恒绿形同虚设。
+        #    **含正则的 Python 一律用 Write/Edit 工具写，不要走 shell heredoc。**
+        cm = re.search(r"(?<![-\w])color:\s*(#[0-9a-fA-F]{6})", body)
+        if cm and _lum(cm.group(1)) > 0.5:          # 只关心浅色字
+            dark_text[sel] = cm.group(1)
+
+    # 收集「深色块里写了背景的容器」：选择器 -> 颜色
+    # ⚠️ **var() 必须算已覆盖**（变异验证抓出来的假阳性）：`.search-tag` /
+    #   `.replying-tip` 用的是 `background: var(--surface-2)` 而不是裸 hex，
+    #   只收 hex 会把它们误报成缺陷。判据是「有没有写深色背景」，不是「用什么写法」。
+    dark_bg = {}
+    for m in re.finditer(r'\[data-theme="dark"\]\s+([^{]+)\{([^}]*)\}', css):
+        sel, body = _strip_comment(m.group(1)), m.group(2)
+        bm = re.search(r"background(?:-color)?:\s*([^;}]+)", body)
+        if bm:
+            dark_bg[sel] = bm.group(1).strip()
+
+    # 收集亮色（无深色覆盖）的写死背景
+    light_bg = {}
+    for m in re.finditer(r'([^{}]+)\{([^}]*)\}', css):
+        sel, body = _strip_comment(m.group(1)), m.group(2)
+        if '[data-theme="dark"]' in sel:
+            continue
+        for bm in re.finditer(r'background(?:-color)?:\s*(#[0-9a-fA-F]{6})', body):
+            for part in sel.split(","):
+                light_bg[part.strip()] = bm.group(1)
+
+    # ⚠️ **判据必须落在「容器」身上，不能落在文字选择器身上**（变异验证抓出来的
+    #   第二个假绿灯）：第一版写的是 `if sel in dark_bg: continue`，但 sel 是
+    #   `.toc-title`（文字），而深色背景写在 `.toc`（容器）上 —— 精确匹配永远
+    #   不中，于是修好了也照样报。必须先定位所属容器，再看**容器**有没有深色覆盖。
+    problems = []
+    for sel, fg in dark_text.items():
+        # 找它落在哪个亮底容器里
+        for container, bg in light_bg.items():
+            if container == "html" or not container:
+                continue
+            if not (sel.startswith(container) or container in sel):
+                continue
+            if container in dark_bg:
+                continue                              # 容器自己已深色化 → 安全
+            ratio = _ratio(fg, bg)
+            if ratio < 4.5:
+                problems.append(
+                    "  [%s] 深色字 %s 压在写死浅底 %s（%s）上 = %.2f:1 < 4.5"
+                    % (sel, fg, bg, container, ratio))
+    assert not problems, (
+        "深色模式下出现「浅字压浅底」（给容器补深色背景覆盖，或别把文字改浅）：\n"
+        + "\n".join(problems))
+
+
+def test_dark_mode_no_dark_text_left_behind():
+    """深色模式下不得有「写死的深色文字没跟着翻浅」（v3.25.1 天气组件实测缺陷）。
+
+    与上一条守卫是**相反方向**的两个缺陷：
+    - 上一条：容器停在亮色、文字却翻浅 → 浅字压浅底；
+    - 这一条：文字写死深色且**深色无覆盖** → 深字压深底。
+
+    实测样本：`.weather-widget .w-text` 写死 `color: #333`，深色块里只覆盖了
+    `.w-btn` / `.w-input`，**漏了 `.w-text`** → 深色模式下 #333 压在
+    `--bg`(#15171a) 上只有 1.42:1，用户报告「看不清」。
+
+    **为什么判据要排除「落在浅底容器里」的选择器**：`.post-body pre` /
+    `.post-body code` 这类代码块在深色下**刻意保持浅底**（设计选择），里面的
+    深色字压浅底是**正确的**，不能报。故先排除落在已知浅底容器内的选择器，
+    剩下的才按「压在最深表面 --bg」估算。
+    """
+    if not _GLOBAL_CSS.exists():
+        pytest.skip("前端样式不存在")
+    css = _GLOBAL_CSS.read_text(encoding="utf-8")
+
+    def _lum(h):
+        h = h.lstrip("#")
+        if len(h) == 3:
+            h = "".join(c * 2 for c in h)
+        out = []
+        for i in (0, 2, 4):
+            c = int(h[i:i + 2], 16) / 255
+            out.append(c / 12.92 if c <= 0.04045 else ((c + 0.055) / 1.055) ** 2.4)
+        return 0.2126 * out[0] + 0.7152 * out[1] + 0.0722 * out[2]
+
+    def _strip(sel):
+        return re.sub(r"/\*.*?\*/", "", sel).strip()
+
+    # 深色块里被覆盖到的选择器（无论改了什么属性，都算「照顾到了」）
+    dark_covered = set()
+    for m in re.finditer(r'\[data-theme="dark"\]\s+([^{]+)\{', css):
+        for part in _strip(m.group(1)).split(","):
+            dark_covered.add(part.strip())
+
+    # 有深色背景覆盖的容器（其内部的写死深色字是安全的）
+    dark_bg_containers = set()
+    for m in re.finditer(r'\[data-theme="dark"\]\s+([^{]+)\{([^}]*)\}', css):
+        if re.search(r"background(?:-color)?:\s*[^;}]+", m.group(2)):
+            for part in _strip(m.group(1)).split(","):
+                dark_bg_containers.add(part.strip())
+
+    # 亮色侧写死背景的容器（浅底，其内部的深色字是安全的）
+    light_bg_containers = {}
+    for m in re.finditer(r"([^{}]+)\{([^}]*)\}", css):
+        sel = _strip(m.group(1))
+        if '[data-theme="dark"]' in sel:
+            continue
+        for bm in re.finditer(r"background(?:-color)?:\s*(#[0-9a-fA-F]{3,6})", m.group(2)):
+            for part in sel.split(","):
+                light_bg_containers[part.strip()] = bm.group(1)
+
+    # 深色模式下的页面底色 --bg
+    dblk = css.split('[data-theme="dark"]')[1] if '[data-theme="dark"]' in css else ""
+    m_bg = re.search(r"--bg:\s*(#[0-9a-fA-F]{6})", dblk)
+    page_bg = m_bg.group(1) if m_bg else "#15171a"
+
+    problems = []
+    for m in re.finditer(r"([^{}]+)\{([^}]*)\}", css):
+        sel = _strip(m.group(1))
+        if '[data-theme="dark"]' in sel:
+            continue
+        # ⚠️ 必须是 {3,6} 不是 {6}（变异验证抓出来的第三个失效点）：
+        #   出事的 `.w-text` 用的正是 **3 位** 简写 `#333`，只认 6 位会让
+        #   整条守卫对它视而不见 —— 变异删掉修复后仍全绿。
+        cm = re.search(r"(?<![-\w])color:\s*(#[0-9a-fA-F]{3,6})\b", m.group(2))
+        if not cm:
+            continue
+        fg = cm.group(1)
+        if _lum(fg) >= 0.2:                     # 只关心「深色字」
+            continue
+        for part in sel.split(","):
+            p = part.strip()
+            if not p or p == "html":
+                continue
+            if p in dark_covered:               # 已有深色覆盖 → 安全
+                continue
+            in_light_box = any(
+                p.startswith(c) or c in p for c in light_bg_containers if c)
+            in_dark_box = any(
+                p.startswith(c) or c in p for c in dark_bg_containers if c)
+            if in_light_box or in_dark_box:     # 落在某个有背景的容器里 → 交给上一条守
+                continue
+            ratio = (_lum(page_bg) + 0.05) / (_lum(fg) + 0.05)
+            if _lum(fg) > _lum(page_bg):
+                ratio = (_lum(fg) + 0.05) / (_lum(page_bg) + 0.05)
+            # ⚠️ 门槛刻意取 2.5 而非 4.5（实测校准）：4.5 会带出 5 处**状态色**提示
+            #   （.apply-msg.err #c0392b 3.30 / .comment-status.error #d93025 3.76 …）。
+            #   它们是「偏低但可读」，与天气那种「1.42 等于看不见」不是一个性质，
+            #   一并报进来会淹没真信号、还会逼着改品牌色。2.5 只收真正不可读的。
+            #   那 5 处已另立待办，不在此守卫射程内。
+            if ratio < 2.5:
+                problems.append(
+                    "  [%s] 写死深字 %s 且深色无覆盖 → 压在 --bg %s 上 = %.2f:1 < 4.5"
+                    % (p, fg, page_bg, ratio))
+    assert not problems, (
+        "深色模式下有写死的深色文字没跟着翻浅（补 [data-theme=\"dark\"] 的 color 覆盖）：\n"
+        + "\n".join(sorted(set(problems))))

@@ -58,8 +58,8 @@
     <h2 style="margin:0 0 12px;">🌐 指令对外域名</h2>
     <form method="post" action="{{ url_for('admin.mcp_services_base') }}" class="edit-form" style="max-width:560px;">
       {{ csrf_input() }}
-      <label>生成接入指令时使用的站点域名（留空 = 自动用当前访问域名）</label>
-      <input type="text" name="base_url" value="{{ base_url_setting }}" placeholder="https://blog.example.com">
+      <label for="base_url">生成接入指令时使用的站点域名（留空 = 自动用当前访问域名）</label>
+      <input id="base_url" type="text" name="base_url" value="{{ base_url_setting }}" placeholder="https://blog.example.com">
       <button type="submit" class="btn small">保存域名</button>
     </form>
   </div>
@@ -109,16 +109,16 @@
     <form method="post" class="edit-form" style="max-width:640px;"
           action="{{ url_for('admin.mcp_services_update', sid=edit_row.id) if edit_row else url_for('admin.mcp_services_add') }}">
       {{ csrf_input() }}
-      <label>服务名称 *（作为 mcp.json 里的 server 键，≤ 40 字，不含空白/引号）</label>
-      <input type="text" name="name" required maxlength="40" value="{{ edit_row.name if edit_row else '' }}" placeholder="my-other-blog-mcp">
-      <label>服务 URL *（http(s):// 完整地址）</label>
-      <input type="text" name="url" required maxlength="300" value="{{ edit_row.url if edit_row else '' }}" placeholder="https://example.com/mcp">
-      <label>认证 Header 名（默认 Authorization，值自动加 Bearer 前缀）</label>
-      <input type="text" name="header" maxlength="60" value="{{ edit_row.header if edit_row else 'Authorization' }}" placeholder="Authorization">
-      <label>Token / 密钥（Fernet 加密落库，页面只显示掩码{% if edit_row %}；留空不变{% endif %}）</label>
-      <input type="text" name="token" maxlength="200" value="" placeholder="{{ '留空 = 不修改' if edit_row else '留空 = 暂不填，可后补' }}" autocomplete="off">
-      <label>用途说明（≤ 120 字，会写进 AI 接入指令，让 AI 知道这个服务是干嘛的）</label>
-      <input type="text" name="desc" maxlength="120" value="{{ edit_row.desc if edit_row else '' }}" placeholder="例：另一个站点的只读诊断端点">
+      <label for="name">服务名称 *（作为 mcp.json 里的 server 键，≤ 40 字，不含空白/引号）</label>
+      <input id="name" type="text" name="name" required maxlength="40" value="{{ edit_row.name if edit_row else '' }}" placeholder="my-other-blog-mcp">
+      <label for="url">服务 URL *（http(s):// 完整地址）</label>
+      <input id="url" type="text" name="url" required maxlength="300" value="{{ edit_row.url if edit_row else '' }}" placeholder="https://example.com/mcp">
+      <label for="header">认证 Header 名（默认 Authorization，值自动加 Bearer 前缀）</label>
+      <input id="header" type="text" name="header" maxlength="60" value="{{ edit_row.header if edit_row else 'Authorization' }}" placeholder="Authorization">
+      <label for="token">Token / 密钥（Fernet 加密落库，页面只显示掩码{% if edit_row %}；留空不变{% endif %}）</label>
+      <input id="token" type="text" name="token" maxlength="200" value="" placeholder="{{ '留空 = 不修改' if edit_row else '留空 = 暂不填，可后补' }}" autocomplete="off">
+      <label for="desc">用途说明（≤ 120 字，会写进 AI 接入指令，让 AI 知道这个服务是干嘛的）</label>
+      <input id="desc" type="text" name="desc" maxlength="120" value="{{ edit_row.desc if edit_row else '' }}" placeholder="例：另一个站点的只读诊断端点">
       <button type="submit" class="btn small">{{ '保存修改' if edit_row else '登记服务' }}</button>
       {% if edit_row %}<a class="btn small ghost" href="{{ url_for('admin.mcp_services') }}">取消编辑</a>{% endif %}
     </form>

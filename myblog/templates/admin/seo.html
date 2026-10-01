@@ -43,7 +43,7 @@
         <span class="stats-tip">当前：{% if has_baidu_token %}<span style="color:#188038;">已配置 {{ baidu_token_mask }}</span>{% else %}<span style="color:#d93025;">未配置</span>{% endif %}
         · 取法：百度搜索资源平台 → 普通收录 → API 提交</span>
       </p>
-      <input type="password" name="baidu_token" autocomplete="new-password"
+      <input aria-label="百度推送 token" type="password" name="baidu_token" autocomplete="new-password"
              placeholder="留空 = 保持不变" style="width:min(520px,100%);">
       <label class="stats-tip" style="display:inline-block;margin-left:8px;">
         <input type="checkbox" name="clear_baidu_token" value="1"> 清除
@@ -52,7 +52,7 @@
       <p style="margin:14px 0 2px;"><b>IndexNow key</b>（Bing / Yandex 等，配额宽松，建议优先）
         <span class="stats-tip">当前：{% if has_indexnow_key %}<span style="color:#188038;">已配置 {{ indexnow_key_mask }}</span>{% else %}<span style="color:#d93025;">未配置</span>{% endif %}</span>
       </p>
-      <input type="password" name="indexnow_key" autocomplete="new-password"
+      <input aria-label="IndexNow Key" type="password" name="indexnow_key" autocomplete="new-password"
              placeholder="8–128 位字母/数字/短横线；留空 = 保持不变" style="width:min(520px,100%);">
       <label class="stats-tip" style="display:inline-block;margin-left:8px;">
         <input type="checkbox" name="clear_indexnow_key" value="1"> 清除
@@ -105,7 +105,7 @@
   <div class="section-box" style="margin-bottom:16px;">
     <h2 style="margin-top:0;font-size:16px;">④ 文章推送状态</h2>
     <form method="get" action="{{ url_for('admin.seo_console') }}" style="margin-bottom:10px;">
-      <input type="text" name="q" value="{{ q }}" placeholder="按标题搜索" style="width:min(280px,100%);">
+      <input aria-label="按标题搜索" type="text" name="q" value="{{ q }}" placeholder="按标题搜索" style="width:min(280px,100%);">
       <button type="submit" class="btn small">搜索</button>
       {% if q %}<a class="btn small" href="{{ url_for('admin.seo_console') }}">清空</a>{% endif %}
     </form>

@@ -46,7 +46,7 @@
                 {{ csrf_input() }}
                 <input type="hidden" name="link_id" value="{{ l.id }}">
                 {% if target.id != actor.id %}<input type="hidden" name="user_id" value="{{ target.id }}">{% endif %}
-                <input type="password" name="password" placeholder="登录密码" required
+                <input aria-label="登录密码" type="password" name="password" placeholder="登录密码" required
                        style="width:120px;display:inline-block;">
                 <button type="submit" onclick="return confirm('确认解绑 {{ l.provider }} 账号？此操作不可撤销。');">解绑</button>
               </form>

@@ -8,20 +8,20 @@
   <form method="post" action="{{ url_for('admin.email_settings') }}" class="edit-form">
         {{ csrf_input() }}
     <input type="hidden" name="action" value="save">
-    <label>SMTP 服务器地址（如 smtp.qq.com / smtp.163.com）</label>
-    <input type="text" name="mail_host" value="{{ settings.mail_host or '' }}" placeholder="smtp.qq.com">
+    <label for="mail_host">SMTP 服务器地址（如 smtp.qq.com / smtp.163.com）</label>
+    <input id="mail_host" type="text" name="mail_host" value="{{ settings.mail_host or '' }}" placeholder="smtp.qq.com">
 
-    <label>SMTP 端口</label>
-    <input type="number" name="mail_port" value="{{ settings.mail_port or '465' }}" placeholder="465（SSL）或 587（TLS）">
+    <label for="mail_port">SMTP 端口</label>
+    <input id="mail_port" type="number" name="mail_port" value="{{ settings.mail_port or '465' }}" placeholder="465（SSL）或 587（TLS）">
 
-    <label>邮箱账号（发件人登录名）</label>
-    <input type="text" name="mail_username" value="{{ settings.mail_username or '' }}" placeholder="your@qq.com" autocomplete="off">
+    <label for="mail_username">邮箱账号（发件人登录名）</label>
+    <input id="mail_username" type="text" name="mail_username" value="{{ settings.mail_username or '' }}" placeholder="your@qq.com" autocomplete="off">
 
-    <label>SMTP 授权码 / 密码</label>
-    <input type="password" name="mail_password" value="" placeholder="留空则保持已保存的值（不显示原密码）" autocomplete="new-password">
+    <label for="mail_password">SMTP 授权码 / 密码</label>
+    <input id="mail_password" type="password" name="mail_password" value="" placeholder="留空则保持已保存的值（不显示原密码）" autocomplete="new-password">
 
-    <label>发件人显示地址（一般等于邮箱账号）</label>
-    <input type="text" name="mail_from" value="{{ settings.mail_from or '' }}" placeholder="your@qq.com">
+    <label for="mail_from">发件人显示地址（一般等于邮箱账号）</label>
+    <input id="mail_from" type="text" name="mail_from" value="{{ settings.mail_from or '' }}" placeholder="your@qq.com">
 
     <label class="checkbox-row">
       <input type="checkbox" name="mail_use_ssl" {{ 'checked' if (settings.mail_use_ssl or 'true') != 'false' }}>
@@ -37,8 +37,8 @@
   <form method="post" action="{{ url_for('admin.email_settings') }}" class="edit-form" style="max-width:520px;">
         {{ csrf_input() }}
     <input type="hidden" name="action" value="test">
-    <label>测试收件人邮箱</label>
-    <input type="email" name="test_to" required placeholder="you@example.com">
+    <label for="test_to">测试收件人邮箱</label>
+    <input id="test_to" type="email" name="test_to" required placeholder="you@example.com">
     <p class="stats-tip" style="margin-top:6px;">将用下方表单里填写的值（含新密码）立即发送一封测试邮件；不填密码则用已保存的密码。不会保存本次改动。</p>
     <button type="submit" class="btn">发送测试邮件</button>
   </form>

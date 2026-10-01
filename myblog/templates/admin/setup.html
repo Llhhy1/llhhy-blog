@@ -31,12 +31,12 @@
 
       <form method="post" action="{{ url_for('admin.setup') }}">
             {{ csrf_input() }}
-        <label>新用户名（2-20 个字符）</label>
-        <input type="text" name="username" autocomplete="username" required autofocus>
-        <label>新密码（至少 8 位）</label>
-        <input type="password" name="password" autocomplete="new-password" required>
-        <label>确认新密码</label>
-        <input type="password" name="confirm_password" autocomplete="new-password" required>
+        <label for="username">新用户名（2-20 个字符）</label>
+        <input id="username" type="text" name="username" autocomplete="username" required autofocus>
+        <label for="password">新密码（至少 8 位）</label>
+        <input id="password" type="password" name="password" autocomplete="new-password" required>
+        <label for="confirm_password">确认新密码</label>
+        <input id="confirm_password" type="password" name="confirm_password" autocomplete="new-password" required>
         <button type="submit" class="btn">保存并进入后台</button>
       </form>
       <p class="auth-tip">设置后旧密码立即失效，之后每次登录都用这套新账号密码。</p>

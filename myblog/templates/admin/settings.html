@@ -4,70 +4,70 @@
   <h1 class="page-title">站点设置</h1>
   <form method="post" action="{{ url_for('admin.settings') }}" class="edit-form">
         {{ csrf_input() }}
-    <label>博客名称（前台顶部 Logo 与浏览器标签页显示的名字，如「XX 的博客」）</label>
-    <input type="text" name="site_name" value="{{ settings.site_name or settings.site_title }}">
+    <label for="site_name">博客名称（前台顶部 Logo 与浏览器标签页显示的名字，如「XX 的博客」）</label>
+    <input id="site_name" type="text" name="site_name" value="{{ settings.site_name or settings.site_title }}">
 
-    <label>站点标题（SEO 用的标题，一般与博客名称一致）</label>
-    <input type="text" name="site_title" value="{{ settings.site_title }}">
+    <label for="site_title">站点标题（SEO 用的标题，一般与博客名称一致）</label>
+    <input id="site_title" type="text" name="site_title" value="{{ settings.site_title }}">
 
-    <label>浏览器便签（显示在前台顶部的一条可关闭公告/便签，如「📌 本站已开通 SSL，欢迎留言」；留空则不显示）</label>
-    <input type="text" name="site_note" value="{{ settings.site_note }}" placeholder="例如：📌 正在更新中，评论功能已恢复">
+    <label for="site_note">浏览器便签（显示在前台顶部的一条可关闭公告/便签，如「📌 本站已开通 SSL，欢迎留言」；留空则不显示）</label>
+    <input id="site_note" type="text" name="site_note" value="{{ settings.site_note }}" placeholder="例如：📌 正在更新中，评论功能已恢复">
 
-    <label>站点描述（用于 SEO，搜索引擎展示的简介）</label>
-    <input type="text" name="site_description" value="{{ settings.site_description }}">
+    <label for="site_description">站点描述（用于 SEO，搜索引擎展示的简介）</label>
+    <input id="site_description" type="text" name="site_description" value="{{ settings.site_description }}">
 
-    <label>关于本站内容（支持简单 HTML）</label>
-    <textarea name="about_content" rows="6">{{ settings.about_content }}</textarea>
+    <label for="about_content">关于本站内容（支持简单 HTML）</label>
+    <textarea id="about_content" name="about_content" rows="6">{{ settings.about_content }}</textarea>
 
-    <label>页脚文字</label>
-    <input type="text" name="footer_text" value="{{ settings.footer_text }}">
+    <label for="footer_text">页脚文字</label>
+    <input id="footer_text" type="text" name="footer_text" value="{{ settings.footer_text }}">
 
-    <label>页脚备案号（ICP 备案码，如「京ICP备12345678号-1」；留空则不显示）</label>
-    <input type="text" name="beian_code" value="{{ settings.beian_code }}">
+    <label for="beian_code">页脚备案号（ICP 备案码，如「京ICP备12345678号-1」；留空则不显示）</label>
+    <input id="beian_code" type="text" name="beian_code" value="{{ settings.beian_code }}">
 
-    <label>站点主题色（导航高亮、按钮、链接、时间线圆点等都会跟随这个颜色）</label>
-    <input type="color" name="accent_color" value="{{ settings.accent_color or '#1a73e8' }}" style="width:60px;height:38px;padding:2px;cursor:pointer;">
+    <label for="accent_color">站点主题色（导航高亮、按钮、链接、时间线圆点等都会跟随这个颜色）</label>
+    <input id="accent_color" type="color" name="accent_color" value="{{ settings.accent_color or '#1a73e8' }}" style="width:60px;height:38px;padding:2px;cursor:pointer;">
 
-    <label>天气默认城市名（天气组件在没有访客定位时显示的名字，如「北京」）</label>
-    <input type="text" name="weather_city" value="{{ settings.weather_city }}">
+    <label for="weather_city">天气默认城市名（天气组件在没有访客定位时显示的名字，如「北京」）</label>
+    <input id="weather_city" type="text" name="weather_city" value="{{ settings.weather_city }}">
 
-    <label>天气默认纬度（weather_lat）</label>
-    <input type="text" name="weather_lat" value="{{ settings.weather_lat }}">
+    <label for="weather_lat">天气默认纬度（weather_lat）</label>
+    <input id="weather_lat" type="text" name="weather_lat" value="{{ settings.weather_lat }}">
 
-    <label>天气默认经度（weather_lon）</label>
-    <input type="text" name="weather_lon" value="{{ settings.weather_lon }}">
+    <label for="weather_lon">天气默认经度（weather_lon）</label>
+    <input id="weather_lon" type="text" name="weather_lon" value="{{ settings.weather_lon }}">
 
     <label style="margin-top:24px;font-size:15px;color:var(--accent);">🎨 主题美化（前后台同时生效）</label>
 
-    <label>默认主题模式（用户没手动切过时生效）</label>
-    <select name="theme_mode">
+    <label for="theme_mode">默认主题模式（用户没手动切过时生效）</label>
+    <select id="theme_mode" name="theme_mode">
       <option value="system" {{ 'selected' if (settings.theme_mode or 'system') == 'system' }}>跟随系统</option>
       <option value="light" {{ 'selected' if settings.theme_mode == 'light' }}>浅色</option>
       <option value="dark" {{ 'selected' if settings.theme_mode == 'dark' }}>深色</option>
     </select>
 
-    <label>圆角风格（卡片/按钮/输入框的圆角大小）</label>
-    <select name="theme_radius">
+    <label for="theme_radius">圆角风格（卡片/按钮/输入框的圆角大小）</label>
+    <select id="theme_radius" name="theme_radius">
       <option value="sm" {{ 'selected' if (settings.theme_radius or 'md') == 'sm' }}>小圆角（8px）</option>
       <option value="md" {{ 'selected' if (settings.theme_radius or 'md') == 'md' }}>标准圆角（12px）</option>
       <option value="lg" {{ 'selected' if settings.theme_radius == 'lg' }}>大圆角（20px）</option>
     </select>
 
-    <label>全局字号</label>
-    <select name="theme_font">
+    <label for="theme_font">全局字号</label>
+    <select id="theme_font" name="theme_font">
       <option value="sm" {{ 'selected' if (settings.theme_font or 'md') == 'sm' }}>小（14px）</option>
       <option value="md" {{ 'selected' if (settings.theme_font or 'md') == 'md' }}>标准（15px）</option>
       <option value="lg" {{ 'selected' if settings.theme_font == 'lg' }}>大（17px）</option>
     </select>
 
-    <label>前台导航栏样式</label>
-    <select name="nav_style">
+    <label for="nav_style">前台导航栏样式</label>
+    <select id="nav_style" name="nav_style">
       <option value="light" {{ 'selected' if (settings.nav_style or 'light') == 'light' }}>浅色</option>
       <option value="dark" {{ 'selected' if settings.nav_style == 'dark' }}>深色</option>
     </select>
 
-    <label>自定义 CSS（进阶：粘贴你想覆盖的样式，前后台都会注入；留空不注入）</label>
-    <textarea name="custom_css" rows="5" placeholder="例：.site-header { box-shadow: 0 2px 12px rgba(0,0,0,0.08); }&#10;.post-card { border: 0; box-shadow: 0 4px 16px rgba(0,0,0,0.06); }">{{ settings.custom_css }}</textarea>
+    <label for="custom_css">自定义 CSS（进阶：粘贴你想覆盖的样式，前后台都会注入；留空不注入）</label>
+    <textarea id="custom_css" name="custom_css" rows="5" placeholder="例：.site-header { box-shadow: 0 2px 12px rgba(0,0,0,0.08); }&#10;.post-card { border: 0; box-shadow: 0 4px 16px rgba(0,0,0,0.06); }">{{ settings.custom_css }}</textarea>
 
     <label class="checkbox-row">
       <input type="checkbox" name="comment_require_approval" {{ 'checked' if (settings.comment_require_approval or '')|lower == 'true' }}>
@@ -81,24 +81,24 @@
 
     <label style="margin-top:24px;font-size:15px;color:var(--accent);">🛡️ v3.0.0 新增设置</label>
 
-    <label>垃圾评论过滤关键词（功能2：英文逗号分隔，命中任一关键词的评论将被直接拒绝，如「代开发票, 办证, 赌博」；留空不过滤）</label>
-    <input type="text" name="comment_spam_keywords" value="{{ settings.comment_spam_keywords }}" placeholder="例如：代开发票, 办证, 赌博">
+    <label for="comment_spam_keywords">垃圾评论过滤关键词（功能2：英文逗号分隔，命中任一关键词的评论将被直接拒绝，如「代开发票, 办证, 赌博」；留空不过滤）</label>
+    <input id="comment_spam_keywords" type="text" name="comment_spam_keywords" value="{{ settings.comment_spam_keywords }}" placeholder="例如：代开发票, 办证, 赌博">
 
-    <label>前台默认语言（功能11：i18n；目前支持 zh=中文 / en=英文，未登录访客按此展示界面文案）</label>
-    <select name="site_lang">
+    <label for="site_lang">前台默认语言（功能11：i18n；目前支持 zh=中文 / en=英文，未登录访客按此展示界面文案）</label>
+    <select id="site_lang" name="site_lang">
       <option value="zh" {{ 'selected' if (settings.site_lang or 'zh') == 'zh' }}>中文</option>
       <option value="en" {{ 'selected' if settings.site_lang == 'en' }}>English</option>
     </select>
 
-    <label>打赏默认收款二维码 URL（功能14：超管在单篇文章开启打赏但未单独指定二维码时，使用此默认图；留空则要求每篇单独上传）</label>
-    <input type="text" name="reward_qr_default" value="{{ settings.reward_qr_default }}" placeholder="https://.../reward.png">
+    <label for="reward_qr_default">打赏默认收款二维码 URL（功能14：超管在单篇文章开启打赏但未单独指定二维码时，使用此默认图；留空则要求每篇单独上传）</label>
+    <input id="reward_qr_default" type="text" name="reward_qr_default" value="{{ settings.reward_qr_default }}" placeholder="https://.../reward.png">
 
     <label style="margin-top:24px;font-size:15px;color:var(--accent);">🔗 v3.5.2 链接后缀规则（全局模板）</label>
     <p style="color:var(--muted,#888);font-size:13px;margin:4px 0 10px;">
       设置新建/未指定单篇后缀时文章链接的默认生成规则。v3.7.0 起已取消单篇手填，slug 一律由本规则强制生成（留空套用模板）。
     </p>
 
-    <label>模板选择</label>
+    <label for="slugMode">模板选择</label>
     <select name="slug_mode" id="slugMode">
       <option value="title" {{ 'selected' if (settings.slug_mode or 'title') == 'title' }}>仅标题（默认，旧行为）</option>
       <option value="slug-date" {{ 'selected' if settings.slug_mode == 'slug-date' }}>标题-日期（{slug}-{date}）</option>
@@ -108,7 +108,7 @@
       <option value="custom" {{ 'selected' if settings.slug_mode == 'custom' }}>自定义模板</option>
     </select>
 
-    <label>自定义模板（选「自定义」时生效；支持占位符 {slug} {id} {date} {category}，可混排固定文字）</label>
+    <label for="slugTemplate">自定义模板（选「自定义」时生效；支持占位符 {slug} {id} {date} {category}，可混排固定文字）</label>
     <input type="text" name="slug_template" id="slugTemplate" value="{{ settings.slug_template or '' }}" placeholder="例如：{category}-{date}-{slug}">
 
     <div style="margin:8px 0 4px;font-size:13px;color:var(--muted,#888);">
@@ -149,18 +149,18 @@
     </p>
     <label><input type="checkbox" name="bot_guard_enabled" {{ 'checked' if settings.bot_guard_enabled == 'true' }}> 启用反爬限流（默认关闭）</label>
     <label><input type="checkbox" name="bot_guard_search_whitelist" {{ 'checked' if settings.bot_guard_search_whitelist != 'false' }}> 搜索引擎白名单豁免（推荐保持开启）</label>
-    <label>普通访客 / AI 爬虫单窗口最大请求数（默认 120）</label>
-    <input type="number" name="bot_guard_threshold" value="{{ settings.bot_guard_threshold or '120' }}" min="1">
-    <label>限流窗口（秒，默认 60）</label>
-    <input type="number" name="bot_guard_window" value="{{ settings.bot_guard_window or '60' }}" min="1">
-    <label>工具 / 未知爬虫单窗口最大请求数（更严格，默认 20）</label>
-    <input type="number" name="bot_guard_tool_limit" value="{{ settings.bot_guard_tool_limit or '20' }}" min="1">
-    <label>触发几次后封禁（默认 3）</label>
-    <input type="number" name="bot_guard_block_hits" value="{{ settings.bot_guard_block_hits or '3' }}" min="1">
-    <label>封禁时长（分钟，默认 30）</label>
-    <input type="number" name="bot_guard_block_minutes" value="{{ settings.bot_guard_block_minutes or '30' }}" min="1">
-    <label>SEO：robots.txt 中屏蔽的坏 Bot（逗号分隔，如 AhrefsBot,MJ12Bot；留空=不屏蔽）</label>
-    <input type="text" name="seo_block_bots" value="{{ settings.seo_block_bots or '' }}" placeholder="AhrefsBot,MJ12Bot">
+    <label for="bot_guard_threshold">普通访客 / AI 爬虫单窗口最大请求数（默认 120）</label>
+    <input id="bot_guard_threshold" type="number" name="bot_guard_threshold" value="{{ settings.bot_guard_threshold or '120' }}" min="1">
+    <label for="bot_guard_window">限流窗口（秒，默认 60）</label>
+    <input id="bot_guard_window" type="number" name="bot_guard_window" value="{{ settings.bot_guard_window or '60' }}" min="1">
+    <label for="bot_guard_tool_limit">工具 / 未知爬虫单窗口最大请求数（更严格，默认 20）</label>
+    <input id="bot_guard_tool_limit" type="number" name="bot_guard_tool_limit" value="{{ settings.bot_guard_tool_limit or '20' }}" min="1">
+    <label for="bot_guard_block_hits">触发几次后封禁（默认 3）</label>
+    <input id="bot_guard_block_hits" type="number" name="bot_guard_block_hits" value="{{ settings.bot_guard_block_hits or '3' }}" min="1">
+    <label for="bot_guard_block_minutes">封禁时长（分钟，默认 30）</label>
+    <input id="bot_guard_block_minutes" type="number" name="bot_guard_block_minutes" value="{{ settings.bot_guard_block_minutes or '30' }}" min="1">
+    <label for="seo_block_bots">SEO：robots.txt 中屏蔽的坏 Bot（逗号分隔，如 AhrefsBot,MJ12Bot；留空=不屏蔽）</label>
+    <input id="seo_block_bots" type="text" name="seo_block_bots" value="{{ settings.seo_block_bots or '' }}" placeholder="AhrefsBot,MJ12Bot">
 
     <button type="submit" class="btn">保存设置</button>
   </form>

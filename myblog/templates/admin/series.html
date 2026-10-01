@@ -5,9 +5,9 @@
   <p class="hint">把多篇文章归到一个系列，前台会显示专栏页与上下篇导航。改名后 URL（slug）自动重算并保持唯一。</p>
   <form method="post" action="{{ url_for('admin.manage_series') }}" class="link-form">
         {{ csrf_input() }}
-    <input type="text" name="name" placeholder="系列名称" required>
-    <input type="text" name="description" placeholder="简介（可选）">
-    <input type="text" name="cover" placeholder="封面图 URL（可选）">
+    <input aria-label="系列名称" type="text" name="name" placeholder="系列名称" required>
+    <input aria-label="简介" type="text" name="description" placeholder="简介（可选）">
+    <input aria-label="封面图 URL" type="text" name="cover" placeholder="封面图 URL（可选）">
     <input type="number" name="sort" value="0" title="排序，越小越靠前">
     <button type="submit" class="btn">添加</button>
   </form>
@@ -31,14 +31,14 @@
           <td colspan="4" class="row-editor-cell">
             <form method="post" action="{{ url_for('admin.rename_series', sid=s.id) }}" class="editor-form editor-form-grid">
                   {{ csrf_input() }}
-              <span class="qc-label">名称（slug 自动重算）</span>
-              <input type="text" name="name" value="{{ s.name }}" required>
-              <span class="qc-label">简介</span>
-              <input type="text" name="description" value="{{ s.description or '' }}">
-              <span class="qc-label">封面 URL</span>
-              <input type="text" name="cover" value="{{ s.cover or '' }}" placeholder="https://…">
-              <span class="qc-label">排序</span>
-              <input type="number" name="sort" value="{{ s.sort or 0 }}" title="越小越靠前">
+              <label class="qc-label" for="ser-name-{{ s.id }}">名称（slug 自动重算）</label>
+              <input type="text" id="ser-name-{{ s.id }}" name="name" value="{{ s.name }}" required>
+              <label class="qc-label" for="ser-desc-{{ s.id }}">简介</label>
+              <input type="text" id="ser-desc-{{ s.id }}" name="description" value="{{ s.description or '' }}">
+              <label class="qc-label" for="ser-cover-{{ s.id }}">封面 URL</label>
+              <input type="text" id="ser-cover-{{ s.id }}" name="cover" value="{{ s.cover or '' }}" placeholder="https://…">
+              <label class="qc-label" for="ser-sort-{{ s.id }}">排序</label>
+              <input type="number" id="ser-sort-{{ s.id }}" name="sort" value="{{ s.sort or 0 }}" title="越小越靠前">
               <button type="submit" class="btn small">保存</button>
             </form>
           </td>

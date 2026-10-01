@@ -208,9 +208,13 @@
 | **B. 前端 a11y** | ✅ **已做**（剩 3 项，见下） | skip-link｜toast **常驻 live region**｜`DocsView` 的 **IntersectionObserver 真泄漏**｜灯箱 `role="dialog"` **+ 完整焦点陷阱**（Tab 循环 + 焦点归还）｜**每页 2 个 `<main>`**（11 个视图改 `<div>`） |
 | **A. 性能 · 索引** | ⛔ **决定不做**（附触发条件） | 实测 `post` = **7 行**、`comment` = **1 行**；**有量**的表都已建索引。→ 改为**设触发条件**：`post > 500` 或 `comment > 5000` 再加 |
 | **A. 性能 · `inject_globals` 缓存** | ⛔ **决定不做** | SSR 退役后只剩 **2 个模板**走 `base.html`，其余 **45 处渲染全是 `admin/*`** → 那 8 条查询只在后台页/登录页发生。为它引入 TTL+失效（20 处 Setting 写入无收口点）**收益小于复杂度** |
-| **E. 仓库卫生** | ⏳ **部分做**（4 剩 3） | ✅ 文档归档到 `docs/archive/`（v3.25.0，主文件 -51%、零丢失逐字校验、12 条守卫）｜✅ `create_app()` 拆分（v3.24.0，510→35 行）｜✅ 真 Alembic 基线（v3.24.0，`flask db upgrade` 取代 `create_all()`）‖ ⏳ **未做**：版本号 5+ 处复制（`update.sh` 正则强绑 `APP_VERSION = "x.y.z"` 字面写法）、`LICENSE` ×3、311 处 `v3.x.y` 注释版本戳 |
-| **A. 其余性能项** | ⏳ **未做** | `eager loading`（仍 **0 处**）、`.all()` 107 处、列表 N+1、`/static/` 的 gzip/expires。**建议下批**：先量真实耗时再改 |
-| **B. 其余 a11y** | ⏳ **未做**（2 项） | 表单 placeholder-only｜后台 `data-label`(**2/50**) ‖ **已完成**：~~4 组 token 对比度 < 4.5:1 与 `derive_dark` 无 WCAG 校验~~ → v3.25.0 16 条守卫（见 §B. 前端质量）；~~`tokens.css` 两份且已漂移~~ → **原判断有误**：两份**不是同一渲染面的重复**，后台 admin 无 JS 注入只吃 `myblog/static/tokens.css`，前台 SPA 由 `store.js: applyThemeTokens()` 注入 `themes.py` 的值，**各管一面、必须同时改**（新增 `test_admin_has_no_theme_token_injection` / `test_theme_css_carries_no_colors` / `test_two_token_files_stay_identical` 三条守卫钉住） |
+| **E. 仓库卫生** | ✅ **实质已清**（4 做 2，另 2 项经实测判定不做） | ✅ 文档归档到 `docs/archive/`（v3.25.0，主文件 -51%、零丢失逐字校验、12 条守卫）｜✅ `create_app()` 拆分（v3.24.0，510→35 行）｜✅ 真 Alembic 基线（v3.24.0，`flask db upgrade` 取代 `create_all()`）‖ ⏳ **未做**：版本号 5+ 处复制（`update.sh` 正则强绑 `APP_VERSION = "x.y.z"` 字面写法）、‖ ❌ **判定不做（v3.25.1 实测复核，理由如下）**：① `LICENSE` ×3 —— **不是冗余**：`myblog/LICENSE` **实证进发布包**（`package.py` 打包整个 `myblog/`，LICENSE 不在 `EXCLUDE_DIRS`；实测 `myblog-backend.zip` 内含 `myblog/LICENSE`），删了发布物就没许可证；三份内容完全相同（1083 B / 同 sha）但各有归属，且改许可证极罕见 → **零维护成本**。② `v3.x.y` 注释版本戳 **524 处**（比原记的 311 更多）—— 形如 `# v3.23.0：结构化日志`，**是有价值的历史标注**（说明该段代码为何存在、哪版引入），删掉会让后来人失去变更溯源；且它们不参与任何构建或比较逻辑 → **纯注释，不构成技术债**。 |
+| **A. 其余性能项** | ❌ **判定不做**（v3.25.1 线上实测，见下） | `eager loading`（仍 **0 处**）、`.all()` 107 处、列表 N+1、`/static/` 的 gzip/expires。
+> **实测依据（2026-10-01，生产库 + 生产进程）**：响应耗时 `/api/site` 52ms / `/api/posts` 15ms / `/api/review/annual` 22ms / `/api/games` 5ms —— **全部在 50ms 内**；数据规模 `post` **8 行** / `comment` 2 / `seo_submission` 15 / `setting` 65 / `point_log` 391 / `reader` 635 —— **最大表仅 635 行**。
+> 在这个量级下：全表扫描比走索引还快；8 行数据的 N+1 只产生 8 次亚毫秒查询。**加 `eager loading` / 索引的收益为零，只会增加复杂度**（ROADMAP v3.20.0 已就此给 `post` 索引设过 `> 500 行` 的触发条件，本条沿用同一思路）。
+> **重新评估的触发条件**：`post > 500 行` 或 `comment > 2000 行`，或任一 API p95 耗时 **> 200ms**。届时优先做列表页的 N+1（用 `selectinload`）而非盲目加索引。
+
+| **B. 其余 a11y** | ✅ **已全部完成**（v3.25.1） | ✅ **已完成（v3.25.1）**：表单 placeholder-only —— 实测 **71 处**已全部修完，分三类形态分别处理：① **40 处**前面有 `<label>` 文本但**无 `for`/`id` 配对**（视觉看得见、程序上无关联）→ 补 `for` + `id`，顺带获得「点标签聚焦控件」；② **29 处**纯 placeholder 表单（新建系列/友链/用户等）→ 补 `aria-label`，**值取字段语义名而非 placeholder 原文**（很多 placeholder 是示例值 `https://...` / `LTAI...`，复制过去等于没标签）；③ **8 处** `<span class="qc-label">` 冒充标签 → 改真 `<label>`（CSS 用类选择器，换元素对视觉零影响）。守卫 `tests/test_form_accessible_name.py` 3 条，经 3 项变异验证全部变红。｜~~后台 `data-label`(**2/50**)~~ → **v3.25.0 已完成**：实测 **24 个模板 / 136 处**（补标 121 处 + 原有 15 处），并修掉 3 个真问题（死标注 / 套娃表 / 循环生成列），52 条守卫 `tests/test_admin_table_data_label.py` 经 12 项变异验证 ‖ **已完成**：~~4 组 token 对比度 < 4.5:1 与 `derive_dark` 无 WCAG 校验~~ → v3.25.0 16 条守卫（见 §B. 前端质量）；~~`tokens.css` 两份且已漂移~~ → **原判断有误**：两份**不是同一渲染面的重复**，后台 admin 无 JS 注入只吃 `myblog/static/tokens.css`，前台 SPA 由 `store.js: applyThemeTokens()` 注入 `themes.py` 的值，**各管一面、必须同时改**（新增 `test_admin_has_no_theme_token_injection` / `test_theme_css_carries_no_colors` / `test_two_token_files_stay_identical` 三条守卫钉住） |
 | `v-html` 未统一 `sanitizeHtml` | ✅ **已核实：非缺陷** | 4 处未走客户端清洗的 `v-html`，其数据**全部在服务端已消毒**（`api/site.py:20/103`、`feed_agg.py:258`、搜索高亮服务端 escape）。消毒在服务端＝正确的信任边界；客户端再洗对管理员富文本有剥离合法标记的风险，**不加**（理由见 R92） |
 | 原「响应式/桌面端」类描述 | 🔍 **属扩大描述** | 如 `IntersectionObserver` 泄漏：`main.js` 的 `v-reveal` 是**一次性** observer（命中即 `disconnect`），只有 `DocsView.vue` 是真泄漏 |
 | **统计深度（§5.2）** | ✅ **已做（部分）** | 来源渠道 TOP / 实时在线 / 趋势环比 / CSV 导出（BOM + 公式注入防护）全落地，**零表变更**。设备 / 浏览器分布**未做**（VisitLog 无 UA 列，需新表）→ 仍列下方待办 |
@@ -262,7 +266,14 @@
 **F. 已在本轮关闭（记一笔，避免重复登记）**
 - ✅ `og_image` 字体/渲染降级静默（R90 待办① → v3.19.1 关闭）
 - ✅ 302 环、出站 SSRF、自检放大面、线程静默失败、配额无限流、脱敏顺序、孤儿行（R91 全部关闭）
-- ⏳ `/api/qr` 未配 `site_url` 时用 `request.host`（R90 待办②，仍开放；本版未动）
+- ✅ ~~`/api/qr` 未配 `site_url` 时用 `request.host`（R90 待办②，仍开放）~~
+  → **v3.20.0 已闭环**（2026-10-01 复核时发现本条记录过时）。`api/og.py: qr_image()`
+  的 docstring 写明：相对路径分支**不再回退 `request.host_url`**，未配置即返回 400
+  （带可操作提示），与 `/api/og/*` 行为一致。
+  ⚠️ 代码里**仍保留** `request.host` 的**绝对 URL 分支**是刻意的，不是漏改：那一支是
+  「客户端**显式传入**一个绝对 URL、我们只做白名单校验」，Host 即访客地址栏里的域名，
+  放行它不会带来「攻击者决定的对外地址」（别名域名访问也能出码）。**由我们构造**对外
+  地址的分支已彻底禁用 Host 回退。判别标准见 `utils/site_base()` 的 docstring。
 
 ---
 

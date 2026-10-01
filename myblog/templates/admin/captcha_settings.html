@@ -24,11 +24,11 @@
 
     <label style="margin-top:22px;font-size:15px;color:var(--accent);">⚙️ 图像参数</label>
 
-    <label>验证码长度（3–8 位）</label>
-    <input type="number" name="captcha_length" min="3" max="8" value="{{ settings.captcha_length or '4' }}">
+    <label for="captcha_length">验证码长度（3–8 位）</label>
+    <input id="captcha_length" type="number" name="captcha_length" min="3" max="8" value="{{ settings.captcha_length or '4' }}">
 
-    <label>干扰强度（图片中干扰线与噪点的多少，越高越难识别）</label>
-    <select name="captcha_difficulty">
+    <label for="captcha_difficulty">干扰强度（图片中干扰线与噪点的多少，越高越难识别）</label>
+    <select id="captcha_difficulty" name="captcha_difficulty">
       <option value="low" {{ 'selected' if (settings.captcha_difficulty or 'normal') == 'low' }}>低（清晰易读）</option>
       <option value="normal" {{ 'selected' if (settings.captcha_difficulty or 'normal') == 'normal' }}>标准</option>
       <option value="high" {{ 'selected' if settings.captcha_difficulty == 'high' }}>高（强干扰）</option>

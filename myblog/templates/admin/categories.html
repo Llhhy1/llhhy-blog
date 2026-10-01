@@ -4,7 +4,7 @@
   <h1 class="page-title">分类管理</h1>
   <form method="post" action="{{ url_for('admin.categories') }}" class="inline-form">
         {{ csrf_input() }}
-    <input type="text" name="name" placeholder="新分类名称" required>
+    <input aria-label="新分类名称" type="text" name="name" placeholder="新分类名称" required>
     <button type="submit" class="btn">添加</button>
   </form>
   <p class="hint">改名后 URL（slug）会自动重算并保持唯一；删除时可以把文章先转移到其它分类，避免文章变「无分类」。</p>
@@ -27,14 +27,14 @@
           <td colspan="3" class="row-editor-cell">
             <form method="post" action="{{ url_for('admin.rename_category', cid=c.id) }}" class="editor-form">
                   {{ csrf_input() }}
-              <span class="qc-label">改名（slug 自动重算）</span>
-              <input type="text" name="name" value="{{ c.name }}" required>
+              <label class="qc-label" for="cat-rename-{{ c.id }}">改名（slug 自动重算）</label>
+              <input type="text" id="cat-rename-{{ c.id }}" name="name" value="{{ c.name }}" required>
               <button type="submit" class="btn small">保存改名</button>
             </form>
             <form method="post" action="{{ url_for('admin.delete_category', cid=c.id) }}" class="editor-form merge-form">
                   {{ csrf_input() }}
-              <span class="qc-label">删除并转移文章到</span>
-              <select name="move_to">
+              <label class="qc-label" for="cat-move-{{ c.id }}">删除并转移文章到</label>
+              <select id="cat-move-{{ c.id }}" name="move_to">
                 <option value="">— 不转移（其下文章变无分类）—</option>
                 {% for other in cats if other.id != c.id %}
                   <option value="{{ other.id }}">{{ other.name }}</option>

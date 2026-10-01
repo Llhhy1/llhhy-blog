@@ -31,7 +31,7 @@
                     {{ csrf_input() }}
                 <button class="btn" name="action" value="approve">通过上架</button>
                 <button class="btn" name="action" value="audit">LLM 审计</button>
-                <input name="note" placeholder="驳回原因"><button class="btn" name="action" value="reject">驳回</button>
+                <input aria-label="驳回原因" name="note" placeholder="驳回原因"><button class="btn" name="action" value="reject">驳回</button>
               </form>
             {% elif g.status == 'approved' %}
               <form method="post" action="{{ url_for('admin.game_action', gid=g.id) }}" class="inline-form">

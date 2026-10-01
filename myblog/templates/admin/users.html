@@ -10,9 +10,9 @@
   <h3>新增用户</h3>
   <form method="post" action="{{ url_for('admin.add_user') }}" class="user-add-form">
         {{ csrf_input() }}
-    <input type="text" name="username" placeholder="用户名（2-20 字符）" minlength="2" maxlength="20" required>
-    <input type="email" name="email" placeholder="邮箱（可选）">
-    <input type="password" name="password" placeholder="密码（至少 8 位）" minlength="8" required>
+    <input aria-label="用户名" type="text" name="username" placeholder="用户名（2-20 字符）" minlength="2" maxlength="20" required>
+    <input aria-label="邮箱" type="email" name="email" placeholder="邮箱（可选）">
+    <input aria-label="密码" type="password" name="password" placeholder="密码（至少 8 位）" minlength="8" required>
     <select name="role">
       <option value="user">普通用户</option>
       <option value="admin">管理员（可进后台管理内容）</option>

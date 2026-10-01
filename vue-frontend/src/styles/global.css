@@ -284,6 +284,10 @@ body {
 }
 .widget h3 {
  font-size: 15px; margin-bottom: 10px; color: #333; }
+/* v3.25.1：写死的 #333 深色无覆盖 → 深色模式下 1.42:1 等于看不见。
+   由守卫 test_dark_mode_no_dark_text_left_behind 扫出（用户未报到的第三批）。 */
+[data-theme="dark"] .widget h3 {
+ color: var(--text, #d7d9dc); }
 .search-box {
  display: flex; gap: 8px; }
 .search-box input {
@@ -356,6 +360,10 @@ input[type=text]:focus, input[type=password]:focus, input[type=email]:focus, inp
  font-size: 13px; color: #999; margin-bottom: 4px; }
 .comment-content {
  color: #444; font-size: 15px; }
+/* v3.25.1：同 .widget h3 —— 写死 #444 且深色无覆盖（1.84:1）。
+   评论正文在深色模式下必须翻浅，否则整段评论看不见。 */
+[data-theme="dark"] .comment-content {
+ color: var(--text, #d7d9dc); }
 .comment-empty {
  color: #aaa; font-size: 14px; text-align: center; padding: 18px 0; }
 .comment-form {
@@ -589,10 +597,25 @@ button:hover, .btn:hover {
  padding-left: 16px; }
 .toc-sub a {
  font-size: 13px; color: #777; }
+/* v3.25.1：目录容器**背景**原先是写死的 #fafbfc 且**深色无覆盖** ——
+   深色模式下它仍是一块白底，而下面的 .toc a / .toc-title 早已被改成浅灰
+   （#c7ccd1 / #b9bfc6），于是「浅灰字压白底」实测只有 1.56 / 1.79:1，
+   等于看不见。修法是给容器也补深色覆盖，让浅字回到深底上（9.27 / 8.09:1）。
+   用 var(--surface-2, …) 是为了跟随主题（樱粉/松石的表面色不同），
+   带兜底值保证 token 缺失时行为不变。 */
+[data-theme="dark"] .toc {
+ background: var(--surface-2, #23272e); border-color: var(--border, #2a2e35); }
 [data-theme="dark"] .toc-title {
  color: #b9bfc6; }
 [data-theme="dark"] .toc a {
  color: #c7ccd1; }
+/* ⚠️ 这条是上一条的**连带修复**，不加会造成新缺陷：
+   .toc-sub a 是写死的 #777 且**没有**深色覆盖。它在白底上 4.32:1 勉强合格，
+   但容器一改成深底，#777 就掉到 3.35:1（连大字档都勉强）。
+   故必须同时给它一个深色值 —— 取 #9aa0a6（5.68:1），与后台 tokens.css
+   暗色 --text-muted 同值。 */
+[data-theme="dark"] .toc-sub a {
+ color: #9aa0a6; }
 [data-theme="dark"] .toc a:hover {
  color: #7cb0ff; }
 /* 阅读进度条（v3.0.0 功能1） */.reading-progress {
@@ -621,6 +644,11 @@ button:hover, .btn:hover {
  font-weight: 700; margin-left: 4px; }
 /* 天气组件 */.weather-widget .w-text {
  font-size: 15px; color: #333; margin-bottom: 10px; }
+/* v3.25.1：天气文字是写死的 #333 且**深色无覆盖** —— 深色模式下深灰字压深底，
+   实测 1.19~1.42:1，等于看不见。取 #d7d9dc（12.70:1），与后台
+   myblog/static/style.css 同元素的深色值**同值**，保持前后台一致。 */
+[data-theme="dark"] .weather-widget .w-text {
+ color: #d7d9dc; }
 .weather-widget .w-actions {
  display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
 .weather-widget .w-btn {
@@ -734,6 +762,9 @@ button:hover, .btn:hover {
  width: 150px; display: flex; flex-direction: column; }
 .rank-name a {
  color: #333; text-decoration: none; }
+/* v3.25.1：同批扫出 —— 排行榜文章名写死 #333（1.42:1）。 */
+[data-theme="dark"] .rank-name a {
+ color: var(--text, #d7d9dc); }
 .rank-name a:hover {
  color: var(--accent); }
 .rank-sub {
@@ -914,6 +945,9 @@ button:hover, .btn:hover {
  padding: 6px 0; border-bottom: 1px dashed #f0f0f0; }
 .related-list a {
  color: #444; text-decoration: none; }
+/* v3.25.1：同批扫出 —— 相关文章链接写死 #444（1.84:1）。 */
+[data-theme="dark"] .related-list a {
+ color: var(--text, #d7d9dc); }
 .related-list a:hover {
  color: var(--accent); }
 .share-row {
@@ -1018,8 +1052,19 @@ button:hover, .btn:hover {
  color: var(--accent); }
 .series-toc .chapter-meta {
  color: #aaa; font-size: 12px; }
+/* v3.25.1：与上面的 `.toc` 是同一个缺陷的姐妹实例 —— `.series-toc` 容器背景
+   写死 #fafbfc 且深色无覆盖，而 `.series-toc a` 已被改成浅灰 #e3e6e9，
+   实测「浅字压白底」只有 1.21:1（比 .toc 的 1.56 更糟）。
+   这条是 v3.25.1 新加的守卫 test_dark_mode_no_light_text_on_light_background
+   扫出来的 —— 用户只报了 .toc 与天气两处，系列目录是他还没翻到的第三处。 */
+[data-theme="dark"] .series-toc {
+ background: var(--surface-2, #23272e); border-color: var(--border, #2a2e35); }
 [data-theme="dark"] .series-toc a {
  color: #e3e6e9; }
+/* 同上：.chapter-meta 是写死的 #aaa 且深色无覆盖，容器一改深底就会掉到
+   3.79:1（大字档都勉强），必须连带补一个深色值。 */
+[data-theme="dark"] .series-toc .chapter-meta {
+ color: #9aa0a6; }
 /* 访客趋势图（v3.0.0 功能9） */.trend-chart {
  width: 100%; height: 180px; background: #fafbfc; border: 1px solid #eee; border-radius: var(--theme-radius, 12px); padding: 6px; }
 .trend-legend {

@@ -43,7 +43,7 @@
                 <form method="post" action="{{ url_for('admin.ai_summary_save', post_id=r.p.id) }}" style="margin-top:8px;">
                   {{ csrf_input() }}
                   <textarea name="summary" rows="6" style="width:100%;box-sizing:border-box;">{{ r.summary }}</textarea>
-                  <input type="text" name="tags" value="{{ r.tags }}" placeholder="标签建议（逗号分隔）" style="width:100%;margin-top:6px;box-sizing:border-box;" />
+                  <input aria-label="标签建议" type="text" name="tags" value="{{ r.tags }}" placeholder="标签建议（逗号分隔）" style="width:100%;margin-top:6px;box-sizing:border-box;" />
                   <button type="submit" class="btn small" style="margin-top:6px;">💾 保存修改</button>
                 </form>
               </details>

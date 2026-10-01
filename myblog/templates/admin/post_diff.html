@@ -7,8 +7,8 @@
     红色为删除行、绿色为新增行，等值行只保留少量上下文。
   </p>
   <form method="get" action="{{ url_for('admin.post_diff', post_id=post.id) }}" class="filter-form" style="margin-bottom:14px;">
-    <label style="align-self:center;">对比版本</label>
-    <select name="a">
+    <label style="align-self:center;" for="a">对比版本</label>
+    <select id="a" name="a">
       {% for v in versions %}
         <option value="{{ v.id }}" {% if v.id == selected_a %}selected{% endif %}>{{ v.created_at | bj('%Y-%m-%d %H:%M') }}（{{ v.author or '—' }}）</option>
       {% endfor %}

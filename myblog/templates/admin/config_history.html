@@ -1,0 +1,57 @@
+{% extends "admin/base.html" %}
+{% block title %}配置变更历史{% endblock %}
+{% block content %}
+<h1 class="page-title">配置变更历史</h1>
+<p class="hint">
+  每次在<a href="{{ url_for('admin.settings') }}">设置页</a>保存前，系统会先把当前的配置值
+  拍一份快照存进审计日志。改错了可以从这里回滚。
+</p>
+<p class="hint">
+  ⚠️ 回滚是特权操作：请先看差异预览，确认要改哪些项再提交。回滚本身也会留审计记录
+  （谁、什么时候、从哪个快照回滚的）。
+</p>
+
+{% if not snapshots %}
+<div class="empty">还没有配置快照。在设置页保存一次配置后就会出现在这里。</div>
+{% else %}
+<div class="admin-table">
+  <thead><tr>
+    <th>时间</th><th>操作人</th><th>说明</th><th>与当前的差异</th><th>操作</th>
+  </tr></thead>
+  <tbody>
+  {% for s in snapshots %}
+    <tr>
+      <td data-label="时间">{{ s.created_at.strftime('%Y-%m-%d %H:%M') if s.created_at else '—' }}</td>
+      <td data-label="操作人">{{ s.username or '（系统）' }}</td>
+      <td data-label="说明">{{ s.detail }}</td>
+      <td data-label="与当前的差异">
+        {%- set d = previews.get(s.id) -%}
+        {%- if d is none -%}
+          <span class="qc-hint">无法解析</span>
+        {%- elif d | length == 0 -%}
+          <span class="qc-hint">无差异（当前配置与该快照一致）</span>
+        {%- else -%}
+          {{ d | length }} 项
+        {%- endif -%}
+      </td>
+      <td data-label="操作">
+        {%- if d and d | length > 0 -%}
+          <a class="btn small" href="{{ url_for('admin.config_rollback', snapshot_id=s.id) }}">查看差异并回滚</a>
+        {%- else -%}
+          <span class="qc-hint">—</span>
+        {%- endif -%}
+      </td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</div>
+
+{% if total_n > per %}
+<p class="hint">
+  共 {{ total_n }} 条，第 {{ page }} / ((total_n + per - 1) // per) 页
+  {% if page > 1 %}<a href="{{ url_for('admin.config_history', page=page-1) }}">上一页</a>{% endif %}
+  {% if page * per < total_n %}<a href="{{ url_for('admin.config_history', page=page+1) }}">下一页</a>{% endif %}
+</p>
+{% endif %}
+{% endif %}
+{% endblock %}

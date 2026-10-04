@@ -34,7 +34,10 @@ import tempfile
 import subprocess
 import argparse
 import re
+import logging
 from urllib.parse import urlparse
+
+logger = logging.getLogger(__name__)
 
 BASE_DIR = os.path.abspath(os.path.dirname(__file__))
 DATA_DIR = os.path.join(BASE_DIR, "data")
@@ -593,6 +596,129 @@ def _snapshot_before_restore(tag=""):
               "w", encoding="utf-8") as f:
         json.dump(manifest, f, ensure_ascii=False, indent=2)
     return arc
+
+
+# ===== v3.25.2：备份自动巡检 =========================================
+# 为什么必须有：**备份的价值 100% 取决于「能不能恢复」，而这个属性一旦不主动
+# 验证就永远是未知的**。等到某天磁盘故障时才发现备份包解不开 / 哈希对不上，
+# 备份就等于没做 —— 而那正是最需要它的一天。
+#
+# 设计取舍（与项目既有范式一致）：
+#   · **零新表**：结果落 `data/backup_verify.json`，与 `tasks.py` 的状态文件同思路
+#     （4 个 gunicorn worker 是独立进程，内存态彼此不可见）。
+#   · **不新增线程**：挂在 `_start_scheduler` 已有的每日一轮循环里，与
+#     「保留策略清理」并列（`_last_prune_day` 那个闭包）。
+#   · **失败必须响**：静默的巡检等于没做 —— 写 logger.error + 状态文件标红 +
+#     后台页显示，别让「巡检跑过了」变成一种安心的错觉。
+
+VERIFY_STATE_FILE = "backup_verify.json"
+
+
+def _verify_state_path():
+    return os.path.join(DATA_DIR, VERIFY_STATE_FILE)
+
+
+def read_verify_state():
+    """读上次巡检结果；文件不存在 / 损坏一律返回「从未巡检」，不抛异常。
+
+    刻意不返回 None：调用方（后台模板）要的是「有没有问题」，而不是
+    「有没有数据」，None 会让模板分支变多。
+
+    **缺 key 要补齐默认值**：文件可能是旧版本写的、也可能是手工塞进去的残缺 JSON。
+    模板里直接 `verify_state.checked_at` 取值，缺 key 就会在**后台页面白屏**（Jinja
+    对 undefined 不报错，只渲染空）——「巡检功能把备份页搞崩了」比「巡检没显示」
+    严重得多。故此处逐 key 补默认。
+    """
+    defaults = {"status": "never", "checked_at": "", "checked": 0,
+                "ok_count": 0, "bad_count": 0, "bad_items": [], "message": "尚未执行过自动巡检"}
+    try:
+        with open(_verify_state_path(), encoding="utf-8") as f:
+            st = json.load(f)
+        if isinstance(st, dict):
+            merged = dict(defaults)
+            merged.update(st)
+            # bad_items 必须是 list：手工编辑过的文件里可能是字符串或 null，
+            # 模板 `{% for it in verify_state.bad_items %}` 遇到非可迭代对象会抛异常。
+            if not isinstance(merged.get("bad_items"), list):
+                merged["bad_items"] = []
+            return merged
+    except (OSError, ValueError):
+        pass
+    return defaults
+
+
+def list_archives(limit=None):
+    """本地备份包列表（按归档名倒序 = 时间倒序），可选截断。
+
+    归档名 `blog_backup_YYYYMMDD_HHMMSS.zip` 是定长且字典序 == 时间序
+    （`create_backup` 用 `_now().strftime("%Y%m%d_%H%M%S")` 生成），故直接按名排序。
+    """
+    try:
+        names = [n for n in os.listdir(BACKUP_ROOT)
+                 if n.startswith("blog_backup_") and n.endswith(".zip")]
+    except OSError:
+        return []
+    names.sort(reverse=True)
+    if limit:
+        names = names[:limit]
+    return [os.path.join(BACKUP_ROOT, n) for n in names]
+
+
+def verify_latest(keep=3):
+    """巡检最近 keep 个本地备份包的可恢复性，结果落盘并返回。
+
+    **默认 keep=3 而不是「全部」**：一次全量巡检要把每个包完整读一遍算 SHA256
+    （3MB/包起），包多了会占住定时线程很久；而且「最近 3 个能否恢复」已经足够
+    回答「备份机制是否还活着」—— 远古包坏掉不影响今天能否恢复。
+    """
+    arcs = list_archives(limit=keep)
+    result = {
+        "status": "ok",
+        "checked_at": _now().isoformat(timespec="seconds"),
+        "checked": len(arcs),
+        "ok_count": 0,
+        "bad_count": 0,
+        "bad_items": [],
+        "message": "",
+    }
+    if not arcs:
+        # 没有备份 ≠ 巡检失败，但也绝不能报「一切正常」——那是误导。
+        result.update(status="empty", message="本地没有任何备份包，请先手动备份一次")
+        _write_verify_state(result)
+        return result
+
+    for path in arcs:
+        name = os.path.basename(path)
+        try:
+            ok, msg = verify(path)
+        except Exception as e:      # noqa: BLE001  单个包校验异常不应中断整轮巡检
+            ok, msg = False, "校验过程异常: %s" % str(e)[:120]
+        if ok:
+            result["ok_count"] += 1
+        else:
+            result["bad_count"] += 1
+            result["bad_items"].append({"name": name, "reason": str(msg)[:200]})
+
+    if result["bad_count"]:
+        result["status"] = "bad"
+        result["message"] = "%d/%d 个备份包校验不通过（最近一个是 %s）" % (
+            result["bad_count"], result["checked"], os.path.basename(arcs[0]))
+    else:
+        result["status"] = "ok"
+        result["message"] = "最近 %d 个备份包均可恢复" % result["checked"]
+
+    _write_verify_state(result)
+    return result
+
+
+def _write_verify_state(result):
+    """落盘巡检结果。写失败只记 warning —— 巡检本身已经跑完，不该因落盘失败而丢结果。"""
+    try:
+        os.makedirs(DATA_DIR, exist_ok=True)
+        with open(_verify_state_path(), "w", encoding="utf-8") as f:
+            json.dump(result, f, ensure_ascii=False, indent=2)
+    except OSError as e:
+        logger.warning("[备份巡检] 结果落盘失败（巡检本身已完成）: %s", e)
 
 
 def restore(arc_path, yes=False, tag=""):

@@ -352,6 +352,13 @@ class AuditLog(db.Model):
     detail = db.Column(db.String(300), default="")       # 简述，如文章标题/动作结果
     ip = db.Column(db.String(64), default="")
     success = db.Column(db.Boolean, default=True)        # 是否成功（登录失败/操作失败时为 False）
+    # v3.25.2：结构化载荷（JSON 字符串），目前只用于「配置变更前的值快照」。
+    # **为什么必须另起一列而不是塞 detail**：detail 是 String(300)，配置快照
+    # 动辄几 KB，硬塞会被数据库截断/报错，而**截断的快照回滚回去就是错值** ——
+    # 比没有快照更危险。
+    # **为什么放审计表而不是新建快照表**：项目纪律「能走 log_audit 优先走审计表」。
+    # 快照与「谁在何时改的」同处一行，天然对齐；新建表则两者可能不同步。
+    payload = db.Column(db.Text)
     created_at = db.Column(db.DateTime, default=utcnow)
 
 

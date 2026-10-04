@@ -547,6 +547,29 @@ supervisorctl status
 
 > ⚠️ **服务器上的 `update.sh` / `deploy.sh` 也务必与最新 Release 同版**：脚本经历过「假成功不覆盖 / 校验误报 / 无法自动重启」多轮加固，升级前先从最新 Release 覆盖一次脚本，再跑一键更新。
 
+> **v3.25.2（备份自动巡检 + 评论嵌套修复与排序 + 配置回滚）升级要点**：
+>
+> - ⚠️ **本版含一条表结构变更**：`audit_log` 新增**可空列** `payload`（Text，存配置快照 JSON）。
+>   迁移 `c7a2f19b4d30`，`update.sh` 会自动跑 `flask db upgrade`。
+>   **已用旧 schema 库真实演练**（造一个无 payload 列的库 → 跑 upgrade → 验证 ALTER 生效
+>   且历史审计行完好）。加可空列对 SQLite 安全，不需要重建表。
+> - **后端与前端都改了 → 两个包都要覆盖**（`myblog-backend.zip` + `vue-frontend-dist.zip`）。
+> - 无新增环境变量、无部署脚本变更。迁移后 head = `c7a2f19b4d30`。
+> - **手动升级**同样只需补跑：
+>   `BLOG_MIGRATE_ONLY=1 FLASK_APP=app:create_app <venv>/bin/python -m flask db upgrade`
+>
+> **上线后 checklist（三项，都要肉眼确认）**：
+> ① **备份可恢复性**：后台 `/admin/backup` 应出现「可恢复性巡检（每日自动）」卡片。
+>    首次部署后状态文件还不存在，会显示「尚未巡检」—— 点「🔍 立即巡检最近 3 个备份」
+>    立刻跑一次（走后台任务，页面会轮询）。**若显示「！无备份包」说明本地一个备份都没有**，
+>    这不是故障，是「从来没备份过」，请立刻手动备份一次。
+> ② **评论嵌套**：打开一篇有「回复的回复」的文章，确认深层评论可见（v3.25.1 前**永久丢失**）；
+>    排序切换（正序/倒序/最热）应立即生效。
+> ③ **配置回滚**：在设置页改任意配置并保存 → 进 `/admin/config-history` 应看到新快照 →
+>    点「查看差异并回滚」应看到逐项差异。
+>
+> - **验收**：`grep APP_VERSION config.py` 应为 `3.25.2`。安全审计 **R100**。
+
 > **v3.25.1（深色模式可读性修复 + 表单可访问名补全）升级要点**：**后端与前端都改了 → 两个包都要覆盖**（`myblog-backend.zip` + `vue-frontend-dist.zip`，本版改了 `vue-frontend/src/styles/global.css` 与 26 个后台模板）。
 >
 > - **无表结构变更、无 Alembic 迁移**（head 仍 `e5b8c3f17a24`）、无新增环境变量、无部署脚本变更。

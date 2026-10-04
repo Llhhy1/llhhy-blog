@@ -955,3 +955,85 @@ R93 §93.1 排除了「provider 返回未验证邮箱」，但保留了「按邮
 
 **上线后 checklist**：切换深色模式，确认 ① 天气文字 ② 文章目录 ③ 系列目录
 ④ 评论正文 ⑤ 侧边栏标题 ⑥ 排行榜/相关文章链接 —— 六处均应清晰可读。
+
+---
+
+## R100 · v3.25.2 发版安全审查（备份自动巡检 + 评论嵌套修复 + 配置回滚）
+
+**范围**：`backup.py` / `app.py`（调度循环）/ `api/posts.py` / `api/common.py` /
+`audit.py` / `models.py` / `admin/settings.py` / 新增 `config_rollback.py` +
+迁移 `c7a2f19b4d30` + 前端 `CommentForm.vue` + 3 个测试文件 + 4 份文档。
+
+### 100.1 八维核对
+
+| 维度 | 结论 |
+|---|---|
+| SQL 注入 | **未引入**。`sort` 走**白名单映射**（`_COMMENT_SORTS` 三键），用户输入只用于**字典查表**，不进 `order_by`、不进 SQL 字符串。守卫 `test_illegal_sort_falls_back_to_default` 用 `sort=created_at;DROP TABLE post` 实测。 |
+| XSS | **未引入**。回滚差异页用 `<code>{{ c.key }}</code>` 等，Jinja2 autoescape 覆盖；配置值本身**不是脚本上下文**，且页面仅超管可见。 |
+| 越权 | **两处新增特权操作**（`/admin/config-history`、`/admin/config-rollback/<id>`），均 `@super_required`——与「改设置」同级，不放给普通管理员。快照含配置全貌，泄露即等于泄露凭据。 |
+| CSRF | **未绕过**。回滚走 POST + 全局 `{{ csrf_input() }}`；另加 `confirm=yes` 二次确认（覆盖当前配置属高破坏性）。 |
+| 敏感数据 | **本版重点**。见 100.2。 |
+| 资源耗尽 | **已设防**。①评论遍历用**显式栈 + `_COMMENT_MAX_WALK=24` 硬上限**，脏数据（`parent_id` 成环/超长链）不会打爆栈或响应；②快照 key 数上限 200；③巡检 `keep=3` 且后台异步（不占 gunicorn 并发槽，同 v3.23.0 #48）；④`per_page` 沿用原有 ≤50 收口。 |
+| 限流 | **沿用**。评论接口原有 60/60s 未动；回滚走后台任务。 |
+| 日志注入 | **未引入**。回滚审计的 `detail` 只含 key 名与数量，**不含值**。 |
+
+### 100.2 敏感数据：本版的核心风险面
+
+配置快照天然会碰到密码类配置，三条设计把风险压到最低：
+
+1. **快照存 `Setting` 原始值，不解密**。`SENSITIVE_KEYS`（OSS SecretKey / WebDAV 密码 /
+   SCP 私钥）落库时已是 Fernet 密文（`bkenc$` 前缀）。回滚是「把密文原样写回去」，
+   **全程不接触明文**。守卫用 spy 替换 `decrypt_secret` 断言**调用 0 次**。
+2. **`detail` 只写摘要、绝不写值**。`detail` 会进审计列表页、CSV 导出（`admin/stats.py`
+   已有导出实现）、并显示在超管屏幕上 —— 把值写进去等于把凭据抄进一份
+   **可导出、可截图**的日志。守卫 `test_detail_never_contains_values` 断言
+   `detail` 里既无值也**无 key 名**（key 名清单同样会泄露配置全貌）。
+3. **CSV 导出需注意**：`payload` 列是新增的，若日后把审计导出扩展到该列，
+   快照（即使密文）也不该外泄。**当前导出未包含 `payload`，本版不需要改**，
+   但已在代码注释里留档提醒。
+
+### 100.3 本轮修掉的两个真问题（都是「静默失败」类）
+
+- **`log_audit` 整条审计静默丢失**（既有缺陷，本轮暴露）：原先无条件
+  `session.get("user_id")`，在**无请求上下文**（CLI / 定时任务 / 单元测试）时抛
+  `RuntimeError: Working outside of request context`，而该调用位于**最外层 `try`** 内
+  → 异常被 `except Exception: pass` 吞掉，**一条审计都没写且毫无迹象**。
+  表现是「配置快照功能看起来完全失效」，根因却在审计函数。
+  已加 `has_request_context()` 守卫 + 内层兜底（双保险），并加守卫锁行为。
+- **门禁自身的错误断言**：`test_doc_archival.py::test_发版门禁仍认得归档件`
+  断言「归档件必须在 `check-staged.py` 的 `DOCS` 必改清单里」—— 而那正是 v3.25.1
+  判定为**错**的行为（归档件是历史快照，不该被迫每次发版都改）。
+  已改为断言新行为（归档件**不**在必改清单 + 活的主文档仍在），守住「门禁别被改废」。
+
+### 100.4 备份巡检的「假安全感」
+
+巡检最容易做成一个**自我安慰**的功能。故三处刻意设计：
+
+1. **「没有备份包」报 `empty` 而非 `ok`** —— 空目录不是「一切正常」，
+   报 ok 会让运维以为「有备份且已验证」。守卫 + 变异验证。
+2. **失败必须响**：`logger.error` + 状态文件标红 + 后台页红字，不静默。
+3. **后台手动巡检也走异步任务** —— 同步读 3MB/包算 SHA256 会占住 gunicorn 并发槽。
+
+另：巡检**只查最近 3 个包**。全量巡检会随包数增长线性占住定时线程，
+而「最近 3 个能否恢复」已足够回答「备份机制是否还活着」。
+
+### 100.5 表结构变更
+
+`audit_log` 新增**可空列** `payload`（Text）。迁移 `c7a2f19b4d30` 幂等
+（先 `inspect` 看列在不在，重复执行不报错）；`downgrade` **刻意不删列**
+（SQLite DROP COLUMN 需 3.35+，且列里存着配置快照历史）。
+
+**已用旧 schema 库真实演练**：手工造一个无 `payload` 列的 `audit_log` → 跑
+`flask db upgrade` → 验证 ALTER 生效 + 历史审计行完好 + 历史行 `payload` 为 NULL。
+⚠️ **只在新建库上验证等于没验证** —— 新建库走 `create_all()`，根本不经过 ADD COLUMN，
+而生产升级走的恰恰是 ALTER 这条路。
+
+### 100.6 验证与升级要点
+
+**534 passed**（+23 条新守卫）/ ruff 全仓全绿 / `vite build` 成功 /
+迁移演练通过 / **8 项变异全部精确变红**（备份 2 + 评论 2 + 配置 2；
+另 1 项**等价变异**如实记录 —— 把 `if has_request_context():` 改成 `if True:`
+测试不会红，因为两者在无上下文时都走内层 `except`，行为一致；未硬凑）。
+
+**升级**：备份 → `flask db upgrade` → 重启。`update.sh` 一键完成。
+迁移后 head = `c7a2f19b4d30`。上线后 checklist 见 `deploy_guide.md` 三项。

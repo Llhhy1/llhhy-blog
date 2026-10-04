@@ -22,6 +22,15 @@ def settings():
                   # v3.8.0 反爬限流保护配置
                   "bot_guard_threshold", "bot_guard_window", "bot_guard_tool_limit",
                   "bot_guard_block_hits", "bot_guard_block_minutes", "seo_block_bots"]
+        # v3.25.2：**改动之前**拍快照（必须在这里，否则快照记的是新值，
+        # 回滚会「成功」但毫无作用）。含下面两个 checkbox。
+        _cfg_snapshot = None
+        try:
+            import config_rollback as _cr
+            _snap_keys = list(fields) + ["comment_require_approval", "comment_email_required"]
+            _cfg_snapshot = _cr.snapshot_settings(_snap_keys, reason="设置页保存")
+        except Exception:
+            _cfg_snapshot = None
         for f in fields:
             val = request.form.get(f, "")
             row = Setting.query.filter_by(key=f).first()
@@ -86,6 +95,73 @@ def slug_preview():
     )
     return jsonify({"slug": slug or "post"})
 
+
+# ===== v3.25.2：配置快照与回滚 =====
+@admin_bp.route("/config-history")
+@super_required
+def config_history():
+    """配置变更历史（快照列表 + 与当前值的差异预览）。
+
+    **为什么是 @super_required**：回滚是特权操作（能把限流阈值、SMTP 主机改回去），
+    权限必须与「改设置」本身同级。列表页同样不放给普通管理员 ——
+    快照里有值，等于泄露了配置全貌。
+    """
+    import config_rollback as cr
+    page = request.args.get("page", 1, type=int)
+    if page < 1:
+        page = 1
+    per = 20
+    total_n = cr.snapshot_count()
+    snaps = cr.list_snapshots(limit=per, offset=(page - 1) * per)
+    # 预览：只算第一页的差异（每条快照的 diff 都要查库，翻页时全算太重）
+    previews = {}
+    for s in snaps:
+        d = cr.diff_snapshot(s.id)
+        previews[s.id] = d if d is not None else None
+    return render_template("admin/config_history.html",
+                           snapshots=snaps, previews=previews,
+                           total_n=total_n, page=page, per=per,
+                           last_at=cr.last_snapshot_at())
+
+
+@admin_bp.route("/config-rollback/<int:snapshot_id>", methods=["GET", "POST"])
+@super_required
+def config_rollback(snapshot_id):
+    """配置回滚。**GET = 差异预览，POST = 执行**（同一个端点两用）。
+
+    ⚠️ 这里刻意用「一个函数 + methods=[GET, POST]」而不是拆成两个同名路由：
+    拆成两个 `def config_rollback` 时后一个会**覆盖**前一个，
+    Flask 只注册到最后那个 → POST 端点直接 405（第一版真写错了）。
+
+    **两个刻意设计**：
+    1. POST 必须带 `confirm=yes` —— 覆盖当前配置是高破坏性操作，
+       不能一个误点就生效；不带 confirm 就退回预览页让人再看一遍。
+    2. 预览必须先看清「会改哪些项、当前值是什么」—— 特权操作标配。
+
+    snapshot_id 用 `<int:>` 约束，非整数直接 404（不把任意字符串喂进 db.session.get）。
+    """
+    import config_rollback as cr
+    d = cr.diff_snapshot(snapshot_id)
+    if d is None:
+        flash("快照不存在、已过期或内容损坏", "error")
+        return redirect(url_for("admin.config_history"))
+    if not d:
+        flash("该快照与当前配置完全一致，无需回滚", "info")
+        return redirect(url_for("admin.config_history"))
+
+    if request.method == "POST":
+        if request.form.get("confirm") != "yes":
+            flash("回滚是高风险操作，请勾选确认后再提交", "error")
+            return redirect(url_for("admin.config_rollback", snapshot_id=snapshot_id))
+        keys = request.form.getlist("keys") or None
+        ok, msg = cr.rollback(snapshot_id, keys=keys, confirm=True)
+        flash(msg, "success" if ok else "error")
+        return redirect(url_for("admin.config_history"))
+
+    return render_template("admin/config_rollback.html",
+                           snapshot_id=snapshot_id, changes=d)
+
+
 @admin_bp.route("/captcha-settings", methods=["GET", "POST"])
 @super_required
 def captcha_settings():
@@ -143,6 +219,17 @@ def backup():
                 return redirect(url_for("admin.backup"))
             log_audit("backup", target="创建备份", detail="后台任务已提交：%s" % tid)
             return redirect(url_for("admin.backup", task=tid))
+        if action == "verify_now":
+            # v3.25.2：手动触发一次巡检。**刻意复用后台任务模型**而不是同步跑 ——
+            # verify 要把每个包完整读一遍算 SHA256（3MB/包起），同步跑同样会占并发槽。
+            import tasks as tasks_mod
+            tid, err = tasks_mod.submit("backup-verify", backup_mod.verify_latest)
+            if err:
+                log_audit("backup", target="备份巡检", detail=err, success=False)
+                flash(err)
+                return redirect(url_for("admin.backup"))
+            log_audit("backup", target="备份巡检", detail="后台任务已提交：%s" % tid)
+            return redirect(url_for("admin.backup", task=tid))
         fn = request.form.get("file", "")
         fp = os.path.join(backup_mod.BACKUP_ROOT, fn) if fn else ""
         safe = bool(fn and os.path.basename(fn) == fn and fn.startswith("blog_backup_")
@@ -189,9 +276,10 @@ def backup():
     }
     # v3.23.0 #48：提交后台任务后带 ?task=<id> 回来，页面据此轮询进度
     task_id = (request.args.get("task") or "").strip()
+    # v3.25.2：把最近一次自动巡检结果带进页面（读文件，不查库 —— 与 tasks 状态同思路）
     return render_template("admin/backup.html", backups=backups, remote_status=remote_status,
                            retention=backup_mod.RETENTION_DAYS, summary=summary,
-                           task_id=task_id)
+                           task_id=task_id, verify_state=backup_mod.read_verify_state())
 
 @admin_bp.route("/backup-settings", methods=["GET", "POST"])
 @super_required

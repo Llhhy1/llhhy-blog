@@ -1,0 +1,54 @@
+{% extends "admin/base.html" %}
+{% block title %}配置回滚{% endblock %}
+{% block content %}
+<h1 class="page-title">配置回滚</h1>
+<p class="hint">
+  下面是快照 <code>#{{ snapshot_id }}</code> 与当前配置的差异。
+  只列出了不同的项 —— 未列出的配置项不会被本次回滚触碰。
+</p>
+
+<div class="settings-section">
+  <h3>将发生的变化（共 {{ changes | length }} 项）</h3>
+  <div class="admin-table">
+    <thead><tr>
+      <th>配置项</th><th>当前值</th><th>将回滚为</th>
+    </tr></thead>
+    <tbody>
+    {% for c in changes %}
+      <tr>
+        <td data-label="配置项"><code>{{ c.key }}</code></td>
+        <td data-label="当前值">
+          {%- if c.now is none -%}<span class="qc-hint">（未设置）</span>
+          {%- elif c.now | length > 120 -%}<code>{{ c.now[:120] }}…</code>
+          {%- else -%}<code>{{ c.now }}</code>{%- endif -%}
+        </td>
+        <td data-label="将回滚为">
+          {%- if c.before is none -%}<span class="qc-hint">（删除该项，恢复为代码默认值）</span>
+          {%- elif c.before | length > 120 -%}<code>{{ c.before[:120] }}…</code>
+          {%- else -%}<code>{{ c.before }}</code>{%- endif -%}
+        </td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </div>
+</div>
+
+<form method="post" action="{{ url_for('admin.config_rollback', snapshot_id=snapshot_id) }}"
+      onsubmit="return confirm('确认回滚 {{ changes | length }} 项配置？当前值会被覆盖。');">
+  {{ csrf_input() }}
+  <input type="hidden" name="confirm" value="yes">
+  <p class="hint">
+    勾选取消可只回滚部分项；不勾则回滚上面列出的全部 {{ changes | length }} 项。
+  </p>
+  <div class="settings-section">
+    {% for c in changes %}
+    <label style="display:flex;align-items:center;gap:8px;margin:4px 0;">
+      <input type="checkbox" name="keys" value="{{ c.key }}" checked>
+      <code>{{ c.key }}</code>
+    </label>
+    {% endfor %}
+  </div>
+  <button type="submit" class="btn primary">确认回滚</button>
+  <a class="btn" href="{{ url_for('admin.config_history') }}">取消</a>
+</form>
+{% endblock %}

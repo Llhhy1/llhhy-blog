@@ -115,17 +115,33 @@ def test_归档件带拆分说明():
         assert "拆分" in head, f"{arc} 顶部没写拆分点"
 
 
-def test_发版门禁仍认得归档件():
+def test_发版门禁不强迫改归档件():
     """``tools/review/check-staged.py`` 的 ``DOCS`` 元组是**真实逻辑** ——
-    后端代码改动时若这些文档没同步就拦提交。归档时漏改它 = 门禁失效。
-    这里静态断言归档件已在名单里。"""
+    后端代码改动时若这些文档没同步就拦提交。
+
+    **v3.25.2 更正**：这条断言原本要求归档件必须在 ``DOCS`` 里，方向是**错的**。
+    归档件是**历史快照**（R1~R80 / v3.18.5 及更早），内容本就不该随新版本变化 ——
+    把它列进必改清单，结果是每次发版都被迫「虚假地」动一下归档件才能过门禁。
+    v3.25.1 发版时实测到这条误报，已从 ``DOCS`` 移除。
+
+    现在断言的是**两件真正该成立的事**：
+    1. 归档件**不在**必改清单里（否则门禁继续误报）；
+    2. 但**活的**主文档（``SECURITY_AUDIT.md`` / ``CHANGELOG.md`` 对应的现行文件）
+       仍在清单里 —— 门禁不能被改废。
+    """
     src = _read("tools/review/check-staged.py")
     m = re.search(r"^DOCS\s*=\s*\((.*?)\)", src, re.M | re.S)
     assert m, "check-staged.py 里找不到 DOCS 元组"
+    docs = m.group(1)
+
     for arc, _main, _pointer, _anchor in PAIRS:
-        assert f"docs/archive/{arc}" in m.group(1), (
-            f"DOCS 元组里没有 docs/archive/{arc} —— 发版门禁会漏掉归档件的同步检查"
+        assert f"docs/archive/{arc}" not in docs, (
+            f"DOCS 元组里仍有 docs/archive/{arc} —— 归档件是历史快照，"
+            f"不该被要求每次发版都改（v3.25.1 已移除）"
         )
+    for required in ("myblog/SECURITY_AUDIT.md", "myblog/README.md",
+                     "myblog/deploy_guide.md", "ROADMAP.md"):
+        assert required in docs, f"DOCS 元组缺 {required} —— 门禁被改废了"
 
 
 def test_跨文档引用路径仍有效():

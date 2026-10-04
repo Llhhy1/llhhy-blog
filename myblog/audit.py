@@ -23,18 +23,40 @@ from utils import get_client_ip
 from _time import utcnow
 
 
-def log_audit(action, target="", target_id=None, detail="", user=None, ip="", success=True):
+def log_audit(action, target="", target_id=None, detail="", user=None, ip="", success=True,
+              payload=None):
     """记录一条后台操作审计日志（v3.0.0 功能4）。
 
     自动填操作人（传入 user 或当前会话用户）、用户名、来源 IP。
     所有后台写操作（增删改文章/评论/用户/设置/友链等）调用本函数，便于事后追溯。
     success：是否成功（登录失败/操作失败时为 False）。
     异常静默：单条日志失败不影响主流程。
+
+    **payload（v3.25.2）**：结构化载荷（dict 或 str），序列化后进 `AuditLog.payload`。
+    目前**只用于配置快照**（见 config_rollback.snapshot_settings）。
+
+    ⚠️ **payload 里可以放配置值，detail 里绝不可以** —— detail 会出现在审计列表页、
+    CSV 导出、并在超管屏幕上显示；把密码/SMTP 授权码/token 写进 detail 等于
+    把凭据抄进了可导出、可截图的日志。**detail 只放「改了哪几个 key」这类摘要。**
+    另注意 payload 同样会进 CSV 导出的实现范围，导出时必须排除该列。
     """
     try:
         if user is None:
-            uid = session.get("user_id")
-            user = db.session.get(User, uid) if uid else None
+            # v3.25.2：**必须先判 has_request_context()**。
+            # `session.get()` 在无请求上下文（CLI / 定时任务 / 单元测试）时抛
+            # RuntimeError: Working outside of request context —— 而这个调用在
+            # 旧版里位于**最外层 try 内**，异常被 `except Exception: pass`
+            # 静默吞掉，结果是**整条审计一条都没写**、且无任何迹象。
+            # 配置回滚（config_rollback）在保存设置时先拍快照，走的正是这条路；
+            # 测试里没有请求上下文，于是「快照功能看起来完全失效」。
+            # 判断顺序：无请求上下文 → 不取会话用户（user 保持 None），继续写日志。
+            try:
+                from flask import has_request_context
+                if has_request_context():
+                    uid = session.get("user_id")
+                    user = db.session.get(User, uid) if uid else None
+            except Exception:
+                user = None
         # v3.18.5：审计日志的 IP 必须走 get_client_ip()（与 stats/mcp_write/client_key
         # 同一收口）——原先直接取 X-Forwarded-For 最左段，爆破者可在审计日志里写入
         # 任意 IP（含内网/他人 IP），导致事件追溯与人工封禁决策失效。
@@ -42,11 +64,24 @@ def log_audit(action, target="", target_id=None, detail="", user=None, ip="", su
             ip = ip or get_client_ip()
         except Exception:
             ip = ""
+        snap = None
+        if payload is not None:
+            if isinstance(payload, str):
+                snap = payload
+            else:
+                import json as _json
+                try:
+                    # ensure_ascii=False：快照里有中文值（站点标题/公告等），
+                    # 转成 \uXXXX 会让排障时肉眼不可读。
+                    snap = _json.dumps(payload, ensure_ascii=False, default=str)
+                except (TypeError, ValueError):
+                    return          # 序列化不了就不写这条 —— 半截快照比没有更危险
         db.session.add(AuditLog(
             user_id=user.id if user else None,
             username=user.username if user else "",
             action=action, target=target, target_id=target_id,
             detail=(detail or "")[:300], ip=ip[:64], success=success,
+            payload=snap,
         ))
         db.session.commit()
     except Exception:

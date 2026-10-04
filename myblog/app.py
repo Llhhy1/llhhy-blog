@@ -734,6 +734,7 @@ def _start_scheduler(app):
     # 翻成 published 并触发新文章推送（Telegram/企业微信）+ 邮件群发订阅者。
     # 线程内独立 app_context，避免与请求上下文冲突；所有异常静默，不影响主流程。
     _last_prune_day = [None]   # 闭包内记录上次执行保留策略的日期（每日一次）
+    _last_verify_day = [None]  # v3.25.2：备份自动巡检同上（每日一次，刻意分开记日期）
 
     def _scheduler_loop():
         import time as _time
@@ -794,6 +795,25 @@ def _start_scheduler(app):
                                             n["point_log"], n["reader_badge"])
                         except Exception as e:  # noqa: BLE001  清理失败绝不影响定时发布主流程
                             logger.warning("[保留策略] 清理失败（已忽略，下一日重试）: %s", e)
+                    # v3.25.2：备份自动巡检（每日一次，与保留策略同一轮）。
+                    # **为什么必须有**：`backup verify` 一直只能手动跑，于是「备份能不能
+                    # 恢复」这个属性在真出事之前**永远是未知的** —— 而磁盘故障那天正是
+                    # 最需要备份的一天。零新表（结果落 data/backup_verify.json）。
+                    # 失败**必须响**：logger.error + 状态文件标红 + 后台页显示，
+                    # 静默的巡检等于没做。
+                    if _last_verify_day[0] != today:
+                        _last_verify_day[0] = today
+                        try:
+                            import backup as _bk
+                            vr = _bk.verify_latest()
+                            if vr["status"] == "bad":
+                                logger.error("[备份巡检] %s", vr["message"])
+                            elif vr["status"] == "empty":
+                                logger.warning("[备份巡检] %s", vr["message"])
+                            else:
+                                logger.info("[备份巡检] %s", vr["message"])
+                        except Exception as e:  # noqa: BLE001  巡检失败绝不影响定时发布主流程
+                            logger.error("[备份巡检] 巡检本身失败（不影响定时发布）: %s", e)
             except Exception as e:
                 # 单轮异常不致命，下一轮继续；打印便于排查
                 logger.warning("[定时发布线程] 异常（已忽略，继续下一轮）: %s", e)

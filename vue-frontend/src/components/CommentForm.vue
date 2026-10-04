@@ -1,53 +1,46 @@
 <template>
   <section class="comments" id="comments">
     <h2>评论 ({{ allCount }})</h2>
-    <div v-if="!topComments.length" class="comment-empty">还没有评论，来沙发？</div>
+    <div v-if="!loaded.length" class="comment-empty">还没有评论，来沙发？</div>
 
-    <!-- 顶层评论 + 其下回复 -->
-    <div v-for="c in topComments" :key="c.id" class="comment-thread">
-      <div class="comment">
-        <p class="comment-meta">
-          <img v-if="c.avatar" :src="c.avatar" class="comment-avatar" alt="" />{{ c.author }} · {{ (c.created_at || "").slice(0, 16) }}
-        </p>
-        <p class="comment-meta" v-if="c.region || c.device">
-          <span v-if="c.region">📍 {{ c.region }}</span>
-          <span v-if="c.device">{{ c.region ? " · " : "" }}{{ c.device }}</span>
-        </p>
-        <p class="comment-content">{{ c.content }}</p>
-        <div class="comment-foot">
-          <button class="comment-reply-btn" type="button" @click="startReply(c)">回复</button>
-          <div class="comment-react">
-            <button v-for="e in reactAllowed" :key="e" type="button" class="react-btn"
-                    :class="{ active: isMine(c.id, e) }" :title="'回应 ' + e"
-                    @click="react(c, e)">{{ e }}<em v-if="countOf(c.id, e)">{{ countOf(c.id, e) }}</em></button>
-          </div>
-        </div>
-      </div>
+    <!-- v3.25.2：排序切换。评论排序是读者诉求（想看最新讨论 vs 想看热门），
+         旧版只有「正序」一种，且不可切换。 -->
+    <div v-if="loaded.length" class="comment-sortbar">
+      <span class="comment-sortbar-label">排序</span>
+      <button v-for="s in SORTS" :key="s.key" type="button" class="comment-sort-btn"
+              :class="{ active: sort === s.key }" @click="switchSort(s.key)">{{ s.label }}</button>
+    </div>
 
-      <div v-if="repliesOf(c.id).length" class="comment-replies">
-        <div v-for="r in repliesOf(c.id)" :key="r.id" class="comment reply">
-          <p class="comment-meta">
-            <img v-if="r.avatar" :src="r.avatar" class="comment-avatar" alt="" />
-            {{ r.author }}
-            <span v-if="r.reply_to" class="reply-to">回复 @{{ r.reply_to }}</span>
-            · {{ (r.created_at || "").slice(0, 16) }}
-          </p>
-          <p class="comment-meta" v-if="r.region || r.device">
-            <span v-if="r.region">📍 {{ r.region }}</span>
-            <span v-if="r.device">{{ r.region ? " · " : "" }}{{ r.device }}</span>
-          </p>
-          <p class="comment-content">{{ r.content }}</p>
-          <div class="comment-foot">
-            <button class="comment-reply-btn" type="button" @click="startReply(r)">回复</button>
-            <div class="comment-react">
-              <button v-for="e in reactAllowed" :key="e" type="button" class="react-btn"
-                      :class="{ active: isMine(r.id, e) }" :title="'回应 ' + e"
-                      @click="react(r, e)">{{ e }}<em v-if="countOf(r.id, e)">{{ countOf(r.id, e) }}</em></button>
-            </div>
-          </div>
+    <!-- v3.25.2：扁平渲染 + depth 缩进（后端返回深度优先顺序，天然正确）。
+         旧版是「顶层 + repliesOf(id)」两层硬编码，渲染不了三层及更深 ——
+         而后端此前也只返回两层，于是「回复的回复」从来就没显示过。 -->
+    <div v-for="c in visibleItems" :key="c.id" class="comment"
+         :class="c.depth ? 'reply' : ''" :style="{ marginLeft: indentOf(c.depth) + 'px' }">
+      <p class="comment-meta">
+        <img v-if="c.avatar" :src="c.avatar" class="comment-avatar" alt="" />{{ c.author }}
+        <span v-if="c.reply_to" class="reply-to">回复 @{{ c.reply_to }}</span>
+        · {{ (c.created_at || "").slice(0, 16) }}
+      </p>
+      <p class="comment-meta" v-if="c.region || c.device">
+        <span v-if="c.region">📍 {{ c.region }}</span>
+        <span v-if="c.device">{{ c.region ? " · " : "" }}{{ c.device }}</span>
+      </p>
+      <p class="comment-content">{{ c.content }}</p>
+      <div class="comment-foot">
+        <button class="comment-reply-btn" type="button" @click="startReply(c)">回复</button>
+        <div class="comment-react">
+          <button v-for="e in reactAllowed" :key="e" type="button" class="react-btn"
+                  :class="{ active: isMine(c.id, e) }" :title="'回应 ' + e"
+                  @click="react(c, e)">{{ e }}<em v-if="countOf(c.id, e)">{{ countOf(c.id, e) }}</em></button>
         </div>
       </div>
     </div>
+
+    <!-- 深度封顶：折叠而非丢弃。数据一直在（后端全量返回），只是默认不展开。 -->
+    <button v-if="hiddenCount && !showAllDepth" type="button" class="load-more"
+            @click="showAllDepth = true">展开剩余 {{ hiddenCount }} 条深层讨论 ↓</button>
+    <button v-else-if="showAllDepth && hiddenCount" type="button" class="load-more"
+            @click="showAllDepth = false">收起深层讨论 ↑</button>
 
     <!-- 评论分页（UI清单 10.1）：加载更多 -->
     <p v-if="slug && loadingMore" class="comment-loading">评论加载中…</p>
@@ -134,18 +127,57 @@ async function initCommentConfig() {
 }
 initCommentConfig();
 
-const topComments = computed(() => loaded.value.filter((c) => !c.parent_id));
-function repliesOf(id) {
-  return loaded.value.filter((c) => c.parent_id === id);
-}
+// v3.25.2：`topComments` / `repliesOf` 两层结构已退役（见下方注释），
+// 「还没有评论」的空态判断改用 `loaded`。
 const allCount = computed(() => total.value || loaded.value.length);
+
+// ===== v3.25.2：排序切换 + 深度封顶 =====
+// 后端从 v3.25.2 起返回**任意层**嵌套（此前只两层，回复的回复被静默丢弃），
+// 且 items 已是「深度优先」顺序。旧的 `topComments / repliesOf` 两层结构
+// 渲染不了三层及更深 —— 于是这里改用**扁平列表 + depth 缩进**：
+// 顺序天然正确（后端就是深度优先给的），任意层都能渲染，代码也更短。
+//
+// `maxDepth` 只控制**显示到第几层**，绝不丢弃数据：更深的内容折叠在
+// 「展开剩余 N 条讨论」按钮里。把裁剪做在后端等于把「丢评论」从三层挪到四层。
+
+const SORTS = [
+  { key: "old", label: "正序" },
+  { key: "new", label: "倒序" },
+  { key: "hot", label: "最热" },
+];
+const MAX_DEPTH = 4;          // 展示层数；更深的折叠
+const showAllDepth = ref(false);
+const sort = ref("old");
+
+const maxDepth = computed(() => showAllDepth.value ? 99 : MAX_DEPTH);
+// 缩进：超过 3 层后不再继续加 padding，否则窄屏会被挤成一条线
+function indentOf(d) {
+  return Math.min(d || 0, 3) * 18;
+}
+const visibleItems = computed(() =>
+  (loaded.value || []).filter((c) => (c.depth || 0) <= maxDepth.value)
+);
+const hiddenCount = computed(() =>
+  (loaded.value || []).filter((c) => (c.depth || 0) > maxDepth.value).length
+);
+
+function switchSort(k) {
+  if (k === sort.value) return;
+  sort.value = k;
+  showAllDepth.value = false;
+  reloadFromFirstPage();
+}
 
 async function loadPage(p) {
   if (!props.slug) return;
   loadingMore.value = true;
   moreError.value = "";
   try {
-    const d = await apiGet(`/api/post/${encodeURIComponent(props.slug)}/comments?page=${p}&per_page=${perPage}`);
+    const d = await apiGet(
+      `/api/post/${encodeURIComponent(props.slug)}/comments` +
+      `?page=${p}&per_page=${perPage}&sort=${encodeURIComponent(sort.value)}`
+    );
+    if (p === 1) loaded.value = [];          // 换排序 = 换一批数据，旧数据必须清
     loaded.value.push(...(d.items || []));
     total.value = d.total || loaded.value.length;
     hasMore.value = !!d.has_more;
@@ -157,6 +189,7 @@ async function loadPage(p) {
     loadingMore.value = false;
   }
 }
+function reloadFromFirstPage() { page.value = 1; loadPage(1); }
 function loadMore() { loadPage(page.value + 1); }
 onMounted(() => {
   if (props.slug) { loaded.value = []; total.value = 0; page.value = 1; loadPage(1); }
@@ -284,4 +317,29 @@ async function submit() {
 .react-btn em { font-style: normal; font-size: 11px; color: var(--text-muted, #6b7280); margin-left: 3px; }
 .react-btn:hover { transform: translateY(-1px); border-color: var(--accent, #1a73e8); }
 .react-btn.active { border-color: var(--accent, #1a73e8); background: var(--accent-soft, rgba(26, 115, 232, .1)); }
+
+/* ===== v3.25.2：排序切换条 ===== */
+/* 颜色全部走 token —— 上一轮刚治理完深色模式对比度，这里**不能再写死颜色**，
+   否则深色下又会重演「容器停在亮色、文字翻浅」那类缺陷。
+   v3.25.1 的新守卫（test_dark_mode_no_light_text_on_light_background 等）也
+   会扫 global.css；本段是 scoped，不在其射程内，故更要自己守规矩。 */
+.comment-sortbar {
+  display: flex; align-items: center; gap: 8px;
+  margin: 4px 0 14px; font-size: 13px;
+}
+.comment-sortbar-label { color: var(--text-muted, #6b7280); }
+.comment-sort-btn {
+  padding: 3px 12px; font-size: 13px; cursor: pointer;
+  border: 1px solid var(--border, #e5e7eb);
+  border-radius: 999px;
+  background: var(--surface, #fff);
+  color: var(--text-muted, #6b7280);
+  transition: border-color 120ms ease, color 120ms ease, background 120ms ease;
+}
+.comment-sort-btn:hover { border-color: var(--accent, #1a73e8); color: var(--accent, #1a73e8); }
+.comment-sort-btn.active {
+  border-color: var(--accent, #1a73e8);
+  background: var(--accent-soft, rgba(26, 115, 232, .1));
+  color: var(--accent, #1a73e8); font-weight: 500;
+}
 </style>

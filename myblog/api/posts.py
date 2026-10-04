@@ -3,9 +3,12 @@
 
 import datetime
 import hashlib
+import logging
 import re as _re
 from flask import request, jsonify, current_app, session, Response
 from markupsafe import escape
+
+logger = logging.getLogger(__name__)
 
 from .common import (api_bp, db, Post, Category, Tag, Comment, ReadLog, Setting, User, visible_posts_query, _current_user_or_none, _post_summary, _comment, _render_html, rate_limit, client_key, lang_dedup)
 from models import hreflang_alternates
@@ -339,10 +342,29 @@ def comment(slug):
 
 @api_bp.route("/post/<slug>/comments")
 def post_comments(slug):
-    """评论分页（UI清单 10.1）：顶层评论分页 + 各自回复，扁平返回，与旧 comments 数组同构。
+    """评论分页 + 完整嵌套（v3.25.2 重写）。
 
-    前端 CommentForm 用「加载更多」逐页追加；items 同时含顶层与其回复，
-    故既有的 topComments / repliesOf 嵌套渲染逻辑无需改动。
+    **v3.25.2 修掉一个真实的数据丢失缺陷**：原实现只查两层
+    （`for t in tops: ... Comment.query.filter_by(parent_id=t.id)`），
+    于是「回复的回复」—— 第三层及更深——**永远不会出现在返回里**。
+    `Comment.parent_id` 是指向任意评论的自关联外键，前端也支持对回复再回复，
+    所以**用户能创建、但 API 读不回来**：写进去了、界面上看不见，等于静默丢数据。
+    实测造 5 层链 + 1 个分叉共 6 条，旧实现只返回 3 条（L0 + L1 + L1b）。
+
+    现在改为：一次性取出该文全部已批准评论 → 内存建 parent_id→children 索引 →
+    从顶层做深度优先遍历。**为什么一次性取全量而不是逐层递归查**：
+    评论量小（生产库 comment 表 2 行），而 N+1 的查询次数会随深度线性增长。
+
+    **排序**（`sort` 参数，v3.25.2）：`old`（默认，正序）/ `new`（倒序）/ `hot`（最热）。
+    ⚠️ 走**白名单映射**而非把用户输入拼进 `order_by` —— 后者虽然此处
+    （SQLAlchemy 表达式）不构成注入面，但白名单是唯一能同时挡住「未知排序键」
+    与「未来有人改成字符串拼接」的做法。
+    顶层与**每个子树内部**都按同一规则排（讨论串整体有序，不只是顶层）。
+
+    **深度封顶**（`max_depth`，默认 4，上限 8）：**只作为「折叠阈值」回传给前端，
+    后端绝不据此裁剪数据**。裁剪等于把「丢评论」从三层挪到四层，治标不治本；
+    正确做法是全量返回 + 逐条带 `depth`，由前端决定显示到第几层、
+    超出时渲染成「继续回复」而不是无限缩进。
     """
     p = visible_posts_query().filter_by(slug=slug).first_or_404()
     per_page = request.args.get("per_page", 20, type=int)
@@ -353,16 +375,32 @@ def post_comments(slug):
         page = 1
     if not rate_limit(client_key("api_post_comments"), limit=60, window=60):
         return jsonify({"error": "请求过于频繁，请稍后再试"}), 429
-    total = Comment.query.filter_by(post_id=p.id, approved=True).count()
+
+    sort_key = (request.args.get("sort") or "old").strip().lower()
+    if sort_key not in _COMMENT_SORTS:
+        sort_key = "old"                       # 未知排序键回落默认，绝不把输入喂给 order_by
+    max_depth = request.args.get("max_depth", 4, type=int)
+    if max_depth <= 0 or max_depth > 8:
+        max_depth = 4
+
+    # total 只统计**顶层**：它驱动「共 N 条」与「加载更多」的终止条件。
+    # 若把回复也计入，per_page=20 而顶层只有 2 条时，has_more 永远为真 → 死循环。
+    total = Comment.query.filter_by(post_id=p.id, approved=True, parent_id=None).count()
     tops = (Comment.query.filter_by(post_id=p.id, approved=True, parent_id=None)
-            .order_by(Comment.created_at.asc())
+            .order_by(*_COMMENT_SORTS[sort_key])
             .paginate(page=page, per_page=per_page, error_out=False))
+
+    all_rows = (Comment.query.filter_by(post_id=p.id, approved=True)
+                .order_by(*_COMMENT_SORTS[sort_key]).all())
+    children = {}
+    for c in all_rows:
+        if c.parent_id:
+            children.setdefault(c.parent_id, []).append(c)
+
     items = []
     for t in tops.items:
-        items.append(_comment(t))
-        for r in (Comment.query.filter_by(post_id=p.id, approved=True, parent_id=t.id)
-                  .order_by(Comment.created_at.asc()).all()):
-            items.append(_comment(r))
+        items.append(_comment(t, depth=0))
+        _walk_thread(children, t.id, 1, items)
     return jsonify({
         "items": items,
         "page": tops.page,
@@ -370,7 +408,42 @@ def post_comments(slug):
         "total": total,
         "pages": tops.pages,
         "has_more": tops.has_next,
+        "sort": sort_key,
+        "max_depth": max_depth,
     })
+
+
+# 排序白名单：键是 API 暴露的字符串，值是 SQLAlchemy 排序表达式。
+# **绝不**用字符串拼 order_by（那是注入面）；也绝不在这里放用户可控的列名。
+_COMMENT_SORTS = {
+    "old": (Comment.created_at.asc(), Comment.id.asc()),     # id 兜底：同秒评论也稳定
+    "new": (Comment.created_at.desc(), Comment.id.desc()),
+    "hot": (Comment.likes.desc(), Comment.created_at.asc()),
+}
+
+# 遍历深度硬上限。正常讨论串远小于此；超过说明 parent_id 数据异常
+#（成环或误操作），此时停止展开并记日志 —— 宁可少显示，也不把栈/响应撑爆。
+_COMMENT_MAX_WALK = 24
+
+
+def _walk_thread(children, parent_id, depth, out):
+    """把 parent_id 的全部后代按深度优先追加到 out（每项带 depth）。
+
+    `children` 是 parent_id → [Comment] 的索引（在调用方一次性建好）。
+    用**显式栈**而非递归：深度不可控的链（脏数据）下递归会撞 Python 递归上限。
+    """
+    stack = [(parent_id, depth)]
+    while stack:
+        pid, d = stack.pop()
+        if d > _COMMENT_MAX_WALK:
+            logger.warning("[评论] 嵌套超过 %d 层，停止展开（parent_id=%s）——"
+                           "请检查 parent_id 是否成环", _COMMENT_MAX_WALK, pid)
+            return
+        kids = children.get(pid) or []
+        # 逆序入栈：栈是后进先出，逆序放才能让输出保持正序
+        for k in reversed(kids):
+            out.append(_comment(k, depth=d))
+            stack.append((k.id, d + 1))
 
 
 # ---------- 相关文章推荐（按标签重合度 + 同分类，纯算法零依赖，B1）----------

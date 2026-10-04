@@ -165,7 +165,7 @@ def lang_dedup(posts, lang):
     return out
 
 
-def _comment(c):
+def _comment(c, depth=0):
     return {
         "id": c.id,
         "author": c.author,
@@ -174,6 +174,7 @@ def _comment(c):
         "region": c.region or "",        # 归属地（前台展示；IP 原文不返回）
         "device": c.device or "",        # 设备信息
         "parent_id": c.parent_id or 0,   # 嵌套回复：父评论 id（0=顶层）
+        "depth": depth,                  # v3.25.2：0=顶层；前端据此缩进 / 折叠「继续回复」
         "reply_to": c.reply_to or "",    # 被回复者昵称（@ 显示）
         "likes": c.likes or 0,           # 评论点赞数
         "avatar": ("https://cn.cravatar.com/avatar/" + c.email_hash + "?d=mp&s=80") if c.email_hash else "",

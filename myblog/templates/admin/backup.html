@@ -23,6 +23,45 @@
       <span class="bk-tag {{ 'on' if remote_status.webdav }}">{{ 'WebDAV' if remote_status.webdav else 'WebDAV·未配' }}</span>
     </span>
   </div>
+  {# v3.25.2：备份自动巡检状态。**刻意用「红/黄/绿」三态而非一个布尔** ——
+     「从未巡检」和「巡检通过」在语义上完全相反，合并成一个 ok 标志会让
+     「还没查过」被误读成「查过了没问题」。 #}
+  {% set vs = verify_state.status %}
+  <div class="bk-ov-card bk-ov-wide">
+    <span class="bk-ov-label">可恢复性巡检（每日自动）</span>
+    <span class="bk-ov-value">
+      {% if vs == 'ok' %}
+        <span class="bk-tag on">✓ 可恢复</span>
+        <span class="bk-ov-sm">最近 {{ verify_state.checked }} 个包全部通过 · {{ verify_state.checked_at }}</span>
+      {% elif vs == 'bad' %}
+        <span class="bk-tag" style="background:var(--danger,#c0392b);color:#fff;border-color:transparent">✗ 校验不通过</span>
+        <span class="bk-ov-sm">{{ verify_state.message }} · {{ verify_state.checked_at }}</span>
+      {% elif vs == 'empty' %}
+        <span class="bk-tag">！无备份包</span>
+        <span class="bk-ov-sm">{{ verify_state.message }} · {{ verify_state.checked_at }}</span>
+      {% else %}
+        <span class="bk-tag">— 尚未巡检</span>
+        <span class="bk-ov-sm">{{ verify_state.message }}（巡检在每日定时任务里跑，看不到记录时先手动备份一次）</span>
+      {% endif %}
+    </span>
+  </div>
+  {% if verify_state.bad_items %}
+  <div class="settings-section">
+    <h3>校验不通过的备份包</h3>
+    <p class="hint">下列包不可用于恢复，建议先手动备份一次再排查。损坏的包会一直占着保留周期。</p>
+    <div class="admin-table">
+      <thead><tr><th>备份包</th><th>原因</th></tr></thead>
+      <tbody>
+        {% for it in verify_state.bad_items %}
+        <tr>
+          <td data-label="备份包"><code>{{ it.name }}</code></td>
+          <td data-label="原因">{{ it.reason }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </div>
+  </div>
+  {% endif %}
 </div>
 
 <p class="stats-tip">
@@ -33,6 +72,15 @@
   {{ csrf_input() }}
   <input type="hidden" name="action" value="backup_now">
   <button type="submit" class="btn primary">📦 立即备份一次</button>
+</form>
+
+{# v3.25.2：手动巡检。与「立即备份」同一个 POST 端点与 CSRF，只是 action 不同。
+   巡检要把每个包完整读一遍算 SHA256（3MB/包起），同样走后台任务，
+   避免像 v3.23.0 修过的那样占住 gunicorn 并发槽。 #}
+<form method="post" action="{{ url_for('admin.backup') }}" style="margin:0 0 18px;">
+  {{ csrf_input() }}
+  <input type="hidden" name="action" value="verify_now">
+  <button type="submit" class="btn">🔍 立即巡检最近 3 个备份</button>
 </form>
 
 {# v3.23.0 #48：备份已改为后台任务（含 scp/curl 远程同步，最长 300s），此处轮询进度。 #}

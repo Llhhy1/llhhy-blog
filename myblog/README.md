@@ -2,24 +2,11 @@
 
 llhhy-blog 的后端：Flask + SQLite，服务端渲染前台 + `/api/*` JSON 接口 + Jinja2 管理后台。
 
-- 当前版本：**v3.25.3**
-- **v3.25.3：SSL 证书到期监控** —— **起因**：2026-10-02 22:59 证书到期、10-05 才发现，期间全站 HTTPS 不可访问（HTTP 80 → 301 跳 HTTPS → 浏览器拒绝），而后端与 nginx 始终正常。**教训：「记得看」对 90 天周期的基础设施是失效的**。
-  新增 `myblog/cert_watch.py`（每日检查，落 `data/cert_check.json`，**零新表**），
-  挂进 `_start_scheduler` 已有的循环（**不新增线程**）；诊断页新增 `check_certificate` 分组。
-  分级 `ok`(>30d) / `warn`(≤30d) / `critical`(≤7d) / `expired`(error 级)，
-  过期与临期进 `logger.error` / `warning`。**无表结构变更、无迁移、前端产物无变化**。
-  **三个设计决定（都是踩过才知道的）**：
-  ① **走 TLS 握手不读文件** —— 宝塔 `fullchain.pem` 权限实测为 `drw-------` / `-rw-------`
-  （**root only**），而 gunicorn 以 `www` 运行，**读文件必然 PermissionError**；
-  且路径随宝塔续签/迁移而变，硬编码即埋雷。握手拿到的正是**访客看到的那张证书**。
-  ② **域名取自 `site_base()` 不硬编码** —— 硬编码会在换域名后变成**静默失效的假监控**。
-  ③ **「没检查过」报 warn 而非 ok** —— 与「没有备份报 empty 而非 ok」同源。
-  `verify_mode=CERT_NONE` 是刻意的：过期时默认校验会直接抛异常，而要读的就是那张过期证书；
-  只读 notAfter、不传凭据，无安全风险。解析优先 `cryptography`（生产实测 50.0.1 可用，
-  记忆档案「服务器缺 cryptography」已失效），回退 `openssl` 命令行。
-  测试**真起 TLS 服务**（自签证书）跑完整握手路径，四种证书状态各一条 ——
-  只测「读文件解析」等于没测生产路径。⚠️ 第一版 6 条**随机失败**（服务未就绪就握手），
-  加就绪轮询后连跑 3 轮稳定。变异 2 项全红。安全审计 **R101**。
+- 当前版本：**v3.25.4**
+- **v3.25.4：证书监控修正** —— **v3.25.3 上线实证时抓到的自身缺陷**：生产 `site_url` 未配置 → `site_base()` 返回空 → 原实现**回落到 `socket.gethostname()`**，监控目标变成服务器名 `llhhy1` 而非对外域名。当时「碰巧准确」（nginx 只挂一个域名、两域名同证书），但**多 server 块 + 多证书时会静默失灵** —— 正是设计要防的假监控。已改为明确报 `unknown` + 提示配置 `site_url`，**不悄悄换目标**。**根本解决**：后台「设置 → 站点设置」填上 `site_url`（诊断页也一直在报这项，它还影响 sitemap/feed 绝对链接、分享卡片、canonical —— 证书监控只是这个老问题的又一个受害者）。**552 passed** / ruff 全绿 / 变异 3 条全红。
+  改动：`cert_watch._target_host()` 拿不到域名时返回空串（不再回落本机名）+ `check_once()` 检测到空 host 时报 `unknown` 并提示配置 `site_url`；新增 3 条守卫（`test_no_host_falls_back_to_machine_name` / `test_missing_site_url_reports_unknown_not_ok` / `test_target_host_exception_falls_back_to_empty`）。
+  **为什么测试没抓到**：写测试时用 monkeypatch 绕过了 `site_base()`，只覆盖「有域名」，**没测「域名取不到」** —— 由生产实测补上。**教训：mock 掉关键依赖时，要单独想一遍「它返回空/异常时会怎样」。**
+
 
 
 

@@ -213,16 +213,43 @@ def test_target_host_from_site_base(monkeypatch):
     assert cw._target_host() == "blog.example.com"
     monkeypatch.setattr(utils, "site_base", lambda: "http://127.0.0.1:8686")
     assert cw._target_host() == "127.0.0.1"
-    monkeypatch.setattr(utils, "site_base", lambda: "")
-    assert cw._target_host()  # 回落本机名，不抛
 
 
-def test_site_base_exception_falls_back(monkeypatch):
+def test_no_host_falls_back_to_machine_name(monkeypatch):
+    """🔴 **生产实测抓出来的缺陷**（2026-10-05 首次上线时 `site_url` 未配置）。
+
+    原实现回落到 `socket.gethostname()`（服务器名 `llhhy1`）—— 当时「碰巧准确」，
+    因为 nginx 只挂了一个域名。**但多 server 块 + 多证书时，连本机名拿到的是
+    另一张证书**，而监控会一直报「正常」。这正是本模块要防的「假监控」，
+    却从后门又开了一个。
+
+    故：拿不到域名就返回**空串**，由 `check_once` 明确报 unknown。
+    """
     import utils
+    monkeypatch.setattr(utils, "site_base", lambda: "")
+    assert cw._target_host() == "", "site_url 为空时不得回落本机名（那是静默换目标）"
+    monkeypatch.setattr(utils, "site_base", lambda: None)
+    assert cw._target_host() == ""
+
+
+def test_missing_site_url_reports_unknown_not_ok(monkeypatch, tmp_path):
+    """site_url 未配置 → 必须报 unknown + 提示配置，**绝不报 ok、也不悄悄换目标**。"""
+    import utils
+    monkeypatch.setattr(utils, "site_base", lambda: "")
+    monkeypatch.setattr(cw, "_state_path", lambda: str(tmp_path / "c.json"))
+    st = cw.check_once()
+    assert st["status"] == "unknown", st
+    assert "site_url" in st["message"]
+    assert st["days_left"] is None, "拿不到目标时不应给出任何天数"
+
+
+def test_target_host_exception_falls_back_to_empty(monkeypatch):
+    import utils
+
     def boom():
         raise RuntimeError("db 挂了")
     monkeypatch.setattr(utils, "site_base", boom)
-    assert cw._target_host()
+    assert cw._target_host() == ""
 
 
 # ---------- 设计决定 3：never ≠ ok ----------

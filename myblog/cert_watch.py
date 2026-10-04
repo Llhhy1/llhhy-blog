@@ -72,9 +72,19 @@ def _write_state(st):
 
 
 def _target_host():
-    """要检查的 host：优先 `site_base()`（全站唯一真相源），回退本机名。
+    """要检查的 host：来自 `site_base()`（全站唯一真相源）。
 
-    ⚠️ 刻意**不硬编码域名** —— 见模块 docstring 第 2 条。
+    ⚠️ **拿不到就返回空串，绝不回落 `socket.gethostname()`** ——
+    这是生产实测抓出来的设计缺陷（2026-10-05 首次上线时 `site_url` 未配置，
+    `site_base()` 返回空，我原先回落到本机名 `llhhy1`）。
+
+    当时「碰巧准确」是因为 nginx 只挂了一个域名；**但换个场景就静默失灵**：
+    多 server 块 + 多证书时，连本机名拿到的是**另一张证书**，
+    而监控会一直报「正常」—— 这正是本模块第 2 条设计决定要防的「假监控」，
+    却从后门又开了一个。
+
+    所以：**查不到目标域名 = 明确报 unknown + 提示配置 site_url**，
+    让「没配」变成看得见的状态，而不是悄悄换个目标。
     """
     try:
         from utils import site_base
@@ -84,7 +94,7 @@ def _target_host():
             return host.split(":", 1)[0]      # 去端口
     except Exception:
         pass
-    return socket.gethostname()
+    return ""
 
 
 def _fetch_cert_der(host, port=443, timeout=6):
@@ -183,6 +193,13 @@ def check_once(warn_days=WARN_DAYS):
     st = {"status": "unknown", "checked_at": now.strftime("%Y-%m-%d %H:%M:%S"),
           "host": host, "days_left": None, "not_after": "", "subject": "",
           "issuer": "", "message": ""}
+    if not host:
+        # ⚠️ 不回落本机名 —— 那是「静默换成可能错误的检查目标」，见 _target_host 的说明。
+        # 把「site_url 没配」变成看得见的状态：它本来就该在诊断页被报出来。
+        st["message"] = ("未配置 site_url，无法确定要检查的域名 —— "
+                         "请在「设置 → 站点设置」填上对外地址（诊断页也会报这一项）")
+        _write_state(st)
+        return st
     try:
         der = _fetch_cert_der(host)
     except Exception as e:

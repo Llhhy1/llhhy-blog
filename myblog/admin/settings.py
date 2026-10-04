@@ -3,15 +3,52 @@
 from ._helpers import admin_required, log_audit, super_required, admin_bp     # 同一蓝图对象
 from flask import flash, jsonify, redirect, render_template, request, send_file, url_for
 from models import Setting, db
-from utils import fmt_bj
+from utils import fmt_bj, site_base
 from _time import utcnow
 import os
+from urllib.parse import urlparse
+
+
+def _normalize_site_url(raw):
+    """清洗「站点对外地址（site_url）」输入（v3.25.5）。
+
+    返回 `(value, error)`：
+    - `error` 非空 → 这个值**不能写库**，调用方应提示用户（但其它字段照常保存，
+      不能因为一个字段填错就丢掉整张表单的编辑）；
+    - `value` 为 `""` → 用户主动清空，写库即「未配置」。
+
+    为什么必须校验：`site_url` 是全站绝对地址的**唯一真相源**，填成
+    `www.llhhy.cn/post/1`、`javascript:alert(1)` 或 `https://a.com/?x=1`
+    会让 canonical / og:url / sitemap / 二维码内容整体漂移，而且**不报错**——
+    只会静默产生错误的对外声明，等发现时外链已经散出去了。
+    """
+    v = (raw or "").strip().rstrip("/")
+    if not v:
+        return "", None
+    p = urlparse(v)
+    if p.scheme not in ("http", "https"):
+        return None, "必须以 http:// 或 https:// 开头（本次填写未保存）"
+    if not (p.hostname or "").strip():
+        return None, "缺少域名（本次填写未保存）"
+    if p.path or p.query or p.fragment:
+        return None, "只填「协议 + 域名」，不要带路径或参数（本次填写未保存）"
+    try:
+        port = f":{p.port}" if p.port else ""
+    except ValueError:
+        return None, "端口不是数字（本次填写未保存）"
+    # 只保留 scheme://host[:port] —— netloc 里若带 userinfo（`https://u:p@host`）
+    # 会被 hostname/port 重组时自然丢掉，站点地址不该含凭据。
+    return f"{p.scheme}://{p.hostname}{port}", None
+
 
 @admin_bp.route("/settings", methods=["GET", "POST"])
 @super_required
 def settings():
     if request.method == "POST":
-        fields = ["site_title", "site_name", "site_note", "site_description", "about_content", "footer_text",
+        # v3.25.5：`site_url` 补进可保存字段——它是全站绝对地址的唯一真相源，
+        # 但后台此前**根本没有输入框**，SEO 页却一直警告"未配置"并指向本页，
+        # 等于把人指进死胡同（只能改环境变量或直接改库）。
+        fields = ["site_url", "site_title", "site_name", "site_note", "site_description", "about_content", "footer_text",
                   "beian_code", "weather_lat", "weather_lon", "weather_city",
                   "accent_color",
                   "theme_mode", "theme_radius", "theme_font", "nav_style", "custom_css",
@@ -31,8 +68,15 @@ def settings():
             _cfg_snapshot = _cr.snapshot_settings(_snap_keys, reason="设置页保存")
         except Exception:
             _cfg_snapshot = None
+        # site_url 单独清洗：其它字段原样取表单值，只有它必须先过校验。
+        _site_url_value, _site_url_error = _normalize_site_url(request.form.get("site_url", ""))
         for f in fields:
-            val = request.form.get(f, "")
+            if f == "site_url":
+                if _site_url_value is None:
+                    continue        # 校验没过：一个字段填错不该丢掉整张表单的其它编辑
+                val = _site_url_value
+            else:
+                val = request.form.get(f, "")
             row = Setting.query.filter_by(key=f).first()
             if row:
                 row.value = val
@@ -61,10 +105,14 @@ def settings():
             else:
                 db.session.add(Setting(key=cb, value=val))
         db.session.commit()
+        if _site_url_error:
+            flash("站点对外地址（site_url）" + _site_url_error)
         flash("站点设置已保存")
         return redirect(url_for("admin.settings"))
     settings = {s.key: s.value for s in Setting.query.all()}
-    return render_template("admin/settings.html", settings=settings)
+    # site_base_now：**实际生效**的对外地址（DB site_url → 环境变量 SITE_URL → 空），
+    # 让页面能直接显示"当前是什么"，而不是只回显输入框里那个值。
+    return render_template("admin/settings.html", settings=settings, site_base_now=site_base())
 
 @admin_bp.route("/api/slug-preview", methods=["GET"])
 @admin_required

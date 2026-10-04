@@ -2,7 +2,8 @@
 
 llhhy-blog 的后端：Flask + SQLite，服务端渲染前台 + `/api/*` JSON 接口 + Jinja2 管理后台。
 
-- 当前版本：**v3.25.4**
+- 当前版本：**v3.25.5**
+- **v3.25.5：补上 `site_url` 的配置入口** —— v3.25.4 说「顺手在站点设置填上 `site_url`」，**而那个输入框根本不存在**：`site_url` 一直被 `site_base()` 读取（canonical / og:url / sitemap / 分享卡片 / 邮件链接 / 证书监控全靠它），但后台**只有读取方没有写入方**（只能改环境变量或直接改库），SEO 页却一直红字警告并**链接到站点设置页** —— 把人指进死胡同。本次：站点设置页新增输入框（带 `<label for>`、说明影响范围、显示**实际生效**地址），保存前**清洗 + 校验**（只接受 `scheme://host[:port]`，拒非 http(s)、拒带路径/参数、剥 userinfo、去尾斜杠；**理由**：写坏不报错，只会静默让全站对外声明漂移）；校验不过只跳过该字段、其它照存并提示；同时进配置快照可回滚；SEO 页告警链接加 `#site_url` 锚点。**574 passed**（+22）/ ruff 全绿 / 三项变异全红（取消校验→11、不进可保存字段→5、输入框改名→1）。无表结构变更、无迁移（head 仍 `c7a2f19b4d30`）、前端产物无变化。
 - **v3.25.4：证书监控修正** —— **v3.25.3 上线实证时抓到的自身缺陷**：生产 `site_url` 未配置 → `site_base()` 返回空 → 原实现**回落到 `socket.gethostname()`**，监控目标变成服务器名 `llhhy1` 而非对外域名。当时「碰巧准确」（nginx 只挂一个域名、两域名同证书），但**多 server 块 + 多证书时会静默失灵** —— 正是设计要防的假监控。已改为明确报 `unknown` + 提示配置 `site_url`，**不悄悄换目标**。**根本解决**：后台「设置 → 站点设置」填上 `site_url`（诊断页也一直在报这项，它还影响 sitemap/feed 绝对链接、分享卡片、canonical —— 证书监控只是这个老问题的又一个受害者）。**552 passed** / ruff 全绿 / 变异 3 条全红。
   改动：`cert_watch._target_host()` 拿不到域名时返回空串（不再回落本机名）+ `check_once()` 检测到空 host 时报 `unknown` 并提示配置 `site_url`；新增 3 条守卫（`test_no_host_falls_back_to_machine_name` / `test_missing_site_url_reports_unknown_not_ok` / `test_target_host_exception_falls_back_to_empty`）。
   **为什么测试没抓到**：写测试时用 monkeypatch 绕过了 `site_base()`，只覆盖「有域名」，**没测「域名取不到」** —— 由生产实测补上。**教训：mock 掉关键依赖时，要单独想一遍「它返回空/异常时会怎样」。**

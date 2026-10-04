@@ -13,6 +13,22 @@
     <label for="site_name">博客名称（前台顶部 Logo 与浏览器标签页显示的名字，如「XX 的博客」）</label>
     <input id="site_name" type="text" name="site_name" value="{{ settings.site_name or settings.site_title }}">
 
+    {# v3.25.5：补上 site_url 的**唯一配置入口**。
+       这个 key 从项目建立就在被 `site_base()` 读取（canonical / og:url / sitemap /
+       分享卡片 / 邮件链接 / 证书到期监控全靠它），但后台**一直没有输入框** ——
+       SEO 页一直在警告「site_url 未配置」并**指向本设置页**，等于把人指进死胡同。
+       留空 = 不配置（`site_base()` 回退到环境变量 `SITE_URL`，再回退空串）。 #}
+    <label for="site_url">站点对外地址（site_url，务必填写）</label>
+    <input id="site_url" type="url" name="site_url" value="{{ settings.site_url or '' }}"
+           placeholder="https://www.example.com" inputmode="url" autocomplete="url">
+    <p class="hint" style="margin:-6px 0 12px;">
+      填<b>对外访问的完整地址</b>（含 https://，不带末尾斜杠与路径）。
+      它是全站「绝对地址」的唯一真相源 —— <b>canonical / og:url / sitemap / 分享卡片 /
+      邮件里的文章链接 / 证书到期监控</b>全依赖它。留空会让这些位置退化成裸相对路径
+      （分享卡片拼不出图、sitemap 没有域名、SEO 页持续告警）。
+      当前状态：{% if site_base_now %}<code>{{ site_base_now }}</code>{% else %}<b style="color:#d93025">未配置</b>{% endif %}
+    </p>
+
     <label for="site_title">站点标题（SEO 用的标题，一般与博客名称一致）</label>
     <input id="site_title" type="text" name="site_title" value="{{ settings.site_title }}">
 

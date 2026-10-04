@@ -13,7 +13,7 @@
     {% if not site_base %}
       <p style="color:#d93025;font-weight:600;margin:6px 0;">
         ⚠️ 站点对外地址（site_url）未配置：canonical / og:url 会退化成相对路径，
-        微信分享卡片拿不到图，sitemap 也没有域名。<a href="{{ url_for('admin.settings') }}">前往「站点设置」填写</a>。
+        微信分享卡片拿不到图，sitemap 也没有域名。<a href="{{ url_for('admin.settings') }}#site_url">前往「站点设置」填写</a>。
       </p>
     {% else %}
       <p class="stats-tip" style="margin:6px 0;">对外地址：<code>{{ site_base }}</code> · 样本文章：<code>{{ sample_slug or '（暂无已发布文章）' }}</code></p>

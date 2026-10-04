@@ -1037,3 +1037,66 @@ R93 §93.1 排除了「provider 返回未验证邮箱」，但保留了「按邮
 
 **升级**：备份 → `flask db upgrade` → 重启。`update.sh` 一键完成。
 迁移后 head = `c7a2f19b4d30`。上线后 checklist 见 `deploy_guide.md` 三项。
+
+---
+
+## R101 · v3.25.3 发版安全审查（SSL 证书到期监控）
+
+**范围**：新增 `cert_watch.py`、`diagnostics.py`（+`check_certificate`）、
+`app.py`（调度循环）、`tests/test_cert_watch.py`、4 份文档。**前端零改动**。
+
+### 101.1 八维核对
+
+| 维度 | 结论 |
+|---|---|
+| 信息泄露 | **关键设计**。全程只读 `notAfter` / subject / issuer，**不读取证书私钥**、不发送任何凭据。`verify_mode=CERT_NONE` 仅用于取回对端证书（只读 notAfter），**不构成 MITM 风险** —— 校验与否都不影响读取结果的真实性，因为我们要判断的正是「校验会不会失败」。 |
+| 权限 | **踩过的坑**：宝塔 `fullchain.pem` 实测权限 `drw-------` / `-rw-------`（**root only**），gunicorn 以 `www` 运行 → **读文件必然 PermissionError**。故走 TLS 握手（`socket.create_connection` 到 443），**不需要任何文件权限**。 |
+| SSRF | **无**。目标 host 来自 `site_base()`（管理员自己的配置），**不是用户输入**；固定连 443，6s 超时。 |
+| 外部依赖 | 解析优先 `cryptography`（**可选依赖**），不可用时回退 `openssl` 命令行。两条路径都实测可用，**无硬依赖**。 |
+| 资源耗尽 | TCP 6s 超时；每日最多一次；`openssl` 子进程 10s 超时。诊断页**读状态文件**而非现连（不能因握手卡住页面）。 |
+| 注入 | 不涉及。解析库（`cryptography` / `openssl`）处理的是二进制 DER，非文本注入面。 |
+| 越权 | 诊断页沿用既有 `admin_required`。状态文件落 `data/`（与其他状态文件同级），非敏感。 |
+| 逻辑正确性 | 分级 `ok`/`warn`(≤30d)/`critical`(≤7d)/`expired`；**「没检查过」报 `never` → 诊断页 warn**（不报 ok）；连不上报 `unknown` **绝不报 ok**。 |
+
+### 101.2 本功能最该防的失败模式：假安全感
+
+一个「证书监控」最讽刺的失败方式是：**它显示一切正常，而证书已经过期**。
+三处刻意设计专防此：
+
+1. **「没检查过」≠「没问题」** —— 状态 `never` 在诊断页给 **warn**，
+   与「没有备份报 `empty` 而非 `ok`」同源。
+2. **连不上 ≠ 正常** —— 握手失败报 `unknown`（info 级但**不隐藏**），
+   不伪装成 ok。
+3. **域名不硬编码** —— 硬编码 `www.llhhy.cn` 在换域名后会连到旧域名，
+   **一直报「正常」**。故取自 `site_base()`（全站唯一真相源），
+   并有守卫 `test_target_host_from_site_base` 锁住。
+
+### 101.3 测试方法与两次自我修正
+
+**不 mock 解析函数** —— 本机**真起 TLS 服务**（openssl 自签证书 +
+werkzeug `ssl_context`），跑完整握手 → 解析 → 分级路径，四种证书状态
+（未过期 / 20 天 / 3 天 / 已过期）各一条。只测「读文件解析」等于没测生产路径。
+
+修正一：**第一版 6 条随机失败** —— TLS 服务线程未进入 accept 循环就开始握手，
+连接被拒 → `check_once` 吞成 `unknown` → 随机红。**flaky 测试比没有测试更糟**
+（它会让人习惯性忽略红灯）。已在 fixture 加就绪轮询（探测握手成功才返回），
+连跑 3 轮稳定。
+
+修正二：**一条测试恒绿** —— `test_never_status_is_warn_in_diagnostics` 直接读
+**真实**状态文件，而它已被同文件其它用例写成 `ok`，于是变异「never→ok」删了也不红。
+已改为 monkeypatch `read_state`，并补 `test_expired_shows_error_in_diagnostics`
+（锁 expired 必须是 error 级且给出续签指引）。
+
+**变异验证 2 项全部精确变红**：①「已过期」误报 ok ②「never」在诊断页显示 ok。
+
+### 101.4 验证与升级要点
+
+**549 passed**（534 → 549，+16）/ ruff 全仓全绿 / **2 项变异精确变红**。
+**无表结构变更、无迁移**（head 仍 `c7a2f19b4d30`）、**前端产物无变化**（只改后端）。
+
+**升级**：备份 → `flask db upgrade`（head 处无操作）→ 重启。
+上线后 checklist：诊断页确认「SSL 证书」分组显示剩余天数
+（首次需等每日定时任务跑一轮，`grep 证书监控 <log>` 可确认已跑）。
+
+⚠️ **本功能只提醒，不续签** —— 证书签发涉及域名验证 / CA 授权，
+**不是应用层该做的事**。续签入口：宝塔面板 → 网站 → SSL。

@@ -137,6 +137,8 @@
 ~~**图片 CDN**~~ → ❌ **判定不做**：实测**全仓无 `CDN_BASE_URL`**。图片量小（单博客十年积累），CDN 带来的加速对个人博客无感，而**配置化 CDN 就等于引入一个新的「回源地址」真相源**——与 v3.18.9 收口 `site_base()` 的方向相反。
 
 ### 5.6 工程 / 运维 / 安全（P2）
+> **v3.25.3 新增**：~~SSL 证书到期监控~~ → ✅ **已完成**（`myblog/cert_watch.py` + 诊断页 `check_certificate`）。起因是 2026-10-02 22:59 证书到期、10-05 才发现，期间全站 HTTPS 不可访问。**教训：「记得看」对 90 天周期的基础设施是失效的** —— 有硬期限的东西必须自动检查。设计要点：走 TLS 握手而非读文件（宝塔证书是 root only，`www` 用户读不了）、域名取自 `site_base()` 不硬编码、「没检查过」报 warn 而非 ok。
+
 
 ~~**两步验证 2FA**~~ → ✅ **已落地**（休眠态）：`user_two_factor` 表 + `admin/twofa.py`，需 `BLOG_TWOFA_ENABLED` 开启。
 ~~**第三方登录 OAuth**~~ → ✅ **已落地**（休眠态）：`o_auth_account` 表 + `admin/oauth_bindings.py`，需配 `OAUTH_GITHUB/GOOGLE_CLIENT_ID+SECRET`。

@@ -735,6 +735,7 @@ def _start_scheduler(app):
     # 线程内独立 app_context，避免与请求上下文冲突；所有异常静默，不影响主流程。
     _last_prune_day = [None]   # 闭包内记录上次执行保留策略的日期（每日一次）
     _last_verify_day = [None]  # v3.25.2：备份自动巡检同上（每日一次，刻意分开记日期）
+    _last_cert_day = [None]    # v3.25.3：证书到期检查同上
 
     def _scheduler_loop():
         import time as _time
@@ -814,6 +815,26 @@ def _start_scheduler(app):
                                 logger.info("[备份巡检] %s", vr["message"])
                         except Exception as e:  # noqa: BLE001  巡检失败绝不影响定时发布主流程
                             logger.error("[备份巡检] 巡检本身失败（不影响定时发布）: %s", e)
+                    # v3.25.3：SSL 证书到期检查（每日一次，第三个用同一循环的任务）。
+                    # **为什么必须自动查**：证书过期 = 全站直接不可访问
+                    # （HTTP 80 → 301 跳 HTTPS → 浏览器拒绝）。2026-10-02 22:59 到期，
+                    # 10-05 才发现 —— 「记得看」对有硬期限的基础设施是失效的。
+                    # 只提醒不续签：签发涉及域名验证/CA 授权，不是应用层该做的事。
+                    if _last_cert_day[0] != today:
+                        _last_cert_day[0] = today
+                        try:
+                            import cert_watch as _cw
+                            cs = _cw.check_once()
+                            if cs["status"] in ("expired", "critical"):
+                                logger.error("[证书监控] %s", cs["message"])
+                            elif cs["status"] == "warn":
+                                logger.warning("[证书监控] %s", cs["message"])
+                            elif cs["status"] == "unknown":
+                                logger.warning("[证书监控] %s", cs["message"])
+                            else:
+                                logger.info("[证书监控] %s", cs["message"])
+                        except Exception as e:  # noqa: BLE001  监控失败绝不影响定时发布主流程
+                            logger.error("[证书监控] 检查本身失败（不影响定时发布）: %s", e)
             except Exception as e:
                 # 单轮异常不致命，下一轮继续；打印便于排查
                 logger.warning("[定时发布线程] 异常（已忽略，继续下一轮）: %s", e)

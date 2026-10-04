@@ -485,6 +485,55 @@ def check_render_cache():
     return {"key": "render_cache", "title": "渲染缓存命中率", "status": status, "items": items, "notes": notes}
 
 
+def check_certificate():
+    """SSL 证书有效期（v3.25.3）。
+
+    **为什么单列一组**：证书过期会让**全站直接不可访问**（HTTP 80 → 301 跳 HTTPS
+    → 浏览器拒绝），影响面比组内任何其他项都大；而它偏偏又是个「不动手就忘了」
+    的 90 天周期事项 —— 2026-10-02 到期、10-05 才发现。
+
+    读 `cert_watch` 的状态文件（由每日定时任务写入），**不在诊断页现连** ——
+    诊断页是要给人看的，不能因一次握手卡住而变慢（TCP 6s 超时摆在那）。
+
+    ⚠️ 状态为 `never`（刚部署、巡检还没跑过一轮）时**给 warn 而不是 ok** ——
+    「没检查过」不等于「没问题」，这与备份巡检里「没有备份报 empty 而非 ok」同源。
+    """
+    items, notes, status = [], [], "ok"
+    try:
+        import cert_watch
+        st = cert_watch.read_state()
+    except Exception as e:
+        return {"key": "certificate", "title": "SSL 证书", "status": "error",
+                "items": [{"label": "证书检查", "value": "检查器异常：%s" % e,
+                            "level": "error"}],
+                "notes": [], "rows": items}
+
+    days = st.get("days_left")
+    if st.get("status") == "never":
+        items.append({"label": "证书有效期", "value": "尚未检查（每日定时任务跑一轮后显示）",
+                      "level": "warn"})
+        notes.append("尚未执行过证书到期检查。证书过期会导致全站不可访问，"
+                     "建议在「设置页」保存一次配置或等次日巡检后回来看。")
+        status = "warn"
+    else:
+        lvl = cert_watch.status_level(st.get("status"))
+        items.append({"label": "检查目标", "value": st.get("host") or "（未取到）", "level": "info"})
+        items.append({"label": "到期时间", "value": st.get("not_after") or "—", "level": lvl})
+        items.append({"label": "剩余天数",
+                      "value": ("%d 天" % days) if isinstance(days, int) else "—",
+                      "level": lvl})
+        if st.get("issuer"):
+            items.append({"label": "签发机构", "value": st["issuer"], "level": "info"})
+        items.append({"label": "检查时间", "value": st.get("checked_at") or "—", "level": "info"})
+        if st.get("message"):
+            notes.append(st["message"])
+        if st.get("status") in ("expired", "critical", "warn"):
+            notes.append("续签入口：宝塔面板 → 网站 → SSL → 申请证书（本站证书 90 天有效期）。")
+        status = lvl if lvl in ("warn", "error") else status
+    return {"key": "certificate", "title": "SSL 证书", "status": status,
+            "items": items, "notes": notes, "rows": items}
+
+
 # ---------------------------------------------------------------------------
 # 汇总
 # ---------------------------------------------------------------------------
@@ -495,6 +544,7 @@ CHECKS = [
     check_security,
     check_feed_agg,
     check_backup,
+    check_certificate,
     check_seo,
     check_pending,
     check_frontend_build,

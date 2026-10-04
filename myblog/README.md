@@ -2,8 +2,25 @@
 
 llhhy-blog 的后端：Flask + SQLite，服务端渲染前台 + `/api/*` JSON 接口 + Jinja2 管理后台。
 
-- 当前版本：**v3.25.2**
-- **v3.25.2：备份自动巡检 + 评论嵌套修复与排序 + 配置回滚** —— ⚠️ **含表结构变更**：`audit_log` 加可空列 `payload`（Text，存配置快照 JSON），迁移 `c7a2f19b4d30`，`update.sh` 自动执行；已用**旧 schema 库真实演练** ALTER + 历史审计行完好。① `backup.verify_latest(keep=3)` 挂进 `_start_scheduler` 已有的每日循环（**不新增线程**），结果落 `data/backup_verify.json`（**零新表**；4 个 worker 独立进程、内存态不可见），后台备份页三态显示 + 手动巡检按钮（走 `tasks.submit` 异步）。**「没有备份」刻意报 `empty`** —— 报 ok 是假安全感。② `post_comments` 原先只查两层，而 `parent_id` 是任意自关联外键、前端也支持对回复再回复，于是**「回复的回复」永久丢失**（实测造 5 层链 + 1 分叉共 6 条，只返回 3 条）。改为「取全量 → 内存建 `parent_id→children` 索引 → 深度优先遍历（显式栈，防脏数据深链撞递归上限）」，每条带 `depth`；`sort` 走**白名单映射**（old/new/hot）；`max_depth`（默认 4）**只作折叠阈值回传、后端绝不裁剪**（裁剪等于把丢评论从三层挪到四层）。③ `config_rollback.py` + `audit_log.payload`：设置页保存前拍快照，`/admin/config-history` 看历史、差异预览后回滚（可勾选部分项，不覆盖他人同期修改）。**三条安全不变量**：快照存 `Setting` 原始值（敏感项已是 Fernet 密文 `bkenc$`，回滚全程不碰明文，测试 spy `decrypt_secret` 断言 0 次调用）；`detail` 只写摘要绝不写值（它会进 CSV 导出）；回滚前先给当前值也拍一份退路快照。**顺带修根因**：`log_audit` 原先无条件 `session.get()`，无请求上下文（CLI/定时任务）时抛 RuntimeError 被最外层 `except` 静默吞掉 → 整条审计一条都没写；已加 `has_request_context()` 守卫。ROADMAP §5 逐条复核：划掉 **8 项早已落地却记着未做**、**10 项经实测判定不做**（附触发条件）。验证 **534 passed**（+23 守卫）/ ruff 全绿 / 迁移演练通过 / **8 项变异全部精确变红**。安全审计 **R100**。
+- 当前版本：**v3.25.3**
+- **v3.25.3：SSL 证书到期监控** —— **起因**：2026-10-02 22:59 证书到期、10-05 才发现，期间全站 HTTPS 不可访问（HTTP 80 → 301 跳 HTTPS → 浏览器拒绝），而后端与 nginx 始终正常。**教训：「记得看」对 90 天周期的基础设施是失效的**。
+  新增 `myblog/cert_watch.py`（每日检查，落 `data/cert_check.json`，**零新表**），
+  挂进 `_start_scheduler` 已有的循环（**不新增线程**）；诊断页新增 `check_certificate` 分组。
+  分级 `ok`(>30d) / `warn`(≤30d) / `critical`(≤7d) / `expired`(error 级)，
+  过期与临期进 `logger.error` / `warning`。**无表结构变更、无迁移、前端产物无变化**。
+  **三个设计决定（都是踩过才知道的）**：
+  ① **走 TLS 握手不读文件** —— 宝塔 `fullchain.pem` 权限实测为 `drw-------` / `-rw-------`
+  （**root only**），而 gunicorn 以 `www` 运行，**读文件必然 PermissionError**；
+  且路径随宝塔续签/迁移而变，硬编码即埋雷。握手拿到的正是**访客看到的那张证书**。
+  ② **域名取自 `site_base()` 不硬编码** —— 硬编码会在换域名后变成**静默失效的假监控**。
+  ③ **「没检查过」报 warn 而非 ok** —— 与「没有备份报 empty 而非 ok」同源。
+  `verify_mode=CERT_NONE` 是刻意的：过期时默认校验会直接抛异常，而要读的就是那张过期证书；
+  只读 notAfter、不传凭据，无安全风险。解析优先 `cryptography`（生产实测 50.0.1 可用，
+  记忆档案「服务器缺 cryptography」已失效），回退 `openssl` 命令行。
+  测试**真起 TLS 服务**（自签证书）跑完整握手路径，四种证书状态各一条 ——
+  只测「读文件解析」等于没测生产路径。⚠️ 第一版 6 条**随机失败**（服务未就绪就握手），
+  加就绪轮询后连跑 3 轮稳定。变异 2 项全红。安全审计 **R101**。
+
 
 
 - **v3.24.0：表结构改走 Alembic + 积分去重/保留策略 + Setting KV 治理** —— ⚠️ **含部署流程变更**：升级时必须在「覆盖后端后、重启前」执行一次 `BLOG_MIGRATE_ONLY=1 FLASK_APP=app:create_app <venv>/bin/python -m flask db upgrade`（一键更新脚本已自动包含；手动升级务必手做）。**迁移含删除动作，升级前先备份 `blog.db`**。① **Alembic 首次真正在生产跑起来**：此前线上升级从不执行迁移，所有表结构变更靠 9 个启动自愈函数（`create_all()` + `_migrate_*`）完成，**只写在迁移脚本里的变更不会生效**——这是本版要修的根因。`update.sh` 新增迁移步骤（失败即中止且不重启，以站点用户执行避免 db 变 root 属主）。② **`BLOG_MIGRATE_ONLY=1` 迁移模式**：构造 app 但跳过建表/播种/FTS/超管兜底/插件加载等全部启动副作用，部署脚本**不必持有管理员凭据**。③ **9 个 `_migrate_*` 退役**，历史加列固化为幂等迁移 `d4a7f08c2e91` —— 消灭「Alembic + 手写自愈」两份 schema 真相源；数据播种拆出 `_seed_default_badges()` 并**无条件调用**。④ **积分 DB 级去重 + 保留策略**：`point_log` 唯一索引（迁移会删重复行，不去重索引建不出来）、`reader.points` 索引；`gamify.prune_retention()` 每日执行：reader 永久 / point_log 2 年 / reader_badge 随 reader。⑤ **定时发布原子认领**（`app.claim_scheduled_post()`）：多 worker 不再重复发布、重复推送、重复发订阅邮件。⑥ **`Setting` KV 治理**：评论表情 → `comment.reactions`、AI 摘要/标签 → `post.ai_summary`/`post.ai_tags`（**不新增表**，迁移 `e5b8c3f17a24` 搬迁并清理原 setting 行），设置表不再随内容无限增长，6 处全表加载随之瘦身，**对外接口与页面行为不变**。⑦ `create_app()` **510 行 → 35 行**（拆成 8 个私有函数，纯机械搬运零逻辑改动）。安全审计 **R96**。验证 **362 passed** + ruff 全绿 + 棘轮 601≤648 + i18n 通过 + 干净库迁移链串行通过 + 打包双源互证 20 项全通过。

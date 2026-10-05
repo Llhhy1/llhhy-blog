@@ -111,10 +111,11 @@ def log_login_attempt(username, success, ip=""):
         db.session.commit()
     except Exception:
         pass
-    # 顺带清理超过保留周期的旧审计日志（含登录日志），避免表无限膨胀（v3.1.0；v3.1.6 周期可配）
+    # 顺带清理超过保留周期的旧审计日志（含登录日志），避免表无限膨胀
+    # （v3.1.0；v3.1.6 周期可配；v3.25.8 起后台「系统设置」可改 → DB → env → 默认 90）
     try:
-        from flask import current_app as _app
-        days = _app.config.get("AUDIT_LOG_DAYS", 90)
+        from utils import flag_num
+        days = flag_num("audit_log_days", "AUDIT_LOG_DAYS", 90, int)
     except Exception:
         days = 90
     _purge_audit_logs_older_than(days)

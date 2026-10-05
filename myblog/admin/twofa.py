@@ -33,10 +33,11 @@ def twofa():
     action: enroll（生成密钥）/ confirm（验证码确认）/ disable（密码+验证码关闭）。
     """
     import twofa as twofa_svc
-    from flask import current_app
+    from utils import flag_bool
 
     user = db.session.get(User, session["user_id"])
-    enabled = bool(current_app.config.get("TWOFA_ENABLED"))
+    # v3.25.8：由 `flag_bool` 取值 → 超管可在「系统设置」页直接开关，**不用改服务器**。
+    enabled = flag_bool("twofa_enabled", "TWOFA_ENABLED", False)
     st = twofa_svc.status_for(user)
     ctx = {"enabled": enabled, "enrolled": st["enrolled"],
            "recovery_codes_left": st["recovery_codes_left"],
@@ -45,7 +46,7 @@ def twofa():
     if request.method == "POST":
         action = request.form.get("action", "")
         if not enabled:
-            flash("两步验证未启用（需设置环境变量 BLOG_TWOFA_ENABLED=true 并重启）")
+            flash("两步验证未启用：请由超管在「系统设置」页开启（无需改服务器）")
         elif action == "enroll":
             status, secret, uri = twofa_svc.enroll(
                 user, (request.form.get("code") or "").strip())

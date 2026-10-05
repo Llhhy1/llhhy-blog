@@ -97,6 +97,10 @@
         {# v3.25.7 第三方登录配置：@super_required（改这里等于改「谁能登进本站」），
            放在超管区而非上面的「第三方绑定」旁 —— 绑定页对普通用户也可见，配置页不行。 #}
         <a href="{{ url_for('admin.oauth_settings') }}" class="{{ 'active' if ep == 'admin.oauth_settings' }}"><span class="nav-emoji">🔑</span>第三方登录</a>
+        {# v3.25.8 系统设置：2FA / 开放注册 / 验证码 / 强密码 / 登录延迟 / 审计保留。
+           放超管区，且紧邻 OAuth 配置 —— 这两页解决的正是同一类问题
+           （「配置只能改服务器 + 重启」）。 #}
+        <a href="{{ url_for('admin.system_settings') }}" class="{{ 'active' if ep == 'admin.system_settings' }}"><span class="nav-emoji">⚙️</span>系统设置</a>
         <a href="{{ url_for('admin.captcha_settings') }}" class="{{ 'active' if ep == 'admin.captcha_settings' }}"><span class="nav-emoji">🛡️</span>验证码设置</a>
         <a href="{{ url_for('admin.users') }}" class="{{ 'active' if ep == 'admin.users' }}"><span class="nav-emoji">👥</span>用户管理</a>
         <a href="{{ url_for('admin.link_applications') }}" class="{{ 'active' if ep == 'admin.link_applications' }}"><span class="nav-emoji">🔗</span>友链申请{% if pending_comments %}{% endif %}</a>

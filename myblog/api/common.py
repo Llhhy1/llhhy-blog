@@ -83,8 +83,8 @@ def _login_delay():
     """
     try:
         import time as _t
-        from flask import current_app
-        delay = current_app.config.get("LOGIN_DELAY_SECONDS", 1.0)
+        from utils import flag_num
+        delay = flag_num("login_delay_seconds", "LOGIN_DELAY_SECONDS", 1.0, float)
         if delay > 0:
             _t.sleep(delay)
     except Exception:

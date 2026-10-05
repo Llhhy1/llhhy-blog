@@ -1,0 +1,121 @@
+{% extends "admin/base.html" %}
+{% block title %}系统设置{% endblock %}
+{% block content %}
+  <h1 class="page-title">⚙️ 系统设置</h1>
+
+  <p class="stats-tip">
+    这里改的是<b>运营开关</b>，保存后<b>立即生效，无需重启</b>。
+    取值顺序：<b>本页（数据库）→ 环境变量 → 系统默认</b> ——
+    所以环境变量仍然有效，但本页优先级更高；点「恢复默认」即交还给环境变量。
+  </p>
+
+  <div class="auth-box" style="max-width:100%;margin:0 0 18px;">
+    <p class="auth-tip" style="margin:4px 0;">
+      <b>为什么这些开关原本要 SSH 上服务器改：</b>
+      它们过去只能读环境变量，改完还得重启 gunicorn（4 个 worker 全断）。
+      其中 <b>2FA 从 2026-06 的 v3.21.0 上线起就一直没被启用过</b> ——
+      不是你忘了设，是没有入口，只能改服务器文件。
+    </p>
+  </div>
+
+  <form method="post" action="{{ url_for('admin.system_settings') }}">
+        {{ csrf_input() }}
+    <input type="hidden" name="action" value="save">
+
+    {% set ns = namespace(group='') %}
+    {% for r in rows %}
+      {% if r.group != ns.group %}
+        {% set ns.group = r.group %}
+        <h3 style="margin:24px 0 8px;">{{ r.group }}</h3>
+      {% endif %}
+      <div class="section-box" style="margin-bottom:14px;padding:14px 16px;">
+        <label class="checkbox-row" style="display:block;margin-bottom:6px;">
+          {% if r.type == 'bool' %}
+            <input type="checkbox" name="k_{{ r.key }}" value="true"
+                   {{ 'checked' if r.value }}
+                   style="margin-right:8px;vertical-align:middle;">
+          {% endif %}
+          <span style="font-weight:600;font-size:15px;">{{ r.label }}</span>
+        </label>
+
+        {% if r.type != 'bool' %}
+          <div style="margin:6px 0;">
+            <input type="number" name="k_{{ r.key }}" value="{{ r.value }}"
+                   {% if r.lo is defined %}min="{{ r.lo }}"{% endif %}
+                   {% if r.hi is defined %}max="{{ r.hi }}"{% endif %}
+                   step="{{ r.step or '1' }}"
+                   style="max-width:180px;padding:6px 8px;border:1px solid #ddd;border-radius:6px;">
+            <span class="stats-tip" style="margin-left:8px;">
+              允许范围 {{ r.lo }} ~ {{ r.hi }}{% if r.type == 'int' %}（整数）{% endif %}
+            </span>
+          </div>
+        {% endif %}
+
+        <p class="stats-tip" style="margin:6px 0 0;">
+          当前生效：<b>{{ r.value }}</b>
+          <span class="stats-tip" style="margin-left:6px;">
+            {% if r.source == 'db' %}
+              · 来源：<b style="color:#188038;">本页（数据库）</b>
+            {% elif r.source == 'env' %}
+              · 来源：环境变量 <code>{{ r.env }}</code>
+              —— 本页保存后优先级更高
+            {% else %}
+              · 来源：系统默认
+            {% endif %}
+          </span>
+        </p>
+        <p class="stats-tip" style="margin:6px 0 0;color:#555;">{{ r.hint | safe }}</p>
+        <p class="stats-tip" style="margin:6px 0 0;">
+          默认值 <code>{{ r.default }}</code>{% if r.env %} · 环境变量名 <code>{{ r.env }}</code>{% endif %}
+        </p>
+      </div>
+    {% endfor %}
+
+    <button type="submit" class="btn">保存（立即生效）</button>
+  </form>
+
+  <hr style="border:none;border-top:1px solid #eee;margin:28px 0;">
+
+  <h3 style="margin-top:0;">↩️ 恢复默认</h3>
+  <p class="stats-tip">删除本页对该开关的覆盖，改为以环境变量 / 系统默认为准。</p>
+  <table class="admin-table" style="width:100%;max-width:760px;">
+    <thead><tr><th>开关</th><th>当前值</th><th>操作</th></tr></thead>
+    <tbody>
+      {% for r in rows %}
+      <tr>
+        <td data-label="开关">{{ r.label }}</td>
+        <td data-label="当前值">{{ r.value }}
+          <span class="stats-tip">（{{ {'db':'本页','env':'环境变量','default':'默认'}[r.source] }}）</span>
+        </td>
+        <td data-label="操作">
+          {% if r.source == 'db' %}
+          <form method="post" action="{{ url_for('admin.system_settings') }}">
+                {{ csrf_input() }}
+            <input type="hidden" name="action" value="reset">
+            <input type="hidden" name="key" value="{{ r.key }}">
+            <button type="submit" class="btn small"
+                    onclick="return confirm('恢复「{{ r.label }}」的默认？')">恢复默认</button>
+          </form>
+          {% else %}
+            <span class="stats-tip">—</span>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  <hr style="border:none;border-top:1px solid #eee;margin:28px 0;">
+
+  <h3 style="margin-top:0;">🔒 刻意不放进本页的配置</h3>
+  <ul class="stats-tip" style="line-height:2;padding-left:22px;">
+    <li><code>SECRET_KEY</code> / <code>ADMIN_PASSWORD</code> / <code>DATABASE_URL</code> /
+        <code>MCP_*_TOKEN</code> —— <b>根信任</b>。存进数据库 = 拿到数据面
+        （SQL 注入或备份文件）的人顺带获得伪造会话 / 改管理员密码的能力。</li>
+    <li><code>COOKIE_SECURE</code> / <code>CORS_ORIGIN</code> / <code>TRUSTED_PROXIES</code> /
+        <code>SESSION_IDLE_MINUTES</code> —— <b>每个请求都要判断</b>，进数据库是
+        拿一次查询换一行配置。</li>
+    <li><code>ENABLED_PLUGINS</code> —— <b>启动时</b>加载，进数据库照样要重启才生效，
+        放这里只会给人「改了没用」的错觉。</li>
+  </ul>
+{% endblock %}

@@ -67,6 +67,8 @@ from .security import (  # noqa: F401
 from .settings import (  # noqa: F401
     get_setting,
     setting_bool,
+    flag_bool,
+    flag_num,
     site_base,
     abs_url,
 )

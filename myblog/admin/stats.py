@@ -84,8 +84,8 @@ def audit_logs():
     pagination = q.order_by(AuditLog.created_at.desc()).paginate(
         page=page, per_page=30, error_out=False)
     try:
-        from flask import current_app as _app
-        keep_days = _app.config.get("AUDIT_LOG_DAYS", 90)
+        from utils import flag_num
+        keep_days = flag_num("audit_log_days", "AUDIT_LOG_DAYS", 90, int)
     except Exception:
         keep_days = 90
     from utils import csrf_input as _csrf_input  # 模板用 {{ csrf_input() }}
@@ -132,8 +132,8 @@ def export_audit_logs():
 
     # ---- TXT（人类可读）----
     try:
-        from flask import current_app as _app
-        keep_days = _app.config.get("AUDIT_LOG_DAYS", 90)
+        from utils import flag_num
+        keep_days = flag_num("audit_log_days", "AUDIT_LOG_DAYS", 90, int)
     except Exception:
         keep_days = 90
     scope = f"时间范围：{frm or '起始'} → {to or '最新'}" if (frm or to) else f"保留 {keep_days} 天内的全部记录"
@@ -165,10 +165,11 @@ def export_audit_logs():
 @login_required
 @super_required
 def clear_audit_logs():
-    """清空操作日志（谨慎操作，不可恢复）。保留最近 AUDIT_LOG_DAYS 天（v3.1.0；v3.1.6 保留周期可配）。"""
+    """清空操作日志（谨慎操作，不可恢复）。保留最近 AUDIT_LOG_DAYS 天
+    （v3.1.0；v3.1.6 保留周期可配；v3.25.8 起后台「系统设置」可改）。"""
     try:
-        from flask import current_app as _app
-        days = _app.config.get("AUDIT_LOG_DAYS", 90)
+        from utils import flag_num
+        days = flag_num("audit_log_days", "AUDIT_LOG_DAYS", 90, int)
     except Exception:
         days = 90
     cutoff = utcnow() - datetime.timedelta(days=days)

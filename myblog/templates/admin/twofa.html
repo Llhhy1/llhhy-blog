@@ -6,7 +6,8 @@
   {% if not enabled %}
     <div class="auth-box" style="max-width: 560px; margin: 0;">
       <p>⚠️ <b>两步验证未启用。</b></p>
-      <p class="auth-tip">需先在服务器环境变量设置 <code>BLOG_TWOFA_ENABLED=true</code> 并重启应用，本页才会开放绑定功能。</p>
+      <p class="auth-tip">请超管在 <a href="{{ url_for('admin.system_settings') }}">系统设置 → 安全</a>
+        里打开「两步验证」，<b>保存后立即生效，无需重启</b>。</p>
       <p class="auth-tip">未启用时登录流程完全不变，不影响正常使用。</p>
     </div>
   {% else %}

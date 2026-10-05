@@ -94,12 +94,12 @@ def super_required(view):
 def _weak_password(raw):
     """v3.1.6 中优：弱密码统一校验（黑名单 + 复杂度）。返回错误文案；通过返回空字符串。"""
     try:
-        from flask import current_app as _app
-        cfg = _app.config
+        from utils import flag_bool, flag_num
         ok, err = validate_password(
             raw or "", min_len=8,
-            strong=cfg.get("STRONG_PASSWORD", True),
-            mixed_case=cfg.get("STRONG_PASSWORD_MIXED_CASE", False),
+            # v3.25.8：强密码策略改由「系统设置」可配（DB → env → 默认）。
+            strong=flag_bool("strong_password", "STRONG_PASSWORD", True),
+            mixed_case=flag_bool("strong_password_mixed_case", "STRONG_PASSWORD_MIXED_CASE", False),
         )
         return "" if ok else err
     except Exception:

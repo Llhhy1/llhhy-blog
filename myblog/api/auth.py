@@ -19,8 +19,9 @@ def auth_register():
     # 限流：同一 IP 60 秒内最多 10 次注册尝试
     if not rate_limit(client_key("api_register"), limit=10, window=60):
         return jsonify({"error": "操作过于频繁，请稍后再试"}), 429
-    # 注册开关：生产可设 BLOG_OPEN_REGISTER=false 关闭公开注册
-    if not current_app.config.get("BLOG_OPEN_REGISTER"):
+    # 注册开关：后台「系统设置」可改（DB → 环境变量 BLOG_OPEN_REGISTER → 默认 true）
+    from utils import flag_bool
+    if not flag_bool("open_register", "BLOG_OPEN_REGISTER", True):
         return jsonify({"error": "本站已关闭公开注册"}), 403
     # v3.1.6 可选增强：注册验证码（CAPTCHA_ENABLED=true 时要求通过验证码或直接带验证码文本）
     from security import captcha_required, consume_captcha_pass, verify_captcha
@@ -38,13 +39,12 @@ def auth_register():
         return jsonify({"error": "用户名和密码不能为空"}), 400
     if len(username) < 2 or len(username) > 20:
         return jsonify({"error": "用户名长度需在 2-20 个字符"}), 400
-    # v3.1.6 中优：弱密码黑名单 + 复杂度校验（STRONG_PASSWORD 开关，见 config）
-    from utils import validate_password
-    cfg = current_app.config
+    # v3.1.6 中优：弱密码黑名单 + 复杂度校验；v3.25.8 起可在「系统设置」页切换
+    from utils import validate_password, flag_bool
     ok_pwd, pwd_err = validate_password(
         password, min_len=8,
-        strong=cfg.get("STRONG_PASSWORD", True),
-        mixed_case=cfg.get("STRONG_PASSWORD_MIXED_CASE", False),
+        strong=flag_bool("strong_password", "STRONG_PASSWORD", True),
+        mixed_case=flag_bool("strong_password_mixed_case", "STRONG_PASSWORD_MIXED_CASE", False),
     )
     if not ok_pwd:
         return jsonify({"error": pwd_err}), 400
@@ -255,8 +255,13 @@ _TWOFA_PENDING_TTL = 300   # 登录挂起态有效期（秒）：超时必须重
 
 
 def _twofa_on():
-    """全局开关（休眠闸门）。未开启时所有 2FA 入口短路，登录流程完全不变。"""
-    return bool(current_app.config.get("TWOFA_ENABLED"))
+    """全局开关（休眠闸门）。未开启时所有 2FA 入口短路，登录流程完全不变。
+
+    v3.25.8：改由 `flag_bool` 取值 —— 后台「系统设置」可开关，
+    **不必再改环境变量 + 重启**。这是 2FA 从 v3.21.0 起第一次真正可用。
+    """
+    from utils import flag_bool
+    return flag_bool("twofa_enabled", "TWOFA_ENABLED", False)
 
 
 def _twofa_active(uid):

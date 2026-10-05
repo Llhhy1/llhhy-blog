@@ -69,8 +69,9 @@ def register():
         if not rate_limit(client_key("register"), limit=10, window=60):
             flash("操作过于频繁，请稍后再试")
             return redirect(url_for("main.register"))
-        # 注册开关：生产可设 BLOG_OPEN_REGISTER=false 关闭公开注册
-        if not current_app.config.get("BLOG_OPEN_REGISTER"):
+        # 注册开关：后台「系统设置」可改（DB → 环境变量 BLOG_OPEN_REGISTER → 默认 true）
+        from utils import flag_bool
+        if not flag_bool("open_register", "BLOG_OPEN_REGISTER", True):
             flash("本站已关闭公开注册")
             return redirect(url_for("main.register"))
         # 验证码：与 /api/auth/register 一致，杜绝绕过 SPA 直打本路由跳过验证码（独立复审 M1）
@@ -178,12 +179,12 @@ def twofa_challenge():
 def _weak_password_text(raw):
     """v3.1.6：前台注册密码强度校验（弱密码黑名单 + 复杂度）。返回错误文案，通过返回空串。"""
     try:
-        from flask import current_app as _app
-        cfg = _app.config
+        from utils import flag_bool
         ok, err = validate_password(
             raw or "", min_len=8,
-            strong=cfg.get("STRONG_PASSWORD", True),
-            mixed_case=cfg.get("STRONG_PASSWORD_MIXED_CASE", False),
+            # v3.25.8：强密码策略改由「系统设置」可配（DB → env → 默认）。
+            strong=flag_bool("strong_password", "STRONG_PASSWORD", True),
+            mixed_case=flag_bool("strong_password_mixed_case", "STRONG_PASSWORD_MIXED_CASE", False),
         )
         return "" if ok else err
     except Exception:

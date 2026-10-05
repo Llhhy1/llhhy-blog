@@ -505,7 +505,13 @@ def _register_request_hooks(app):
 
     @app.before_request
     def enforce_twofa():
-        if not app.config.get("TWOFA_ENABLED"):
+        # v3.25.8：改由 `flag_bool` 取值（DB → 环境变量 → 默认 false），
+        # 后台「系统设置」可开关、不必改服务器。**这里每请求多一次 Setting
+        # 单行查询** —— SQLite 主键命中微秒级，换来「2FA 能从后台开」；
+        # 反过来做（启动时读一次）是 v3.21.0 的老问题：开关在代码里，却只能
+        # 改服务器 + 重启，于是它从上线起就没被启用过。
+        from utils import flag_bool
+        if not flag_bool("twofa_enabled", "TWOFA_ENABLED", False):
             return None                              # 全局开关关 → 整条闸门休眠
         uid = session.get("user_id")
         if not uid or session.get("twofa_ok"):

@@ -31,7 +31,8 @@ from sqlalchemy import text
 
 from models import (db, Post, Comment, User, FriendLink, Guestbook,
                     LinkApplication, Subscriber, Notification)
-from utils import get_setting, setting_bool, fmt_bj, to_beijing, BEIJING_TZ, site_base
+from utils import (get_setting, setting_bool, flag_bool, flag_num, fmt_bj, to_beijing,
+                   BEIJING_TZ, site_base)
 from _time import utcnow
 
 
@@ -436,7 +437,7 @@ def check_security():
     items, notes, status = [], [], "ok"
     captcha = setting_bool("captcha_enabled", True)
     comments = setting_bool("comments_enabled", True)
-    strong = current_app.config.get("STRONG_PASSWORD", True)
+    strong = flag_bool("strong_password", "STRONG_PASSWORD", True)
     sec_headers = current_app.config.get("SECURITY_HEADERS", True)
     items.append({"label": "图形验证码", "value": "开启" if captcha else "关闭", "level": "ok" if captcha else "warn"})
     items.append({"label": "评论功能", "value": "开启" if comments else "关闭", "level": "info"})

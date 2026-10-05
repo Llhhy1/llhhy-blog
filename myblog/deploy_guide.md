@@ -159,6 +159,19 @@ for p in $(pgrep -f 'gunicorn.*myblog'); do echo "pid=$p threads=$(ls /proc/$p/t
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
     }
+    # v3.25.12 新增：**两步验证挑战页是 SSR 页**（`routes.twofa_challenge`），
+    # 也必须反代。漏了它会被上面的 `location /` 当成 SPA 静态页，
+    # 而 SPA 路由表里没有 `/twofa`（命中 `/:pathMatch(.*)*` → redirect `/`）
+    # → 「已登录但没过二因素」的会话被闸门重定向后落到首页 → 首页的接口再被判 401
+    # → 又跳回挑战页 = 死循环。判据：访问日志里 `/twofa` 零次。
+    location = /twofa {
+        proxy_pass http://127.0.0.1:8686;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
     # v3.20.0 新增：Atom 1.0 订阅源。**这条必须加** —— 它是精确匹配，
     # 漏了就会落到 SPA 的 try_files 拿到 index.html（RSS 阅读器解析失败）。
     location = /feed.atom {
@@ -552,6 +565,9 @@ supervisorctl status
 > - **无表结构变更、无迁移**（head 仍 `c7a2f19b4d30`）、无新增依赖、无新增环境变量。
 >   **本次前端产物有变化**（登录页 + `api.js`），务必一并把
 >   `vue-frontend-dist.zip` 覆盖到 `/www/wwwroot/vue-frontend/`。
+> - 🔴 **Nginx 需要加一行**：`location = /twofa { proxy_pass http://127.0.0.1:8686; }`
+>   （原文见上文「第 4 步」）。漏了不会报错，只会让 SSR 挑战页被 SPA 兜底成
+>   index.html —— 判据：`curl -I https://<域名>/twofa` 返回 200 说明漏了，应为 302。
 > - 现象：开了两步验证的账号，用**账号密码**登录能跳验证页，用**已绑定的
 >   GitHub 账号**登录却报 401（`?oauth=ok` 之后整页 `/api/*` 全 401）。
 > - 根因：两条登录路径契约不一致 —— 密码登录需要二步时只挂起（会话里没有
@@ -573,9 +589,11 @@ supervisorctl status
 >   后台「登录审计」里能看到这条成功登录（此前开了 2FA 的账号一条都没有）。
 > - ⚠️ 若只升级了后端没覆盖前端：用户会停在登录页的账号密码框（不知道要输码）。
 >   此时补一步前端覆盖即可，无需回滚后端。
-> - 📌 **可选收尾（本版不做）**：SSR 的 `/twofa` 挑战页在本站点线上不可达，
->   修法是加一条 nginx `location = /twofa { proxy_pass http://127.0.0.1:8686; }`。
->   影响面：已登录但未过二因素的**后台**会话被闸门重定向后会落到 SPA 首页。
+> - ✅ **已在线上应用（2026-10-06）**：给 nginx 加了 `location = /twofa { proxy_pass http://127.0.0.1:8686; }`
+>   —— 配置原文已同步进上文「第 4 步」的 nginx 片段（**重装服务器时照抄即可**）。
+>   若你的站点是全新部署，**务必确认这条存在**：判据是 `curl -I https://<域名>/twofa`
+>   应返回 **302**（Flask 的 SSR 挑战页），而不是 200 的 SPA index.html。
+>   影响面：没有它时，「已登录但没过二因素」的**后台**会话被闸门重定向后会落到 SPA 首页。
 
 > **v3.25.11（修「点击绑定不跳转」）升级要点**：
 >

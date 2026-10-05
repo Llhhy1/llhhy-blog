@@ -36,6 +36,7 @@ import argparse
 import re
 import logging
 from urllib.parse import urlparse
+import contextlib
 
 logger = logging.getLogger(__name__)
 
@@ -171,16 +172,12 @@ def make_db_snapshot(db_path):
         return None
     tmp_dir = tempfile.mkdtemp(prefix="bkdb_")
     tmp_db = os.path.join(tmp_dir, "blog.db")
-    try:
+    with contextlib.suppress(Exception):
         snapshot_db(db_path, tmp_db)
-    except Exception:
-        pass
     if os.path.exists(tmp_db):
         return tmp_db
-    try:
+    with contextlib.suppress(Exception):
         os.rmdir(tmp_dir)
-    except Exception:
-        pass
     return None
 
 
@@ -585,10 +582,8 @@ def _snapshot_before_restore(tag=""):
     except Exception as e:  # noqa: BLE001  R94 §94.6：快照失败必须降级、绝不阻断恢复——最需要恢复的时候不能因为保险快照自己崩了而恢复不了；异常已写 stderr 供排查
         # 快照失败绝不阻断恢复：降级为「无保险地继续」，并由调用方把警告打给用户
         sys.stderr.write("[备份] 恢复前快照失败（不影响恢复本身）：%s\n" % e)
-        try:
+        with contextlib.suppress(OSError):
             os.remove(arc)
-        except OSError:
-            pass
         return None
     finally:
         cleanup_db_snapshot(snap)

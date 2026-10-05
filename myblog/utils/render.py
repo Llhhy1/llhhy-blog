@@ -3,6 +3,7 @@
 import re
 import hashlib
 import bleach
+import contextlib
 from markdown import markdown
 import os
 
@@ -151,10 +152,10 @@ def render_post_html(post):
                 post.content_html = html
                 post.content_hash = digest
             finally:
-                try:
+                # v3.25.9：SIM105（ruff 不修 finally 内的写法，语义判定保守）。
+                # 行为等价：busy_timeout 复原失败也必须继续走到 conn.close()。
+                with contextlib.suppress(Exception):
                     conn.execute(_sql_text("PRAGMA busy_timeout=5000"))  # 归还连接池前复原
-                except Exception:
-                    pass
                 conn.close()
     except Exception:
         pass

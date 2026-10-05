@@ -4,6 +4,7 @@ from ._helpers import _current_user_or_none, admin_required, log_audit, login_re
 from flask import flash, redirect, render_template, url_for
 from models import Post, RecycleBin, db
 import fts
+import contextlib
 
 
 @admin_bp.route("/recycle-bin")
@@ -45,10 +46,8 @@ def restore_post(rid):
         )
         db.session.add(new_post)
         db.session.flush()
-        try:
+        with contextlib.suppress(Exception):
             fts.sync_post(new_post)
-        except Exception:
-            pass
         log_audit("restore", "post", new_post.id, f"从回收站快照重建：{rb.title}", user=_current_user_or_none())
         flash(f"已用快照重建文章：{rb.title}（草稿状态，请检查后发布）")
     rb.restored = True
@@ -64,10 +63,8 @@ def purge_post(rid):
     if rb.post_id:
         post = Post.query.get(rb.post_id)
         if post:
-            try:
+            with contextlib.suppress(Exception):
                 fts.delete_post(post.id)
-            except Exception:
-                pass
             # 清掉这篇的收录推送记录（v3.19.1）。
             # SQLite 默认不启用外键（未设 PRAGMA foreign_keys=ON），
             # 所以 seo_submission 的 FK 不会级联——不显式删就留下 post_id 悬空行。

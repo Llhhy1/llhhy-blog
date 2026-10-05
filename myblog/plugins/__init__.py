@@ -20,6 +20,7 @@ import traceback
 
 from flask import Blueprint, jsonify, request, session
 import logging
+import contextlib
 
 # v3.23.0：print → logger（格式/级别见 logging_setup）
 logger = logging.getLogger(__name__)
@@ -199,10 +200,8 @@ def set_plugin_enabled(app, cfg, slug, enabled):
             return {"ok": False, "error": f"写禁用标记失败：{e}"}
         RUNTIME_DISABLED.add(slug)
         PLUGIN_REGISTRY.pop(slug, None)
-        try:
+        with contextlib.suppress(Exception):
             _unregister_blueprints(app, slug)
-        except Exception:
-            pass
         return {"ok": True, "slug": slug, "enabled": False}
     # 启用：删标记 + 清内存覆盖 + 重新加载该插件
     try:
@@ -211,10 +210,8 @@ def set_plugin_enabled(app, cfg, slug, enabled):
     except Exception:
         pass
     RUNTIME_DISABLED.discard(slug)
-    try:
+    with contextlib.suppress(Exception):
         _unregister_blueprints(app, slug)
-    except Exception:
-        pass
     PLUGIN_REGISTRY.pop(slug, None)
     _load_one(app, cfg, slug)
     return {"ok": True, "slug": slug, "enabled": slug in PLUGIN_REGISTRY}

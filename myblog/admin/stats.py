@@ -7,6 +7,7 @@ from utils import fmt_bj
 from _time import utcnow
 import bot_guard
 import datetime
+import contextlib
 
 @admin_bp.route("/")
 @admin_required
@@ -32,10 +33,8 @@ def dashboard():
     if cat_id:
         # v3.18.5：原写法 int(cat_id) 直接抛 ValueError → 500（?category_id=abc）。
         # 非法值一律按「不筛选」处理。
-        try:
+        with contextlib.suppress(TypeError, ValueError):
             query = query.filter(Post.category_id == int(cat_id))
-        except (TypeError, ValueError):
-            pass
     pagination = query.order_by(Post.is_pinned.desc(), Post.created_at.desc()).paginate(
         page=page, per_page=per_page, error_out=False)
     pending = Comment.query.filter_by(approved=False).count()

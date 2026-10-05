@@ -14,6 +14,7 @@ import fts
 import notify
 import mail_notify
 from _time import utcnow
+import contextlib
 
 admin_bp = Blueprint("admin", __name__, url_prefix="/admin")
 
@@ -354,15 +355,11 @@ def create_post_core(*, title, content, summary="", cover="", category_id=None,
     _save_post_history(post, author_user.username if author_user else "")
     db.session.commit()
     cleanup_orphan_tags()  # v3.15.0：提交后清 0 使用标签，避免越积越多
-    try:
+    with contextlib.suppress(Exception):
         fts.sync_post(post)
-    except Exception:
-        pass
     if published:
-        try:
+        with contextlib.suppress(Exception):
             notify.notify_new_post(post, current_app.config.get("SITE_URL", ""))
-        except Exception:
-            pass
         # v3.20.0：新文自动推送（默认关闭，见 seo_push.maybe_auto_push 的说明）
         try:
             import seo_push
@@ -371,10 +368,8 @@ def create_post_core(*, title, content, summary="", cover="", category_id=None,
             pass
         # C3 邮件群发：新文章发布时异步通知所有订阅者（未配置 SMTP 自动跳过）
         if notify_subscribers:
-            try:
+            with contextlib.suppress(Exception):
                 mail_notify.notify_subscribers_async(post)
-            except Exception:
-                pass
     return post
 
 

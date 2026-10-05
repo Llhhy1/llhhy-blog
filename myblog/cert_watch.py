@@ -29,6 +29,7 @@ import socket
 import ssl
 
 from utils import fmt_bj
+import contextlib
 
 logger = logging.getLogger(__name__)
 
@@ -162,10 +163,8 @@ def _parse_der(der):
     except Exception:
         pass
     finally:
-        try:
+        with contextlib.suppress(OSError):
             os.remove(tmp)
-        except OSError:
-            pass
     return out
 
 

@@ -112,6 +112,24 @@ def main():
                 + "\n".join(f"    - {d}" for d in missing)
             )
 
+    # 5. lint 棘轮（v3.25.9 接进发版路径）
+    #
+    # **为什么必须接进来**：棘轮原本只是 CI 的一个 job，而 CI 在发版之外 ——
+    # 于是 v3.25.0~v3.25.6 期间新增的 SIM +21 / BLE001 +9 / S110 +4 一直攒着，
+    # 连续六个版本没人看见，直到 v3.25.7 手动跑 `tools/lint_debt.py` 才发现。
+    # **门禁不在发版路径上 = 等于没有门禁。**
+    #
+    # 只在后端源码变更时跑（改文档/前端不会影响 Python lint 计数）。
+    if backend_changed:
+        lint = subprocess.run([sys.executable, os.path.join(ROOT, "tools", "lint_debt.py")],
+                              cwd=ROOT, capture_output=True, text=True)
+        if lint.returncode != 0:
+            out = (lint.stdout or "") + (lint.stderr or "")
+            errors.append(
+                "lint 棘轮未通过（新增 lint 债务）：\n"
+                + "\n".join("    " + l for l in out.strip().splitlines()[-12:])
+            )
+
     # 输出
     for e in errors:
         print(f"[ERROR] {e}")

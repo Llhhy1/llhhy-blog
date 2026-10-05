@@ -9,6 +9,7 @@ import fts
 import mail_notify
 import notify
 from .taxonomy import _ensure_category_by_name, _ensure_series_by_name
+import contextlib
 
 
 @admin_bp.route("/post/new", methods=["GET", "POST"])
@@ -151,25 +152,19 @@ def edit_post(post_id):
             _save_post_history(post, user.username if user else "")
         db.session.commit()
         cleanup_orphan_tags()  # v3.15.0：提交后清 0 使用标签
-        try:
+        with contextlib.suppress(Exception):
             fts.sync_post(post)
-        except Exception:
-            pass
         if post.published and not was_published:
-            try:
+            with contextlib.suppress(Exception):
                 notify.notify_new_post(post, current_app.config.get("SITE_URL", ""))
-            except Exception:
-                pass
             try:
                 import seo_push
                 seo_push.maybe_auto_push(post)
             except Exception:  # noqa: BLE001, S110  (自动推送失败绝不影响发布主流程)
                 pass
             # C3 邮件群发：草稿转发布时也通知订阅者
-            try:
+            with contextlib.suppress(Exception):
                 mail_notify.notify_subscribers_async(post)
-            except Exception:
-                pass
         if scheduled_at is not None and not published:
             flash("已更新为定时发布，到点自动公开")
         else:

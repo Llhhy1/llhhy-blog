@@ -7,6 +7,7 @@ from _time import utcnow
 import fts
 import mail_notify
 import notify
+import contextlib
 
 
 @admin_bp.route("/post/<int:post_id>/publish-now", methods=["POST"])
@@ -33,20 +34,16 @@ def publish_now(post_id):
             emit_post_published(post)
         except Exception:
             pass
-        try:
+        with contextlib.suppress(Exception):
             notify.notify_new_post(post, current_app.config.get("SITE_URL", ""))
-        except Exception:
-            pass
         # v3.20.0：新文自动推送（默认关闭，见 seo_push.maybe_auto_push 的说明）
         try:
             import seo_push
             seo_push.maybe_auto_push(post)
         except Exception:  # noqa: BLE001, S110  (自动推送失败绝不影响发布主流程)
             pass
-        try:
+        with contextlib.suppress(Exception):
             mail_notify.notify_subscribers_async(post)
-        except Exception:
-            pass
         flash("已立即发布该文章")
     else:
         flash("该文章已处于发布状态")
@@ -231,21 +228,17 @@ def bulk_posts():
         flash(f"已移动 {len(posts)} 篇文章")
     elif action == "delete":
         for p in posts:
-            try:
+            with contextlib.suppress(Exception):
                 db.session.add(RecycleBin(
                     post_id=p.id, title=p.title or "", slug=p.slug or "",
                     summary=p.summary or "", content=p.content or "", cover=p.cover or "",
                     category_id=p.category_id, author_id=p.author_id, series_id=p.series_id,
                     deleted_by=user.username if user else "",
                 ))
-            except Exception:
-                pass
             p.in_trash = True
             p.deleted_at = utcnow()
-            try:
+            with contextlib.suppress(Exception):
                 fts.delete_post(p.id)
-            except Exception:
-                pass
         db.session.commit()
         flash(f"已批量移入回收站 {len(posts)} 篇（可还原）")
     else:
@@ -267,22 +260,20 @@ def delete_post(post_id):
         flash("只能删除自己发表的文章")
         return redirect(url_for("admin.my_posts"))
     # 入回收站：存快照 + 标记软删除
-    try:
+    with contextlib.suppress(Exception):
         db.session.add(RecycleBin(
             post_id=post.id, title=post.title or "", slug=post.slug or "",
             summary=post.summary or "", content=post.content or "", cover=post.cover or "",
             category_id=post.category_id, author_id=post.author_id, series_id=post.series_id,
             deleted_by=user.username if user else "",
         ))
-    except Exception:
-        pass
     post.in_trash = True
     post.deleted_at = utcnow()
     db.session.commit()
-    try:
+    # v3.25.9：SIM105 —— ruff 修不了这一处（try 体带行内注释，它判定为 unsafe），
+    # 手动改。行为等价：FTS 同步失败不该让「移入回收站」整体失败。
+    with contextlib.suppress(Exception):
         fts.delete_post(post.id)  # 同步从 FTS 索引移除，避免搜索命中已删文章
-    except Exception:
-        pass
     log_audit("delete", "post", post.id, f"移入回收站：{post.title}", user=user)
     flash("文章已移入回收站（可在回收站还原）")
     back = request.args.get("back") or (

@@ -63,6 +63,7 @@ ENGINES = ("baidu", "indexnow")
 # 原先只能函数内 `from admin._helpers import log_audit`，因为 `admin/seo.py` 会导入
 # 本模块，顶层导 admin 构成包级循环（见 `_write_audit` 的历史注释）。
 from audit import log_audit
+import contextlib
 
 # 百度当日剩余配额的 Setting 键（页面展示用，非密钥）
 QUOTA_KEY = "seo_baidu_quota"
@@ -517,11 +518,9 @@ def _spawn(post_ids, engine, actor_name="", actor_ip=""):
                 # 等不到结果，日志里也没有任何痕迹（首审 6.3 点名的正是这种模式）。
                 fail = len(ids)
                 summary = "后台线程异常：%s" % type(e).__name__
-                try:
+                with contextlib.suppress(Exception):
                     app.logger.exception(
                         "seo_push 后台线程异常 engine=%s post_ids=%s", engine, ids)
-                except Exception:
-                    pass
                 for pid in ids:
                     _record(pid, engine, "fail", summary)
             _write_audit(actor_name, actor_ip, engine, ids, summary, fail)
@@ -571,10 +570,8 @@ def enqueue(post_ids, engine, actor=None):
         except Exception:
             pass
     actor_name = ""
-    try:
+    with contextlib.suppress(Exception):
         actor_name = getattr(actor, "username", "") or ""
-    except Exception:
-        pass
     # 来源 IP 必须在请求线程里取（后台线程无请求上下文）
     actor_ip = ""
     try:

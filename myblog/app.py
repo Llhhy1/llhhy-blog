@@ -21,6 +21,7 @@ from api import api_bp
 from mcp_diag import mcp_bp  # v3.10.0：只读诊断 MCP（端点 /mcp）
 from mcp_write import mcp_write_bp  # v3.12.2：写能力 MCP（端点 /mcp-write，未配置 MCP_WRITE_TOKEN 时自动关闭）
 from _time import utcnow
+import contextlib
 
 # v3.11.0：Flask-Migrate（可选依赖）—— 数据库迁移工具，便于未来 schema 演进。
 # 未安装时静默跳过（降级范式：绝不因缺依赖导致应用无法启动）。
@@ -72,10 +73,8 @@ def _install_sqlite_pragmas():
             except Exception:
                 pass  # 内存库/只读库不支持 WAL，忽略即可
             finally:
-                try:
+                with contextlib.suppress(Exception):
                     cur.close()
-                except Exception:
-                    pass
 
         _PRAGMAS_INSTALLED = True
     except Exception as e:
@@ -557,10 +556,8 @@ def _register_template_context(app):
     # v3.1.6：确保每个请求都生成会话 CSRF Token（未登录访客也有，用于游客提交表单/API）
     def _csrf_generate():
         from utils import generate_csrf_token
-        try:
+        with contextlib.suppress(Exception):
             generate_csrf_token()
-        except Exception:
-            pass
 
     def _safe_css(css):
         r"""v3.17.11（审计 R76-B3）：自定义 CSS 注入 <style> 前转义闭合序列。
@@ -725,10 +722,8 @@ def _register_error_handlers(app):
     @app.errorhandler(500)
     def _handle_server_error(e):
         # 原始异常交给 Flask 记录（含 traceback），对外只回不透明信息，避免泄露内部细节。
-        try:
+        with contextlib.suppress(Exception):
             app.logger.exception("未捕获的服务端异常: %s", e)
-        except Exception:
-            pass
         if _is_json_client():
             return jsonify({"error": "服务器内部错误，请稍后重试"}), 500
         return _render_error_page(500)

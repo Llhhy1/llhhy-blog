@@ -17,6 +17,7 @@ import glob
 import hashlib
 import logging
 import os
+import contextlib
 
 # v3.19.0：降级不再静默。
 # 历史教训——v3.18.9 真机验收时才发现 `.png` 分享卡长期恒返回兜底图，
@@ -81,10 +82,8 @@ def _cjk_candidates(bold=False):
         "C:/Windows/Fonts/simsun.ttc",
     ]
     for g in sys_globs:
-        try:
+        with contextlib.suppress(Exception):
             cands += sorted(glob.glob(g, recursive=True))
-        except Exception:
-            pass
     return cands
 
 
@@ -262,10 +261,8 @@ def _cache_trim():
             return
         fs.sort(key=lambda p: os.path.getmtime(p))
         for p in fs[:len(fs) - _CACHE_MAX + 50]:
-            try:
+            with contextlib.suppress(Exception):
                 os.remove(p)
-            except Exception:
-                pass
     except Exception:
         pass
 

@@ -4,6 +4,7 @@ from ._helpers import _can_edit_post, _current_user_or_none, _save_post_history,
 from flask import flash, redirect, render_template, request, url_for
 from models import Post, PostHistory, db
 import fts
+import contextlib
 
 
 @admin_bp.route("/post/<int:post_id>/history")
@@ -35,10 +36,8 @@ def rollback_post(post_id, hid):
     post.summary = h.summary
     post.content = h.content
     db.session.commit()
-    try:
+    with contextlib.suppress(Exception):
         fts.sync_post(post)
-    except Exception:
-        pass
     log_audit("rollback", "post", post.id, f"回滚到版本 {hid}", user=user)
     flash("已回滚到该历史版本")
     return redirect(url_for("admin.post_history", post_id=post_id))

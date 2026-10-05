@@ -11,6 +11,7 @@ import urllib.parse
 from sqlalchemy import func
 from models import db, VisitLog, Setting
 from _time import utcnow
+import contextlib
 
 # ---------- 访问统计（埋点 + 汇总）----------
 @api_bp.route("/stats/visit", methods=["POST"])
@@ -80,10 +81,8 @@ def stats_referrers():
             hosts.add(urllib.parse.urlsplit(su.value).netloc.lower())
     except Exception:
         pass
-    try:
+    with contextlib.suppress(Exception):
         hosts.add((request.host or "").lower())
-    except Exception:
-        pass
     hosts.discard("")
 
     rows = (db.session.query(VisitLog.referrer, func.count(VisitLog.id))
@@ -146,10 +145,8 @@ def stats_dashboard():
     except Exception:
         # v3.18.5：本接口未鉴权，原实现把 str(e) 回给调用方属信息泄露
         # （可暴露库结构/文件路径）。异常详情只写日志，对外给不透明错误码。
-        try:
+        with contextlib.suppress(Exception):
             current_app.logger.exception("stats dashboard 聚合失败")
-        except Exception:
-            pass
         return jsonify({"error": "dashboard_failed"}), 500
 
 

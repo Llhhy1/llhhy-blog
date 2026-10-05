@@ -23,6 +23,10 @@ from models import db, User, Setting, ROLE_SUPER
 PASSWORD = "Passw0rd!23"
 
 
+def _r():
+    return secrets.token_hex(4)
+
+
 @pytest.fixture(autouse=True)
 def _clear_rate_limit():
     with contextlib.suppress(Exception):
@@ -45,7 +49,19 @@ def _login(client, username, password=PASSWORD):
 
 
 @pytest.fixture()
-def super_client(client, app):
+def cert_recheck(monkeypatch):
+    """拦掉「保存 site_url 后重跑证书检查」—— 它会**真的去连 443**，测试绝不能出网。
+
+    同时它也是 P3 的断言入口：记录被调用了几次。
+    """
+    calls = []
+    from admin import settings as admin_settings
+    monkeypatch.setattr(admin_settings, "_trigger_cert_recheck", lambda: calls.append(True))
+    return calls
+
+
+@pytest.fixture()
+def super_client(client, app, cert_recheck):
     """以超管身份登录的 client；并把 SITE_URL 置空，让断言只反映 DB 里的 site_url。
 
     ⚠️ `SITE_URL` 必须置空：`site_base()` 的优先级是 DB → 环境变量 → 空串，
@@ -184,3 +200,28 @@ def test_site_url_is_in_rollback_snapshot(super_client, app):
         # 不用 `diff_snapshot()`：它只列「有变化」的项，值没变时会静默缺项。
         payload = json.loads(snaps[0].payload or "{}")
     assert "site_url" in payload, "site_url 必须在快照里，否则改错无从回滚"
+
+
+# ---------- 4. 改了 site_url 要立刻重跑证书检查（v3.25.6 P3） ----------
+# 为什么必须主动跑：每日定时那一次要等到第二天，而「照提示填完 site_url、
+# 回头看诊断页还是旧的『未配置 site_url』」正是这个功能要消除的误导 ——
+# v3.25.5 上线核验时实测就是这个体验。
+
+def test_changing_site_url_triggers_cert_recheck(super_client, app, cert_recheck):
+    # 用随机域名：测试库共享，前面用例可能已把 site_url 设成同一个值
+    # （那样「值没变」分支会意外命中，断言就假绿了）。
+    a, b = "https://a-%s.example.com" % _r(), "https://b-%s.example.com" % _r()
+    _post_settings(super_client, site_url=a)
+    assert len(cert_recheck) == 1, "site_url 变了应立刻重跑一次"
+    _post_settings(super_client, site_url=a)
+    assert len(cert_recheck) == 1, "值没变不该重跑（每次保存都跑一遍没意义）"
+    _post_settings(super_client, site_url=b)
+    assert len(cert_recheck) == 2
+
+
+def test_invalid_site_url_does_not_trigger_recheck(super_client, app, cert_recheck):
+    """值没写进去就不该重跑 —— 检查目标根本没变。"""
+    _post_settings(super_client, site_url="https://c-%s.example.com" % _r())
+    before = len(cert_recheck)
+    _post_settings(super_client, site_url="www.example.com")
+    assert len(cert_recheck) == before

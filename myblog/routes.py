@@ -720,6 +720,34 @@ def comments_feed():
     return Response(xml, mimetype="application/rss+xml")
 
 
+def _sitemap_image_loc(cover, base):
+    """sitemap 的 `<image:loc>` —— 返回**绝对 URL**，或 ""（表示不输出这一项）。
+
+    **为什么不能原样输出 `post.cover`**（v3.25.6 上线核验实测抓到，两个错叠在一起）：
+
+    1. `cover` 的语义是**站内相对路径** —— `og_image._local_cover_path()` 只接受
+       `static/` / `uploads/` 前缀，外链一律返回 None。而 sitemap 的 `image:loc`
+       按规范**必须是绝对 URL** → 原实现输出的是相对路径，搜索引擎拿不到图。
+    2. 生产有一篇文章的 `cover` 存成了字符串 `'None'`（历史写入路径把 Python 的
+       None 拼成了 `"None"`）→ 直接输出成 `<image:loc>None</image:loc>`，
+       是**无效的 sitemap 条目**。
+
+    判据不是「猜脏值长什么样」，而是**只放行站内相对路径** —— 与
+    `og_image._local_cover_path()` 同一口径。站点对外地址未配置时**不输出**：
+    拼不出绝对 URL 就别拼，绝不猜域名（同 `site_base()` 的纪律）。
+    """
+    c = (cover or "").strip()
+    if not c:
+        return ""
+    if c.startswith(("http://", "https://")):
+        return c
+    if not (c.startswith("/") or c.startswith("static/") or c.startswith("uploads/")):
+        return ""          # 'None' / 'null' / 任意非站内路径：一律不放进 sitemap
+    if not base:
+        return ""          # 未配置 site_url：拼不出绝对地址，宁缺勿错
+    return base + "/" + c.lstrip("/")
+
+
 @main_bp.route("/sitemap.xml")
 def sitemap():
     """站点地图（v3.8.0 增强：lastmod / changefreq / priority / 封面图）。"""
@@ -743,8 +771,11 @@ def sitemap():
         u = f"{base}/post/{p.slug}"
         lastmod = fmt_bj(p.updated_at or p.created_at, "%Y-%m-%d")
         extra = f"<lastmod>{lastmod}</lastmod>" if lastmod else ""
-        if p.cover:
-            extra += f'<image:image><image:loc>{escape(p.cover)}</image:loc></image:image>'
+        # v3.25.6：封面图走 `_sitemap_image_loc()`（绝对 URL + 挡历史脏值），
+        # 不再原样输出 `p.cover`（那是相对路径，且可能存着字符串 'None'）。
+        cover = _sitemap_image_loc(p.cover, base)
+        if cover:
+            extra += f'<image:image><image:loc>{escape(cover)}</image:loc></image:image>'
         for h, alt_u in hreflang_alternates(p, base):
             extra += f'<xhtml:link rel="alternate" hreflang="{h}" href="{escape(alt_u)}"/>'
         lines.append(f"  <url><loc>{escape(u)}</loc>{extra}"

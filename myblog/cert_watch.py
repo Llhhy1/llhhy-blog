@@ -28,6 +28,8 @@ import os
 import socket
 import ssl
 
+from utils import fmt_bj
+
 logger = logging.getLogger(__name__)
 
 STATE_FILE = "cert_check.json"
@@ -189,8 +191,12 @@ def check_once(warn_days=WARN_DAYS):
     - `unknown` 拿不到证书（未启用 HTTPS / 端口不通 / 解析失败）
     """
     host = _target_host()
+    # 计算一律用 UTC（`days_left` 是两端之差，时区无所谓）；**落盘展示**统一北京时间。
+    # v3.25.6：原先 `checked_at` 存的是裸 UTC 却没标时区（而 `not_after` 反而带了
+    # " UTC" 后缀、`backup_verify.json` 又是北京时间）—— 三处口径不一致，
+    # 诊断页「上次检查」看起来比现在早 8 小时，容易被读成「监控没跑」。
     now = datetime.datetime.now(datetime.timezone.utc)
-    st = {"status": "unknown", "checked_at": now.strftime("%Y-%m-%d %H:%M:%S"),
+    st = {"status": "unknown", "checked_at": fmt_bj(now, "%Y-%m-%d %H:%M:%S"),
           "host": host, "days_left": None, "not_after": "", "subject": "",
           "issuer": "", "message": ""}
     if not host:
@@ -217,7 +223,9 @@ def check_once(warn_days=WARN_DAYS):
 
     delta = not_after - now
     days = int(delta.total_seconds() // 86400)
-    st.update(days_left=days, not_after=not_after.strftime("%Y-%m-%d %H:%M:%S UTC"),
+    # v3.25.6：与 `checked_at` 对齐，统一北京时间（原先单独带 " UTC" 后缀，
+    # 与同文件另两个字段和 `backup_verify.json` 三者口径不一致）。
+    st.update(days_left=days, not_after=fmt_bj(not_after, "%Y-%m-%d %H:%M:%S"),
               subject=info.get("subject") or "", issuer=info.get("issuer") or "")
     if days < 0:
         st["status"] = "expired"

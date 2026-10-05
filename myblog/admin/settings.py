@@ -3,10 +3,14 @@
 from ._helpers import admin_required, log_audit, super_required, admin_bp     # 同一蓝图对象
 from flask import flash, jsonify, redirect, render_template, request, send_file, url_for
 from models import Setting, db
-from utils import fmt_bj, site_base
+from utils import fmt_bj, get_setting, site_base
 from _time import utcnow
+import logging
 import os
+import threading
 from urllib.parse import urlparse
+
+logger = logging.getLogger(__name__)
 
 
 def _normalize_site_url(raw):
@@ -41,6 +45,35 @@ def _normalize_site_url(raw):
     return f"{p.scheme}://{p.hostname}{port}", None
 
 
+def _trigger_cert_recheck():
+    """`site_url` 一改就**立刻**重跑一次证书检查（v3.25.6）。
+
+    **为什么必须主动跑**：每日定时那一次要等到第二天，而「照提示填完 site_url、
+    回头看诊断页还是旧的『未配置 site_url』」正是这个功能本身要消除的误导 ——
+    不补这一下，等于让用户以为白填了（v3.25.5 上线核验时实测就是这个体验）。
+
+    **为什么放后台线程**：`check_once()` 要走 TLS 握手（网络 IO），不该拖慢
+    「保存设置」这个主流程。**异常只记日志**：证书检查是旁路，绝不能让它
+    把保存变成失败（与 `config_rollback.snapshot_settings` 同一取舍）。
+    """
+    try:
+        from flask import current_app
+        app = current_app._get_current_object()
+    except Exception:
+        return
+
+    def _run():
+        try:
+            with app.app_context():
+                import cert_watch
+                cert_watch.check_once()
+        except Exception:
+            # 线程里的异常不会有人接，不记就等于静默消失（v3.19.1 的教训）。
+            logger.exception("保存 site_url 后重跑证书检查失败（不影响保存结果）")
+
+    threading.Thread(target=_run, daemon=True).start()
+
+
 @admin_bp.route("/settings", methods=["GET", "POST"])
 @super_required
 def settings():
@@ -69,6 +102,8 @@ def settings():
         except Exception:
             _cfg_snapshot = None
         # site_url 单独清洗：其它字段原样取表单值，只有它必须先过校验。
+        # 同时记住旧值 —— 变了就要立刻重跑证书检查（见 `_trigger_cert_recheck`）。
+        _old_site_url = get_setting("site_url") or ""
         _site_url_value, _site_url_error = _normalize_site_url(request.form.get("site_url", ""))
         for f in fields:
             if f == "site_url":
@@ -107,6 +142,9 @@ def settings():
         db.session.commit()
         if _site_url_error:
             flash("站点对外地址（site_url）" + _site_url_error)
+        elif _site_url_value != _old_site_url:
+            # 只有真的改了才重跑（每天每次保存都跑一遍没意义，也白出网）。
+            _trigger_cert_recheck()
         flash("站点设置已保存")
         return redirect(url_for("admin.settings"))
     settings = {s.key: s.value for s in Setting.query.all()}

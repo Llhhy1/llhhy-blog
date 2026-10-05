@@ -60,13 +60,49 @@ def oauth_bindings():
         configured = oauth_svc.configured_providers()
         # v3.25.7：把「支持哪些渠道」也交给模板渲染，别在模板里写死 provider 名 ——
         # 加新渠道时这里不会漏。
-        all_providers = [{"name": n, "label": m.get("label", n)}
+        # v3.25.10：标出每个渠道的绑定状态，模板据此决定「绑定按钮 / 已绑定 / 去配置」。
+        linked = {l.provider for l in links}
+        all_providers = [{"name": n, "label": m.get("label", n),
+                          "configured": n in configured, "linked": n in linked}
                          for n, m in oauth_svc.PROVIDERS.items()]
     except Exception:  # noqa: BLE001  provider 未配置/未安装时只降级提示，不该让整页 500
         pass
     return render_template("admin/oauth_bindings.html", links=links,
                            target=target, actor=actor, configured=configured,
                            all_providers=all_providers)
+
+
+@admin_bp.route("/oauth/bind/<provider>", methods=["POST"])
+@login_required
+def oauth_bind(provider):
+    """开始「把第三方账号绑到当前账号」的流程（v3.25.10）。
+
+    **为什么必须是 POST + CSRF，不能做成 GET 链接**：
+    真正的 OAuth 授权发生在 provider 那边（用户要点确认），所以单靠 GET 链接
+    不足以被静默利用；但绑定目标取自服务端 session 的 `user_id`，
+    一旦做成 `<a href>`，任何人都能构造链接诱导他人发起绑定。
+    POST + 全局 CSRF 钩子把「发起绑定」这个动作纳入站内意图，
+    与项目内其它特权操作（解绑、改设置）保持同一口径。
+
+    这里只做三件事：校验渠道存在且已启用 → 在会话里标记「本次是绑定流程」
+    → 转发到既有 `oauth_start`。**不碰任何凭据、不建账号**，真正的绑定由
+    `api/auth.py::oauth_callback` 完成（那里才有 (provider, sub) 唯一约束）。
+    """
+    import oauth as oauth_svc
+    if provider not in oauth_svc.PROVIDERS:
+        flash("未知的第三方登录渠道", "error")
+        return redirect(url_for("admin.oauth_bindings"))
+    if not oauth_svc.is_configured(provider):
+        flash("该渠道尚未配置凭据，请先在「第三方登录」页填写后再绑定", "error")
+        return redirect(url_for("admin.oauth_settings"))
+    if OAuthAccount.query.filter_by(user_id=session["user_id"],
+                                    provider=provider).first() is not None:
+        flash("已经绑定过该渠道了，如需更换请先解绑", "error")
+        return redirect(url_for("admin.oauth_bindings"))
+    # 标记流程类型：callback 据此把结果 flash 回本页，而不是甩到首页让人看不见
+    session["oauth_bind_flow"] = provider
+    # `redirect=1`：走无 JS 降级，直接 302 到 provider（start 默认返回 JSON 给前端消费）
+    return redirect(url_for("api.oauth_start", provider=provider, redirect=1))
 
 
 @admin_bp.route("/oauth/unbind", methods=["POST"])

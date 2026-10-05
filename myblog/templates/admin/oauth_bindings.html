@@ -3,6 +3,53 @@
 {% block content %}
   <h1 class="page-title">第三方账号绑定</h1>
 
+  {# v3.25.10：绑定/解绑的结果反馈。绑定成功后 callback 会 flash 回本页 ——
+     在此之前 `?oauth=ok` 是甩到首页且**全项目没人读**，用户绑完毫无感知。 #}
+  {% with msgs = get_flashed_messages(with_categories=true) %}
+    {% if msgs %}
+      {% for cat, m in msgs %}
+        <p class="auth-tip" style="max-width:680px;margin:0 0 10px;
+             {% if cat == 'error' %}color:#d93025;font-weight:600;{% else %}color:#188038;{% endif %}">
+          {{ m }}
+        </p>
+      {% endfor %}
+    {% endif %}
+  {% endwith %}
+
+  {# ---------- 绑定入口（v3.25.10 新增，此前本页只有查看 + 解绑） ---------- #}
+  {% if all_providers %}
+  <div class="auth-box" style="max-width: 680px; margin: 0 0 16px;">
+    <p style="margin:4px 0;"><b>{% if target.id == actor.id %}绑定一个新账号{% else %}为 {{ target.username }} 绑定{% endif %}</b></p>
+    <p class="auth-tip" style="margin:0 0 10px;">
+      点「绑定」会跳到对应平台去授权，授权完自动回到本页。
+      <b>绑定不影响你原有的用户名密码登录</b>——它是多一条登录方式，随时可解绑。
+    </p>
+    {% for p in all_providers %}
+      <div style="margin:8px 0;">
+        {% if p.linked %}
+          <span class="stats-tip">✅ {{ p.label }}：<b>已绑定</b>，如需更换请用下方表格里的「解绑」。</span>
+        {% elif p.configured %}
+          {% if target.id == actor.id %}
+            <form method="post" action="{{ url_for('admin.oauth_bind', provider=p.name) }}" style="display:inline;">
+                  {{ csrf_input() }}
+              <button type="submit">绑定 {{ p.label }}</button>
+            </form>
+          {% else %}
+            {# 超管代他人绑定 = 拿别人的身份往自己要的账号上绑，没有任何正当场景，
+               而且它正是「静默身份切换」最容易发生的地方 —— 直接不给入口。 #}
+            <span class="stats-tip">{{ p.label }}：可绑定（但为他人账号绑定无正当场景，故不提供入口）</span>
+          {% endif %}
+        {% elif current_user.is_super %}
+          <span class="stats-tip">{{ p.label }}：未配置 ——
+            <a href="{{ url_for('admin.oauth_settings') }}">先去配置 →</a></span>
+        {% else %}
+          <span class="stats-tip">{{ p.label }}：站点尚未启用</span>
+        {% endif %}
+      </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+
   {% if target.id != actor.id %}
     <div class="auth-box" style="max-width: 680px; margin: 0 0 14px;">
       <p>🔧 <b>正在以超管身份查看他人账号：</b>{{ target.username }}（id={{ target.id }}）</p>

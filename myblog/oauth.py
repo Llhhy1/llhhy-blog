@@ -236,7 +236,17 @@ def find_or_create_user(provider, sub, email, name, email_verified=False, bind_u
     """
     link = OAuthAccount.query.filter_by(provider=provider, sub=sub).first()
     if link:
-        return db.session.get(User, link.user_id)
+        bound = db.session.get(User, link.user_id)
+        # 🔴 v3.25.10 补一个**静默身份切换**的洞：原实现无条件 `return link 的用户`。
+        # 场景：X 已登录 → 走 OAuth → 授权的 GitHub 账号 G 其实**已绑给 Y** →
+        # 这里 return Y → callback 把 `session["user_id"]` 写成 Y →
+        # **X 的浏览器被静默切成 Y 的身份**。加「绑定」入口后这条路径会从
+        # 边缘情况变成常见路径，所以必须在这里挡住。
+        # （危害本身有限：攻击者不获利，受害者只是丢了会话；但对用户而言
+        #  「我明明绑自己的账号，怎么登录成了别人」是完全不可接受的行为。）
+        if bind_user_id and bound is not None and bound.id != int(bind_user_id):
+            raise ValueError("该第三方账号已绑定到另一个用户，无法重复绑定")
+        return bound
     if bind_user_id:
         u = db.session.get(User, bind_user_id)
         if u is not None:

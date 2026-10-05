@@ -6,7 +6,8 @@
 import hmac
 import time
 
-from flask import request, jsonify, session, Response, current_app, redirect
+from flask import (request, jsonify, session, Response, current_app, redirect, flash,
+                   url_for)
 
 import twofa   # v3.21.0 2FA：业务操作统一走 twofa 服务层（后台页与 API 共用同一套）
 
@@ -176,7 +177,13 @@ def oauth_start(provider):
     session["oauth_provider"] = provider
     session["oauth_state"] = state
     session["oauth_state_at"] = int(time.time())
-    return jsonify({"authorize_url": build_authorize_url(provider, redirect_uri, state)})
+    url = build_authorize_url(provider, redirect_uri, state)
+    # v3.25.10：**无 JS 降级**。默认返回 JSON 给前��� store.js 消费（行为不变）；
+    # 带 `?redirect=1` 时直接 302 到 provider —— 后台「绑定」按钮是普通表单跳转，
+    # 没有 JS 帮它读 JSON，否则用户点下去只会看到一片 JSON。
+    if request.args.get("redirect") == "1":
+        return redirect(url)
+    return jsonify({"authorize_url": url})
 
 
 def _oauth_redirect_uri(provider):
@@ -231,9 +238,20 @@ def oauth_callback(provider):
         u = find_or_create_user(provider, info["sub"], info.get("email"),
                                 info.get("name"), info.get("email_verified", False),
                                 bind_user_id=session.get("user_id"))
+    except ValueError as e:
+        # v3.25.10：绑定冲突是**用户可理解**的失败（"这个第三方账号已绑给别人"），
+        # 值得明确告知；其余异常仍旧一律收敛成通用 error，绝不外泄细节。
+        current_app.logger.info("OAuth 绑定被拒：%s", e)
+        if session.pop("oauth_bind_flow", None):
+            flash(str(e), "error")
+            return redirect(url_for("admin.oauth_bindings"))
+        return redirect(home + "?oauth=error")
     except Exception:
         # OAuth 回调绝不向外泄漏异常细节（库结构 / 路径 / provider 原文），统一 error
         current_app.logger.exception("OAuth 回调失败")
+        if session.pop("oauth_bind_flow", None):
+            flash("绑定失败：授权未完成或 provider 拒绝了请求，请重试", "error")
+            return redirect(url_for("admin.oauth_bindings"))
         return redirect(home + "?oauth=error")
     finally:
         session.pop("oauth_provider", None)
@@ -241,11 +259,21 @@ def oauth_callback(provider):
         session.pop("oauth_state_at", None)
     if u is None:
         # 绑定的目标用户已被删除：当作失败处理，不得冒成未捕获的 AttributeError
+        if session.pop("oauth_bind_flow", None):
+            flash("绑定失败：目标账号已不存在", "error")
+            return redirect(url_for("admin.oauth_bindings"))
         return redirect(home + "?oauth=error")
     log_login_attempt(u.username, True)   # v3.21.2：OAuth 登录此前完全不进登录审计
     session["user_id"] = u.id
     session["session_version"] = u.session_version or 0
     session["twofa_ok"] = False
+    if session.pop("oauth_bind_flow", None):
+        # 绑定流程：结果要回到绑定页看得见。`twofa_ok=False` 是刻意复位 ——
+        # 身份凭据刚变更，须重新过第二因素（开了 2FA 的人会立刻被要求输动态码）。
+        flash(f"已绑定 {provider} 账号。"
+              + ("若你已开启两步验证，接下来需重新输入一次动态码（这是安全设计）。"
+                 if _twofa_on() else ""))
+        return redirect(url_for("admin.oauth_bindings"))
     return redirect(home + "?oauth=ok")
 
 

@@ -101,8 +101,20 @@ def oauth_bind(provider):
         return redirect(url_for("admin.oauth_bindings"))
     # 标记流程类型：callback 据此把结果 flash 回本页，而不是甩到首页让人看不见
     session["oauth_bind_flow"] = provider
-    # `redirect=1`：走无 JS 降级，直接 302 到 provider（start 默认返回 JSON 给前端消费）
-    return redirect(url_for("api.oauth_start", provider=provider, redirect=1))
+    # ⚠️ v3.25.11：**不再自动 302 跳到 provider**，改渲染中间确认页。
+    # 实测（v3.25.10 上线当天）：Edge 会拦截「页面发起的跨站自动重定向」到
+    # github.com（跟踪防护 / Strict Blocking），用户点了 7 次全部停在原地；
+    # 而**手动输入**同一个 URL 却能正常打开授权页 —— 说明拦截的是「自动跳转」，
+    # 不是网络、也不是 GitHub 侧。改成让用户**主动点击**即可绕开（浏览器对
+    # 用户发起的导航基本不拦）。
+    # 顺带好处：新标签打开（`target=_blank`）不会把本站页面留在身后，
+    # 用户授权完切回来还能看到本绑定页的状态。
+    return render_template(
+        "admin/oauth_interstitial.html",
+        provider=provider,
+        label=oauth_svc.PROVIDERS[provider].get("label", provider),
+        start_url=url_for("api.oauth_start", provider=provider, redirect=1),
+    )
 
 
 @admin_bp.route("/oauth/unbind", methods=["POST"])

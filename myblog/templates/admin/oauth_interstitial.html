@@ -1,0 +1,37 @@
+{% extends "admin/base.html" %}
+{% block title %}前往 {{ label }} 授权{% endblock %}
+{% block content %}
+  <div class="auth-box" style="max-width: 620px; margin: 0 auto;">
+    <h1 class="page-title" style="font-size:20px;">即将前往 {{ label }} 完成授权</h1>
+
+    <p class="auth-tip" style="margin:10px 0;line-height:1.9;">
+      接下来会在<b>新标签页</b>打开 {{ label }} 的授权页。确认后会自动回到本站，
+      你的账号就完成绑定。
+    </p>
+
+    {# ⚠️ 刻意「不自动跳转」：Edge 等浏览器会拦截页面发起的跨站自动重定向
+       （跟踪防护 / Strict Blocking），用户会看到「点了没反应」——
+       实测 v3.25.10 上线当天被投诉「点击绑定不跳转」，根因即此。
+       改成让用户主动点击，浏览器对用户发起的导航基本不拦。
+       noreferrer 另有两用：不给 {{ label }} 泄漏本站 URL，且避免 referrer 策略不明的差异。 #}
+    <p style="margin:16px 0;">
+      <a class="btn" href="{{ start_url }}" target="_blank" rel="noreferrer noopener">
+        前往 {{ label }} 授权 →
+      </a>
+    </p>
+
+    <p class="auth-tip" style="margin:10px 0 0;">
+      若点按钮后页面没反应，请检查浏览器的跟踪防护设置，或换一个浏览器再试
+      （部分浏览器会拦截这类跨站自动跳转）。
+    </p>
+
+    <p class="auth-tip" style="margin:14px 0 0;border-top:1px solid #eee;padding-top:12px;">
+      <b>没反应怎么办：</b>新标签页里如果已经打开并授权了 {{ label }}，回到本页刷新即可看到结果
+      （绑定成功的提示在<a href="{{ url_for('admin.oauth_bindings') }}">第三方绑定</a>页）。
+    </p>
+
+    <p style="margin:16px 0 0;">
+      <a href="{{ url_for('admin.oauth_bindings') }}">← 返回第三方绑定</a>
+    </p>
+  </div>
+{% endblock %}

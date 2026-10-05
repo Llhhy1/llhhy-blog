@@ -90,18 +90,43 @@ def _mock_exchange(monkeypatch, sub=GITHUB_SUB, email="owner@example.com",
 
 
 def _start_binding(client, provider="github"):
-    """走完「POST 绑定 → 转发 start」，把 session 里的 state 准备好。
+    """走完「POST 绑定 → 中间确认页 → start」，把 session 里的 state 准备好。
 
-    ⚠️ `start` 默认返回 **JSON**（前端 store.js 消费 `authorize_url`），
-    绑定流程靠 `?redirect=1` 走无 JS 降级才 302 到 provider —— 断言要对准这条。
+    ⚠️ v3.25.11：绑定**不再自动 302 跳到 provider**，改为渲染中间确认页
+    （Edge 等浏览器会拦截页面发起的跨站自动重定向）。所以这里改成断言 200 + 页面上
+    有 start 链接，再由测试自己去点那个链接。
     """
     r = client.post("/admin/oauth/bind/%s" % provider, headers=_csrf(client))
-    assert r.status_code == 302
+    assert r.status_code == 200, "应渲染中间确认页而不是直接跳转"
+    html = r.get_data(as_text=True)
+    assert "/api/auth/oauth/%s/start" % provider in html, "中间页必须给出 start 链接"
+    assert 'rel="noreferrer noopener"' in html, "新标签打开要带 noreferrer/noopener"
     start = client.get("/api/auth/oauth/%s/start?redirect=1" % provider)
     assert start.status_code == 302, "带 redirect=1 应直接 302 到 provider"
     assert "github.com/login/oauth/authorize" in (start.headers.get("Location") or "")
     with client.session_transaction() as sess:
         return sess.get("oauth_state")
+
+
+def test_bind_renders_interstitial_not_auto_redirect(client, app):
+    """🔑 回归守卫：**不许**改回「点一下就自动 302 跳到 provider」。
+
+    实测（v3.25.10 上线当天）：Edge 拦截页面发起的跨站自动重定向，用户点了 7 次
+    全部停在原地，而手动输入同一个 URL 却能正常打开授权页 —— 拦截的是「自动跳转」，
+    不是网络也不是 GitHub 侧。所以必须由**用户主动点击**发起导航。
+    """
+    uid, uname = _mkuser(app)
+    _login(client, uname)
+    _configure_github(app)
+    r = client.post("/admin/oauth/bind/github", headers=_csrf(client))
+    assert r.status_code == 200, "应渲染中间确认页"
+    html = r.get_data(as_text=True)
+    # 页面里**不能**直接出现 provider 授权 URL（否则等于又变回自动跳转的入口）
+    assert "github.com/login/oauth/authorize" not in html, "中间页不得内嵌 provider 授权 URL"
+    # 必须给出由用户点击的 start 链接，且新标签打开
+    assert "/api/auth/oauth/github/start" in html
+    assert 'target="_blank"' in html, "新标签打开，避免授权完回不来"
+    assert "前往 GitHub 授权" in html, "要有一句明确的下一步提示"
 
 
 # ---------- 入口：必须是 POST + CSRF ----------

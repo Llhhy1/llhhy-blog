@@ -180,23 +180,24 @@ def oauth_start(provider):
 
 
 def _oauth_redirect_uri(provider):
-    """回调地址优先由 `site_base()` 派生。
+    """回调地址由 `oauth.callback_url()` 从 `site_base()` 派生（v3.25.7 收口到一处）。
 
     与 `/api/og/*`、`_abs()` 在 v3.18.9 定下的「对外 URL 只走 `site_base()`」一致
     （`utils/settings.py` 把 `request.url_root` 列为禁用项，而本站未配
     `trusted_hosts` / `SERVER_NAME`）。
-    未配置站点地址时**退回本次请求的 Host**而不是报错：
+    **只有** `site_base()` 为空时才退回本次请求的 Host：
     ① 现网存在只靠域名别名跑的部署（同 R90 待办② 的结论）；
     ② 硬失败会从 `oauth_start` 冒成 500；
     ③ 这里不构成 Host 注入面——provider 只会在**其登记的回调白名单**内跳转，
       伪造 Host 顶多让自己拿不到 code。若真要收得更紧，应配 SITE_URL 而非在此
       拒绝服务。
     """
+    from oauth import callback_url
     from utils import site_base
-    base = (site_base() or "").rstrip("/")
-    if not base:
-        base = (request.url_root or "").rstrip("/")
-    return base + "/api/auth/oauth/" + provider + "/callback"
+    u = callback_url(provider, site_base())
+    if u:
+        return u
+    return (request.url_root or "").rstrip("/") + "/api/auth/oauth/" + provider + "/callback"
 
 
 @api_bp.route("/auth/oauth/<provider>/callback")

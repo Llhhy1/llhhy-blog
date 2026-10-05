@@ -54,13 +54,19 @@ def oauth_bindings():
     target, actor = _target_user()
     links = (OAuthAccount.query.filter_by(user_id=target.id)
              .order_by(OAuthAccount.provider).all())
+    configured, all_providers = [], []
     try:
         import oauth as oauth_svc
         configured = oauth_svc.configured_providers()
+        # v3.25.7：把「支持哪些渠道」也交给模板渲染，别在模板里写死 provider 名 ——
+        # 加新渠道时这里不会漏。
+        all_providers = [{"name": n, "label": m.get("label", n)}
+                         for n, m in oauth_svc.PROVIDERS.items()]
     except Exception:  # noqa: BLE001  provider 未配置/未安装时只降级提示，不该让整页 500
-        configured = []
+        pass
     return render_template("admin/oauth_bindings.html", links=links,
-                           target=target, actor=actor, configured=configured)
+                           target=target, actor=actor, configured=configured,
+                           all_providers=all_providers)
 
 
 @admin_bp.route("/oauth/unbind", methods=["POST"])

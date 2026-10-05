@@ -1,0 +1,120 @@
+{% extends "admin/base.html" %}
+{% block title %}第三方登录{% endblock %}
+{% block content %}
+  <h1 class="page-title">🔑 第三方登录配置</h1>
+
+  <p class="stats-tip">
+    填完保存后，<b>前台登录页会自动出现对应按钮</b>（无需重启、无需改环境变量）。
+    凭据加密存库；<code>Client Secret</code> 不回显，<b>留空 = 保持原值</b>。
+  </p>
+
+  {% if not site_base %}
+    <div class="auth-box" style="max-width:100%;margin:0 0 16px;">
+      <p style="color:#d93025;font-weight:600;margin:6px 0;">⚠️ 站点对外地址（site_url）未配置，回调地址无法生成。</p>
+      <p class="auth-tip">
+        回调地址由站点对外地址派生，请先到
+        <a href="{{ url_for('admin.settings') }}#site_url">站点设置</a> 填好再回来。
+        没配的话即使凭据填对了，provider 也会因为回调地址不匹配而拒绝授权。
+      </p>
+    </div>
+  {% endif %}
+
+  {% for r in rows %}
+  <div class="section-box" style="margin-bottom:18px;">
+    <h2 style="margin-top:0;font-size:16px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+      {{ r.label }}
+      {% if r.state == 'ok' %}
+        <span class="stats-tip" style="color:#188038;font-weight:600;">● {{ r.state_text }}</span>
+      {% elif r.state == 'half' %}
+        <span class="stats-tip" style="color:#b06000;font-weight:600;">● {{ r.state_text }}</span>
+      {% else %}
+        <span class="stats-tip" style="color:#777;">○ {{ r.state_text }}</span>
+      {% endif %}
+    </h2>
+
+    {# ---- 第 1 步：在 provider 后台注册应用，拿到两个凭据 ---- #}
+    <p class="stats-tip" style="margin:4px 0 10px;">
+      <b>第 1 步 · 去 {{ r.label }} 后台注册一个 OAuth 应用</b>：
+      <a href="{{ r.console_url }}" target="_blank" rel="noopener">{{ r.console_url }}</a>
+      {% if r.doc_url %} · <a href="{{ r.doc_url }}" target="_blank" rel="noopener">官方文档</a>{% endif %}
+    </p>
+    <ul class="stats-tip" style="margin:0 0 12px;padding-left:22px;line-height:1.9;">
+      {% if r.name == 'github' %}
+        <li>登录 GitHub → 右上角头像 → <b>Settings</b> → 最下面 <b>Developer settings</b> → <b>OAuth Apps</b> → <b>New OAuth App</b></li>
+        <li><b>Application name</b> 随便填（如 {{ site_base or 'My Blog' }}）；<b>Homepage URL</b> 填 <code>{{ site_base or '（先配 site_url）' }}</code></li>
+        <li><b>Authorization callback URL</b> 填下面这个地址，<b>必须一字不差</b>（这是最常见的失败原因）</li>
+      {% else %}
+        <li>打开 <b>Google Cloud 控制台</b> → 创建/选一个项目 → <b>APIs &amp; Services</b> → <b>Credentials</b> → <b>Create Credentials</b> → <b>OAuth client ID</b></li>
+        <li>应用类型选 <b>Web application</b>；<b>Authorized redirect URIs</b> 填下面这个地址</li>
+        <li>创建后取「客户端 ID」与「客户端密钥」</li>
+      {% endif %}
+    </ul>
+
+    <p class="stats-tip" style="margin:0 0 12px;">
+      <b>回调地址（照抄）</b>：
+      {% if r.callback %}
+        <code id="cb-{{ r.name }}" style="user-select:all;">{{ r.callback }}</code>
+        <button type="button" class="btn small" style="margin-left:6px;"
+                onclick="(function(b){var t=document.getElementById('cb-{{ r.name }}');navigator.clipboard.writeText(t.textContent.trim()).then(function(){b.textContent='已复制';setTimeout(function(){b.textContent='复制'},1500);});})(this)">复制</button>
+      {% else %}
+        <b style="color:#d93025;">无法生成 —— 请先配置站点对外地址</b>
+      {% endif %}
+    </p>
+
+    {# ---- 第 2 步：把凭据填进来 ---- #}
+    <form method="post" action="{{ url_for('admin.oauth_settings') }}" class="edit-form" style="max-width:640px;">
+          {{ csrf_input() }}
+      <input type="hidden" name="action" value="save">
+      <input type="hidden" name="provider" value="{{ r.name }}">
+
+      <label for="cid-{{ r.name }}">Client ID（客户端 ID）</label>
+      <input id="cid-{{ r.name }}" type="text" name="client_id" value="{{ r.client_id }}"
+             placeholder="{{ '已保存 ' + r.client_id if r.client_id else '粘贴 Client ID' }}"
+             autocomplete="off" spellcheck="false">
+
+      <label for="sec-{{ r.name }}">Client Secret（客户端密钥）</label>
+      <input id="sec-{{ r.name }}" type="password" name="client_secret" value=""
+             placeholder="{{ '已保存（' + r.secret_mask + '）· 留空保持不变' if r.secret_set else '粘贴 Client Secret' }}"
+             autocomplete="new-password">
+      {% if r.from_env %}
+        <p class="stats-tip" style="margin:-6px 0 12px;color:#b06000;">
+          ⚠️ 当前生效的凭据来自<b>环境变量</b>（{{ r.env_names[1] }}），
+          在这里填的值会写入数据库并<b>优先于</b>环境变量。
+        </p>
+      {% endif %}
+
+      <button type="submit" class="btn">保存 {{ r.label }} 凭据</button>
+    </form>
+
+    {% if r.secret_set or r.client_id %}
+    <form method="post" action="{{ url_for('admin.oauth_settings') }}" style="margin-top:10px;">
+          {{ csrf_input() }}
+      <input type="hidden" name="action" value="clear">
+      <input type="hidden" name="provider" value="{{ r.name }}">
+      <button type="submit" class="btn small"
+              onclick="return confirm('确定清除 {{ r.label }} 的凭据？清除后前台登录按钮会消失，已绑定的账号不受影响。')">
+        清除 {{ r.label }} 凭据
+      </button>
+      <span class="stats-tip" style="margin-left:8px;">已绑定的账号不会被解除，可到
+        <a href="{{ url_for('admin.oauth_bindings') }}">第三方绑定</a> 查看</span>
+    </form>
+    {% endif %}
+  </div>
+  {% endfor %}
+
+  <hr style="border:none;border-top:1px solid #eee;margin:28px 0;">
+
+  <h3 style="margin-top:0;">📖 常见问题</h3>
+  <ul class="stats-tip" style="line-height:2;padding-left:22px;">
+    <li><b>保存了但登录页没出现按钮？</b> 回到本页看状态是不是「已启用」——
+        只填 Client ID 或只填 Secret 都不会启用。</li>
+    <li><b>点按钮跳回来说「redirect_uri 不匹配」？</b> 回调地址被填错了，
+        必须是上面那段一字不差的地址（结尾<b>不要</b>加 <code>/</code>）。</li>
+    <li><b>提示邮箱不匹配 / 无法绑定已有账号？</b> 只允许用 provider
+        断言「已验证」的邮箱去匹配本地账号（防 OAuth 账号接管），
+        所以要用在该平台里<b>验证过邮箱</b>的账号来登录。</li>
+    <li><b>为什么以前没这些按钮？</b> 此前这个功能只有环境变量一个入口，
+        从上线起一直没启用过（页面上的按钮由前端动态读取后端状态，
+        没配就一个都不渲染）。</li>
+  </ul>
+{% endblock %}

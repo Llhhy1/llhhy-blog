@@ -94,6 +94,9 @@
         <a href="{{ url_for('admin.settings') }}" class="{{ 'active' if ep == 'admin.settings' }}"><span class="nav-emoji">⚙️</span>站点设置</a>
         <a href="{{ url_for('admin.theme_center') }}" class="{{ 'active' if ep == 'admin.theme_center' }}"><span class="nav-emoji">🎨</span>主题中心</a>
         <a href="{{ url_for('admin.email_settings') }}" class="{{ 'active' if ep == 'admin.email_settings' }}"><span class="nav-emoji">📧</span>邮件设置</a>
+        {# v3.25.7 第三方登录配置：@super_required（改这里等于改「谁能登进本站」），
+           放在超管区而非上面的「第三方绑定」旁 —— 绑定页对普通用户也可见，配置页不行。 #}
+        <a href="{{ url_for('admin.oauth_settings') }}" class="{{ 'active' if ep == 'admin.oauth_settings' }}"><span class="nav-emoji">🔑</span>第三方登录</a>
         <a href="{{ url_for('admin.captcha_settings') }}" class="{{ 'active' if ep == 'admin.captcha_settings' }}"><span class="nav-emoji">🛡️</span>验证码设置</a>
         <a href="{{ url_for('admin.users') }}" class="{{ 'active' if ep == 'admin.users' }}"><span class="nav-emoji">👥</span>用户管理</a>
         <a href="{{ url_for('admin.link_applications') }}" class="{{ 'active' if ep == 'admin.link_applications' }}"><span class="nav-emoji">🔗</span>友链申请{% if pending_comments %}{% endif %}</a>

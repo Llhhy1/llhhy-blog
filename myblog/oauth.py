@@ -35,17 +35,40 @@ PROVIDERS = {
         "token": "https://github.com/login/oauth/access_token",
         "userinfo": "https://api.github.com/user",
         "scope": "read:user user:email",
-        "client_id": lambda c: c.get("OAUTH_GITHUB_CLIENT_ID"),
-        "client_secret": lambda c: c.get("OAUTH_GITHUB_CLIENT_SECRET"),
+        "label": "GitHub",
+        "console": "https://github.com/settings/applications/new",
+        "doc": "https://docs.github.com/apps/oauth-apps/building-oauth-apps/creating-an-oauth-app",
     },
     "google": {
         "authorize": "https://accounts.google.com/o/oauth2/v2/auth",
         "token": "https://oauth2.googleapis.com/token",
         "userinfo": "https://openidconnect.googleapis.com/v1/userinfo",
         "scope": "openid email profile",
-        "client_id": lambda c: c.get("OAUTH_GOOGLE_CLIENT_ID"),
-        "client_secret": lambda c: c.get("OAUTH_GOOGLE_CLIENT_SECRET"),
+        "label": "Google",
+        "console": "https://console.cloud.google.com/apis/credentials",
+        "doc": "https://developers.google.com/identity/protocols/oauth2/web-server",
     },
+}
+
+# 凭据存放位置（v3.25.7 新增后台配置入口）。
+#
+# 优先级：**Setting 表 → 环境变量**。DB 优先是因为「后台能改」是本项目的既定语义
+# （同 `site_base()` / SMTP 设置）；环境变量**保留**是为了不破坏既有部署
+# （老部署把凭据写在 env 里，改了优先级会让它们的登录突然失效）。
+#
+# ⚠️ 传了 `cfg` 就**只**读 cfg、不查库 —— 测试用它注入假凭据，也顺带避免
+# 「pytest 库全 session 共享」把库里的真值带进断言。
+CRED_KEYS = {
+    "github": {"client_id": "oauth.github.client_id",
+               "client_secret": "oauth.github.client_secret"},
+    "google": {"client_id": "oauth.google.client_id",
+               "client_secret": "oauth.google.client_secret"},
+}
+ENV_KEYS = {
+    "github": {"client_id": "OAUTH_GITHUB_CLIENT_ID",
+               "client_secret": "OAUTH_GITHUB_CLIENT_SECRET"},
+    "google": {"client_id": "OAUTH_GOOGLE_CLIENT_ID",
+               "client_secret": "OAUTH_GOOGLE_CLIENT_SECRET"},
 }
 
 
@@ -57,24 +80,65 @@ def _cfg(cfg=None):
     return cfg
 
 
+def _cred(name, kind, cfg=None):
+    """取一个凭据（`client_id` / `client_secret`）。
+
+    Setting 表里 `client_secret` 存的是 **Fernet 密文**（复用
+    `backup_settings.encrypt_secret`，与 IndexNow token / 备份密码同一套），
+    这里透明解密。
+    """
+    if name not in CRED_KEYS:
+        return ""
+    if cfg is None:
+        raw = ""
+        with contextlib.suppress(Exception):
+            from utils import get_setting
+            raw = (get_setting(CRED_KEYS[name][kind], "") or "").strip()
+        if raw:
+            if kind == "client_secret":
+                from backup_settings import decrypt_secret
+                raw = decrypt_secret(raw)
+            if raw.strip():
+                return raw.strip()
+        cfg = _cfg()          # 库里没有 → 回退环境变量
+    return str(_cfg(cfg).get(ENV_KEYS[name][kind]) or "").strip()
+
+
 def is_configured(name, cfg=None):
     """provider 是否已配置凭据（缺任一即休眠）。"""
-    p = PROVIDERS.get(name)
-    if not p:
+    if name not in PROVIDERS or name not in CRED_KEYS:
         return False
-    c = _cfg(cfg)
-    return bool(p["client_id"](c)) and bool(p["client_secret"](c))
+    return bool(_cred(name, "client_id", cfg)) and bool(_cred(name, "client_secret", cfg))
 
 
 def configured_providers(cfg=None):
     return [n for n in PROVIDERS if is_configured(n, cfg)]
 
 
+def callback_url(name, base=None):
+    """该 provider 的回调地址（绝对 URL）；`site_base()` 未配置时返回**空串**。
+
+    纯函数（不碰 `request`），后台配置页与 `api/auth.py` 共用同一份推导逻辑 ——
+    两处各写一遍必然漂移，而回调地址写错是 OAuth 最常见的失败原因。
+    """
+    if name not in PROVIDERS:
+        return ""
+    b = str(base if base is not None else _site_base() or "").rstrip("/")
+    return (b + "/api/auth/oauth/" + name + "/callback") if b else ""
+
+
+def _site_base():
+    """对外地址真相源（DB site_url → env SITE_URL → 空串）。"""
+    with contextlib.suppress(Exception):
+        from utils import site_base
+        return site_base()
+    return ""
+
+
 def build_authorize_url(name, redirect_uri, state, cfg=None):
     p = PROVIDERS[name]
-    c = _cfg(cfg)
     q = urlencode({
-        "client_id": p["client_id"](c),
+        "client_id": _cred(name, "client_id", cfg),
         "redirect_uri": redirect_uri,
         "scope": p["scope"],
         "state": state,
@@ -98,12 +162,11 @@ def exchange_code(name, code, redirect_uri, cfg=None):
     因此：只有 provider 明确断言「已验证」的邮箱才允许参与账号绑定。
     """
     p = PROVIDERS[name]
-    c = _cfg(cfg)
     token = _http_json(
         p["token"],
         data=urlencode({
-            "client_id": p["client_id"](c),
-            "client_secret": p["client_secret"](c),
+            "client_id": _cred(name, "client_id", cfg),
+            "client_secret": _cred(name, "client_secret", cfg),
             "code": code,
             "redirect_uri": redirect_uri,
             "grant_type": "authorization_code",

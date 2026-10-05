@@ -12,9 +12,19 @@
 
   {% if not configured %}
     <div class="auth-box" style="max-width: 680px; margin: 0 0 14px;">
-      <p>⚠️ <b>当前没有配置任何第三方登录。</b></p>
-      <p class="auth-tip">需设置 <code>OAUTH_GITHUB_CLIENT_ID/SECRET</code> 或 <code>OAUTH_GOOGLE_CLIENT_ID/SECRET</code> 并重启。
-      未配置时无法<b>新增</b>绑定，但下方已有的历史绑定仍可查看和解绑。</p>
+      <p>⚠️ <b>当前没有启用任何第三方登录。</b></p>
+      <p class="auth-tip">
+        启用需要在
+        {%- for p in all_providers %}{{ p.label }}{{ ' / ' if not loop.last }}{% endfor -%}
+        那边注册一个 OAuth 应用、把凭据填进来。
+        {% if current_user.is_super %}
+          <a href="{{ url_for('admin.oauth_settings') }}">前往「第三方登录」配置 →</a>
+          （填完<b>立即生效，无需重启</b>；页面上有分步引导和可复制的回调地址）。
+        {% else %}
+          请联系站点管理员在后台「第三方登录」中配置。
+        {% endif %}
+        未启用时无法<b>新增</b>绑定，但下方已有的历史绑定仍可查看和解绑。
+      </p>
     </div>
   {% endif %}
 

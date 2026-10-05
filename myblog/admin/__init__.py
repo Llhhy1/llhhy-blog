@@ -33,4 +33,5 @@ from . import ai_summary   # v3.17.7：AI 摘要管理（列表/生成/编辑/�
 from . import seo          # v3.19.0：收录控制台（主动推送 + 通道自检 + sitemap/robots 预览）
 from . import twofa        # v3.21.0：两步验证 2FA（注册路由用，非按名引用）
 from . import oauth_bindings  # 第三方账号绑定列表/解绑（R94 §94.8-7 可发现性缺口）
+from . import oauth_settings  # v3.25.7：第三方登录凭据配置（此前只有 env 入口，功能从未启用）
 

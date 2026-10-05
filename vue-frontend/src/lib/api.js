@@ -33,6 +33,24 @@ export function clearCsrfToken() {
   csrfPromise = null;
 }
 
+// v3.25.12：第二因素兜底闸门。「已登录但没过两步验证」的会话，后端对所有 /api/*
+// 一律 401 + twofa_required；前端若只认 `/api/auth/login` 返回的 twofa_required，
+// 就会卡在一整页 401 里（线上 2026-10-05 实测）。收口在这里而不是逐个调用点补：
+// 任何来源的 401+twofa_required 都去登录页的二步验证步骤，绝不再出现
+// 「接口全红但没人解释」。只在命中时跳转（普通 401 如密码错误不含该字段，行为不变）。
+//
+// ⚠️ 落点是 `/login?twofa=1` 而**不是** `/twofa`：生产 nginx 把 `/login`、`/twofa`
+// 都当 SPA 静态页（`try_files ... /index.html`），而 SPA 路由表里没有 `/twofa`
+// （命中 `/:pathMatch(.*)*` → redirect `/`）→ 跳过去就是「首页 → 401 → 再跳」的死循环。
+function goTwofaChallenge() {
+  if (window.location.pathname.indexOf("/login") === 0) return;  // 已在登录页，别自跳成环
+  window.location.href = "/login?twofa=1";
+}
+
+function isTwofaRequired(status, data) {
+  return status === 401 && !!(data && data.twofa_required);
+}
+
 export async function apiGet(path, params) {
   let url = API_BASE + path;
   if (params) {
@@ -40,7 +58,11 @@ export async function apiGet(path, params) {
     if (qs) url += "?" + qs;
   }
   const resp = await fetch(url, { headers: { Accept: "application/json" }, credentials: "same-origin" });
-  if (!resp.ok) throw new Error("请求失败: " + resp.status);
+  if (!resp.ok) {
+    const data = await resp.json().catch(() => ({}));
+    if (isTwofaRequired(resp.status, data)) goTwofaChallenge();
+    throw new Error("请求失败: " + resp.status);
+  }
   return resp.json();
 }
 
@@ -58,7 +80,10 @@ export async function apiPost(path, body) {
     body: JSON.stringify(body || {}),
   });
   const data = await resp.json().catch(() => ({}));
-  if (!resp.ok) throw new Error(data.error || "请求失败: " + resp.status);
+  if (!resp.ok) {
+    if (isTwofaRequired(resp.status, data)) goTwofaChallenge();
+    throw new Error(data.error || "请求失败: " + resp.status);
+  }
   // 若响应携带新 token（登录/初始化后），更新缓存
   if (data.csrf_token) csrfToken = data.csrf_token;
   return data;

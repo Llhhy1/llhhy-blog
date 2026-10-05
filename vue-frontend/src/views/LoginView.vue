@@ -53,6 +53,7 @@
 import { ref, onMounted } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { login, verify2fa, state, t, initOAuthProviders, startOAuth } from "../store.js";
+import { apiGet } from "../lib/api.js";
 
 const route = useRoute();
 const router = useRouter();
@@ -65,7 +66,27 @@ const oauthBusy = ref(false);
 const twofaStep = ref(false);
 const twofaCode = ref("");
 
-onMounted(() => { initOAuthProviders(); });
+onMounted(() => {
+  initOAuthProviders();
+  // v3.25.12：第三方账号开了两步验证时，回调不建立登录态，只挂起后回到本页
+  // （`?twofa=1`）。这里切到「输动态码」这一步 —— 与账号密码登录第一步返回
+  // `twofa_required` 的落点完全一致，用户看到的是同一张表单、同一句话。
+  // **是否真在挂起态要问服务端**（`pending`）：同一个落点也用于「已登录但没过
+  // 二因素」被判 401 后的兜底跳转 —— 那条路没有挂起态，只能请用户重新登录。
+  if (route.query.twofa === "1") {
+    apiGet("/api/auth/2fa/status")
+      .then((d) => {
+        if (d && d.pending) {
+          twofaStep.value = true;
+          status.value = "请输入验证器 App 的 6 位动态码";
+        } else {
+          status.value = "两步验证会话已过期，请重新登录";
+          statusClass.value = "error";
+        }
+      })
+      .catch(() => {});
+  }
+});
 
 function goAfterLogin(user) {
   // 登录成功：按来源与角色分流

@@ -1643,3 +1643,87 @@ if link:
 
 **无表结构变更、无迁移**（head 仍 `c7a2f19b4d30`）、**前端产物无变化**、
 对现有功能零影响（普通 OAuth 登录走 `start` 的 JSON 分支，行为逐条不变）。
+
+## R110 · v3.25.12（第三方登录 × 两步验证 · 「报 401」）
+
+### 110.1 现象与取证
+
+大帅实测：**2FA 用账号密码登录能跳到验证页，用已绑定的 GitHub 账号登录却报 401**。
+
+访问日志（2026-10-05 23:34）—— 回调是**成功**的（304 的首页 = 登录态已建立）：
+
+```
+GET  /?oauth=ok                      → 304
+GET  /api/posts?page=1&page_size=8   → 401   49 字节
+GET  /api/site                       → 401
+GET  /api/stats/summary              → 401
+…… 共 17 个 /api/* 全部 401
+GET  /api/auth/me                    → 200   ← 闸门白名单
+GET  /api/csrf                       → 200   ← 闸门白名单
+```
+
+白名单里的两个**正常**，恰好证明 `enforce_twofa` 在工作、会话确实处于
+「已登录但没过第二因素」。
+
+### 110.2 根因：两条登录路径契约不一致
+
+| | `auth_login`（密码） | `oauth_callback`（修复前） |
+|---|---|---|
+| 需要二步时 | 只挂起 `twofa_pending_*`，**不写** `user_id` | 照样写 `session["user_id"]`，置 `twofa_ok=False` |
+| 给前端的信号 | `200 + twofa_required` → 弹动态码框 | `302 → /?oauth=ok` → 前端不知道要验二步 |
+| 后果 | ✅ 跳验证 | ❌ SPA 每个 `/api/*` 都是 401 |
+
+⚠️ **这不是闸门缺陷**。闸门对 SSR 重定向、对 API 返 401 都是 v3.21.2 的既定设计
+（且是正确的：绝不让「只过了第一因素」的会话拿到完整权限）。缺陷在于
+**OAuth 这条路根本没接上第二步** —— 它在「挂起」与「登录」之间选了第三种状态。
+
+### 110.3 修法（四处，同一条契约）
+
+1. `oauth_callback`：目标账号开了二步时**只挂起**、落点 `/login?twofa=1`，
+   与 `auth_login` 完全一致 —— **第二因素通过前会话里不出现 `user_id`**。
+2. 登录页 `?twofa=1` → 先问服务端 `/api/auth/2fa/status` 的 `pending`（新增字段），
+   为真才切到动态码步骤。
+3. `api.js` **请求层兜底**：任何 `401 + twofa_required` 跳 `/login?twofa=1`。
+   收口在一处而不是逐调用点补：再有路径漏接二步，也不会死在一片 401 里。
+
+⚠️ **落点为什么不是 `/twofa`**（改到一半才发现，差点引入死循环）：
+生产 nginx 是 `location / { try_files $uri $uri/ /index.html; }` + `root /www/wwwroot/vue-frontend`
+→ `/login`、`/register`、`/twofa` **全被当成 SPA 静态页**（只有 `/api/`、`/admin`、
+`/static/`、`/mcp` 等显式 `location` 反代到 gunicorn）；而 SPA 路由表
+（`vue-frontend/src/router.js`）**没有 `/twofa`** → 命中 `/:pathMatch(.*)*` →
+redirect `/` → 首页 → 又 401 → 再跳 = **死循环**。访问日志佐证：本次排查期间
+`/twofa` 出现 **0 次**。**同一份代码在本机（Flask 直连）与线上（nginx 静态优先）
+行为不同** —— 这也解释了 `/?oauth=ok` 为何是 304 而非闸门期待的 302：那条请求没进 Flask。
+
+📌 **暂未修的存量缺口**：SSR `/twofa` 挑战页在线上不可达，于是「已登录但没过
+二因素」的后台会话被闸门重定向后会落到 SPA 首页。修法是加一条
+`location = /twofa { proxy_pass http://127.0.0.1:8686; }`。本版不动生产 nginx 配置
+（SPA 侧已能自洽完成验证），留待办。
+4. `twofa_verify` 补 `log_login_attempt(u.username, True)`。
+
+**保留不变**：绑定流程（已登录去绑新身份）仍然保留登录态 + 复位 `twofa_ok=False`
+—— 那是 v3.21.2 审定的刻意行为，且 SSR 侧会被闸门正确导向 `/twofa`，不存在 401 死路。
+
+### 110.4 顺带修掉的审计空白
+
+v3.21.2 定了「密码对但未过第二因素不得记成功」，但**通过之后也没人记** →
+开了 2FA 的账号**无论密码登录还是第三方登录，登录审计里一条成功记录都没有**，
+恰恰是最该看的一类。补在 `twofa_verify`（一处修两条路）。
+
+### 110.5 守卫
+
+新增 `tests/test_oauth_twofa.py` 6 条：挂起不落 `user_id` / 验码后 API 不再 401 /
+未开 2FA 行为不变 / 未绑二步行为不变 / 绑定流程不受影响 / 审计落库。
+
+**变异验证**：① 撤掉挂起分支（条件后缀 `and False`）→ **3 条变红**
+② 撤掉 `twofa_verify` 的审计 → **1 条变红**
+③ 撤掉 `twofa_status` 的 `pending`（写死 `False`）→ **1 条变红**。均精确命中，无假绿。
+
+### 110.6 验证
+
+**647 passed**（641 → 647，+6）/ ruff 全仓全绿 / 棘轮 490 = 490 /
+构建产物实测含新逻辑（`LoginView-*.js` 的 `query.twofa==="1"` 与 `/api/auth/2fa/status`
+调用、`index-*.js` 的 `/login?twofa=1` 兜底）。
+
+**无表结构变更、无迁移**（head 仍 `c7a2f19b4d30`）、无新增依赖、无新增环境变量；
+**前端产物有变化**（登录页 + `api.js`）。

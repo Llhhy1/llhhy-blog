@@ -263,17 +263,42 @@ def oauth_callback(provider):
             flash("绑定失败：目标账号已不存在", "error")
             return redirect(url_for("admin.oauth_bindings"))
         return redirect(home + "?oauth=error")
-    log_login_attempt(u.username, True)   # v3.21.2：OAuth 登录此前完全不进登录审计
-    session["user_id"] = u.id
-    session["session_version"] = u.session_version or 0
-    session["twofa_ok"] = False
-    if session.pop("oauth_bind_flow", None):
+    bind_flow = session.pop("oauth_bind_flow", None)
+    if bind_flow:
         # 绑定流程：结果要回到绑定页看得见。`twofa_ok=False` 是刻意复位 ——
         # 身份凭据刚变更，须重新过第二因素（开了 2FA 的人会立刻被要求输动态码）。
+        # 注意：绑定**不算一次登录**，因此不写登录审计（登录成功只记真正的登录）。
+        session["user_id"] = u.id
+        session["session_version"] = u.session_version or 0
+        session["twofa_ok"] = False
         flash(f"已绑定 {provider} 账号。"
               + ("若你已开启两步验证，接下来需重新输入一次动态码（这是安全设计）。"
                  if _twofa_on() else ""))
         return redirect(url_for("admin.oauth_bindings"))
+    # v3.25.12：与「账号密码登录」同一契约 —— 目标账号开了两步验证时，OAuth 回调
+    # **不得**直接建立登录态。此前这里照写 `session["user_id"]` 并置 `twofa_ok=False`，
+    # 会话因此落在「已登录但没过第二因素」：SSR 页面会被 `enforce_twofa` 赶去 `/twofa`，
+    # 而 SPA 的每个 `/api/*` 都拿到 401 + `twofa_required` —— 前端只认
+    # `/api/auth/login` 返回的 `twofa_required`，对 401 没有任何处理，于是整页接口
+    # 全 401、登录看起来就是「失败」（线上 2026-10-05 23:34 实测：`/?oauth=ok` 之后
+    # `/api/site`、`/api/posts`、`/api/stats/summary` 等 17 个请求全部 401）。
+    # 改为只挂起（`twofa_pending_*`）、由 `/api/auth/2fa/verify` 收尾：与 `auth_login`
+    # 完全一致，**第二因素通过之前会话里根本不出现 user_id**。
+    # ⚠️ 落点是 `/login?twofa=1`（**不是** `/twofa`）：生产 nginx 的
+    # `location / { try_files $uri $uri/ /index.html }` 把 `/login`、`/twofa`
+    # 都当成 SPA 静态页（实测 2026-10-05：`/twofa` 在访问日志里**零次**），
+    # 而 SPA 路由表里**没有 `/twofa`**（命中 `/:pathMatch(.*)*` → redirect `/`），
+    # 跳过去等于「首页 → 401 → 再跳」的死循环。`/login` 是 SPA 真实路由。
+    # 挂起态是否真的存在由 `/api/auth/2fa/status` 的 `pending` 回答，
+    # 前端**不靠 URL 参数盲信**（该落点由两条路径共用，见 `twofa_status`）。
+    if not session.get("user_id") and _twofa_on() and _twofa_active(u.id):
+        session["twofa_pending_uid"] = u.id
+        session["twofa_pending_at"] = int(time.time())
+        return redirect(url_for("main.login", twofa="1"))
+    log_login_attempt(u.username, True)   # v3.21.2：OAuth 登录此前完全不进登录审计
+    session["user_id"] = u.id
+    session["session_version"] = u.session_version or 0
+    session["twofa_ok"] = False
     return redirect(home + "?oauth=ok")
 
 
@@ -304,9 +329,17 @@ def _cur_user():
 
 @api_bp.route("/auth/2fa/status")
 def twofa_status():
-    """全局开关 + 当前用户绑定状态（前端据此显隐入口）。"""
+    """全局开关 + 当前用户绑定状态（前端据此显隐入口）。
+
+    v3.25.12 新增 `pending`：**本会话是否正卡在「第一因素已过、等动态码」**。
+    它必须是服务端的回答而不是前端猜 —— 落点 `/login?twofa=1` 由两条路径共用
+    （OAuth 回调的挂起、以及「已登录但没过二因素」被闸门判 401 后的兜底跳转），
+    **只有前者真的有挂起态**。前端若只认 URL 参数，后者会弹出一个必然报
+    「验证已超时」的输入框。
+    """
     u = _cur_user()
-    st = {"enabled": _twofa_on(), "enrolled": False, "recovery_codes_left": 0}
+    st = {"enabled": _twofa_on(), "enrolled": False, "recovery_codes_left": 0,
+          "pending": bool(session.get("twofa_pending_uid"))}
     if u:
         st.update(twofa.status_for(u))
     return jsonify(st)
@@ -405,5 +438,9 @@ def twofa_verify():
         return jsonify({"error": "验证码或恢复码错误"}), 400
     session.pop("twofa_pending_uid", None)
     session.pop("twofa_pending_at", None)
+    # v3.25.12：第二因素通过才算登录成功 —— 审计要记在这里。此前只有「不需要 2FA」
+    # 的登录会落审计（v3.21.2 的要求「密码对但未过第二因素不得记成功」），结果开了
+    # 2FA 的账号**无论账号密码还是第三方登录都一条成功记录都没有**，恰恰是最该看的一类。
+    log_login_attempt(u.username, True)
     return _login_user(u, twofa_ok=True)
 

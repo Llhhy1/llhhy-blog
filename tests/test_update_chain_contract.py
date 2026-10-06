@@ -96,6 +96,25 @@ def test_stale_workdir_files_are_cleaned():
     assert 'gh_fetch "$SIG_URL" "sha256.txt.sig"' in s
 
 
+def test_gh_mirror_is_tried_first_when_configured():
+    """v3.25.15：传了 GH_MIRROR 就必须真的先走镜像，否则白等直连 2×180s。
+
+    实测教训：v3.25.14 部署时明确传了 GH_MIRROR='https://gh-proxy.com/'（873 KB/s），
+    但 `try_urls` 把直连排在最前（21 KB/s），后端包走直连耗 **133 秒**才下完，
+    镜像根本没轮上——「配了镜像」和「用上镜像」是两件事。
+    """
+    s = _read(UPDATE_SH)
+    assert 'GH_MIRROR_FIRST="${GH_MIRROR_FIRST:-1}"' in s, "缺少 GH_MIRROR_FIRST 开关（默认应为 1）"
+    assert 'try_urls=("${GH_MIRROR}${url}" "$url")' in s, "配了 GH_MIRROR 时必须镜像优先、直连兜底"
+    # 前置条件：必须同时满足「显式配了镜像」+「开关为 1」，
+    # 否则未配置 GH_MIRROR 时会拼出空前缀的 URL。
+    assert re.search(
+        r'if \[ -n "\$GH_MIRROR" \] && \[ "\$GH_MIRROR_FIRST" = "1" \]', s
+    ), "镜像优先分支必须同时校验 GH_MIRROR 非空与 GH_MIRROR_FIRST=1"
+    # 旧顺序要能显式取回（GH_MIRROR_FIRST=0）
+    assert 'try_urls=("$url")' in s, "缺少 GH_MIRROR_FIRST=0 时的直连优先分支"
+
+
 def test_scripts_are_lf_only():
     """服务器上 CRLF 的 bash 脚本会直接语法报错（历史事故）。"""
     for p in (UPDATE_SH, DEPLOY_SH):

@@ -2,7 +2,7 @@
 
 llhhy-blog 的后端：Flask + SQLite，服务端渲染前台 + `/api/*` JSON 接口 + Jinja2 管理后台。
 
-- 当前版本：**v3.25.14**
+- 当前版本：**v3.25.15**
 - **版本历史一律记在 [CHANGELOG.md](../CHANGELOG.md)，本文件不重复记录。**
 - 根目录总览见 [README.md](../README.md)
 - 时区：展示统一北京时间（UTC+8），存储仍为 UTC；配置见 `config.TIME_ZONE`

@@ -44,11 +44,18 @@ RESTART_CMD=""                           # 手动指定重启命令时填（优�
 UPDATE_HMAC_KEY="${UPDATE_HMAC_KEY:-}"
 
 # ===== 网络镜像（国内服务器可选 · v3.18.7 起改为「必须显式配置」）=====
-# 若服务器无法直连 GitHub，自行设置一个你信任的代理前缀，例如：
+# 若服务器直连 GitHub 慢/不通，自行设置一个你信任的代理前缀，例如：
 #   GH_MIRROR="https://your-own-proxy/"
 # ⚠️ 脚本**不再**自动兜底任何第三方公共镜像——校验清单（sha256.txt）与它描述的产物
 #    走同一条通道，公共代理可同时改写两者，使完整性校验形同虚设。该代理的可信度由你承担。
+# v3.25.15 起：显式配置后**默认优先走镜像**（见下方 GH_MIRROR_FIRST），直连降为兜底。
 GH_MIRROR="${GH_MIRROR:-}"
+# v3.25.15：**显式配了 GH_MIRROR 就默认先走镜像**（直连降为兜底）。
+#   旧逻辑是「直连排第一、重试 2 次 ×180s」——v3.25.14 实测直连 21 KB/s、镜像 873 KB/s，
+#   明明传了 GH_MIRROR 却仍白等 **133 秒**才下载完，镜像根本没轮上。想要旧顺序设 GH_MIRROR_FIRST=0。
+#   安全性不变：无论走哪条通道，产物都要过 Ed25519 验签 + zip 注释内嵌哈希双源互证，
+#   镜像最多只能给出**旧版本的合法签名**（版本单调性有 `ALLOW_DOWNGRADE` 兜着），无法伪造内容。
+GH_MIRROR_FIRST="${GH_MIRROR_FIRST:-1}"
 
 # ===== 发布物签名校验（v3.18.7 新增 · 默认强制）=====
 # 发布侧用 Ed25519 对 Release 的 sha256.txt 做**分离签名**，产出资产 sha256.txt.sig。
@@ -218,9 +225,14 @@ detect_runtime() {
 # ===== 网络请求函数：GitHub 失败时自动重试 + 镜像代理兜底（国内服务器）=====
 gh_fetch() {  # gh_fetch <url> <outfile|->
   local url="$1" out="$2" attempt=0 tu try_urls
-  try_urls=("$url")
-  if [ -n "$GH_MIRROR" ]; then
-    try_urls+=("${GH_MIRROR}${url}")
+  # v3.25.15：配了 GH_MIRROR 且 GH_MIRROR_FIRST=1（默认）时镜像优先，直连兜底。
+  if [ -n "$GH_MIRROR" ] && [ "$GH_MIRROR_FIRST" = "1" ]; then
+    try_urls=("${GH_MIRROR}${url}" "$url")
+  else
+    try_urls=("$url")
+    if [ -n "$GH_MIRROR" ]; then
+      try_urls+=("${GH_MIRROR}${url}")
+    fi
   fi
   # v3.18.7：**不再自动兜底第三方镜像**（ghfast / gh-proxy / ghproxy）。
   #   理由：sha256.txt（校验清单）与它描述的产物走**同一条通道**，第三方代理可同时改写

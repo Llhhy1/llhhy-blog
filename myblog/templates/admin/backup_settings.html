@@ -66,10 +66,16 @@
       <input id="backup_webdav_user" type="text" name="backup_webdav_user" value="{{ values.backup_webdav_user }}" placeholder="your@mail.com"></div>
     <div class="form-row"><label for="backup_webdav_pass">密码 / 应用密码（加密存储，留空 = 不变）</label>
       <input id="backup_webdav_pass" type="password" name="backup_webdav_pass" value="{{ values.backup_webdav_pass }}" placeholder="{{ '已设置' if values.backup_webdav_pass else '输入 WebDAV 密码' }}"></div>
+    <p class="stats-tip" style="margin:0;">
+      ⚠️ URL 必须指向<b>可写</b>的文件夹：不少云盘的<b>根目录只读</b>（坚果云 <code>/dav/</code> 实测只有 read 权限），
+      填根目录会「显示已配置、每次备份却失败」。请填到具体子目录，如
+      <code>https://dav.jianguoyun.com/dav/blogbackup</code>，并先在云盘里建好该文件夹。
+    </p>
   </div>
 
   <p class="stats-tip">💡 保存后立即生效（无需重启）。定时任务不变：宝塔计划任务 <code>0 4 * * * bash /www/wwwroot/myblog/backup.sh</code> 会自动使用新配置。</p>
   <button type="submit" class="btn primary">💾 保存备份配置</button>
+  <button type="submit" name="action" value="test_webdav" class="btn ghost" style="margin-left:8px;">🔌 保存并测试 WebDAV</button>
   <a href="{{ url_for('admin.backup') }}" class="btn ghost" style="margin-left:8px;">← 返回备份页</a>
 </form>
 

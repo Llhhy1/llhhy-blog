@@ -40,6 +40,14 @@ PAIRS = [
         "docs/archive/CHANGELOG_v1-v3.18.5.md",
         "## v3.18.5",      # 归档件的最后一条旧版本
     ),
+    # v3.25.13 追加：主文件涨到 162 KB 触发体积守卫（上限 160 KB），
+    # 按「新增轮次写进主文件、历史段落才归档」把 R81~R90 搬出来。
+    (
+        "SECURITY_AUDIT_r81-r90.md",
+        "myblog/SECURITY_AUDIT.md",
+        "docs/archive/SECURITY_AUDIT_r81-r90.md",
+        "## R90 · 后台「🔍 收录」控制台",  # 归档件的最后一条（R90）
+    ),
 ]
 
 # 整份搬走的快照（一次性审查报告）

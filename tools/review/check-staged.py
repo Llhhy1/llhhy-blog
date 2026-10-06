@@ -49,6 +49,12 @@ DOCS = ("README.md", "myblog/README.md", "myblog/deploy_guide.md", "ROADMAP.md",
 BACKEND_SRC = "myblog/"
 FRONTEND_SRC = "vue-frontend/src/"
 
+# README 版本史门禁（v3.25.13）：版本史的唯一真相源是 CHANGELOG.md。
+# README 一度被逐版追加的版本说明堆到 137 行，与 CHANGELOG 重复且必然漂移。
+# 判据：README 里只允许「当前版本号」这一行，不允许任何 `## vX.Y.Z` / `- **vX.Y.Z：…**` 形态。
+README_FILES = ("README.md", "myblog/README.md")
+_VER_HISTORY_RE = re.compile(r"^\s*(?:[-*]\s*\*\*|#{1,6}\s*)v\d+\.\d+\.\d+")
+
 
 def staged_files():
     out = subprocess.check_output(
@@ -129,6 +135,51 @@ def main():
                 "lint 棘轮未通过（新增 lint 债务）：\n"
                 + "\n".join("    " + l for l in out.strip().splitlines()[-12:])
             )
+
+    # 6. README 版本史门禁 + 版本升级必须带 CHANGELOG（v3.25.13）
+    #
+    # **为什么做成硬拦截**：技能里写了规则、人还是会忘（「门禁不在发版路径上 = 等于
+    # 没有门禁」，同一条已在 lint 棘轮上验证过一次）。README 只允许出现「当前版本号」
+    # 这一行，其余「vX.Y.Z 做了什么」一律归 CHANGELOG。
+    for f in README_FILES:
+        if f not in files:
+            continue
+        blob = subprocess.run(["git", "show", f":{f}"], cwd=ROOT,
+                              capture_output=True, text=True)
+        for i, line in enumerate((blob.stdout or "").splitlines(), 1):
+            if _VER_HISTORY_RE.match(line):
+                errors.append(
+                    f"{f}:{i} 出现版本史条目「{line.strip()[:48]}」——"
+                    "版本史唯一真相源是 CHANGELOG.md，README 只留「当前版本」一行"
+                )
+
+    # 版本号变了 → CHANGELOG.md 必须同批提交（否则版本更新信息没进更新文档）
+    if "myblog/config.py" in files:
+        def _ver(spec):
+            """spec = `HEAD`（上一版）或 `""`（暂存区，`:path` 即 stage 0）。
+
+            ⚠️ 别在调用侧再拼一次 `:myblog/config.py` —— 那样会得到
+            `:myblog/config.py:myblog/config.py`，git 静默失败、`_ver` 返回 None，
+            整条守卫**假绿**（变异测试当场抓出）。
+            """
+            r = subprocess.run(["git", "show", f"{spec}:myblog/config.py"], cwd=ROOT,
+                               capture_output=True, text=True)
+            m = re.search(r"APP_VERSION\s*=\s*[\"']([^\"']+)", r.stdout or "")
+            return m.group(1) if m else None
+        old_v, new_v = _ver("HEAD"), _ver("")
+        if new_v and old_v and new_v != old_v:
+            if "CHANGELOG.md" not in files:
+                errors.append(
+                    f"版本号 {old_v} → {new_v}，但 CHANGELOG.md 未同批提交——"
+                    "版本更新信息必须统一并入更新文档"
+                )
+            for f in README_FILES:
+                if f not in files:
+                    continue
+                blob = subprocess.run(["git", "show", f":{f}"], cwd=ROOT,
+                                      capture_output=True, text=True)
+                if new_v not in (blob.stdout or ""):
+                    errors.append(f"{f} 未更新到当前版本号 {new_v}")
 
     # 输出
     for e in errors:

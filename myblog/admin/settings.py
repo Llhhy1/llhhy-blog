@@ -393,37 +393,66 @@ def backup_settings():
         "webdav": bool(cfg.get("BACKUP_WEBDAV_URL")),
     }
     if request.method == "POST":
-        for skey in bs.ALL_FIELDS:
-            if skey in bs.SENSITIVE_KEYS:
-                # 敏感键：留空 = 保持不变；非空则加密覆盖
-                new_val = (request.form.get(skey) or "").strip()
-                cur_db = bs.read_setting_db(skey) or ""
-                if new_val and new_val != bs.mask_value(bs.decrypt_secret(cur_db or "")):
-                    bs.write_setting_db(skey, bs.encrypt_secret(new_val))
-                # 密码留空：保持原库值（不回显、不覆盖）
+        action = (request.form.get("action") or "save").strip()
+        # v3.25.13：保存与「保存并测试」共用同一段落盘逻辑
+        err = _persist_backup_settings(bs)
+        if err:
+            flash(err, "error")
+            return redirect(url_for("admin.backup_settings"))
+        if action == "test_webdav":
+            # 起因是线上「配置好了备份却异常」：页面只说「命令退出码 22」，用户无从判断
+            # 是地址错、凭据错还是目录只读。填完当场就能知道，不必等第二天备份失败。
+            from utils import rate_limit, client_key
+            if not rate_limit(client_key("backup_test_webdav"), limit=5, window=60):
+                flash("测试过于频繁，请稍后再试", "error")
             else:
-                val = (request.form.get(skey) or "").strip() if skey != "backup_retention_days" \
-                    else (request.form.get(skey) or "14").strip()
-                if skey == "backup_retention_days":
-                    try:
-                        int(val)
-                    except ValueError:
-                        flash("保留天数必须是数字")
-                        return redirect(url_for("admin.backup_settings"))
-                bs.write_setting_db(skey, val)
-        # 重新合并进环境变量，本次进程立即生效
-        bs.apply_env()
-        try:
-            import backup as backup_mod
-            backup_mod.BACKUP_ROOT = backup_mod._DEF_BACKUP_DIR if bs.get_config().get("BACKUP_DIR") == backup_mod._DEF_BACKUP_DIR \
-                else bs.get_config().get("BACKUP_DIR") or backup_mod._DEF_BACKUP_DIR
-            backup_mod.RETENTION_DAYS = int(bs.get_config().get("BACKUP_RETENTION_DAYS") or 14)
-        except Exception:
-            pass
+                import backup as backup_mod
+                level, msg = backup_mod.probe_webdav()
+                prefix = _WEBDAV_PROBE_PREFIX.get(level, "❌ 探测失败")
+                flash("%s：%s" % (prefix, msg), "success" if level == "ok" else "error")
+            return redirect(url_for("admin.backup_settings"))
         flash("备份配置已保存")
         return redirect(url_for("admin.backup_settings"))
     return render_template("admin/backup_settings.html", values=values, enabled=enabled,
                            settings_cfg=cfg)
+
+
+# 「保存并测试 WebDAV」的结果前缀（level → 文案）
+_WEBDAV_PROBE_PREFIX = {
+    "ok": "✅ WebDAV 可用",
+    "auth_failed": "❌ 认证失败",
+    "not_writable": "⚠️ 目录只读，备份会失败",
+    "missing": "❌ 目录不存在",
+    "unreachable": "❌ 无法连接",
+    "unconfigured": "ℹ️ 未配置",
+}
+
+
+def _persist_backup_settings(bs):
+    """落盘备份配置并把合并结果写回环境变量（保存 / 保存并测试 共用）。
+
+    返回错误文案（str）表示未落盘，None 表示成功。错误不在这里 flash：
+    调用方可能是「保存并测试」，需要自己决定提示与跳转。
+    """
+    for skey in bs.ALL_FIELDS:
+        if skey in bs.SENSITIVE_KEYS:
+            # 敏感键：留空 = 保持不变；非空（且不等于现有掩码）则加密覆盖
+            new_val = (request.form.get(skey) or "").strip()
+            cur_db = bs.read_setting_db(skey) or ""
+            if new_val and new_val != bs.mask_value(bs.decrypt_secret(cur_db)):
+                bs.write_setting_db(skey, bs.encrypt_secret(new_val))
+            continue
+        val = (request.form.get(skey) or "").strip()
+        if skey == "backup_retention_days":
+            val = val or "14"
+            try:
+                int(val)
+            except ValueError:
+                return "保留天数必须是数字"
+        bs.write_setting_db(skey, val)
+    # 重新合并进环境变量，本次进程立即生效（其它 worker 靠 backup._refresh_env()）
+    bs.apply_env()
+    return None
 
 @admin_bp.route("/email-settings", methods=["GET", "POST"])
 @super_required

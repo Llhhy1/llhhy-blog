@@ -65,8 +65,35 @@ _BS = None
 try:
     import backup_settings as _BS
     _BS.apply_env()   # 后台配置优先（非密钥），环境变量兜底（密钥）
-except Exception:
-    pass  # 纯标准库兜底：import 失败不影响旧行为
+except Exception as e:
+    # v3.25.13：不再静默。`apply_env()` 抛异常 = 后台配的备份目标**全部**读不到
+    # （密钥解密失败等），而这里一静默，表现就是「配置页显示已配置、备份却不上传」。
+    logger.warning("导入时合并备份配置失败（将只使用环境变量）：%s", e)
+    _BS = None
+
+
+def _refresh_env():
+    """每次备份/同步前重新合并一次后台配置（v3.25.13）。
+
+    **为什么需要**：`apply_env()` 只在 backup.py **被导入时**跑一次，而后台保存配置
+    只作用于「处理保存请求的那个 worker」（`admin/settings.py:415`）。gunicorn 多 worker
+    下，落到别的 worker 的备份任务仍用**导入那一刻**的旧值 —— 页面却写着
+    「保存后立即生效（无需重启）」，与实际不符（线上 2026-10-06 实测）。
+    放在这里而不是依赖导入时机：一次调用即可保证**任何 worker、任何时刻**都用最新配置。
+    """
+    global BACKUP_ROOT, RETENTION_DAYS
+    if _BS is None:
+        return
+    try:
+        _BS.apply_env()
+    except Exception as e:  # noqa: BLE001 - 备份不能因配置读取异常而中断，失败即沿用环境变量
+        logger.warning("刷新备份配置失败，沿用当前环境变量：%s", e)
+        return
+    BACKUP_ROOT = os.environ.get("BACKUP_DIR") or _DEF_BACKUP_DIR
+    try:
+        RETENTION_DAYS = int(os.environ.get("BACKUP_RETENTION_DAYS") or _DEF_RETENTION)
+    except ValueError:
+        RETENTION_DAYS = _DEF_RETENTION
 
 BACKUP_ROOT = os.environ.get("BACKUP_DIR") or _DEF_BACKUP_DIR
 RETENTION_DAYS = int(os.environ.get("BACKUP_RETENTION_DAYS") or _DEF_RETENTION)
@@ -202,6 +229,7 @@ def create_backup():
     """
     ts = _now().strftime("%Y%m%d_%H%M%S")
     arc_name = "blog_backup_%s.zip" % ts
+    _refresh_env()          # v3.25.13：用**最新**的后台配置，而不是本模块导入时的旧值
     os.makedirs(BACKUP_ROOT, exist_ok=True)
     tmp_dir = tempfile.mkdtemp(prefix="bk_")
     try:
@@ -292,7 +320,7 @@ def sync_oss(arc, man):
             client.upload_file(f, bucket, obj)
         return ("oss", True, "ok")
     except Exception as e:  # 远程失败不阻断本地
-        return ("oss", False, str(e)[:200])
+        return ("oss", False, _cmd_err(e))
 
 
 _SCP_TARGET_RE = re.compile(r"^(?:[A-Za-z0-9._%+-]{1,64}@)?[A-Za-z0-9.-]{1,253}$")
@@ -343,7 +371,78 @@ def sync_scp(arc, man):
             _run(["scp"] + opts + ["--", f, "%s:%s/" % (host, dest)], timeout=300)
         return ("scp", True, "ok")
     except Exception as e:
-        return ("scp", False, str(e)[:200])
+        return ("scp", False, _cmd_err(e))
+
+
+def _cmd_err(e):
+    """子进程失败的可读文案 —— **必须带上 stderr**。
+
+    线上实测（2026-10-06）：后台看到的 WebDAV 失败是
+    `Command '['curl', ..., '--', 'https://dav.jianguoyun.com/dav/x.zip']' returned non-zero exit status 22.`
+    既看不出 404 还是 401，也看不出是地址错还是凭据错 —— 等于没法自助排障。
+    而 curl 早就把 `The requested URL returned error: 404` 写在 stderr 里，带上即可。
+    """
+    if isinstance(e, subprocess.CalledProcessError):
+        err = (e.stderr or b"").decode("utf-8", "replace").strip()
+        base = "命令退出码 %s" % e.returncode
+        return ("%s：%s" % (base, err[:200])) if err else base
+    return str(e)[:200]
+
+
+def _webdav_hint(msg):
+    """把 curl 的原始错误翻译成人话（针对「根目录只读」这个高频坑）。
+
+    线上真实故障：填的是坚果云 WebDAV **根目录** `https://dav.jianguoyun.com/dav/`，
+    PROPFIND 返回的 `current-user-privilege-set` 里**只有 `<d:read/>`** —— PUT 一律 404。
+    结果是「配置页显示已配置、备份却每次失败」，而页面只说「命令退出码 22」。
+    """
+    if re.search(r"error: 40[1345]|退出码 22", msg):
+        return (msg + "；WebDAV 地址必须指向**可写**的文件夹 —— 不少云盘的**根目录只读**"
+                      "（坚果云 `/dav/` 实测只读），请改填到具体子目录，如 "
+                      "`https://dav.jianguoyun.com/dav/blogbackup`")
+    return msg
+
+
+def probe_webdav(timeout=15):
+    """只读探测 WebDAV 配置是否可用（PROPFIND，**不写任何文件**）。
+
+    返回 `(level, msg)`，level ∈ `ok` / `auth_failed` / `not_writable` / `missing` /
+    `unreachable` / `unconfigured`。「可写」按 PROPFIND 返回的
+    `<d:current-user-privilege-set>` 是否含 `<d:write/>` 判定 —— 这正是不少云盘
+    根目录会踩到的坑（能读不能写）。供后台「测试连接」按钮使用。
+    """
+    _refresh_env()
+    url = (os.environ.get("BACKUP_WEBDAV_URL") or "").rstrip("/")
+    user = os.environ.get("BACKUP_WEBDAV_USER", "")
+    pwd = os.environ.get("BACKUP_WEBDAV_PASS", "")
+    if not url:
+        return "unconfigured", "未配置 WebDAV 地址"
+    if not _webdav_url_ok(url):
+        return "unreachable", "地址非法（只允许 http/https，不得以 - 开头）"
+    auth = ["-u", "%s:%s" % (user, pwd)] if user else []
+    try:
+        p = subprocess.run(
+            ["curl", "-sS", "-w", "\n%{http_code}"] + auth +
+            ["-X", "PROPFIND", "-H", "Depth: 0", "--", url + "/"],
+            capture_output=True, timeout=timeout)
+    # 只列 subprocess 真会抛的几类（OSError=找不到 curl / SubprocessError=超时、
+    # ValueError=参数非法），不用裸 `except Exception` —— 探测失败也要说得出原因。
+    except (OSError, subprocess.SubprocessError, ValueError) as e:
+        return "unreachable", "连接失败：%s" % str(e)[:120]
+    raw = p.stdout.decode("utf-8", "replace")
+    # rpartition 返回 (head, sep, tail)：正文在前、curl -w 追加的状态码在最后一行
+    body, _, code = raw.rpartition("\n")
+    code = code.strip()
+    if code in ("401", "403"):
+        return "auth_failed", "认证失败（HTTP %s）：用户名或应用密码不对" % code
+    if code == "404":
+        return "missing", "该目录不存在（HTTP 404）：请在云盘里先建好这个文件夹"
+    if code not in ("200", "207"):
+        return "unreachable", "无法访问（HTTP %s）" % (code or "无响应")
+    if "<d:write/>" in body:
+        return "ok", "可写 ✅（HTTP %s）" % code
+    return "not_writable", ("该目录只读（HTTP %s，权限只有 read）—— 备份写入会失败，"
+                            "请改填一个可写的子目录" % code)
 
 
 def sync_webdav(arc, man):
@@ -356,11 +455,14 @@ def sync_webdav(arc, man):
             return ("webdav", False, "BACKUP_WEBDAV_URL 非法（只允许 http/https，不得以 - 开头）")
         auth = ["-u", "%s:%s" % (user, pwd)] if user else []
         for f in (arc, man):
-            _run(["curl", "-sS", "-f"] + auth + ["-T", f, "--",
-                  "%s/%s" % (url, os.path.basename(f))], timeout=300)
+            try:
+                _run(["curl", "-sS", "-f"] + auth + ["-T", f, "--",
+                      "%s/%s" % (url, os.path.basename(f))], timeout=300)
+            except Exception as e:
+                return ("webdav", False, _webdav_hint(_cmd_err(e)))
         return ("webdav", True, "ok")
     except Exception as e:
-        return ("webdav", False, str(e)[:200])
+        return ("webdav", False, _webdav_hint(_cmd_err(e)))
 
 
 def sync_remotes(arc, man):

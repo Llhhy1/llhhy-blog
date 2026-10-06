@@ -20,6 +20,7 @@
 """
 import contextlib
 import os
+import re
 import secrets
 import subprocess
 
@@ -145,6 +146,87 @@ def test_webdav_hint_points_at_read_only_root():
     import backup
     msg = backup._webdav_hint("命令退出码 22：curl: (22) The requested URL returned error: 404")
     assert "只读" in msg and "子目录" in msg
+
+
+# ---------- 5. 401 认证失败 ≠ 404 目录只读（v3.25.14 修正） ----------
+
+def test_hint_401_points_at_auth_not_readonly():
+    """v3.25.13 把 401 也翻成「目录只读」，把定时任务缺 SECRET_KEY 的排查带偏了。"""
+    import backup
+    msg = backup._webdav_hint("命令退出码 22：curl: (22) The requested URL returned error: 401")
+    assert "认证失败" in msg and "SECRET_KEY" in msg
+    assert "只读" not in msg          # 不能指错方向
+    assert "404/405" not in msg       # 日志已经明说 401，就不该再含糊其辞
+
+
+def test_hint_404_points_at_readonly():
+    import backup
+    msg = backup._webdav_hint("命令退出码 22：curl: (22) The requested URL returned error: 404")
+    assert "只读" in msg and "子目录" in msg
+    assert "SECRET_KEY" not in msg
+
+
+def test_hint_bare_exit_22_mentions_both():
+    """stderr 为空时无法分辨，两条都给，不能只猜一个。"""
+    import backup
+    msg = backup._webdav_hint("命令退出码 22")
+    assert "401/403" in msg and "404/405" in msg
+
+
+def test_secret_unreadable_detects_ciphertext_without_key(app, monkeypatch):
+    """密文在库里、当前解不开 → 必须判出来，否则会拿空密码去撞 401。"""
+    import backup
+    monkeypatch.setattr(backup._BS, "decrypt_secret", lambda _s: "")
+    with app.app_context():
+        assert backup._secret_unreadable("backup_webdav_pass") is False   # 库里没存
+        _set_db(app, backup_webdav_pass="bkenc$fake-cipher")
+        assert backup._secret_unreadable("backup_webdav_pass") is True
+
+
+def test_sync_webdav_refuses_to_send_empty_password(app, monkeypatch):
+    """定时任务路径：宁可明确报错，也不要拿着空密码去认证。"""
+    import backup
+    monkeypatch.setattr(backup._BS, "decrypt_secret", lambda _s: "")
+    with app.app_context():
+        _set_db(app, backup_webdav_url="https://dav.jianguoyun.com/dav/blogbackup",
+                backup_webdav_user="me@example.com",
+                backup_webdav_pass="bkenc$fake-cipher")
+        backup._refresh_env()
+        ok, msg = backup.sync_webdav("/tmp/nope.zip", "/tmp/nope2.json")[1:]
+    assert ok is False
+    assert "SECRET_KEY" in msg
+
+
+def test_probe_webdav_reports_unreadable_secret(app, monkeypatch):
+    import backup
+    monkeypatch.setattr(backup._BS, "decrypt_secret", lambda _s: "")
+    with app.app_context():
+        _set_db(app, backup_webdav_url="https://dav.jianguoyun.com/dav/blogbackup",
+                backup_webdav_user="me@example.com",
+                backup_webdav_pass="bkenc$fake-cipher")
+        level, msg = backup.probe_webdav()
+    assert level == "auth_failed"
+    assert "SECRET_KEY" in msg
+
+
+# ---------- 6. backup.sh 必须带 SECRET_KEY（定时任务不带任何项目环境变量） ----------
+
+def test_backup_script_sources_env_file():
+    """`backup.sh` 由计划任务调用，不带 gunicorn 的环境变量。
+
+    库里的备份密钥是 Fernet 密文，缺 `SECRET_KEY` 就解不开 → 空密码 → 401，
+    表现是「后台测试正常、每天凌晨的备份永远失败」（2026-10-06 线上实测）。
+    """
+    import os
+    path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                        "myblog", "backup.sh")
+    with open(path, encoding="utf-8") as f:
+        s = f.read()
+    assert re.search(r'^\s*\.\s+"\$ENV_FILE"', s, re.M), \
+        "backup.sh 没有 source 环境变量文件"
+    assert "SECRET_KEY" in s, "backup.sh 里应写明这一步是为 SECRET_KEY"
+    # 必须在跑 python 之前加载
+    assert s.index('"$ENV_FILE"') < s.index("backup.py run")
 
 
 def test_webdav_hint_leaves_unrelated_errors_alone():

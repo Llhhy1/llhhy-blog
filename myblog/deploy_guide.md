@@ -566,6 +566,20 @@ supervisorctl status
 
 > ⚠️ **服务器上的 `update.sh` / `deploy.sh` 也务必与最新 Release 同版**：脚本经历过「假成功不覆盖 / 校验误报 / 无法自动重启」多轮加固，升级前先从最新 Release 覆盖一次脚本，再跑一键更新。
 
+> **v3.25.14（修「定时任务跑的备份永远失败」）升级要点**：
+>
+> - **无表结构变更、无迁移**（head 仍 `c7a2f19b4d30`）、无新增依赖、无新增环境变量。
+>   **纯后端 + `backup.sh` 改动，前端产物无变化**。
+> - 🔴 **这是「异地容灾从来没成功过」的根因**：后台填的备份密钥是 Fernet 密文，解密要用
+>   `SECRET_KEY`；gunicorn 带 env 启动能解，**计划任务不带任何项目环境变量** → 解密返回空串
+>   → curl 拿空密码去认证 → 只得到一句 401。现由 `backup.sh` 先加载站点 env 文件解决。
+> - ⚠️ **升级后请确认**：`bash /www/wwwroot/myblog/backup.sh` 后
+>   `tail -3 /www/wwwroot/myblog/backup.log` 应看到 `远程[webdav]: ✅ ok`；
+>   若仍报「库里的 WebDAV 密码解不开」，把环境变量文件路径用 `BACKUP_ENV_FILE` 指定
+>   （默认先试 `/www/server/pyporject_evn/myblog.env`，再试
+>   `/www/server/python_project/vhost/env/myblog.env`）。
+> - 判据：用 `env -u SECRET_KEY python3 backup.py run` 复现旧故障（应报「解不开」而非 401）。
+>
 > **v3.25.13（修「WebDAV 备份配置好了却异常」+ README 极简化）升级要点**：
 >
 > - **无表结构变更、无迁移**（head 仍 `c7a2f19b4d30`）、无新增依赖、无新增环境变量。

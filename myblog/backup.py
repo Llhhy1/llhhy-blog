@@ -390,17 +390,47 @@ def _cmd_err(e):
 
 
 def _webdav_hint(msg):
-    """把 curl 的原始错误翻译成人话（针对「根目录只读」这个高频坑）。
+    """把 curl 的原始错误翻译成人话。
 
-    线上真实故障：填的是坚果云 WebDAV **根目录** `https://dav.jianguoyun.com/dav/`，
-    PROPFIND 返回的 `current-user-privilege-set` 里**只有 `<d:read/>`** —— PUT 一律 404。
-    结果是「配置页显示已配置、备份却每次失败」，而页面只说「命令退出码 22」。
+    ⚠️ **401/403 与 404/405 必须分开提示**（v3.25.14 修正）。第一版把它们一并归到
+    「目录只读」，结果线上定时任务因**没加载 `SECRET_KEY`**、库里的 Fernet 密文解不开
+    → 空密码 → 401，页面却提示「请改填子目录」—— **指错了方向**。
+
+    两条真实故障的判别：
+      - `401` / `403` = **认证失败**：用户名/应用密码不对，或密钥解不开（定时任务缺 `SECRET_KEY`）；
+      - `404` / `405` = **目录问题**：根目录只读（坚果云 `/dav/` 实测只有 `<d:read/>`）。
     """
-    if re.search(r"error: 40[1345]|退出码 22", msg):
+    if re.search(r"error: 40[13]\b", msg):
+        return (msg + "；**认证失败**（401/403）：用户名或应用密码不对。"
+                      "若后台点「🔌 保存并测试 WebDAV」正常、定时任务却失败，"
+                      "多半是定时任务**没加载 `SECRET_KEY`** —— 库里的密码是 Fernet 密文，"
+                      "解不开就变成空密码发出去。")
+    if re.search(r"error: 40[45]\b", msg):
         return (msg + "；WebDAV 地址必须指向**可写**的文件夹 —— 不少云盘的**根目录只读**"
                       "（坚果云 `/dav/` 实测只读），请改填到具体子目录，如 "
                       "`https://dav.jianguoyun.com/dav/blogbackup`")
+    if "退出码 22" in msg:
+        return (msg + "；curl 收到 4xx：若日志里有 `error: 401/403` 是**认证失败**"
+                      "（查应用密码、或定时任务是否加载了 `SECRET_KEY`）；"
+                      "若是 `error: 404/405` 则是**目录不可写/不存在**（改填可写子目录）。")
     return msg
+
+
+def _secret_unreadable(key):
+    """库里存着密文、但当前解不开 —— 几乎总是 `SECRET_KEY` 缺失或不匹配。
+
+    **为什么必须显式判**：`decrypt_secret()` 失败时返回空串（设计如此，绝不抛异常），
+    于是 curl 会拿着**空密码**去认证 → 只得到一句 401，看不出真因。定时任务
+    （`backup.sh`）恰恰没有 `SECRET_KEY`，这条路径**永远**会静默失败。
+    """
+    if _BS is None:
+        return False
+    # `read_setting_db()` 内部已吞掉一切异常并返回 None，这里不必再包一层
+    # （再包一个裸 `except Exception` 会踩 lint 棘轮）。
+    raw = _BS.read_setting_db(key)
+    if not raw or not raw.startswith("bkenc$"):
+        return False            # 没存过密文，或存的是历史明文
+    return not _BS.decrypt_secret(raw)
 
 
 def probe_webdav(timeout=15):
@@ -419,6 +449,12 @@ def probe_webdav(timeout=15):
         return "unconfigured", "未配置 WebDAV 地址"
     if not _webdav_url_ok(url):
         return "unreachable", "地址非法（只允许 http/https，不得以 - 开头）"
+    # 别拿空密码去撞 401 —— 直接说清「密钥解不开」
+    if _secret_unreadable("backup_webdav_pass"):
+        return ("auth_failed",
+                "库里的 WebDAV 密码是密文但当前**解不开**：`SECRET_KEY` 缺失或不匹配。"
+                "后台页面能解（gunicorn 带 env），定时任务（`backup.sh`）不带 —— "
+                "这正是「后台测试正常、定时任务却 401」的原因。")
     auth = ["-u", "%s:%s" % (user, pwd)] if user else []
     try:
         p = subprocess.run(
@@ -453,6 +489,10 @@ def sync_webdav(arc, man):
         pwd = os.environ.get("BACKUP_WEBDAV_PASS", "")
         if not _webdav_url_ok(url):
             return ("webdav", False, "BACKUP_WEBDAV_URL 非法（只允许 http/https，不得以 - 开头）")
+        if _secret_unreadable("backup_webdav_pass"):
+            return ("webdav", False,
+                    "库里的 WebDAV 密码解不开：`SECRET_KEY` 缺失或不匹配，"
+                    "curl 会拿空密码去认证（必然 401）。定时任务请先加载含 `SECRET_KEY` 的环境变量文件。")
         auth = ["-u", "%s:%s" % (user, pwd)] if user else []
         for f in (arc, man):
             try:

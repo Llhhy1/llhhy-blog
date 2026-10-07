@@ -474,9 +474,17 @@ def email_settings():
                 "mail_use_ssl": "true" if request.form.get("mail_use_ssl") else "false",
             }
             # 密码：仅当输入了非空值才更新（不回显、留空保持原值）
+            # R114 审计：**改为 Fernet 密文落库**（CWE-312）。
+            # 此前是明文写进 Setting 表，而本文件自己的 seo.py 注释早就写明
+            #「不照抄 mail_password 的明文落库错误做法」——备份密钥与 SEO token
+            # 都已加密，唯独 SMTP 授权码是历史遗漏。任何能读 blog.db 的人
+            #（备份文件、只读目录、SQLite 副本）都能直接拿到它并冒用发信。
+            # 复用 backup_settings 的既有实现，读侧 decrypt_secret 对无前缀值原样返回，
+            # 因此**存量明文仍可读**（向后兼容），迁移见 tools/migrate_mail_password.py。
             pwd = request.form.get("mail_password") or ""
             if pwd.strip():
-                vals["mail_password"] = pwd.strip()
+                from backup_settings import encrypt_secret
+                vals["mail_password"] = encrypt_secret(pwd.strip())
             for k, v in vals.items():
                 row = Setting.query.filter_by(key=k).first()
                 if row:

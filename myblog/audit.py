@@ -15,12 +15,40 @@
 `_time.utcnow` —— **零 admin 依赖**，所以任何层都能安全导入。
 """
 import datetime
+import re
 
 from flask import session
 
 from models import db, User, AuditLog
 from utils import get_client_ip
 from _time import utcnow
+
+
+# R115 审计：detail 的脱敏原先**只靠写入方自律**（docstring 立了规矩，
+# 实测当前唯一生产者 `config_rollback.snapshot_settings()` 的 key 列表也确实无密钥）。
+# 但 `log_audit()` 自己不做任何检查 —— 将来任何一个新调用方把
+# `password=hunter2` 写进 detail，就是一条**可导出、可截图**的凭据泄漏。
+# 这里加一道与 `mcp_diag._redact()` 同款的兜底：宁可误伤（把长串打码），
+# 也不能让凭据进日志。**这是纵深防御，不是替代上面那条纪律。**
+_DETAIL_REDACT = [
+    (re.compile(r"(?i)((?:secret[_-]?key|password|passwd|pwd|token|api[_-]?key)\s*[=:]\s*)([^\s,;'\"]+)"), r"\1***"),
+    (re.compile(r"(?i)(bearer\s+)([A-Za-z0-9._\-]{8,})"), r"\1***"),
+    (re.compile(r"\b(sk-[A-Za-z0-9_\-]{16,})"), "sk-***"),
+    (re.compile(r"\b(gh[pousr]_[A-Za-z0-9]{16,})"), "gh*_***"),
+    (re.compile(r"\b(AKIA[0-9A-Z]{12,})"), "AKIA***"),
+    (re.compile(r"\b(bkenc\$[A-Za-z0-9_\-]{20,})"), "bkenc$***"),
+]
+
+
+def _redact_detail(text):
+    """对 audit detail 做兜底脱敏（不抛异常，失败原样返回——审计不该因脱敏而丢日志）。"""
+    if not text:
+        return text
+    s = str(text)
+    for pat, rep in _DETAIL_REDACT:
+        s = pat.sub(rep, s)
+    return s
+
 
 
 def log_audit(action, target="", target_id=None, detail="", user=None, ip="", success=True,
@@ -80,7 +108,10 @@ def log_audit(action, target="", target_id=None, detail="", user=None, ip="", su
             user_id=user.id if user else None,
             username=user.username if user else "",
             action=action, target=target, target_id=target_id,
-            detail=(detail or "")[:300], ip=ip[:64], success=success,
+            # R115 审计：落库前**兜底脱敏**（先脱敏再截断，避免截断把
+            # `password=xxx` 切成 `password=xx` 后打码规则匹配不到）。这是纵深防御，
+            # 不替代上面「detail 只放摘要」的纪律。
+            detail=_redact_detail(detail or "")[:300], ip=ip[:64], success=success,
             payload=snap,
         ))
         db.session.commit()

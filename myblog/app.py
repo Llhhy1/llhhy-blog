@@ -409,10 +409,14 @@ def _register_request_hooks(app):
         # - /api/stats/read|visit|search：匿名埋点信标（SPA 每次路由变化/阅读即上报），
         #   不携带任何特权状态、仅累加计数，跨站 POST 至多污染统计，无安全风险，故豁免 CSRF，
         #   否则匿名访客首屏上报会被 403 拦截（既报控制台错误又丢失访问统计）。
-        # /mcp：自带 Bearer Token 鉴权（非会话），与 webhook 同理豁免 CSRF
+        # /mcp 与 /mcp-write：自带 Bearer Token 鉴权（**非会话**），MCP 客户端没有 Cookie
+        #   也拿不到 CSRF token，若不豁免则合法调用会被 403 拦死（R115 审计 修复：
+        #   此前只豁免了 /mcp，导致 /mcp-write 实际不可用）。
+        #   ⚠️ 用精确匹配而非 startswith 粗放：写成 "/mcp" 会把 "/mcp-write" 之外的
+        #   未来子路径一并放行；"/mcp-write" 单独列出，两端都不含通配。
         exempt = ("/api/webhook/deploy", "/api/captcha", "/api/captcha/verify",
                   "/api/stats/read", "/api/stats/visit", "/api/stats/search",
-                  "/mcp")
+                  "/mcp", "/mcp-write")
         path = request.path
         if any(path.startswith(e) for e in exempt):
             return None

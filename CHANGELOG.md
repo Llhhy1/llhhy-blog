@@ -2,6 +2,79 @@
 
 > **📦 历史归档**：v3.18.5 及以前的版本记录已归档至 `docs/archive/CHANGELOG_v1-v3.18.5.md`；本文件从 v3.18.6 起。
 
+## v3.25.16（2026-10-07 · 4.0 开发前的全量安全审计修复：R114 + R115）
+
+> 发版动因：大帅要求「全量审计一下，准备开发 4.0，**有漏洞未修好之前不发 4.0**」。
+> 本次把审计发现的**线上正在生效**的缺陷先修掉发补丁版，不等 4.0。
+> 无表结构变更、**无迁移**（head 仍 `c7a2f19b4d30`）、无新增依赖、无新增**必填**环境变量。
+> 完整报告见 `docs/audit/2026-10-07-full-audit-report.md`。
+
+### 一、修了什么（5 个中危 + 4 个低危）
+
+| # | 漏洞 | 位置 | CWE |
+|---|---|---|---|
+| 1 | **友链 RSS 聚合 SSRF** | `myblog/feed_agg.py` | CWE-918 |
+| 2 | **RSS 条目 `javascript:` 存储型 XSS** | `myblog/feed_agg.py` → `SquareView.vue` | CWE-79 |
+| 3 | **SMTP 授权码明文落库** | `myblog/admin/settings.py` | CWE-312 |
+| 4 | **OG 封面路径穿越（可逃逸到文件系统根）** | `myblog/og_image.py` | CWE-22 |
+| 5 | **评论无长度上限 → 通知扇出放大 DoS** | `myblog/api/posts.py` / `api/social.py` / `utils/web.py` | CWE-400 |
+| 6 | 可见性收口 3 处（裸查 `Post`） | `api/stats.py` / `api/reactions.py` / `api/ai.py` | CWE-863 |
+| 7 | MCP 非 ASCII Bearer → 未捕获异常 → 匿名 500 | `mcp_diag.py` / `mcp_write.py` | CWE-248 |
+| 8 | `/mcp-write` 未列入 CSRF 豁免 → **端点实际不可用** | `myblog/app.py` | 功能缺陷 |
+
+### 二、三条最值得记的
+
+**1. SSRF 的根因是「校验与使用分离」。** `_safe_url()` 做了三层防护（scheme 白名单 → 主机名黑名单
+→ `getaddrinfo` 判私网），但它只在**抓取前**查一次；真正发请求的 `feedparser.parse(url)`
+**自建 urllib 会话** —— 重新解析 DNS（重绑定）+ **自动跟随 3xx**。于是攻击者用一个**公网** RSS
+地址通过校验，再回 `302 Location: http://100.100.100.200/`（阿里云元数据）或内网
+Redis/MySQL/PG，跳转目标**从不被复检**。触发入口 `/api/feed/circle` 是**匿名 GET**。
+
+修法：自己用**禁重定向**的 opener 抓字节，再把字节喂给 feedparser——这一步同时消除了
+「重复解析 DNS」的重绑定窗口。同仓库的 `seo_push.py` / `oauth.py` **早就有这个标准答案**。
+
+**2. 「配了」不等于「用上」。** 三条修复都栽在同一个形状上：
+`_safe_url` 配了却没被 fetch 用；`GH_MIRROR` 传了却排在直连之后；白名单写了却没 bump 版本号。
+**配置/防护的存在 ≠ 它在关键路径上生效。**
+
+**3. 代码库自己早就知道答案。** SMTP 授权码明文落库，而 `admin/seo.py:12-14` 的注释写着
+「**不照抄 `mail_password` 的明文落库错误做法**」——备份密钥与 SEO token 早已 Fernet 加密，
+唯独它是历史遗漏。**注释里的自我要求比代码更能暴露「哪里还没改」。**
+
+### 三、一条**误报**（记录以免重复告警）
+
+有审计组报出「**严重：2FA 完整绕过**」并附可执行 PoC（仅密码会话调 `/api/auth/2fa/enroll`
+重置密钥、`enabled` 被打回 False）。主审**未采信转述**，写真实攻击链实测：
+
+| 场景 | 实测 |
+|---|---|
+| 闸门开启 + 账号已 `enabled=True` + 仅密码会话 | `enroll` → **401**，`secret_enc`/`enabled` **零变化** |
+| 同一会话访问 `/admin/` | **401/302/403** |
+| **全局开关关闭**（出厂默认）时 `twofa.enroll(user)` | 返回非 `ok`，绑定**零变化** |
+
+根因是把 `twofa_enabled` **默认 false** 的状态当成了「2FA 已启用」。**不写入漏洞清单。**
+
+### 四、验证
+
+- **697 passed**（新增 `tests/test_audit_r114.py` / `tests/test_twofa_gate_r115.py` /
+  `tests/test_render_allowlist_ratchet.py`）、`ruff check myblog/ tests/` 全绿
+- **5 项变异测试精确变红**：AST 门禁（漏改的 `feedparser.parse`）、白名单棘轮、
+  2FA 闸门、`_readable_comment` 可见性守卫、RSS 302 拒绝
+- 完整报告：`docs/audit/2026-10-07-full-audit-report.md`
+
+### 五、⚠️ 升级后必做一步
+
+新写入的 SMTP 密码已是密文，但**存量明文仍在库里**。用新增的幂等迁移脚本转一次：
+
+```bash
+cd /www/wwwroot/myblog
+set -a; . /www/server/python_project/vhost/env/myblog.env; set +a
+FLASK_APP=app:create_app /www/server/pyporject_evn/blog_env/bin/python tools/migrate_mail_password.py
+```
+
+脚本会：已是 `bkenc$` 密文则跳过（可重复跑）→ 加密后**立刻回读比对**，不一致就放弃写入。
+**另请注意**：明文曾存在于历史备份文件里，按需清理过期本地备份或**轮换 SMTP 授权码**。
+
 ## v3.25.15（2026-10-07 · 让 `GH_MIRROR` 真的用上：镜像优先）
 
 > 承接 v3.25.14 上线时实测到的怪事：**明明传了镜像参数，部署却仍走直连苦等**。

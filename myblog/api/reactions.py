@@ -17,16 +17,38 @@ import json
 from flask import request, jsonify
 
 from .common import api_bp
-from models import db, Comment
+from models import db, Comment, visible_posts_query
 from utils import rate_limit, client_key
 
 ALLOWED = ["\U0001F44D", "\u2764\uFE0F", "\U0001F602", "\U0001F389", "\U0001F914", "\U0001F44F"]
 _MAX_PER_EMOJI = 9999
 
 
+def _readable_comment(cid):
+    """取评论并校验其所属文章**当前可见**。
+
+    R114 审计：`/api/comments/reactions` 允许按 cid 批量回读表情计数，
+    而这里此前只按 `Comment.id` 取——于是私密/未发布/回收站文章的评论
+    也能被打表情、被读出计数，成了「该文章（及其评论）存在」的存在性侧信道。
+    可见性统一由 `visible_posts_query()` 判定。
+    """
+    c = db.session.get(Comment, cid)
+    if not c:
+        return None
+    try:
+        post_id = c.post_id
+    except AttributeError:
+        return None
+    if post_id is None:
+        return None
+    if not visible_posts_query().filter_by(id=post_id).first():
+        return None
+    return c
+
+
 def _load(cid):
     """读取某条评论的表情计数（坏数据一律当空，不让前端炸）。"""
-    c = db.session.get(Comment, cid)
+    c = _readable_comment(cid)
     if not c or not c.reactions:
         return {}
     try:
@@ -38,7 +60,7 @@ def _load(cid):
 
 def _save(cid, counts):
     """写回某条评论的表情计数。"""
-    c = db.session.get(Comment, cid)
+    c = _readable_comment(cid)
     if not c:
         return
     c.reactions = json.dumps(counts, ensure_ascii=False)

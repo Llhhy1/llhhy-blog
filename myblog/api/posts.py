@@ -254,12 +254,19 @@ def like(slug):
     return jsonify({"likes": p.likes})
 
 # ---------- 评论提交 ----------
+# R114 审计：单条评论正文上限。超出即拒，不截断——截断会让用户
+# 以为提交成功却丢了内容，静默拒绝更诚实。
+_MAX_COMMENT_LEN = 2000
+
+
 @api_bp.route("/post/<slug>/comment", methods=["POST"])
 def comment(slug):
     p = visible_posts_query().filter_by(slug=slug).first_or_404()
     # 限流：同一 IP 60 秒内最多 10 条评论
     if not rate_limit(client_key("api_comment"), limit=10, window=60):
         return jsonify({"error": "评论过于频繁，请稍后再试"}), 429
+    # R114 审计：限流挡不住「单条超长评论」——10 条/分钟仍可塞 5MB/条，
+    # 而每条会被 `notify_mentioned()` 拆成上百条通知（每条一次 SELECT）。
     data = request.get_json(silent=True) or request.form
     # v3.1.6 可选增强：评论验证码（CAPTCHA_ENABLED=true 时要求通过验证码或直接带验证码文本）
     from security import captcha_required, consume_captcha_pass, verify_captcha
@@ -271,6 +278,10 @@ def comment(slug):
                 return jsonify({"error": "请先完成验证码校验"}), 400
             consume_captcha_pass()  # 直接带文本校验通过后消费票据防重放
     content = (data.get("content") or "").strip()
+    # R114 审计：评论正文**必须限长**。此前无上限，匿名可提交 5MB 正文
+    # → 一条评论扇出成百上千条 @提及通知（每条一次 SELECT），并让通知表无限膨胀。
+    if len(content) > _MAX_COMMENT_LEN:
+        return jsonify({"error": "评论最多 %d 字" % _MAX_COMMENT_LEN}), 400
     # 已登录用户自动用其用户名；否则需填昵称
     author = ""
     uid = session.get("user_id")

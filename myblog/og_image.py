@@ -212,8 +212,41 @@ def _round_cover(src_path, size=COVER_W):
         return None
 
 
+def _resolve_within(root, candidate):
+    """把 candidate 归一化后限制在 root 之内；越界或不是文件一律 None。
+
+    root 必须是 **realpath 过的目录**。用 `startswith(root + os.sep)` 而非
+    `startswith(root)`——否则 `/myblog/static-evil/x` 这类同前缀兄弟目录会通过。
+    """
+    rp = os.path.realpath(candidate)
+    if not (rp == os.path.realpath(root) or rp.startswith(os.path.realpath(root) + os.sep)):
+        return None
+    return rp if os.path.isfile(rp) else None
+
+
 def _local_cover_path(cover):
-    """仅接受站内相对路径；外链/异常一律返回 None（不下载，防 SSRF）。"""
+    """仅接受站内相对路径；外链/异常一律返回 None（不下载，防 SSRF）。
+
+    R114 审计：**三个**分支都曾可路径穿越（CWE-22），且可达范围可逃逸到
+    仓库根及上层（`_HERE/static/` + 任意 `../`）：
+
+    1. `static/../config.py`  → 归一后是 `myblog/config.py`（越出 static/）
+    2. `uploads/../../data/blog.db`
+    3. **兜底分支** `c` 完全用户控制、**无任何前缀要求**：
+       `../config.py` → `_HERE/static/../config.py` = `myblog/config.py`
+
+    实测确认**逃逸范围可到文件系统根**：`../` × 8 能读到 `E:/Windows/win.ini`，
+    不只是仓库内。
+
+    修法：`realpath` 归一 + 限定在 `_HERE/static` 之内。
+
+    🔑 **实现陷阱（务必保留，两条都是实测踩出来的）**：
+    1. 基目录**不能取 `_HERE`**（= `myblog/`）——那样 `static/../config.py` 归一后
+       仍是 `myblog/config.py`，`startswith(_HERE + sep)` 成立 → **放行**。
+       第一版就是这么写的，测试当场变红才发现。
+    2. 前缀判断必须用 `startswith(root + os.sep)` 而非 `startswith(root)`，
+       否则 `/myblog/static-evil/x` 这类同前缀兄弟目录能通过。
+    """
     if not cover:
         return None
     c = cover.strip()
@@ -222,13 +255,24 @@ def _local_cover_path(cover):
     c = c.split("?")[0]
     if c.startswith("/"):
         c = c[1:]
-    # 允许 static/ 与 uploads/（后台上传目录）前缀
-    for base in ("static", "uploads"):
-        if c.startswith(base + "/"):
-            p = os.path.join(_HERE, c)
-            return p if os.path.isfile(p) else None
-    p = os.path.join(_HERE, "static", c)
-    return p if os.path.isfile(p) else None
+    # **单一 root** = `_HERE/static`：三条路径全部归一到这一个根下判定。
+    #
+    # 关于 `uploads/` 前缀：审计组核实 `_HERE/uploads` 从不存在（真实上传目录是
+    # `config.UPLOAD_FOLDER = BASE_DIR/static/uploads`，`admin/media.py` 返回的
+    # `/static/uploads/...` 也落进本函数时已带 `static/` 前缀），故该分支在
+    # **当前数据下不可达**。但 `cover` 是**自由文本表单字段**（`post_editor.py`
+    # / `taxonomy.py` / `mcp_write.py` 均直接取 `request.form["cover"]`），
+    # 管理员手工填 `uploads/evil.png` 就会命中它——**结构上可达**。
+    # 因此**保留该前缀**（不把 bug 修复做成「一种输入格式不再被识别」的行为收窄），
+    # 只是把它归一到同一个 root：`uploads/x.png` → `static/uploads/x.png`，
+    # 恰好也正是它本来的语义。
+    static_root = os.path.join(os.path.realpath(_HERE), "static")
+    # 只剥 `static/`（它等价于 root 本身）；`uploads/` **必须保留**——它是
+    # root 下的子目录，剥掉就会把 `uploads/x.png` 错映射成 `static/x.png`。
+    # `uploads/x.png` → `static/uploads/x.png`（正是它的本来语义）。
+    if c.startswith("static/"):
+        c = c[len("static/"):]
+    return _resolve_within(static_root, os.path.join(static_root, c))
 
 
 # ---------------- 缓存 ----------------

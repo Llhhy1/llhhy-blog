@@ -37,7 +37,11 @@ def load_mail_config():
     #   - SMTP_PASSWORD_ENV_FIRST=true（默认）：环境变量 SMTP_PASSWORD 非空即用它，库值仅作兜底；
     #   - 设 false 则回退旧行为（库值优先，兼容已在后台填过密码的用户）。
     env_first = current_app.config.get("SMTP_PASSWORD_ENV_FIRST", True)
-    db_pwd = get_setting("mail_password", "") or ""
+    # R114 审计：库里的密码现在是 Fernet 密文（历史上是明文）。
+    # `decrypt_secret()` 对**无 bkenc$ 前缀**的值原样返回，因此存量明文无需
+    # 改库也能继续读；新写入的密文则在此解密。失败返回空串（不抛），由 `s.login` 报错。
+    from backup_settings import decrypt_secret
+    db_pwd = decrypt_secret(get_setting("mail_password", "") or "")
     if env_first:
         if pwd:  # 环境变量有值，直接用（不落库、更安全）
             pass

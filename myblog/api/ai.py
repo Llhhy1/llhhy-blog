@@ -104,7 +104,7 @@ def ai_summary_make(slug):
     # 限流：每超管每小时最多 10 次生成（防误连点 / 成本失控）
     if not rate_limit("ai_summary_%s" % uid, limit=10, window=3600):
         return jsonify({"error": "生成过于频繁，请稍后再试"}), 429
-    p = Post.query.filter_by(slug=slug).first()
+    p = visible_posts_query().filter_by(slug=slug).first()
     if not p:
         return jsonify({"error": "文章不存在"}), 404
     content = (p.content or "").strip()

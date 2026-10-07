@@ -1544,3 +1544,105 @@ fi
 （`tests/test_update_chain_contract.py`）：钉住默认开关值、镜像优先的数组顺序与双重前置条件。
 变异测试：删掉镜像优先分支 → 该断言精确变红。
 **无迁移、无新增依赖、纯脚本变更，前端产物无变化。**
+
+---
+
+## R114 · v3.25.16（友链 RSS 聚合：SSRF + 存储型 XSS + SMTP 明文落库）
+
+> 4.0 开发前的全量审计（6 组并行 → 主审逐条复现）。完整报告：
+> `docs/audit/2026-10-07-full-audit-report.md`。
+
+### 114.1 【中危】CWE-918 服务端请求伪造 —— 校验与使用分离
+
+`feed_agg.py::_safe_url()` 有三层防护（scheme 白名单 → 主机名黑名单 → `getaddrinfo`
+解析后判私网），但只在**抓取前**查一次；真正发请求的 `feedparser.parse(url)` **自建
+urllib 会话**——重新解析 DNS（重绑定）+ **自动跟随 3xx**。攻击链：公网 RSS 地址通过校验
+→ 回 `302 Location: http://100.100.100.200/`（阿里云元数据）或内网 Redis/MySQL/PG
+→ 跳转目标**从不被复检**。触发入口 `/api/feed/circle` 是**匿名 GET**。
+
+同仓库 `seo_push.py:91-113` / `oauth.py:22-28` **早有标准答案**（`_NoRedirect`），
+`feed_agg` 当时没复用。修法：自建禁重定向 opener 抓字节再喂 feedparser（**顺带消除
+重复解析 DNS 的重绑定窗口**）。守卫：AST 断言全文件不得再出现裸 `feedparser.parse(URL)`
+——**该守卫在修复过程中真实抓出了第三处漏改**。
+
+### 114.2 【中危】CWE-79 存储型 XSS —— 条目链接无协议白名单
+
+RSS 条目的 `<link>` 此前**只判空**，`javascript:fetch(...)` 原样进 `SquareView.vue` 的
+`:href`。`target="_blank"` **不阻止** `javascript:` 执行，`rel="noopener"` 只隔离
+`window.opener`。加重情节：恶意 URL 进 `_CACHE` 且 **TTL 900 秒**，撤掉内容后仍持续。
+修法：`_safe_item_url()` 只放行 http/https 且要求 netloc 非空。
+
+### 114.3 【中危】CWE-312 明文存储敏感信息 —— SMTP 授权码
+
+`admin/settings.py` 把 SMTP 授权码**明文**写进 Setting 表，而 `admin/seo.py:12-14` 的
+模块注释**早已写明**「不照抄 `mail_password` 的明文落库错误做法」——备份密钥与 SEO token
+均已 Fernet 加密，唯独它是历史遗漏。修法：写入侧 `encrypt_secret()`、读取侧
+`decrypt_secret()`（对无 `bkenc$` 前缀值原样返回 → **存量明文不迁移也能读**），
+另附幂等迁移脚本 `tools/migrate_mail_password.py`（加密后立刻回读比对）。
+
+**审计副产品**：由此确认**本项目 `audit.py` 中不存在 `_redact()` 函数**（`_redact()` 实际在
+`seo_push.py:148` 与 `mcp_diag.py:44`）——此前项目笔记记错了，已订正。
+
+## R115 · v3.25.16（路径穿越 / 放大 DoS / 可见性收口 / 健壮性）
+
+### 115.1 【中危】CWE-22 路径穿越 —— OG 封面
+
+`og_image.py::_local_cover_path` 三条分支全可穿越，**兜底分支 `c` 完全用户控制、连前缀都
+不要求**（`../config.py` → `_HERE/static/../config.py`）。实测逃逸范围**可到文件系统根**
+（`../`×8 能读到 `E:/Windows/win.ini`）。三道闸门使其维持低危：`cover` 来自后台表单（需
+管理员）、`/api/og/post/<slug>.png` 不接受 URL 参数、`Image.open()` 解不出非图片内容。
+
+修法两处教训（均已写进代码注释）：**基目录不能取 `_HERE`**（否则 `static/../config.py`
+归一后仍在 `myblog/` 内 → 放行，第一版就是这么错的，测试当场变红才发现）；
+前缀判断必须用 `startswith(root + os.sep)` 而非 `startswith(root)`（防同前缀兄弟目录）。
+最终收敛为单一 root = `_HERE/static`，并**保留 `uploads/` 前缀**——它是
+`routes.py` sitemap 白名单明文承认的输入契约（`:743`「与 `_local_cover_path()` 同一口径」），
+删掉属行为收窄而非漏洞修复。
+
+### 115.2 【中危】CWE-400 无界资源消耗 —— 通知扇出
+
+匿名可提交 **5MB** 评论正文 → `notify_mentioned()` 把正文里所有互不相同的 `@名字` 逐个
+`User.query` 并各插一条 `Notification` → **单条评论放大成上万次 SELECT + 上万行通知**。
+评论接口限流（10/分钟）挡得住条数、**挡不住单条超长**。修法：评论限 2000/500 字（超出**拒绝**
+而非截断，截断会让用户以为提交成功却丢内容）+ `@提及` 去重后最多取 20 个。
+
+### 115.3 【低危】CWE-863 可见性收口 3 处
+
+`api/stats.py`、`api/reactions.py`、`api/ai.py` 均为**裸查 `Post`**（`Post.query.filter_by(slug=...)`
+或只按 `Comment.id` 取），绕开 `visible_posts_query()`。不泄露正文，但构成「私密/未发布文章
+存在性」的侧信道。**这是同一问题的第 5、6、7 次复发**，已全部收口。
+
+### 115.4 【低危】CWE-248 未捕获异常 —— 匿名 500
+
+`hmac.compare_digest(str, str)` 对非 ASCII 抛 `TypeError`，外层只捕获
+`(HTTPException, RedisError)` → 匿名发 `Authorization: Bearer 💥` 即得 500。
+修法：统一 `encode("utf-8","surrogatepass")` 后按 bytes 比对（恒定时间且不挑字符集）。
+
+### 115.5 【功能缺陷】`/mcp-write` 未列入 CSRF 豁免 → 端点实际不可用
+
+`app.py` 的 CSRF 豁免清单只列了 `/mcp`。而 `/mcp-write` 同样**自带 Bearer 鉴权、非会话**
+（不依赖 Cookie），合法 MCP 客户端拿不到 CSRF token → POST 被 403 拦死。
+已加入豁免清单（两端各自精确列出，不用 `startswith` 粗放）。
+
+### 115.6 误报记录：2FA「完整绕过」不成立
+
+审计组报出**严重**级 2FA 绕过并附可执行 PoC。主审复现后**驳回**：
+
+| 场景 | 实测 |
+|---|---|
+| 闸门开启 + 已绑定 + 仅密码会话 | `enroll` → **401**，`secret_enc`/`enabled` **零变化** |
+| 同一会话访问 `/admin/` | 401/302/403 |
+| **全局开关关闭**时 `twofa.enroll(user)` | 返回非 `ok`，绑定**零变化** |
+
+根因是把 `twofa_enabled`（**默认 false**）的状态当成「2FA 已启用」。**教训：有 PoC ≠ 成立。**
+
+### 115.7 本轮沉淀的三条审计纪律
+
+1. **解析模型须等于执行模型**——正则扫文本 ≠ Python 注释语义；字符串前缀 ≠ 文件系统语义。
+2. **判据须用已知存在的目标，且正反双向**——「已知存在确能穿透（没拦漏）+ 已知应拒确被拒
+   （没拦错）+ 合法目标确能放行且不随配置漂移失效」。只有反向用例时，「永远返回 None」
+   的过滤器也能全绿。
+3. **报告须覆盖被测配置空间而非单点**——同一份修正在不同 root 取值下行为不同，
+   只测一种取值得出的「已修复」在另一种取值下可能静默失效。
+
+**核心一句**：**修复本身也要测回归，否则「修好了」和「改坏了」在报告里长得一模一样。**

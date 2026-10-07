@@ -4,7 +4,7 @@
 
 from flask import request, jsonify, current_app
 
-from .common import (api_bp, rate_limit, client_key, Post)
+from .common import api_bp, rate_limit, client_key, visible_posts_query
 import stats  # 顶层 stats 模块（myblog/stats.py）：record_visit / record_search / record_read / compute_summary / compute_trend / client_ip
 import datetime
 import urllib.parse
@@ -60,7 +60,10 @@ def stats_read():
         return jsonify({"ok": True, "skipped": True})
     data = request.get_json(silent=True) or {}
     slug = (data.get("slug") or "").strip()
-    p = Post.query.filter_by(slug=slug).first() if slug else None
+    # R114 审计：可见性只能由 visible_posts_query() 判定。
+    # 此前裸 `Post.query.filter_by(slug=...)` → 匿名可给私密/未发布/回收站文章
+    # 累加阅读量（借 slug 探测文章是否存在）。
+    p = visible_posts_query().filter_by(slug=slug).first() if slug else None
     if p:
         stats.record_read(p.id, stats.client_ip())
     return jsonify({"ok": True})

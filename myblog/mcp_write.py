@@ -59,7 +59,10 @@ def _token_ok():
     auth = request.headers.get("Authorization", "")
     if not auth.startswith("Bearer "):
         return False
-    return hmac.compare_digest(auth[7:].strip(), expected)
+    # R114 审计：同 mcp_diag —— 非 ASCII token 会让 compare_digest 抛
+    # TypeError（未被 except 捕获 → 500）。编码成 bytes 再比，恒定时间且不挑字符集。
+    token = auth[7:].strip().encode("utf-8", "surrogatepass")
+    return hmac.compare_digest(token, expected.encode("utf-8"))
 
 
 def _origin_ok():

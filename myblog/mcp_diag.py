@@ -34,10 +34,17 @@ SERVER_INFO = {"name": "llhhy-blog-diag", "version": "1.0.0"}
 # 日志脱敏：把这些值统一替换成 ***，避免密钥经 MCP 外泄
 _REDACT_RULES = [
     (re.compile(r"(?i)(secret[_-]?key\s*[=:]\s*)([^\s,;'\"]+)"), r"\1***"),
-    (re.compile(r"(?i)(password\s*[=:]\s*)([^\s,;'\"]+)"), r"\1***"),
+    (re.compile(r"(?i)((?:pass(?:word|wd)|pwd)\s*[=:]\s*)([^\s,;'\"]+)"), r"\1***"),
     (re.compile(r"(?i)(token\s*[=:]\s*)([^\s,;'\"]+)"), r"\1***"),
     (re.compile(r"(?i)(api[_-]?key\s*[=:]\s*)([^\s,;'\"]+)"), r"\1***"),
     (re.compile(r"(?i)(bearer\s+)([A-Za-z0-9._\-]{8,})"), r"\1***"),
+    # R115 审计：上面 5 条都要求「key 与值之间只有空白」，于是**裸令牌**漏网——
+    # 而日志里 `用 token sk-abc123... 调接口` 这种写法极常见。补常见前缀的裸值规则。
+    (re.compile(r"\b(sk-[A-Za-z0-9_\-]{16,})"), "sk-***"),
+    (re.compile(r"\b(gh[pousr]_[A-Za-z0-9]{16,})"), "gh*_***"),
+    (re.compile(r"\b(AKIA[0-9A-Z]{12,})"), "AKIA***"),
+    # Fernet 密文（bkenc$ 前缀）本体也不该出现在日志/诊断输出里
+    (re.compile(r"\b(bkenc\$[A-Za-z0-9_\-]{20,})"), "bkenc$***"),
 ]
 
 
@@ -58,7 +65,13 @@ def _token_ok():
     auth = request.headers.get("Authorization", "")
     if not auth.startswith("Bearer "):
         return False
-    return hmac.compare_digest(auth[7:].strip(), expected)
+    # R114 审计：`hmac.compare_digest(str, str)` 遇到**非 ASCII** 会抛
+    # `TypeError: comparing strings with non-ASCII characters is not supported`，
+    # 而本函数只被 `except (HTTPException, redis.RedisError)` 包裹 → 匿名发一个
+    # `Authorization: Bearer 💥` 就能拿到 **500**（未审计错误路径 + 错误信息分类错乱）。
+    # 统一按 UTF-8 编码成 bytes 再比：既能处理任意字节，又是恒定时间。
+    token = auth[7:].strip().encode("utf-8", "surrogatepass")
+    return hmac.compare_digest(token, expected.encode("utf-8"))
 
 
 def _origin_ok():

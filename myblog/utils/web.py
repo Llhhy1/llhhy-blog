@@ -20,6 +20,10 @@ def notify_mentioned(content, link, from_author, post_id=None):
     try:
         from models import db, User, Notification
         names = set(re.findall(r"@([A-Za-z0-9_\u4e00-\u9fa5]{2,40})", content or ""))
+        # R114 审计：@提及**必须限量**。此前无上限，匿名可提交 5MB 正文
+        # 塞满互不相同的 @名字 → 单次请求扇出上万次 User.query + 上万条
+        # Notification 行 = 匿名放大的 DoS + 通知表膨胀。
+        names = list(names)[:20]
         if not names:
             return
         for name in names:

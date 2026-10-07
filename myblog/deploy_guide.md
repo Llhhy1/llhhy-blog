@@ -566,6 +566,27 @@ supervisorctl status
 
 > ⚠️ **服务器上的 `update.sh` / `deploy.sh` 也务必与最新 Release 同版**：脚本经历过「假成功不覆盖 / 校验误报 / 无法自动重启」多轮加固，升级前先从最新 Release 覆盖一次脚本，再跑一键更新。
 
+> **v3.25.16（4.0 前全量安全审计修复 · 审计轮 R114+R115）升级要点**：
+>
+> - **无表结构变更、无迁移**（head 仍 `c7a2f19b4d30`）、无新增依赖、无新增**必填**环境变量。
+>   纯后端改动，**前端产物无变化**。
+> - 修的是**当前线上正在生效**的缺陷：友链 RSS 聚合的 **SSRF**（CWE-918，触发入口
+>   `/api/feed/circle` 是**匿名**的）与条目 **`javascript:` 存储型 XSS**（CWE-79）；
+>   **SMTP 授权码明文落库**（CWE-312）；OG 封面**路径穿越**（CWE-22，可逃逸到文件系统根）；
+>   评论**无长度上限导致的通知扇出 DoS**（CWE-400）。
+> - ⚠️ **升级后必做一步**：新写入的 SMTP 密码已是密文，**存量明文仍在库里**，用新增的
+>   幂等脚本转一次（已是 `bkenc$` 会跳过，可重复跑；加密后立刻回读比对，不一致即放弃写入）：
+>   ```bash
+>   cd /www/wwwroot/myblog
+>   set -a; . /www/server/python_project/vhost/env/myblog.env; set +a
+>   FLASK_APP=app:create_app /www/server/pyporject_evn/blog_env/bin/python tools/migrate_mail_password.py
+>   ```
+>   **另注**：明文曾存在于历史备份文件里，请按需清理过期本地备份或**轮换 SMTP 授权码**。
+> - 附带修复：`/mcp-write` 此前**未列入 CSRF 豁免名单** → 持有合法 Bearer 的 MCP 客户端
+>   POST 会被全局 CSRF 拦成 **403**，等于该端点不可用；现已豁免（与 `/mcp` 同理：
+>   自带 Bearer 鉴权、非会话）。若你的 MCP 客户端此前一直在报 403，升级后即恢复。
+> - 全量报告：`docs/audit/2026-10-07-full-audit-report.md`。
+
 > **v3.25.15（让 `GH_MIRROR` 真的用上 · 镜像优先）升级要点**：
 >
 > - **纯脚本变更**（`update.sh`），无迁移、无新增依赖、前端产物无变化。

@@ -2,17 +2,24 @@
 
 安全措施：
 - SSRF 防护：仅允许 http/https，拦截私有地址（127.0.0.1 / 192.168.* / 10.* / 172.16-31.* / 169.254.*）。
+  **R114 审计 加固**：`_safe_url()` 只在抓取**前**校验一次，而 `feedparser.parse(url)`
+  会自建 urllib 会话重新解析 DNS **并自动跟随 3xx跳转** —— 于是「首查公网 IP 放行 →
+  302 跳内网 / DNS 重绑定」两条绕过都成立。现改为**我们自己用禁重定向的opener 抓取**，
+  跳转一律不跟随（重定向响应视为失败），再把字节喂给 feedparser 解析。
+- 条目链接协议白名单：**R114 审计** —— RSS 条目的 `<link>` 此前只判空，
+  `javascript:...` 会原样进前端 `:href`（存储型 XSS）。现只放行 http/https。
 - 外部内容清洗：摘要 HTML 经 bleach 白名单清理，避免 XSS。
 - 缓存：聚合结果内存缓存 15 分钟，避免每次请求都抓取（慢且易被限流）。
 """
-import sys
+import io
 import time
-import socket
 import urllib.parse
+import urllib.request
+import urllib.error
 import datetime
 
 from models import FriendLink
-from utils import clean_html, fmt_bj, to_beijing, BEIJING_TZ
+from utils import clean_html, fmt_bj
 import logging
 
 # v3.23.0：print → logger（格式/级别见 logging_setup）
@@ -99,6 +106,66 @@ def _safe_url(url):
     return True
 
 
+# ---------- R114 审计：禁重定向抓取器（堵 SSRF 绕过）----------
+# 为什么不能直接 `feedparser.parse(url)`：它自建 urllib 会话，会**重新解析 DNS**
+# （`_safe_url()` 的预检查结果因此失效 → DNS 重绑定）**并自动跟随 3xx**
+# （攻击者用公网 302 跳 `http://100.100.100.200/` 元数据或内网服务，
+#   跳转变量从不被复检）。所以抓取必须由我们自己发起、且**不跟随任何跳转**。
+_FEED_MAX_BYTES = 5 * 1024 * 1024  # 单个 RSS 上限 5MB，防内存打爆
+
+
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    """任何 3xx 都**不跟随**（返回 None 使 urllib 抛 HTTPError）。
+
+    与 `seo_push.py` / `oauth.py` 用的是同一套手法——本仓库已有标准答案。
+    """
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):  # noqa: ARG002 —— 接口强制签名
+        return None
+
+
+def _fetch_feed_bytes(url, timeout):
+    """抓取 RSS 字节：禁重定向 + 限大小。失败抛异常，由调用方按「跳过该源」处理。
+
+    调用方**必须**先过 `_safe_url()`；这里不再重复解析 DNS（正是重复解析给了
+    重绑定窗口）。禁重定向已把「跳转绕过」彻底关掉。
+    """
+    opener = urllib.request.build_opener(_NoRedirect)
+    req = urllib.request.Request(url, headers={
+        "User-Agent": "llhhy-blog-feed-aggregator/1.0",
+        "Accept": "application/rss+xml, application/atom+xml, application/xml, text/xml, */*",
+    })
+    with opener.open(req, timeout=timeout) as resp:
+        # 只读 Content-Length 声明的长度做上限控制（不信任，仅用于提前拒绝）
+        try:
+            declared = int(resp.headers.get("Content-Length") or 0)
+        except (TypeError, ValueError):
+            declared = 0
+        if declared > _FEED_MAX_BYTES:
+            raise ValueError("RSS 响应体超过 %d 字节上限" % _FEED_MAX_BYTES)
+        return resp.read(_FEED_MAX_BYTES + 1)[:_FEED_MAX_BYTES]
+
+
+def _safe_item_url(href):
+    """RSS **条目**链接的协议白名单（R114 审计）。
+
+    `_safe_url()` 只管 RSS **源地址**的 SSRF，管不到条目里的 `<link>`。
+    此前只判空，`javascript:fetch(...)` 会原样进前端 `:href` → 存储型 XSS
+    （`target="_blank"` 不阻止 `javascript:` 执行）。这里只放行 http/https。
+    """
+    try:
+        p = urllib.parse.urlparse(href)
+    except (ValueError, TypeError):
+        # urlparse 对畸形 IPv6 字面量（如 "http://[::1"）抛 ValueError，
+        # 非字符串入参抛 TypeError —— 不需要裸 except Exception。
+        return ""
+    if p.scheme.lower() not in ("http", "https"):
+        return ""
+    if not p.netloc:
+        return ""
+    return href
+
+
 def _safe_url_fail_reason(url):
     """返回 _safe_url 拒绝的原因（仅供日志排查用，与 _safe_url 判定逻辑一一对应）。"""
     try:
@@ -150,7 +217,9 @@ def validate_feed_url(url, timeout=8):
     _sock.setdefaulttimeout(timeout)
     try:
         import feedparser
-        parsed = feedparser.parse(url)
+        # R114 审计：与 get_circle_feed 同一手法——自己抓（禁重定向+限大小）
+        # 再喂 feedparser。`feedparser.parse(url)` 会跟随 302 绕过私网过滤。
+        parsed = feedparser.parse(io.BytesIO(_fetch_feed_bytes(url, timeout=timeout)))
         if getattr(parsed, "bozo", 0) and not parsed.entries:
             return False, "非合法 RSS/Atom（解析失败）"
         if not parsed.entries:
@@ -225,7 +294,11 @@ def get_circle_feed(force=False):
                 _old_to_src = _sock_agg.getdefaulttimeout()
                 _sock_agg.setdefaulttimeout(12)
                 try:
-                    parsed = feedparser.parse(link.rss_url)
+                    # R114 审计：**自己抓**（禁重定向 + 限大小），再把字节喂给 feedparser。
+                    # 不再 `feedparser.parse(url)`——那会让它自建会话重新解析 DNS 并跟随 302，
+                    # 把上面 `_safe_url()` 的私网过滤整条绕开。
+                    _raw = _fetch_feed_bytes(link.rss_url, timeout=12)
+                    parsed = feedparser.parse(io.BytesIO(_raw))
                 finally:
                     _sock_agg.setdefaulttimeout(_old_to_src)
             except ImportError:
@@ -257,7 +330,9 @@ def get_circle_feed(force=False):
             diag["per_link"].append(rec)
             for e in entries[:10]:
                 title = (e.get("title") or "").strip()
-                href = (e.get("link") or "").strip()
+                # R114 审计：条目链接必须过协议白名单。
+                # 此前只判空 → `javascript:...` 原样进前端 `:href`（存储型 XSS）。
+                href = _safe_item_url((e.get("link") or "").strip())
                 if not (title and href):
                     continue
                 summary = ""

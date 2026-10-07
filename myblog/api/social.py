@@ -66,6 +66,9 @@ def comment_moment(mid):
         return jsonify({"error": "评论过于频繁，请稍后再试"}), 429
     data = request.get_json(silent=True) or request.form
     content = (data.get("content") or "").strip()
+    # R114 审计：限长，防「一条评论扇出上千条 @提及通知」的匿名 DoS
+    if len(content) > 500:
+        return jsonify({"error": "评论最多 500 字"}), 400
     author = ""
     u = _current_user()
     if u:

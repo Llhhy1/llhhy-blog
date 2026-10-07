@@ -110,6 +110,15 @@ def package_backend(version):
         _rebuild_script = os.path.join(ROOT, "tools", "rebuild_fts.py")
         if os.path.exists(_rebuild_script):
             zf.write(_rebuild_script, os.path.join("myblog", "tools", "rebuild_fts.py"))
+        # v3.25.17：把 SMTP 密码明文→密文的一次性迁移脚本也随包分发。
+        # R115 审计把 mail_password 改成 Fernet 密文写入，但**存量明文仍在库里**，
+        # 需要站点侧跑一次迁移 —— 脚本不在包内的话，升级说明里让用户「跑 tools/xxx.py」
+        # 就是空指针（v3.25.16 首次发布时踩过：脚本在仓库根 tools/，未进包）。
+        # 同样只挑这一个，绝不把开发/CI 工具带上线。
+        _migrate_script = os.path.join(ROOT, "tools", "migrate_mail_password.py")
+        if os.path.exists(_migrate_script):
+            zf.write(_migrate_script,
+                     os.path.join("myblog", "tools", "migrate_mail_password.py"))
     # 校验
     with zipfile.ZipFile(out) as zf:
         names = zf.namelist()

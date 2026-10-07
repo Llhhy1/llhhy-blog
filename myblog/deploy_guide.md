@@ -581,6 +581,9 @@ supervisorctl status
 >   set -a; . /www/server/python_project/vhost/env/myblog.env; set +a
 >   FLASK_APP=app:create_app /www/server/pyporject_evn/blog_env/bin/python tools/migrate_mail_password.py
 >   ```
+>   ⚠️ **v3.25.16 的包里不含该脚本**（当时 `package.py` 只白名单了 `rebuild_fts.py`，
+>   已于 `package.py` 修正，**v3.25.17 起随包分发**）。v3.25.16 升级时若要跑迁移，
+>   请从仓库 `tools/migrate_mail_password.py` 手动上传到站点 `tools/` 再执行。
 >   **另注**：明文曾存在于历史备份文件里，请按需清理过期本地备份或**轮换 SMTP 授权码**。
 > - 附带修复：`/mcp-write` 此前**未列入 CSRF 豁免名单** → 持有合法 Bearer 的 MCP 客户端
 >   POST 会被全局 CSRF 拦成 **403**，等于该端点不可用；现已豁免（与 `/mcp` 同理：

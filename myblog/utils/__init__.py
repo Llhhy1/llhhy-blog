@@ -74,5 +74,6 @@ from .settings import (  # noqa: F401
 )
 from .web import (  # noqa: F401
     safe_redirect,
+    is_http_url,
     notify_mentioned,
 )

@@ -12,6 +12,27 @@ def safe_redirect(target, default="/"):
     return default
 
 
+def is_http_url(url):
+    """是否可以**直接放进 href 的外站地址**：仅放行 http/https 绝对 URL（v4.0.0）。
+
+    为什么外链入口要单独判一次：入口地址由后台填写、前台用 ``:href`` 绑定，
+    ``javascript:`` / ``data:`` 这类 scheme 会被浏览器当脚本执行 —— 即**存储型 XSS**。
+    只有超管能填不等于可以不校验（手滑、被注入、迁移脏数据都会中招），
+    且这类错误**不报错**，只会安静地在访客浏览器里跑起来。
+
+    同时拒绝协议相对地址 ``//evil.com``：它会继承本站协议并指向外域，
+    既不符合「外站入口」的意图，也不利于审计。
+    """
+    from urllib.parse import urlparse
+    v = (url or "").strip()
+    if not v:
+        return False
+    if any(ch.isspace() for ch in v):
+        return False
+    p = urlparse(v)
+    return p.scheme in ("http", "https") and bool((p.hostname or "").strip())
+
+
 def notify_mentioned(content, link, from_author, post_id=None):
     """解析评论/动态内容里的 @username，给被提及的注册用户生成站内通知。
     - content: 评论原文；link: 点击通知跳转地址；from_author: 提及者昵称（文案用）

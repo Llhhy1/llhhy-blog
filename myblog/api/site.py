@@ -8,6 +8,26 @@ from .common import (api_bp, db, Post, Category, Tag, Comment, FriendLink, Setti
 from themes import current_theme
 import stats  # myblog/stats.py：client_ip（友链申请归属地）
 
+def _public_entry(s):
+    """前台「自定义外部入口」（v4.0.0）——默认指向百宝箱子站，后台可改名/改址/关掉。
+
+    **地址非法就当作未配置**（`enabled=False` + 空 url），而不是原样输出：
+    这个值是后台填的、前台用 ``:href`` 绑的，``javascript:`` 之类 scheme 会在访客
+    浏览器里执行（存储型 XSS）。宁可入口消失，也不输出一个危险的 href ——
+    入口消失是可见的、好修的；XSS 是静默的。
+    """
+    from utils import flag_bool, is_http_url
+    url = (s.get("entry_url") or "").strip()
+    if not is_http_url(url):
+        return {"enabled": False, "label": "", "url": "", "icon": ""}
+    return {
+        "enabled": flag_bool("entry_enabled", default=False),
+        "label": (s.get("entry_label") or "").strip()[:20],
+        "url": url,
+        "icon": (s.get("entry_icon") or "").strip()[:8],
+    }
+
+
 # ---------- 站点公共信息（导航 / 页脚 / 侧边栏用）----------
 @api_bp.route("/site")
 def site():
@@ -31,6 +51,8 @@ def site():
         "custom_css": s.get("custom_css", ""),
         "reward_qr_default": s.get("reward_qr_default", ""),
         "site_lang": s.get("site_lang", "zh"),
+        # v4.0.0：前台自定义外链入口（后台可配；地址非法则 enabled=false）
+        "entry": _public_entry(s),
         # v3.16.0 主题中心：当前激活主题的完整 token（亮/暗），前台据此整体换肤
         "theme_pack": current_theme()["pack_id"],
         "theme_tokens": current_theme()["light"],

@@ -47,6 +47,27 @@
     <label for="beian_code">页脚备案号（ICP 备案码，如「京ICP备12345678号-1」；留空则不显示）</label>
     <input id="beian_code" type="text" name="beian_code" value="{{ settings.beian_code }}">
 
+    <label style="margin-top:24px;font-size:15px;color:var(--accent);">🧰 v4.0.0 自定义外部入口</label>
+    <p style="color:var(--muted,#888);font-size:13px;margin:4px 0 10px;">
+      在前台导航栏（含移动端抽屉菜单）加一个指向<b>外部站点</b>的入口，默认指向百宝箱子站。
+      名称、地址、图标都能改，也可以整个关掉。地址只能是 http/https 开头的完整地址 ——
+      其它协议（<code>javascript:</code> 等）会被拒绝，因为它是前台链接的直接来源。
+    </p>
+
+    <label class="checkbox-row">
+      <input type="checkbox" name="entry_enabled" {{ 'checked' if (settings.entry_enabled or 'true')|lower == 'true' }}>
+      <span>显示这个入口（取消勾选则前台不出现，设置保留）</span>
+    </label>
+
+    <label for="entry_label">入口名称（显示在前台导航，建议 2~6 字）</label>
+    <input id="entry_label" type="text" name="entry_label" value="{{ settings.entry_label or '' }}" placeholder="百宝箱" maxlength="20">
+
+    <label for="entry_url">入口地址（必须以 http:// 或 https:// 开头）</label>
+    <input id="entry_url" type="url" name="entry_url" value="{{ settings.entry_url or '' }}" placeholder="https://box.llhhy.cn" inputmode="url" autocomplete="url">
+
+    <label for="entry_icon">入口图标（一个 emoji，留空则用默认 🧰）</label>
+    <input id="entry_icon" type="text" name="entry_icon" value="{{ settings.entry_icon or '' }}" placeholder="🧰" maxlength="8">
+
     <label for="accent_color">站点主题色（导航高亮、按钮、链接、时间线圆点等都会跟随这个颜色）</label>
     <input id="accent_color" type="color" name="accent_color" value="{{ settings.accent_color or '#1a73e8' }}" style="width:60px;height:38px;padding:2px;cursor:pointer;">
 

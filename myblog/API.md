@@ -145,6 +145,11 @@ myblog/
 
 - 鉴权：公开
 - 成功：`200 {"site_name": "...", "about_content": "...", "allow_register": true, "announcements": [...]}` 等
+- v4.0.0 新增 `entry` —— 前台「自定义外部入口」（默认指向百宝箱子站，后台「站点设置」可改）：
+  `{"enabled": true, "label": "百宝箱", "url": "https://box.llhhy.cn", "icon": "🧰"}`。
+  ⚠️ `url` **只可能是 http/https 绝对地址**：其它 scheme（`javascript:`、`data:`、协议相对 `//`）
+  一律视为未配置，`enabled=false` 且 `url` 为空 —— 这个值是前台 `:href` 的直接来源，
+  放过去就是存储型 XSS。
 
 ### `GET /api/links` — 友情链接列表
 

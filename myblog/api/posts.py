@@ -10,15 +10,22 @@ from markupsafe import escape
 
 logger = logging.getLogger(__name__)
 
-from .common import (api_bp, db, Post, Category, Tag, Comment, ReadLog, Setting, User, visible_posts_query, _current_user_or_none, _post_summary, _comment, _render_html, rate_limit, client_key, lang_dedup)
+from .common import (api_bp, db, Post, PostTag, Category, Tag, Comment, ReadLog, Setting, User, visible_posts_query, _current_user_or_none, _post_summary, _comment, _render_html, rate_limit, client_key, lang_dedup, paged_posts, _DISPLAY_ORDER)
 from models import hreflang_alternates
 import stats  # myblog/stats.py：client_ip / cached_region（浏览量去重与评论归属地）
 from utils import fmt_bj, to_beijing, BEIJING_TZ, site_base
-from _time import utcnow
 
 # ---------- 文章列表（分页 + 搜索）----------
+# v4.0.0：匿名列表接口限流（审计【低危 7】）。此前首页列表**匿名且无限流**，
+# 而它又是全站 QPS 最高的一类端点，任意脚本都能无成本地把全表文章刷出来。
+# 阈值按「真人翻页」给足余量：60 秒 120 次 ≈ 每秒 2 次，正常浏览/翻页打不到。
+_LIST_RATE = (120, 60)
+
+
 @api_bp.route("/posts")
 def posts():
+    if not rate_limit(client_key("api_posts"), limit=_LIST_RATE[0], window=_LIST_RATE[1]):
+        return jsonify({"error": "请求过于频繁，请稍后再试"}), 429
     page = request.args.get("page", 1, type=int)
     per_page = current_app.config.get("POSTS_PER_PAGE", 8)
     q = (request.args.get("q") or "").strip()
@@ -29,17 +36,15 @@ def posts():
         query = query.filter(
             db.or_(Post.title.ilike(like), Post.summary.ilike(like), Post.content.ilike(like))
         )
-    query = query.order_by(Post.is_pinned.desc(), Post.created_at.desc())
-    # v3.21.0 内容多语言：?lang= 下按语言去重，避免同组多语言重复出现
+    # v3.21.0 内容多语言：?lang= 下按语言去重，避免同组多语言重复出现。
+    # v4.0.0：去重与分页一起在 SQL 侧完成（见 common.paged_posts），
+    # 不再 `.all()` 全量物化后在 Python 切片。
     lang = (request.args.get("lang") or "").strip()
-    items_all = lang_dedup(query.all(), lang)
-    total = len(items_all)
+    page_items, total = paged_posts(query, page=page, per_page=per_page, lang=lang)
     pages = (total + per_page - 1) // per_page if per_page else 1
-    start = (page - 1) * per_page
-    page_items = items_all[start:start + per_page]
     return jsonify({
         "items": [_post_summary(p) for p in page_items],
-        "page": page,
+        "page": max(1, page or 1),
         "pages": pages,
         "total": total,
         "per_page": per_page,
@@ -100,19 +105,50 @@ def post_detail(slug):
     return resp
 
 # ---------- 分类 / 标签 ----------
+def _count_by(assoc_col, visible_only):
+    """返回 {tag_id: (文章数, 总阅读量)} —— 一条 GROUP BY 取代 N+1 次惰性加载。
+
+    v4.0.0（审计【低危 7】）：原实现逐个 `for t in Tag.query.all(): len(t.posts)`，
+    每个标签触发一次 `post_tag` 关联查询 + 一次全量 posts 惰性加载，标签越多越慢，
+    且 `hot-tags` 还会在 Python 里把每篇文章的 ORM 对象都摊开求和。
+
+    `assoc_col` 传 `PostTag.tag_id`；`visible_only=True` 时只统计前台可见文章
+    （与 `visible_posts_query()` 同口径），False 则统计全部（含回收站/隐私，
+    用于 `/api/tags` 保持其历史口径）。
+    """
+    q = db.session.query(
+        assoc_col.label("tid"),
+        db.func.count(db.distinct(PostTag.post_id)).label("n"),
+        db.func.coalesce(db.func.sum(db.func.coalesce(Post.views, 0)), 0).label("v"),
+    ).join(Post, Post.id == PostTag.post_id)
+    if visible_only:
+        q = q.filter(Post.id.in_(visible_posts_query().with_entities(Post.id)))
+    return {r[0]: (r[1], r[2] or 0) for r in q.group_by(assoc_col).all()}
+
+
 @api_bp.route("/categories")
 def categories():
+    if not rate_limit(client_key("api_categories"), limit=_LIST_RATE[0], window=_LIST_RATE[1]):
+        return jsonify({"error": "请求过于频繁，请稍后再试"}), 429
+    # v4.0.0：一条 GROUP BY 取代「每个分类一次 count 查询」的 N+1。
+    # 无可见文章的分类仍要列出（count=0），所以用 dict.get(id, 0) 兜底。
+    counts = dict(visible_posts_query().filter(Post.category_id.isnot(None))
+                  .with_entities(Post.category_id, db.func.count(Post.id))
+                  .group_by(Post.category_id).all())
     return jsonify([
-        {"name": c.name, "slug": c.slug,
-         "count": visible_posts_query().filter_by(category_id=c.id).count()}
+        {"name": c.name, "slug": c.slug, "count": counts.get(c.id, 0)}
         for c in Category.query.order_by(Category.id).all()
     ])
 
 
 @api_bp.route("/tags")
 def tags():
+    if not rate_limit(client_key("api_tags"), limit=_LIST_RATE[0], window=_LIST_RATE[1]):
+        return jsonify({"error": "请求过于频繁，请稍后再试"}), 429
+    # 口径沿用历史行为：`len(t.posts)` 统计的是**全部**文章（含回收站/隐私）。
+    counts = {tid: n for tid, (n, _v) in _count_by(PostTag.tag_id, visible_only=False).items()}
     return jsonify([
-        {"name": t.name, "slug": t.slug, "count": len(t.posts)}
+        {"name": t.name, "slug": t.slug, "count": counts.get(t.id, 0)}
         for t in Tag.query.order_by(Tag.id).all()
     ])
 
@@ -127,25 +163,36 @@ def hot_tags():
     limit = request.args.get("limit", 20, type=int)
     if limit <= 0 or limit > 50:
         limit = 20
+    if not rate_limit(client_key("api_hot_tags"), limit=_LIST_RATE[0], window=_LIST_RATE[1]):
+        return jsonify({"error": "请求过于频繁，请稍后再试"}), 429
+    # v4.0.0：一条聚合查询取代「逐标签惰性加载全部文章再 Python 求和」。
+    agg = _count_by(PostTag.tag_id, visible_only=True)
+    if not agg:
+        return jsonify({"items": []})
+    # 排序前先按 tag id 归位：原实现遍历 `Tag.query.all()`（id 升序），
+    # `rows.sort(key=weight, reverse=True)` 是**稳定排序**，同权重时 id 小的在前。
+    # 这里先排 id 再用稳定排序，保证同权重下的相对顺序与旧实现一致。
+    by_id = {t.id: t for t in Tag.query.filter(Tag.id.in_(list(agg))).all()}
     rows = []
-    for t in Tag.query.all():
-        posts = [p for p in t.posts if not p.in_trash and p.published
-                 and (not p.is_private) and (p.scheduled_at is None or p.scheduled_at <= utcnow())]
-        if not posts:
+    for tid in sorted(by_id):
+        n, views = agg[tid]
+        if n <= 0:
             continue
-        views = sum(p.views or 0 for p in posts)
-        weight = len(posts) * 2 + views // 1000
-        rows.append({"name": t.name, "slug": t.slug, "count": len(posts),
-                     "views": views, "weight": weight})
+        t = by_id[tid]
+        rows.append({"name": t.name, "slug": t.slug, "count": n,
+                     "views": views, "weight": n * 2 + views // 1000})
     rows.sort(key=lambda x: x["weight"], reverse=True)
     return jsonify({"items": rows[:limit]})
 
 
 @api_bp.route("/category/<slug>")
 def posts_by_category(slug):
+    if not rate_limit(client_key("api_by_category"), limit=_LIST_RATE[0], window=_LIST_RATE[1]):
+        return jsonify({"error": "请求过于频繁，请稍后再试"}), 429
     c = Category.query.filter_by(slug=slug).first_or_404()
+    # 分类页语义就是「列出该分类全部文章」，不做分页；物化量由分类自身规模封顶。
     items = visible_posts_query().filter_by(category_id=c.id)\
-        .order_by(Post.is_pinned.desc(), Post.created_at.desc()).all()
+        .order_by(*_DISPLAY_ORDER).all()
     lang = (request.args.get("lang") or "").strip()
     items = lang_dedup(items, lang)
     return jsonify({"name": c.name, "slug": c.slug,
@@ -154,8 +201,10 @@ def posts_by_category(slug):
 
 @api_bp.route("/tag/<slug>")
 def posts_by_tag(slug):
+    if not rate_limit(client_key("api_by_tag"), limit=_LIST_RATE[0], window=_LIST_RATE[1]):
+        return jsonify({"error": "请求过于频繁，请稍后再试"}), 429
     t = Tag.query.filter_by(slug=slug).first_or_404()
-    items = visible_posts_query().filter(Post.tags.any(id=t.id)).order_by(Post.is_pinned.desc(), Post.created_at.desc()).all()
+    items = visible_posts_query().filter(Post.tags.any(id=t.id)).order_by(*_DISPLAY_ORDER).all()
     lang = (request.args.get("lang") or "").strip()
     items = lang_dedup(items, lang)
     return jsonify({"name": t.name, "slug": t.slug,
@@ -227,7 +276,10 @@ def rss_tag(slug):
 # ---------- 归档时间线 ----------
 @api_bp.route("/archive")
 def archive():
-    posts = visible_posts_query().order_by(Post.is_pinned.desc(), Post.created_at.desc()).all()
+    # 归档页语义就是「按月列出全部文章」，无法分页；这里只加匿名限流封住刷取。
+    if not rate_limit(client_key("api_archive"), limit=30, window=60):
+        return jsonify({"error": "请求过于频繁，请稍后再试"}), 429
+    posts = visible_posts_query().order_by(*_DISPLAY_ORDER).all()
     timeline = {}
     for p in posts:
         y = fmt_bj(p.created_at, "%Y")
@@ -458,21 +510,55 @@ def _walk_thread(children, parent_id, depth, out):
 
 
 # ---------- 相关文章推荐（按标签重合度 + 同分类，纯算法零依赖，B1）----------
+def _tag_overlap_subquery(tag_ids, exclude_post_id):
+    """返回「与给定标签集合有交集的 (post_id, 重合数)」聚合子查询。
+
+    一条 `GROUP BY post_id` 取代「把全部文章取出来、逐篇展开标签集合求交集」。
+    """
+    return (db.session.query(PostTag.post_id.label("pid"), db.func.count().label("n"))
+            .filter(PostTag.post_id != exclude_post_id)
+            .filter(PostTag.tag_id.in_(tag_ids))
+            .group_by(PostTag.post_id).subquery())
+
+
+def _category_bonus(category_id):
+    """同分类加 1 分。⚠️ category_id 为空时必须返回常量 0 —— `Post.category_id == None`
+    在 SQLAlchemy 里会编译成 `IS NULL`，会把**所有无分类文章**都算成同分类。"""
+    if not category_id:
+        return 0
+    return db.case((Post.category_id == category_id, 1), else_=0)
+
+
+# 打分榜内部的次级排序：同分时新的在前（与旧 Python `sort(reverse=True)` 同口径），
+# id 兜底保证全序。**不**带 is_pinned —— 推荐位是「相关度」排序，不该被置顶污染。
+_SCORE_TIEBREAK = (Post.created_at.desc(), Post.id.asc())
+
+
 @api_bp.route("/post/<slug>/related")
 def related_posts(slug):
     p = visible_posts_query().filter_by(slug=slug).first_or_404()
-    p_tags = {t.id for t in p.tags}
-    scored = []
-    for c in visible_posts_query().filter(Post.id != p.id).all():
-        c_tags = {t.id for t in c.tags}
-        score = len(p_tags & c_tags)
-        if p.category_id and p.category_id == c.category_id:
-            score += 1
-        if score <= 0:
-            continue
-        scored.append((score, c))
-    scored.sort(key=lambda x: (x[0], x[1].created_at), reverse=True)
-    return jsonify({"items": [_post_summary(c) for _, c in scored[:5]]})
+    if not rate_limit(client_key("api_related"), limit=_LIST_RATE[0], window=_LIST_RATE[1]):
+        return jsonify({"error": "请求过于频繁，请稍后再试"}), 429
+    # v4.0.0（审计【低危 7】）：原实现 `visible_posts_query().filter(Post.id != p.id).all()`
+    # 把**全站可见文章**物化成 ORM 对象（每篇还要惰性加载 tags 集合）再在 Python 打分，
+    # 只为取 5 篇。现在打分整体下推 SQL：标签重合数走聚合子查询、同分类加 1 分走
+    # CASE，数据库只返回 5 行。
+    # score = 标签重合数 + 同分类1分；只取 score > 0 的前 5 篇（与旧实现同口径）。
+    p_tags = [t.id for t in p.tags]
+    if not p_tags and p.category_id is None:
+        return jsonify({"items": []})
+    q = visible_posts_query().filter(Post.id != p.id)
+    if p_tags:
+        ov = _tag_overlap_subquery(p_tags, p.id)
+        q = q.outerjoin(ov, ov.c.pid == Post.id)
+        overlap = db.func.coalesce(ov.c.n, 0)
+    else:
+        overlap = 0
+    score = overlap + _category_bonus(p.category_id)
+    rows = (q.filter(score > 0)
+            .order_by(score.desc(), *_SCORE_TIEBREAK)
+            .limit(5).all())
+    return jsonify({"items": [_post_summary(c) for c in rows]})
 
 
 @api_bp.route("/post/<slug>/also-viewed")
@@ -486,32 +572,39 @@ def also_viewed(slug):
     4. 仅返回前台可见文章，按分数倒序取前 5。
     """
     p = visible_posts_query().filter_by(slug=slug).first_or_404()
-    # 当前文章的访客 IP
-    base_readers = {r.ip for r in ReadLog.query.filter_by(post_id=p.id).all()}
-    scored = {}
-    if base_readers:
-        # 这些访客读过的其它文章
-        other = (ReadLog.query.filter(ReadLog.post_id != p.id,
-                                       ReadLog.ip.in_(list(base_readers)))
-                 .with_entities(ReadLog.post_id).all())
-        for (pid,) in other:
-            scored[pid] = scored.get(pid, 0) + 1
-    # 相似度加权（标签/分类）
-    p_tags = {t.id for t in p.tags}
-    for c in visible_posts_query().filter(Post.id != p.id).all():
-        c_tags = {t.id for t in c.tags}
-        sim = len(p_tags & c_tags)
-        if p.category_id and p.category_id == c.category_id:
-            sim += 1
-        if sim > 0:
-            scored[c.id] = scored.get(c.id, 0) + sim * 0.5
-    # 排序。共读分支（ReadLog.post_id）会把**任意**文章 id 带进候选，其中可能是隐私/
-    # 回收站文章，所以读出时必须按访客可见性过滤；多取名额以补足被过滤掉的项。
-    ranked = [pid for pid, _ in sorted(scored.items(), key=lambda x: x[1], reverse=True)
-              if pid != p.id][:10]
-    by_id = {pp.id: pp for pp in visible_posts_query().filter(Post.id.in_(ranked)).all()}
-    items = [_post_summary(by_id[pid]) for pid in ranked if pid in by_id][:5]
-    return jsonify({"items": items})
+    if not rate_limit(client_key("api_also_viewed"), limit=_LIST_RATE[0], window=_LIST_RATE[1]):
+        return jsonify({"error": "请求过于频繁，请稍后再试"}), 429
+    # v4.0.0（审计【低危 7】）：原实现有两个无上限的物化 ——
+    #   a) `ReadLog.query.filter_by(post_id=p.id).all()`：把本篇**全部**访客 IP 取进内存；
+    #   b) `visible_posts_query().filter(Post.id != p.id).all()`：把全站可见文章取出来求标签交集。
+    # 两者都改成 SQL 聚合：共现计数走 `(post_id, COUNT(*)) GROUP BY`，共读访客集合用
+    # 子查询 `ip IN (SELECT ip FROM read_log WHERE post_id = :pid)` 表达，IP 一行都不进 Python。
+    #
+    # ⚠️ 一处**刻意的行为修正**：旧代码先按 score 取 top10、再按可见性过滤、最后取 top5，
+    # 于是 top10 里若混着不可见文章，最终可能只返回 3 篇。现在可见性是 SQL 的 WHERE 条件，
+    # 取的就是「可见文章里的 top10」，最后 5 篇一定是满的 —— 与函数 docstring 里
+    # 「多取名额以补足被过滤掉的项」的意图一致。
+    p_tags = [t.id for t in p.tags]
+    # 1) 协同过滤：读过本篇的访客还读过哪些文章（ReadLog 有 UNIQUE(post_id, ip)，
+    #    故 COUNT(*) 即「共同阅读人数」，与旧实现逐行 +1 完全等价）。
+    readers = db.session.query(ReadLog.ip).filter(ReadLog.post_id == p.id)
+    co = (db.session.query(ReadLog.post_id.label("pid"), db.func.count().label("n"))
+          .filter(ReadLog.post_id != p.id, ReadLog.ip.in_(readers))
+          .group_by(ReadLog.post_id).subquery())
+
+    q = visible_posts_query().filter(Post.id != p.id).outerjoin(co, co.c.pid == Post.id)
+    if p_tags:
+        ov = _tag_overlap_subquery(p_tags, p.id)
+        q = q.outerjoin(ov, ov.c.pid == Post.id)
+        overlap = db.func.coalesce(ov.c.n, 0)
+    else:
+        overlap = 0
+    # 2) 相似度加权（标签/分类）0.5 倍，冷启动（无共现）时退化为基础相似推荐。
+    score = db.func.coalesce(co.c.n, 0) + (overlap + _category_bonus(p.category_id)) * 0.5
+    rows = (q.filter(score > 0)
+            .order_by(score.desc(), *_SCORE_TIEBREAK)
+            .limit(10).all())
+    return jsonify({"items": [_post_summary(pp) for pp in rows[:5]]})
 # ---------- 全文搜索（FTS5 优先，失败回退 LIKE，B5；v3.0.0 功能3 增加分页 + 高亮）----------
 @api_bp.route("/search")
 def search_api():
@@ -520,6 +613,12 @@ def search_api():
     per_page = request.args.get("per_page", 10, type=int)
     if per_page <= 0 or per_page > 50:
         per_page = 10
+    # v4.0.0（审计【低危 7】）：搜索会打全表 LIKE / 拉 FTS 全量命中，匿名且无限流
+    # 时是最便宜的放大面。搜索比翻页稀疏，阈值给 60 次/60 秒。
+    if not rate_limit(client_key("api_search"), limit=60, window=60):
+        return jsonify({"error": "请求过于频繁，请稍后再试"}), 429
+    if page < 1:
+        page = 1
     if not q:
         return jsonify({"items": [], "total": 0, "pages": 0, "page": page, "engine": "none",
                         "query": ""})
@@ -552,26 +651,37 @@ def search_api():
     # 中文等 FTS 无法分词/无匹配的查询就再也回退不到 LIKE 模糊匹配。
     # 改为 `if ids`：仅在 FTS 真正返回了命中（非空列表）时才用 FTS 结果；
     # 空列表（无命中）或 None（FTS 不可用）都回退到 LIKE 子串匹配（Issue② 修复）。
+    start = (page - 1) * per_page
     if ids:
         # 可见性只能由 `visible_posts_query()` 判定：FTS 索引按 rowid 命中，而索引里
         # 可能存在隐私/回收站/定时未到的行；`_post_summary()` 会把标题、摘要连正文
         # 片段一起返回，漏一次就是正文外泄。保留 FTS 的 rank 顺序。
-        visible = {r[0] for r in visible_posts_query()
-                   .filter(Post.id.in_(ids)).with_entities(Post.id).all()}
-        posts = [db.session.get(Post, i) for i in ids if i in visible]
+        #
+        # v4.0.0（审计【低危 7】）：原来把 `ids` 里每条都 `db.session.get(Post, i)`
+        # 物化成 ORM 对象后再切片 —— 命中多少篇就物化多少篇。现在**只取 id**
+        # （一行两个整数），排好序后按页把这一页的对象取出来，物化量恒为 per_page。
+        visible = [r[0] for r in visible_posts_query()
+                   .filter(Post.id.in_(ids)).with_entities(Post.id).all()]
+        rank = {pid: i for i, pid in enumerate(ids)}
+        visible.sort(key=rank.__getitem__)     # 恢复 FTS rank 顺序
+        total = len(visible)
+        page_ids = visible[start:start + per_page]
+        by_id = {p.id: p for p in Post.query.filter(Post.id.in_(page_ids)).all()} if page_ids else {}
+        posts = [by_id[i] for i in page_ids if i in by_id]
         engine = "fts5"
     else:
         like = f"%{q}%"
-        posts = (visible_posts_query()
-                 .filter(db.or_(Post.title.ilike(like), Post.summary.ilike(like), Post.content.ilike(like)))
-                 .order_by(Post.is_pinned.desc(), Post.created_at.desc()).all())
+        # v4.0.0：LIKE 回退同样改成 SQL 侧分页（原来 `.all()` 全量命中再切片）。
+        query = (visible_posts_query()
+                 .filter(db.or_(Post.title.ilike(like), Post.summary.ilike(like),
+                                Post.content.ilike(like)))
+                 .order_by(*_DISPLAY_ORDER))
+        total = query.count()
+        posts = query.limit(per_page).offset(start).all()
         engine = "like"
-    total = len(posts)
     pages = (total + per_page - 1) // per_page if per_page else 1
-    start = (page - 1) * per_page
-    page_items = posts[start:start + per_page]
     items = []
-    for p in page_items:
+    for p in posts:
         s = _post_summary(p)
         s["highlight"] = make_highlight(p)
         items.append(s)

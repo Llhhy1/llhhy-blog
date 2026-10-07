@@ -539,6 +539,14 @@ supervisorctl status
 1. **备份（最重要）**：到「文件」下载留底：
    - `/www/wwwroot/myblog/data/blog.db`（全部数据）
    - `/www/wwwroot/myblog/static/uploads/`（上传的图片）
+1.1. **v4.0.0 升级要点**（其余步骤与通用流程一致）：
+   - 本版**无表结构变更、无迁移**（Alembic head 仍为 `c7a2f19b4d30`），不需要手工跑 SQL。
+   - 改了 `vue-frontend/src/App.vue` → **必须重新构建前端并一起打包**，否则导航栏的新入口不会出现在页面上
+     （`package.py` 打的是构建产物 `_vite_build30`，不是 src）。
+   - 重启后 `_ensure_settings()` 会自动播种 4 个新设置项（`entry_enabled` / `entry_label` /
+     `entry_url` / `entry_icon`，默认「百宝箱 → https://box.llhhy.cn」），
+     **前台导航会直接多出这个入口**。不想要就去后台「站点设置 → 🧰 自定义外部入口」取消勾选；
+     想指向别的外部站点，改名称/地址/图标即可（地址只接受 http/https）。
 2. **先确认真实运行目录**（避免解压到错误路径）：
    - 宝塔「网站 → Python项目」→ 点该项目 → 看「项目路径」；
    - 或终端执行 `ls -la /www/wwwroot/*/data/blog.db`，数据库在哪，项目就在哪。

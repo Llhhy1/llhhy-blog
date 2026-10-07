@@ -31,7 +31,7 @@ _VER_CHECK_CACHE = {"ts": 0, "latest": ""}
 
 from models import db, Post, Category, Tag, Comment, FriendLink, Setting, User, ROLE_USER, \
     Moment, MomentComment, SocialAccount, Series, Announcement, Guestbook, Subscriber, Notification, \
-    ReadLog, visible_posts_query, LinkApplication, AuditLog, PostHistory, RecycleBin
+    ReadLog, visible_posts_query, LinkApplication, AuditLog, PostHistory, RecycleBin, PostTag
 from utils import (render_markdown, clean_html, render_post_html,
                    rate_limit, client_key, fmt_bj, to_beijing, BEIJING_TZ)
 # 刻意保留的**再导出**：本模块按 docstring 的约定集中存放顶层导入，供各功能模块
@@ -163,6 +163,93 @@ def lang_dedup(posts, lang):
         variant = next((x for x in members if x.lang == lang), None)
         out.append(variant if variant else members[0])
     return out
+
+
+# ---------- v4.0.0：列表分页下推 SQL ----------
+# 展示顺序的唯一真相源。置顶优先 → 时间倒序 → id 兜底。
+# ⚠️ 必须带 `Post.id` 兜底：OFFSET 分页要求**全序**，若两条 (is_pinned, created_at)
+# 完全相同，数据库返回顺序未定义，翻页时同一条可能出现在两页、另一条被跳过。
+_DISPLAY_ORDER = (Post.is_pinned.desc(), Post.created_at.desc(), Post.id.asc())
+
+
+def _translation_group_key():
+    """分组键 SQL 表达式：同 translation_group 一组；无组（独立文章）按 id 自成一組。
+
+    与 Python 版 `lang_dedup()` 的 `p.translation_group or ("__solo__%d" % p.id)` 对齐：
+    空字符串视为无组，用 id 兜底保证独立文章不会互相并组。
+    """
+    return db.func.coalesce(
+        db.func.nullif(Post.translation_group, ""),
+        "solo:" + db.cast(Post.id, db.String),
+    )
+
+
+def paged_posts(query, page=1, per_page=10, lang=""):
+    """把「可见文章查询」按页取出，**SQL 侧 LIMIT/OFFSET，绝不物化全表**。
+
+    返回 `(items, total)`；items 已按展示顺序排好。
+
+    改造动机（审计【低危 7】）：原实现 `lang_dedup(query.all(), lang)` 先把**全部**
+    可见文章物化成 ORM 对象（含 identity map 与关系惰性加载），再在 Python 里切片 ——
+    文章越多越慢、内存无上限。这里把两件事都下推到数据库：
+
+    1. 无 `?lang=`（绝大多数请求）：直接 `LIMIT/OFFSET`，数据库只返回一页。
+    2. 带 `?lang=`：用窗口函数在同组内选出代表行，**同时**把「组在列表中的先后」
+       也算进 SQL —— 否则只能先取全量再分页，等于没改。
+
+    **为什么必须 `FIRST_VALUE` 而不是 `MAX()`**：`lang_dedup()` 的组顺序是「组内
+    首个成员在展示顺序中的位置」，即 (is_pinned, created_at, id) 的**字典序 argmax**。
+    对两列分别取 MAX 会得到 (1, t_late) 这种**不属于任何一行**的组合（首成员是
+    (1, t_early) 时），排序就错了。`FIRST_VALUE(...) OVER (PARTITION BY 组 ORDER BY
+    展示顺序)` 取的正是首成员**同一行**的各列，语义精确等价。
+    """
+    try:
+        page = int(page)
+    except (TypeError, ValueError):
+        page = 1
+    try:
+        per_page = int(per_page)
+    except (TypeError, ValueError):
+        per_page = 10
+    page = max(1, page)
+    per_page = max(1, per_page)
+    offset = (page - 1) * per_page
+
+    if not lang:
+        total = query.count()
+        items = query.order_by(*_DISPLAY_ORDER).limit(per_page).offset(offset).all()
+        return items, total
+
+    grp = _translation_group_key()
+    # 一次聚合同时拿到「文章数」与「组数」（grp 是 `COALESCE(NULLIF(group,''), 'solo:'||id)`，
+    # 独立文章各自成组，故 `组数 == 文章数` ⟺ **每个组恰好一篇** ⟺ 去重是恒等操作）。
+    # 这条判据顺带省掉了「先探一次有没有译文组」的额外查询：直接普通分页即可。
+    rows_n, total = query.with_entities(
+        db.func.count(), db.func.count(db.func.distinct(grp))).one()
+    total = total or 0
+    if not total:
+        return [], 0
+    if rows_n == total:
+        items = query.order_by(*_DISPLAY_ORDER).limit(per_page).offset(offset).all()
+        return items, total
+    disp = list(_DISPLAY_ORDER)
+    # 代表行：优先 lang 命中的成员，其次按展示顺序取首个。
+    rep = [db.case((Post.lang == lang, 0), else_=1)] + disp
+    ranked = query.with_entities(
+        Post.id.label("id"),
+        db.func.row_number().over(partition_by=grp, order_by=rep).label("rn"),
+        db.func.first_value(Post.is_pinned).over(partition_by=grp, order_by=disp).label("g_pinned"),
+        db.func.first_value(Post.created_at).over(partition_by=grp, order_by=disp).label("g_created"),
+        db.func.first_value(Post.id).over(partition_by=grp, order_by=disp).label("g_id"),
+    ).subquery()
+    ids = [r[0] for r in
+           db.session.query(ranked.c.id).filter(ranked.c.rn == 1)
+           .order_by(ranked.c.g_pinned.desc(), ranked.c.g_created.desc(), ranked.c.g_id.asc())
+           .limit(per_page).offset(offset).all()]
+    if not ids:
+        return [], total
+    by_id = {p.id: p for p in Post.query.filter(Post.id.in_(ids)).all()}
+    return [by_id[i] for i in ids if i in by_id], total
 
 
 def _comment(c, depth=0):

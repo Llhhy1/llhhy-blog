@@ -25,6 +25,8 @@
       <router-link to="/tags/hot" @click="drawerOpen = false"><span class="nav-emoji">🔥</span>{{ t('hot_tags') }}</router-link>
       <router-link to="/docs" @click="drawerOpen = false"><span class="nav-emoji">📖</span>{{ t('docs') }}</router-link>
       <router-link to="/guestbook" @click="drawerOpen = false"><span class="nav-emoji">📝</span>{{ t('guestbook') }}</router-link>
+      <!-- v4.0.0：自定义外部入口（后台「站点设置」可改名/改址/关掉） -->
+      <a v-if="siteEntry.on" class="site-entry-link" :href="siteEntry.url" target="_blank" rel="noopener" @click="drawerOpen = false"><span class="nav-emoji">{{ siteEntry.icon }}</span>{{ siteEntry.label }}</a>
       <!-- v3.9.0 M2：插件导航入口（结构化 <a>，不用 v-html） -->
       <template v-for="ni in pluginNav" :key="'drawer-' + ni.label">
         <a :href="ni.href || ni.to" class="plugin-nav-link" @click="drawerOpen = false"><span v-if="ni.icon" class="nav-emoji">{{ ni.icon }}</span>{{ ni.label }}</a>
@@ -64,6 +66,8 @@
         <router-link to="/tags/hot"><span class="nav-emoji">🔥</span>{{ t('hot_tags') }}</router-link>
         <router-link to="/docs"><span class="nav-emoji">📖</span>{{ t('docs') }}</router-link>
         <router-link to="/guestbook"><span class="nav-emoji">📝</span>{{ t('guestbook') }}</router-link>
+        <!-- v4.0.0：自定义外部入口（后台「站点设置」可改名/改址/关掉） -->
+        <a v-if="siteEntry.on" class="site-entry-link" :href="siteEntry.url" target="_blank" rel="noopener"><span class="nav-emoji">{{ siteEntry.icon }}</span>{{ siteEntry.label }}</a>
         <!-- v3.9.0 M2：插件导航入口（结构化 <a>，不用 v-html） -->
         <template v-for="ni in pluginNav" :key="'desk-' + ni.label">
           <a :href="ni.href || ni.to" class="plugin-nav-link"><span v-if="ni.icon" class="nav-emoji">{{ ni.icon }}</span>{{ ni.label }}</a>
@@ -170,7 +174,7 @@
 </template>
 
 <script setup>
-import { onMounted, onBeforeUnmount, ref, h, reactive } from "vue";
+import { onMounted, onBeforeUnmount, ref, h, reactive, computed } from "vue";
 import { useRouter } from "vue-router";
 import { state, initSite, logout, t, setLang, applyActiveTheme, installApp } from "./store.js";
 import { toast } from "./lib/toast.js";
@@ -184,6 +188,13 @@ const pluginFooter = ref([]);  // v3.9.0 插件页脚卡片
 const pluginNav = ref([]);     // v3.9.0 M2 插件导航入口
 const pluginSidebar = ref([]); // v3.9.0 M2 插件侧栏入口
 const pluginHtml = ref([]);    // v3.9.0 M3 插件富文本（已消毒渲染）
+// v4.0.0：前台自定义外链入口（后台「站点设置」配置，默认指向百宝箱子站）。
+// 后端已过滤掉非 http/https 的地址，这里只做判空兜底；外域一律新窗口 + noopener。
+const siteEntry = computed(() => {
+  const e = state.site.entry || {};
+  if (!e.enabled || !e.url) return { on: false, url: "", label: "", icon: "" };
+  return { on: true, url: e.url, label: e.label || "百宝箱", icon: e.icon || "🧰" };
+});
 // v3.9.0 M3 远程预构建组件注册表：name -> 组件定义（由 widget.js 经 window.__pluginRegister 注入）
 const remoteDefs = reactive({});
 const router = useRouter();
@@ -456,6 +467,7 @@ router.afterEach(() => { loadNotifs(); });
   text-decoration: none; font-size: 13px;
 }
 .plugin-nav-link { /* 视觉由全局导航样式兜底 */ }
+.site-entry-link { /* v4.0.0 自定义外部入口：视觉由全局导航样式兜底 */ }
 /* v3.21.0 PWA：可安装提示按钮（与回到顶部同处右下角，置于其上方） */
 #install-app {
   position: fixed;

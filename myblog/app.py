@@ -101,6 +101,14 @@ def _ensure_settings(app):
         "theme_font": "md",         # 字号：sm / md / lg
         "nav_style": "light",       # 前台导航栏样式：light / dark
         "custom_css": "",           # 自定义 CSS（前后台都注入，可写覆盖样式）
+        # ===== v4.0.0 前台「自定义外部入口」 =====
+        # 默认指向百宝箱子站；名称/地址/图标/开关都在后台「站点设置」里改。
+        # ⚠️ 地址**必须**是 http/https 绝对地址 —— 前台用 :href 直接绑定，
+        #    其它 scheme（javascript: 等）会变成存储型 XSS（见 utils.is_http_url）。
+        "entry_enabled": "true",
+        "entry_label": "百宝箱",
+        "entry_url": "https://box.llhhy.cn",
+        "entry_icon": "🧰",
     }
     for k, v in defaults.items():
         if not Setting.query.filter_by(key=k).first():

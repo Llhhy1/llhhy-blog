@@ -194,7 +194,16 @@ def _fetch_feed_bytes(url, timeout):
 
 ### 【低危 7】列表接口 `.all()` 全量物化 + 首页无匿名限流（CWE-400）
 
-`/api/posts`、`/api/moments` 等直接 `.all()` 后在 Python 切片，`per_page` 形同虚设（上限 50 只作用于切片而非查询）。叠加首页**匿名**且**无 `rate_limit`**。**未修**——彻底修需把 `lang_dedup()`/`limit/offset` 下推到 SQL，**语义面较大**，建议在 4.0 开发中一并处理，避免此刻改动影响 `lang_dedup` 的既有行为。
+`/api/posts`、`/api/moments` 等直接 `.all()` 后在 Python 切片，`per_page` 形同虚设（上限 50 只作用于切片而非查询）。叠加首页**匿名**且**无 `rate_limit`**。
+
+> **✅ 2026-10-08 已在 v4.0.0 开发中修复**（原判「未修 —— 建议 4.0 一并处理」）。
+> `lang_dedup()` 下推为窗口函数（`ROW_NUMBER` 选代表 + `FIRST_VALUE` 取组排序位），
+> 打分榜（`related` / `also-viewed`）与聚合端点（`categories` / `tags` / `hot-tags`）一并下推 SQL，
+> 列表端点全部补匿名限流。差分测试 `tests/test_posts_pagination_v4.py`（47 条）+ 7 组变异验证全红。
+> 实测 1000 篇规模下首页 21.9 → 7.0 ms（3.1x），内存从 O(全表) 降为 O(一页)。
+> 详见 `CHANGELOG.md` 的 v4.0.0 一节。
+>
+> **附带更正**：原文点名的 `/api/moments` 其实**早已用 `.paginate()` 分页**，不在本次改造范围内。
 
 
 规则只匹配 `key=value` / `key: value`，日志里的 `sk-xxxx`、`ghp_xxx`（无前缀裸值）与 `passwd=` 不会被脱敏。需攻击者已持有 MCP Token（第二阶段），故维持低危。
@@ -262,7 +271,7 @@ def _fetch_feed_bytes(url, timeout):
 |---|---|
 | 高危 / 严重漏洞 | ✅ 0 个 |
 | 中危漏洞 | ✅ 3 个**全部已修复**并有回归测试 + 变异验证 |
-| 低危漏洞 | 5 个已修；2 个为超管信任面纵深防御建议（不阻塞） |
+| 低危漏洞 | ✅ 7 个**全部已修复**（6 个在 v3.25.16，第 7 条列表物化 + 限流在 v4.0.0 开发首批改掉） |
 | 全量测试 | ✅ 见发布记录 |
 | 版本号策略 | 下一版定为 **v4.0.0**；**4.0 不在本次审计修复单独发版**，随 4.0 功能开发一并发布 |
 

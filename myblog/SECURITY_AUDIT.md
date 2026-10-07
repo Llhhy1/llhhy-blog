@@ -1646,3 +1646,78 @@ RSS 条目的 `<link>` 此前**只判空**，`javascript:fetch(...)` 原样进 `
    只测一种取值得出的「已修复」在另一种取值下可能静默失效。
 
 **核心一句**：**修复本身也要测回归，否则「修好了」和「改坏了」在报告里长得一模一样。**
+
+---
+
+## R116 · v4.0.0（列表接口 `.all()` 全量物化 + 首页匿名无限流 · CWE-400）
+
+**来源**：`docs/audit/2026-10-07-full-audit-report.md`【低危 7】。当时判「语义面较大，建议 4.0
+一并处理」，现于 4.0 开发首批落地。**范围**：`myblog/api/common.py`（新增 `paged_posts()` /
+`_DISPLAY_ORDER`）、`myblog/api/posts.py`（`/posts` `/search` `/categories` `/tags` `/hot-tags`
+`/post/<slug>/related` `/also-viewed` `/category/<slug>` `/tag/<slug>` `/archive`）；
+测试 `tests/test_posts_pagination_v4.py`（47 条）。
+
+### 116.1 去重下推：为什么必须是 `FIRST_VALUE` 而不是 `MAX()`
+
+`lang_dedup()` 的组顺序 = 「组内**首成员**在展示顺序中的位置」= `(is_pinned, created_at, id)`
+的**字典序 argmax**。对两列分别取 `MAX` 会拼出不属于任何一行的组合（首成员 `(1, t_early)`、
+另一成员 `(0, t_late)` → `MAX` 得到 `(1, t_late)`），组序就错了。
+`FIRST_VALUE(x) OVER (PARTITION BY 组 ORDER BY 展示顺序)` 取的正是首成员**同一行**的值。
+差分测试里专门造了「首成员置顶但最旧 / 另一成员不置顶但最新 + 一个夹在中间的独立置顶文章」
+这组数据来钉死它；变异验证把 `first_value` 换成 `max` 后该用例立刻变红。
+
+### 116.2 「不慢」是量出来的，不是默认的
+
+第一版下推后 `?lang=` 分支在 1000 篇规模下**反而慢 1.4x**（35.2 → 24.5ms 的反向）。而
+`?lang=` 恰是首页默认路径：`store.js` 的 `contentLang` 初值 `"zh"`，`HomeView.vue` 每次都带。
+两刀修回：
+
+1. `total` 从 `SELECT count(*) FROM (窗口子查询) WHERE rn=1`（窗口计算跑两遍）
+   改为一条 `COUNT(DISTINCT 组)` 聚合；
+2. 同一条聚合里多取 `COUNT(*)`，用「**组数 == 文章数**」判定「每组恰好一篇 → 去重恒等」，
+   命中即完全跳过窗口、退化成普通分页（顺带省掉「先探一次有没有译文组」的额外查询）。
+
+最终 1000 篇：首页 21.9→7.0ms（3.1x）、末页 2.6x、`?lang=` 无译文组 3.0x、有译文组 1.1x。
+**唯一仍变慢的组合**是「文章少 + 有译文组」（200 篇 +2.8ms）—— 已如实写进 CHANGELOG，不粉饰。
+
+### 116.3 守卫踩过的坑：`_ID_ONLY` 前缀匹配放过了无界查询
+
+「SQL 必须带 LIMIT」这条判据里，id-only 投影最初写成 `s.startswith("SELECT post.id ")`。
+而全列查询**恰好也是** `SELECT post.id AS post_id, post.title AS ...`（`post.id` 后面同样是空格），
+于是无界的 `.all()` 被当成 id-only 放行，M1/M5 两个变异**全绿假过**。改成正则
+`^SELECT\s+post\.id\s+AS\s+\w+\s+FROM\s+post\b`（要求 `post.id` 后**紧跟 FROM**）后才变红。
+
+**核心一句**：**判据本身也要能被证伪** —— 先跑变异，变异没红时默认「守卫太松」，
+而不是默认「改动没问题」。
+
+---
+
+## R117 · v4.0.0（新增「自定义外部入口」的设计期审计 · CWE-79 预防）
+
+**性质：不是缺陷修复，是「新增功能时把攻击面先关掉」的记录。** 之所以写成一轮：这个入口的
+地址由后台填写、前台用 `:href` 直接绑定，结构上就是**存储型 XSS 的候选入口**——
+若哪天 `entry_url` 变成 `javascript:...`（手滑 / 注入 / 迁移脏数据），页面一加载就在访客浏览器里执行，
+而且**不报错**：导航栏看起来一切正常，链接也点得动。这类缺陷一旦落地，靠人眼是发现不了的。
+
+### 117.1 防护：入口两侧各拦一次
+
+| 位置 | 措施 | 为什么 |
+|---|---|---|
+| 写入侧（`admin/settings.py`） | 非 http/https 的地址**不写库**，并 flash 提示「本次填写未保存」 | 让错误在**配置时**就可见；同时同表单其它字段照常保存（一个字段填错不该丢掉整张表单，同 `site_url` 的取舍） |
+| 读取侧（`api/site.py::_public_entry`） | 输出前**再判一次**，非法即 `enabled=false` + `url` 为空 | 兜住「库里已经是脏数据」的情况（旧备份恢复、直接改库、未来某个写入路径漏校验） |
+
+判据集中在 `utils.is_http_url()` 一处，两侧共用——**不同时有两份实现，就不会漂移**。
+同时拒绝协议相对地址 `//evil.com`：它继承本站协议却指向外域，既不合「外站入口」的意图也不好审计。
+
+### 117.2 其余检查
+
+- **越权**：入口配置在 `/admin/settings`，已由 `@super_required` 覆盖，保存需 `X-CSRF-Token`（全局 POST 保护）。
+- **外链**：前台一律 `target="_blank" rel="noopener"`，不把 `window.opener` 交给外域；测试里有静态扫描钉住这两项。
+- **限流 / 注入**：无新增写接口、无新增 SQL（读的是既有 `Setting` 表，`filter_by` 参数化）。
+- **可回滚**：`entry_enabled` 已进配置快照（`config_rollback`），误关可回滚——「后台可配」才算完整。
+
+### 117.3 验证
+
+`tests/test_site_entry_v4.py` 27 条：URL 白名单正反用例、**4 种危险 scheme 参数化断言「绝不出现在前台 JSON」**、
+开关真能关、后台四个控件齐全且开关被 `label` 包裹、非法值不落库但其它字段照常保存、
+开关进快照、前台外链带 `noopener`。**变异验证：把出口的 `is_http_url` 判断换成 `if False` → 5 条立刻变红。**

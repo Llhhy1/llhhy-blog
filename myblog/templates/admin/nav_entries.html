@@ -1,0 +1,82 @@
+{% extends "admin/base.html" %}
+{% block title %}外部入口{% endblock %}
+{% block content %}
+  <h1 class="page-title">🧰 外部入口管理</h1>
+
+  <p class="hint-block">
+    在前台导航栏加指向<b>外部站点</b>的入口（如子站、工具站）。<b>可以有多条</b>，
+    它们会被收进导航栏上的「🧰 工具箱」下拉 —— 不逐条平铺，是因为导航栏不换行
+    （<code>flex-wrap: nowrap</code>），条目多了会把页面撑破。拖动顺序 = 前台显示顺序。
+  </p>
+  <p class="hint-block">
+    ⚠️ <b>地址只能是 http/https 开头的完整地址。</b>
+    它是前台链接的直接来源，其它协议（<code>javascript:</code> 等）会变成存储型 XSS，因此一律拒绝保存。
+  </p>
+
+  <h2 class="section-sub">现有入口（{{ items|length }} / {{ max_items }}）</h2>
+  {% if not items %}
+    <p class="empty-tip">还没有任何入口。</p>
+  {% else %}
+    <table class="admin-table">
+      <thead>
+        <tr><th>顺序</th><th>图标</th><th>名称</th><th>地址</th><th>状态</th><th>操作</th></tr>
+      </thead>
+      <tbody>
+        {% for it in items %}
+          <tr{% if not it.enabled %} class="row-off"{% endif %}>
+            <td data-label="顺序">
+              <form method="post" action="{{ url_for('admin.nav_entry_move', item_id=it.id, dir='up') }}" class="inline-form">
+                {{ csrf_input() }}
+                <button type="submit" class="btn btn-mini" aria-label="上移 {{ it.label }}"{% if loop.first %} disabled{% endif %}>↑</button>
+              </form>
+              <form method="post" action="{{ url_for('admin.nav_entry_move', item_id=it.id, dir='down') }}" class="inline-form">
+                {{ csrf_input() }}
+                <button type="submit" class="btn btn-mini" aria-label="下移 {{ it.label }}"{% if loop.last %} disabled{% endif %}>↓</button>
+              </form>
+            </td>
+            <td data-label="图标"><span class="nav-emoji">{{ it.icon or '🧰' }}</span></td>
+            <td data-label="名称">{{ it.label }}</td>
+            <td data-label="地址"><a href="{{ it.url }}" target="_blank" rel="noopener">{{ it.url }}</a></td>
+            <td data-label="状态">
+              {% if it.enabled %}<span class="badge-ok">已启用</span>{% else %}<span class="badge-off">已停用</span>{% endif %}
+            </td>
+            <td data-label="操作">
+              <details class="inline-details">
+                <summary class="btn btn-mini">编辑</summary>
+                <form method="post" action="{{ url_for('admin.nav_entry_edit', item_id=it.id) }}" class="entry-edit-form">
+                  {{ csrf_input() }}
+                  <input aria-label="名称" type="text" name="label" value="{{ it.label }}" maxlength="20" required>
+                  <input aria-label="地址" type="url" name="url" value="{{ it.url }}" placeholder="https://..." required>
+                  <input aria-label="图标" type="text" name="icon" value="{{ it.icon or '' }}" maxlength="8" placeholder="图标（emoji）">
+                  <button type="submit" class="btn">保存</button>
+                </form>
+              </details>
+              <form method="post" action="{{ url_for('admin.nav_entry_toggle', item_id=it.id) }}" class="inline-form">
+                {{ csrf_input() }}
+                <button type="submit" class="btn btn-mini">{{ '停用' if it.enabled else '启用' }}</button>
+              </form>
+              <form method="post" action="{{ url_for('admin.nav_entry_delete', item_id=it.id) }}" class="inline-form"
+                    onsubmit="return confirm('确定删除入口「{{ it.label }}」？此操作可用配置回滚恢复。');">
+                {{ csrf_input() }}
+                <button type="submit" class="btn btn-mini btn-danger">删除</button>
+              </form>
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% endif %}
+
+  <h2 class="section-sub">添加新入口</h2>
+  {% if items|length >= max_items %}
+    <p class="empty-tip">已达上限 {{ max_items }} 条，请先删掉不用的再添加。</p>
+  {% else %}
+    <form method="post" action="{{ url_for('admin.nav_entry_add') }}" class="entry-edit-form">
+      {{ csrf_input() }}
+      <input aria-label="名称" type="text" name="label" placeholder="名称（如 百宝箱）" maxlength="20" required>
+      <input aria-label="地址" type="url" name="url" placeholder="https://example.com" required>
+      <input aria-label="图标" type="text" name="icon" placeholder="图标 emoji（可选）" maxlength="8">
+      <button type="submit" class="btn">添加</button>
+    </form>
+  {% endif %}
+{% endblock %}

@@ -2,7 +2,7 @@
 
 前后端分离的个人博客：**Flask** 后端（JSON API + 管理后台）+ **Vue3** 前台（SPA）。单仓库托管前后端代码、部署文档与安全报告。
 
-- 当前版本：**v4.0.0**
+- 当前版本：**v4.1.0**
 - **版本历史一律记在 [CHANGELOG.md](CHANGELOG.md)，README 不重复记录。**
 
 ## 功能一览
@@ -43,7 +43,13 @@ npm run dev              # http://localhost:5173
 
 ## 部署
 
+| 你要做什么 | 怎么做 | 多久 |
+|---|---|---|
+| **已有站点升级** | `bash /www/wwwroot/myblog/update.sh` | 约 1 分钟 |
+| **全新机器安装** | `bash install.sh`（半自动，体检模式默认只读）→ 按提示点几下宝塔面板 | 约 20 分钟 |
+
 完整宝塔面板点按式教程见 [myblog/deploy_guide.md](myblog/deploy_guide.md)。
+可选配置（MCP / 邮件 / 友链 RSS / 自动部署 / 排错）已拆分到 [docs/deploy/](docs/deploy/)。
 
 - **后端**：gunicorn 运行 `myblog`（监听 8686），Nginx 反代 `/api/`、`/admin`、`/static/`
 - **前端**：`npm run build` 后把 `dist/` 作为静态站根目录
@@ -51,7 +57,7 @@ npm run dev              # http://localhost:5173
 - **升级**：覆盖后端与前端后，gunicorn 必须「**停止 → 启动**」（restart 不会重载前端静态资源），再硬刷新浏览器
 - **确认版本**：登录后台，左下角显示当前版本号
 
-部署包（后端 `myblog-backend.zip`、前端 `vue-frontend-dist.zip`）随 [Releases](../../releases) 发布。
+部署包（后端 `myblog-backend.zip`、前端 `vue-frontend-dist.zip`）随 [Releases](https://github.com/Llhhy1/llhhy-blog/releases) 发布。
 
 ## 安全
 

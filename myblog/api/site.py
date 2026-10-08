@@ -8,24 +8,41 @@ from .common import (api_bp, db, Post, Category, Tag, Comment, FriendLink, Setti
 from themes import current_theme
 import stats  # myblog/stats.py：client_ip（友链申请归属地）
 
-def _public_entry(s):
-    """前台「自定义外部入口」（v4.0.0）——默认指向百宝箱子站，后台可改名/改址/关掉。
+def _nav_entry_items():
+    """v4.1.0：多条外部入口（过滤「未启用」与「地址非法」的条目）。
 
-    **地址非法就当作未配置**（`enabled=False` + 空 url），而不是原样输出：
-    这个值是后台填的、前台用 ``:href`` 绑的，``javascript:`` 之类 scheme 会在访客
-    浏览器里执行（存储型 XSS）。宁可入口消失，也不输出一个危险的 href ——
+    为什么读出口还要再判一次：这些值是后台填的、前台用 ``:href`` 绑的，
+    ``javascript:`` 之类 scheme 会在访客浏览器里执行（存储型 XSS）。
+    写一侧已经拦过一次，这里是第二次 —— 写一侧可能被后续改动绕过、
+    也可能是迁移/备份还原进来的脏数据。**宁可入口消失，也不输出危险 href**：
     入口消失是可见的、好修的；XSS 是静默的。
     """
-    from utils import flag_bool, is_http_url
-    url = (s.get("entry_url") or "").strip()
-    if not is_http_url(url):
+    import nav_entries as _ne
+    from utils import is_http_url
+    out = []
+    for e in _ne.load():
+        if not e.get("enabled"):
+            continue
+        url = (e.get("url") or "").strip()
+        if not is_http_url(url):
+            continue
+        out.append({
+            "label": (e.get("label") or "").strip()[:20],
+            "url": url,
+            "icon": (e.get("icon") or "").strip()[:8],
+        })
+    return out
+
+
+def _public_entry():
+    """v4.0.0 遗留字段，保持形状不变：取**第一条**合法入口，无则「未配置」。
+
+    保留它是为了让外部依赖（含既有测试）不必为一个纯增量的改动改一遍。
+    """
+    items = _nav_entry_items()
+    if not items:
         return {"enabled": False, "label": "", "url": "", "icon": ""}
-    return {
-        "enabled": flag_bool("entry_enabled", default=False),
-        "label": (s.get("entry_label") or "").strip()[:20],
-        "url": url,
-        "icon": (s.get("entry_icon") or "").strip()[:8],
-    }
+    return dict(items[0], enabled=True)
 
 
 # ---------- 站点公共信息（导航 / 页脚 / 侧边栏用）----------
@@ -52,7 +69,9 @@ def site():
         "reward_qr_default": s.get("reward_qr_default", ""),
         "site_lang": s.get("site_lang", "zh"),
         # v4.0.0：前台自定义外链入口（后台可配；地址非法则 enabled=false）
-        "entry": _public_entry(s),
+        "entry": _public_entry(),
+        # v4.1.0：同一批入口的**列表**形态（前台「工具箱」下拉用；已过滤非法地址）
+        "entries": _nav_entry_items(),
         # v3.16.0 主题中心：当前激活主题的完整 token（亮/暗），前台据此整体换肤
         "theme_pack": current_theme()["pack_id"],
         "theme_tokens": current_theme()["light"],

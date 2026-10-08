@@ -3,7 +3,7 @@
 from ._helpers import admin_required, log_audit, super_required, admin_bp     # 同一蓝图对象
 from flask import flash, jsonify, redirect, render_template, request, send_file, url_for
 from models import Setting, db
-from utils import fmt_bj, get_setting, site_base, is_http_url
+from utils import fmt_bj, get_setting, site_base
 from _time import utcnow
 import logging
 import os
@@ -91,16 +91,15 @@ def settings():
                   "slug_mode", "slug_template",
                   # v3.8.0 反爬限流保护配置
                   "bot_guard_threshold", "bot_guard_window", "bot_guard_tool_limit",
-                  "bot_guard_block_hits", "bot_guard_block_minutes", "seo_block_bots",
-                  # v4.0.0 前台「自定义外部入口」（名称/地址/图标；开关在下面 checkbox）
-                  "entry_label", "entry_url", "entry_icon"]
+                  "bot_guard_block_hits", "bot_guard_block_minutes", "seo_block_bots"]
+        # 注：v4.1.0 起「外部入口」迁到独立管理页 `admin/nav_entries`（支持多条、排序），
+        # 不再由本表单承担 —— 在一张整体提交的大表单里做「删除第 3 条」语义是拧的。
         # v3.25.2：**改动之前**拍快照（必须在这里，否则快照记的是新值，
         # 回滚会「成功」但毫无作用）。含下面两个 checkbox。
         _cfg_snapshot = None
         try:
             import config_rollback as _cr
-            _snap_keys = list(fields) + ["comment_require_approval", "comment_email_required",
-                                         "entry_enabled"]
+            _snap_keys = list(fields) + ["comment_require_approval", "comment_email_required"]
             _cfg_snapshot = _cr.snapshot_settings(_snap_keys, reason="设置页保存")
         except Exception:
             _cfg_snapshot = None
@@ -108,23 +107,11 @@ def settings():
         # 同时记住旧值 —— 变了就要立刻重跑证书检查（见 `_trigger_cert_recheck`）。
         _old_site_url = get_setting("site_url") or ""
         _site_url_value, _site_url_error = _normalize_site_url(request.form.get("site_url", ""))
-        # v4.0.0：入口地址单独校验（同 site_url 的取舍——一个字段填错不该拖垮整张表单）。
-        # 只放行 http/https：这个值是前台 :href 的直接来源，其它 scheme = 存储型 XSS。
-        _entry_url_raw = (request.form.get("entry_url", "") or "").strip()
-        _entry_url_value = _entry_url_raw
-        _entry_url_error = ""
-        if _entry_url_raw and not is_http_url(_entry_url_raw):
-            _entry_url_error = "必须以 http:// 或 https:// 开头（不接受 javascript: 等其它协议，本次填写未保存）"
-            _entry_url_value = None       # 保留库中旧值
         for f in fields:
             if f == "site_url":
                 if _site_url_value is None:
                     continue        # 校验没过：一个字段填错不该丢掉整张表单的其它编辑
                 val = _site_url_value
-            elif f == "entry_url":
-                if _entry_url_value is None:
-                    continue
-                val = _entry_url_value
             else:
                 val = request.form.get(f, "")
             row = Setting.query.filter_by(key=f).first()
@@ -147,7 +134,7 @@ def settings():
         else:
             db.session.add(Setting(key="comment_email_required", value=cer_val))
         # v3.8.0：反爬限流两个开关（checkbox：勾选=true，不勾选=空）
-        for cb in ("bot_guard_enabled", "bot_guard_search_whitelist", "entry_enabled"):
+        for cb in ("bot_guard_enabled", "bot_guard_search_whitelist"):
             row = Setting.query.filter_by(key=cb).first()
             val = "true" if request.form.get(cb) else "false"
             if row:
@@ -160,8 +147,6 @@ def settings():
         elif _site_url_value != _old_site_url:
             # 只有真的改了才重跑（每天每次保存都跑一遍没意义，也白出网）。
             _trigger_cert_recheck()
-        if _entry_url_error:
-            flash("自定义入口地址" + _entry_url_error)
         flash("站点设置已保存")
         return redirect(url_for("admin.settings"))
     settings = {s.key: s.value for s in Setting.query.all()}

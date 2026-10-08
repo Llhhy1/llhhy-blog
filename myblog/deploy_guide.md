@@ -1,6 +1,135 @@
-# 博客上线部署手册（宝塔面板 · Debian 13 示例）
+# 博客部署与更新手册（宝塔面板 · Debian 13 示例）
 
-> 本手册以 **宝塔面板 + Debian 13** 为例编写，各版本菜单名称、按钮位置大同小异，照着点即可，全程**不需要 SSH、不需要装 Node**。
+> **本手册以宝塔面板 + Debian 13 为例**，各版本菜单名称、按钮位置大同小异，照着点即可。
+> 全程**不需要 SSH、不需要装 Node**（唯一例外是"升级"那条命令要在宝塔终端敲一次）。
+
+## 30 秒先看这里：我该读哪一段？
+
+| 你的情况 | 去这里 | 要多久 |
+|---|---|---|
+| **博客已经跑起来，只是升新版** | [`第一部分：一条命令升级`](#第一部分一条命令升级) ← **99% 的人走这条** | **1 分钟**，一条命令 |
+| 第一次在新机器上装 | [`第二部分：全新机器安装`](#第二部分全新机器安装) | 约 20 分钟 |
+| 日常运维（备份 / 看日志 / 定时更新） | [`第三部分：日常维护`](#第三部分日常维护) | — |
+| 跨多个版本的逐步升级说明 | [`第四部分：版本升级（通用流程）`](#第四部分版本升级通用流程) | — |
+| **可选功能**（MCP / 邮件 / 友链 RSS / 自动部署 Webhook / 统计） | [可选功能总索引](#第五部分可选功能总索引) | — |
+| 出问题了 | [排错必备](../docs/deploy/troubleshooting.md) | — |
+
+> ⚠️ **别被本手册的长度吓到。** 部署的前置步骤大多只需做一次；
+> 日常真正要做的只有第一部分那一条命令。**如果你confused 只因为目录很长，
+> 直接看第一部分就够了 —— 其余都是在你需要时才来看的参考。**
+
+---
+
+
+## 第一部分：一条命令升级（已有站点 → 最新版）
+
+> 这一节是**绝大多数人唯一需要读的部分**。你的博客只要在跑，升新版就只需要下面这一条命令。
+
+## 一键更新脚本（懒人版 · 推荐，连重启都自动）
+
+> 仓库根目录的 **`update.sh`**：一条命令自动完成「下载最新 Release → 备份数据 → 覆盖代码 → **自动重启后端**」，全程无需手动操作。
+> ⚠️ 服务器上的 `update.sh` 务必与最新 Release 同版：脚本经历过「假成功不覆盖 / 校验误报 / 无法自动重启」多轮加固，老脚本先覆盖再跑。
+
+**首次配置（只需一次，约 3 分钟）：**
+
+1. 在仓库下载 `update.sh`（[GitHub 仓库根目录](https://github.com/Llhhy1/llhhy-blog) → 点 `update.sh` → 右上角「Download raw file」）。
+2. 宝塔「文件」→ 上传到 `/www/wwwroot/myblog/update.sh`。
+3. （推荐）确认宝塔环境支持自动重启，见下方「宝塔环境配置（自动重启的前提）」。
+4. 宝塔「终端」执行一行：
+   ```bash
+   bash /www/wwwroot/myblog/update.sh
+   ```
+5. 脚本跑完即更新完成。以后每次更新**只需要再跑这一条命令**；也可以配置宝塔「计划任务」每周自动跑一次（shell 脚本任务，命令同上），连跑都不用跑。
+
+> **脚本做了什么**：查最新版本号 → 下载后端/前端 zip → 备份 `data/blog.db` 和 `static/uploads/` 到 `data/backup/` → 覆盖代码（跳过 `data/`，数据库永远保留）→ **自动重启后端**（见下）。
+>
+> **自动重启原理（懒人的关键）**：脚本依次尝试——
+> ① 若脚本顶部填了 `RESTART_CMD`，直接执行它（supervisor `restart` 本身是停+起，安全）；
+> ② 探测 `supervisorctl`（宝塔 Python 项目底层就是 supervisor 管理），自动找到指向你项目目录的 supervisor 项目名并 `restart`；
+> ③ 若没装 supervisor，则**真杀 gunicorn master（`kill -TERM`）→ 等待退出 → 用记录的启动命令重新拉起**（见下方 `start_cmd.txt`）；
+> ④ 以上都失败才提示手动去宝塔点「停止→启动」。
+>
+> ⚠️ **严禁 HUP 热重载**：早期脚本用 `pkill -HUP` 优雅重载，但 HUP 只让 gunicorn master fork 新 worker、**master 不退出**。当版本改动涉及 import / 表结构（如新增多张表 + 模型 import）时，老 worker 仍在服务旧代码，表现为「更新完不重启 / 还是旧版」。已改为「真杀 + 真启动」。
+>
+> 脚本顶部可填：`PROJECT_NAME="myblog"`（宝塔 Python 项目名，填了重启最稳）、或 `RESTART_CMD="supervisorctl restart myblog"`（手动指定重启命令，优先级最高）。
+
+### 宝塔环境配置（自动重启的前提）
+
+要让脚本能"一键重启"，服务器需要满足以下任一条件（**都不需要也行**，脚本会退化为提示你手动点）：
+
+| 方式 | 需要做什么 | 效果 |
+|---|---|---|
+| **A. supervisor（推荐，最稳）** | 宝塔「软件商店」搜索安装 **Supervisor 管理器**（宝塔自带插件）；装好后**重启一次 Python 项目**让 supervisor 接管 | 脚本自动 `supervisorctl restart`，完全自动 |
+| **B. 记录启动命令（无 supervisor 时推荐）** | 把宝塔 Python 项目的「启动命令」写入 `data/start_cmd.txt`（见下） | 脚本真杀 gunicorn 后用该命令重新拉起，全自动 |
+| C. 手动 | 无 | 脚本最后提示你去宝塔点「停止→启动」 |
+
+**方式 B 配置（只需一次）**：在宝塔「Python 项目 → 设置 → 启动命令」复制那行命令，在服务器终端执行（把 gunicorn 启动那行原样写进文件，注意用 `nohup ... &` 后台化）：
+
+```bash
+# 示例（按你宝塔实际启动命令改）：
+echo 'nohup /www/wwwroot/myblog/venv/bin/gunicorn -w 3 -b 127.0.0.1:8000 app:app >/www/wwwroot/myblog/gunicorn.log 2>&1 &' > /www/wwwroot/myblog/data/start_cmd.txt
+```
+
+> 此后 `update.sh` 在第 ③ 步会自动 `kill -TERM` 旧进程并用 `start_cmd.txt` 重新拉起，实现真正的「停止→启动」。
+
+**确认 supervisor 是否接管了你的项目**（宝塔终端执行）：
+
+```bash
+supervisorctl status
+# 若输出里有你的项目名（如 myblog RUNNING）→ 方式 A 生效，脚本可全自动重启
+# 若提示 command not found → 未装 supervisor，走方式 B/C
+```
+
+> 装好 supervisor 后记得：宝塔「网站 → Python项目」→ 你的项目 → 重新「停止→启动」一次（让 supervisor 注册接管），再跑 `supervisorctl status` 确认。
+
+## 后台一键在线更新（最懒人）
+
+> 连终端都不用进：**登录后台 → 自动检测到新版本 → 点「立即更新」→ 后台静默完成 → 提示刷新**。全程无需 SSH、无需传文件。
+
+**「检查更新」入口**：点击后台左下角版本号旁的「检查更新」，**在后台直接判断**是否有新版本（不再跳转 GitHub）——有新版本弹出推荐更新条（含「立即更新」按钮）；已是新版提示「✅ 当前已是最新版本」；网络不通提示稍后再试。
+
+**前置条件（只需一次）**：按上一节把 `update.sh` 上传到 `/www/wwwroot/myblog/update.sh`（并建议装好 supervisor 让重启自动）。之后一切在后台操作。
+
+**使用流程：**
+
+1. 超管登录后台，页面底部自动弹出提示条：
+   > 「发现新版本 vX.Y.Z（当前 vA.B.C），是否立即在线更新？（将自动备份数据库并重启）」
+2. 点 **「立即更新」** → 提示条变为「🔄 后台正在更新…（自动备份→覆盖→重启，请勿关闭本页）」
+3. 后台自动完成：下载最新包 → **备份数据库和图片**（`data/backup/`）→ 覆盖代码 → 自动重启
+4. 完成 → 提示条显示「✅ 更新完成，请刷新页面」→ 约 2.5 秒后自动刷新，后台左下角即为新版本号
+
+**要点与安全：**
+
+- 只有**超管/管理员**能看到和触发（普通用户触发返回 403）；
+- 更新是**异步后台进程**，不阻塞后台其他操作；正在更新时再次触发会被拒绝（防重入）；
+- 每次更新前自动备份 `data/blog.db` 和 `static/uploads/` 到 `data/backup/`，数据库永远不会被覆盖；
+- 若更新中途失败（网络/包损坏），提示条会显示失败原因，数据保持原样（备份仍在）；
+- 页面刷新或重新登录时，如果更新还在进行中，会自动进入轮询继续显示进度。
+
+
+
+---
+
+## 第二部分：全新机器安装
+
+> 只有第一次装才需要。已有站点请直接跳回第一部分。
+
+> ### 🚀 先看：仓库根目录有 `install.sh`（半自动装机）
+>
+> 首次安装最烦的是「解压 → 装依赖 → 迁移 → 写 Nginx」这一段，`install.sh` 把它接管了：
+>
+> ```bash
+> bash install.sh            # 体检模式：只读，不改任何文件，随时可跑
+> bash install.sh --apply    # 确认输出无误后真正执行
+> ```
+>
+> **它做不了**（宝塔面板 GUI，脚本不该暗中代劳）：创建虚拟环境 / 创建 Python 项目 / 创建网站 / 申请证书 ——
+> 脚本会把这四步明确列给你点。其余步骤（下载发布包、解压、依赖、Alembic 迁移、Nginx 模板生成）全部自动。
+>
+> ⚠️ **安全设计**：默认 dry-run；且一旦检测到 `data/blog.db` 就立即退出
+> （装机绝不是升级，升级请跑第一部分那条 `update.sh`）—— 防止误覆盖已有站点的数据。
+>
+> 下面第 0~7 步是**手工口径**，用于理解每一步在做什么、或在脚本跑不动时逐条照做。
 
 ## 0. 部署前准备
 
@@ -401,6 +530,11 @@ sha256sum /tmp/og.png /www/wwwroot/你的站点根/og-default.png
 
 ---
 
+
+---
+
+## 第三部分：日常维护
+
 ## 日常维护
 
 - **写文章**：`/admin` → 写新文章（Markdown，可插图、设封面、标签、分类）。
@@ -447,106 +581,30 @@ sha256sum /tmp/og.png /www/wwwroot/你的站点根/og-default.png
 
 ---
 
-## 一键更新脚本（懒人版 · 推荐，连重启都自动）
+---
 
-> 仓库根目录的 **`update.sh`**：一条命令自动完成「下载最新 Release → 备份数据 → 覆盖代码 → **自动重启后端**」，全程无需手动操作。
-> ⚠️ 服务器上的 `update.sh` 务必与最新 Release 同版：脚本经历过「假成功不覆盖 / 校验误报 / 无法自动重启」多轮加固，老脚本先覆盖再跑。
-
-**首次配置（只需一次，约 3 分钟）：**
-
-1. 在仓库下载 `update.sh`（[GitHub 仓库根目录](https://github.com/Llhhy1/llhhy-blog) → 点 `update.sh` → 右上角「Download raw file」）。
-2. 宝塔「文件」→ 上传到 `/www/wwwroot/myblog/update.sh`。
-3. （推荐）确认宝塔环境支持自动重启，见下方「宝塔环境配置（自动重启的前提）」。
-4. 宝塔「终端」执行一行：
-   ```bash
-   bash /www/wwwroot/myblog/update.sh
-   ```
-5. 脚本跑完即更新完成。以后每次更新**只需要再跑这一条命令**；也可以配置宝塔「计划任务」每周自动跑一次（shell 脚本任务，命令同上），连跑都不用跑。
-
-> **脚本做了什么**：查最新版本号 → 下载后端/前端 zip → 备份 `data/blog.db` 和 `static/uploads/` 到 `data/backup/` → 覆盖代码（跳过 `data/`，数据库永远保留）→ **自动重启后端**（见下）。
->
-> **自动重启原理（懒人的关键）**：脚本依次尝试——
-> ① 若脚本顶部填了 `RESTART_CMD`，直接执行它（supervisor `restart` 本身是停+起，安全）；
-> ② 探测 `supervisorctl`（宝塔 Python 项目底层就是 supervisor 管理），自动找到指向你项目目录的 supervisor 项目名并 `restart`；
-> ③ 若没装 supervisor，则**真杀 gunicorn master（`kill -TERM`）→ 等待退出 → 用记录的启动命令重新拉起**（见下方 `start_cmd.txt`）；
-> ④ 以上都失败才提示手动去宝塔点「停止→启动」。
->
-> ⚠️ **严禁 HUP 热重载**：早期脚本用 `pkill -HUP` 优雅重载，但 HUP 只让 gunicorn master fork 新 worker、**master 不退出**。当版本改动涉及 import / 表结构（如新增多张表 + 模型 import）时，老 worker 仍在服务旧代码，表现为「更新完不重启 / 还是旧版」。已改为「真杀 + 真启动」。
->
-> 脚本顶部可填：`PROJECT_NAME="myblog"`（宝塔 Python 项目名，填了重启最稳）、或 `RESTART_CMD="supervisorctl restart myblog"`（手动指定重启命令，优先级最高）。
-
-### 宝塔环境配置（自动重启的前提）
-
-要让脚本能"一键重启"，服务器需要满足以下任一条件（**都不需要也行**，脚本会退化为提示你手动点）：
-
-| 方式 | 需要做什么 | 效果 |
-|---|---|---|
-| **A. supervisor（推荐，最稳）** | 宝塔「软件商店」搜索安装 **Supervisor 管理器**（宝塔自带插件）；装好后**重启一次 Python 项目**让 supervisor 接管 | 脚本自动 `supervisorctl restart`，完全自动 |
-| **B. 记录启动命令（无 supervisor 时推荐）** | 把宝塔 Python 项目的「启动命令」写入 `data/start_cmd.txt`（见下） | 脚本真杀 gunicorn 后用该命令重新拉起，全自动 |
-| C. 手动 | 无 | 脚本最后提示你去宝塔点「停止→启动」 |
-
-**方式 B 配置（只需一次）**：在宝塔「Python 项目 → 设置 → 启动命令」复制那行命令，在服务器终端执行（把 gunicorn 启动那行原样写进文件，注意用 `nohup ... &` 后台化）：
-
-```bash
-# 示例（按你宝塔实际启动命令改）：
-echo 'nohup /www/wwwroot/myblog/venv/bin/gunicorn -w 3 -b 127.0.0.1:8000 app:app >/www/wwwroot/myblog/gunicorn.log 2>&1 &' > /www/wwwroot/myblog/data/start_cmd.txt
-```
-
-> 此后 `update.sh` 在第 ③ 步会自动 `kill -TERM` 旧进程并用 `start_cmd.txt` 重新拉起，实现真正的「停止→启动」。
-
-**确认 supervisor 是否接管了你的项目**（宝塔终端执行）：
-
-```bash
-supervisorctl status
-# 若输出里有你的项目名（如 myblog RUNNING）→ 方式 A 生效，脚本可全自动重启
-# 若提示 command not found → 未装 supervisor，走方式 B/C
-```
-
-> 装好 supervisor 后记得：宝塔「网站 → Python项目」→ 你的项目 → 重新「停止→启动」一次（让 supervisor 注册接管），再跑 `supervisorctl status` 确认。
-
-## 后台一键在线更新（最懒人）
-
-> 连终端都不用进：**登录后台 → 自动检测到新版本 → 点「立即更新」→ 后台静默完成 → 提示刷新**。全程无需 SSH、无需传文件。
-
-**「检查更新」入口**：点击后台左下角版本号旁的「检查更新」，**在后台直接判断**是否有新版本（不再跳转 GitHub）——有新版本弹出推荐更新条（含「立即更新」按钮）；已是新版提示「✅ 当前已是最新版本」；网络不通提示稍后再试。
-
-**前置条件（只需一次）**：按上一节把 `update.sh` 上传到 `/www/wwwroot/myblog/update.sh`（并建议装好 supervisor 让重启自动）。之后一切在后台操作。
-
-**使用流程：**
-
-1. 超管登录后台，页面底部自动弹出提示条：
-   > 「发现新版本 vX.Y.Z（当前 vA.B.C），是否立即在线更新？（将自动备份数据库并重启）」
-2. 点 **「立即更新」** → 提示条变为「🔄 后台正在更新…（自动备份→覆盖→重启，请勿关闭本页）」
-3. 后台自动完成：下载最新包 → **备份数据库和图片**（`data/backup/`）→ 覆盖代码 → 自动重启
-4. 完成 → 提示条显示「✅ 更新完成，请刷新页面」→ 约 2.5 秒后自动刷新，后台左下角即为新版本号
-
-**要点与安全：**
-
-- 只有**超管/管理员**能看到和触发（普通用户触发返回 403）；
-- 更新是**异步后台进程**，不阻塞后台其他操作；正在更新时再次触发会被拒绝（防重入）；
-- 每次更新前自动备份 `data/blog.db` 和 `static/uploads/` 到 `data/backup/`，数据库永远不会被覆盖；
-- 若更新中途失败（网络/包损坏），提示条会显示失败原因，数据保持原样（备份仍在）；
-- 页面刷新或重新登录时，如果更新还在进行中，会自动进入轮询继续显示进度。
-
+## 第四部分：版本升级（通用流程）
 
 ## 版本升级（通用流程 · 任意旧版 → 最新版）
 
 > 适用：服务器已部署过旧版本，要升级到最新 Release。**只需覆盖代码 + 重启，不要删目录。**
 > 各版本的逐版升级说明见仓库根目录 [`CHANGELOG.md`](../CHANGELOG.md)（v3.18.6 起）；
-> v3.18.5 及以前见 [`docs/archive/CHANGELOG_v1-v3.18.5.md`](../../docs/archive/CHANGELOG_v1-v3.18.5.md)。
+> v3.18.5 及以前见 [`docs/archive/CHANGELOG_v1-v3.18.5.md`](../docs/archive/CHANGELOG_v1-v3.18.5.md)。
 > 本手册只保留当前最新版的全量部署与运维口径。
 
 1. **备份（最重要）**：到「文件」下载留底：
    - `/www/wwwroot/myblog/data/blog.db`（全部数据）
    - `/www/wwwroot/myblog/static/uploads/`（上传的图片）
-1.1. **v4.0.0 升级要点**（其余步骤与通用流程一致）：
+1.1. **升级要点**（其余步骤与通用流程一致；v4.0.0 / v4.1.0 均适用）：
    - 本版**无表结构变更、无迁移**（Alembic head 仍为 `c7a2f19b4d30`），不需要手工跑 SQL。
    - 改了 `vue-frontend/src/App.vue` → **必须重新构建前端并一起打包**，否则导航栏的新入口不会出现在页面上
      （`package.py` 打的是构建产物 `_vite_build30`，不是 src）。
-   - 重启后 `_ensure_settings()` 会自动播种 4 个新设置项（`entry_enabled` / `entry_label` /
-     `entry_url` / `entry_icon`，默认「百宝箱 → https://box.llhhy.cn」），
-     **前台导航会直接多出这个入口**。不想要就去后台「站点设置 → 🧰 自定义外部入口」取消勾选；
-     想指向别的外部站点，改名称/地址/图标即可（地址只接受 http/https）。
+   - **外部入口（v4.1.0 起支持多条）**：
+     - 配置位置已改到后台**独立的「🧰 外部入口」页面**（不再在「站点设置」里），
+       支持新增/编辑/删除/排序/启停，上限 12 条；
+     - v4.0.0 配过的那个入口会**自动迁移**成列表里的第一条，不需要手工补；
+     - 前台统一收进导航栏的「🧰 工具箱 ▾」下拉（不再平铺），地址只接受 http/https。
+   - 不想要任何入口：去「🧰 外部入口」逐条停用或删除即可，不用改配置文件。
 2. **先确认真实运行目录**（避免解压到错误路径）：
    - 宝塔「网站 → Python项目」→ 点该项目 → 看「项目路径」；
    - 或终端执行 `ls -la /www/wwwroot/*/data/blog.db`，数据库在哪，项目就在哪。
@@ -1016,264 +1074,20 @@ python verify_package_checksums.py
 > **v3.15.0（标签治理 / 分享卡片 / 游戏平台）升级要点**：**前后端包都要覆盖**。后端：覆盖 `myblog-backend.zip` → gunicorn「停止 → 启动」；**新表 `game` 启动时 `create_all` 自愈创建，无需 `flask db`**；无新增环境变量、无新 Nginx 规则。内置游戏：在站点目录执行 `python tools/seed_games.py` 一键收录《就是按一下》《就是开车》（等同后台上传的安全链路），也可在后台「🎮 游戏收录」手动上传 zip。前端：覆盖 `vue-frontend-dist.zip` 并硬刷新（/games 系列路由依赖新 index.html）。后台 LLM 审计为可选：需在「游戏收录 → ⚙️ LLM 审计配置」填 OpenAI 兼容 Base/Model/Key。验证：后台左下角 v3.15.0、侧栏「🎮 游戏收录」、前台「🎮 游戏」两枚内置游戏卡、`/games/dev` 文档页。
 > **v3.14.0（写作后台大升级）升级要点**：**纯后端改动**——本轮全部代码在 `myblog/` 包内（admin 视图 / 后台模板 / `admin.css` / `script.js`），**前端产物无变化**（`vue-frontend/` 未动，无需覆盖 `vue-frontend-dist.zip`）。覆盖 `myblog-backend.zip` 后「停止 → 启动」gunicorn 即生效；**无 DB 迁移**，无需 `flask db`；无新增环境变量、无新 Nginx 配置。验证：后台左下角版本号 = v3.14.0；左侧出现「📄 文章管理」（原「我的文章」升级为全站管理）与「🖼️ 媒体库」；进「写新文章」可见工具栏 / 分屏预览；编辑未发布草稿可「🔗 复制未发布预览链接」（免登录，24h 有效）。后台静态资源已带版本参数自动破缓存，必要时硬刷新一次。
 
----
-
-## MCP 配置指南（两个端点一次配好：只读 `/mcp` ＋ 写能力 `/mcp-write`）
-
-> 本节是**统一操作手册**；两端各自的来龙去脉（引入背景与安全设计）见仓库根目录 `CHANGELOG.md` 的 v3.10.0 / v3.12.2 条目
-> （这两版早于 v3.18.6，已随v3.25.0 归档至 `docs/archive/CHANGELOG_v1-v3.18.5.md`）。
-> 两个端点**完全独立**（各自 token / 各自开关 / 互不影响），但环境变量、Nginx、AI 助手接入可以**一次配完**。
->
-> **v3.13.0 起：以下大部分操作可在后台点按钮完成**——登录后台 → 左侧「系统设置」→「🔌 MCP 服务」：
-> - 两个内置端点**一键启停**（「停止」= 端点对外 404 不暴露存在，即时生效无需重启），token 只显示掩码（本体仍在宝塔环境变量）；
-> - 可**登记外部 MCP 服务**（名称 / URL / Header / Token，token Fernet 加密落库，库里无明文），统一查看、启停、编辑、删除；
-> - 每个服务都能生成 **「AI 脱敏接入指令」一键复制**：**脱敏版**含完整连接步骤但 token 用占位符（可放心转发给 AI，由它引导你填 token）；**完整版**（页面点「显示完整指令」）含真实 token，AI 拿到即可直接写好 mcp.json / 完成安装——完整版每次查看都记「🧾 操作日志」。
->
-> 本节保留手工操作口径，作为无后台 / 脚本化部署时的对照。
-
-### 两个端点速览
-
-| | 只读诊断 `/mcp` | 写能力 `/mcp-write` |
-|---|---|---|
-| 用途 | AI 远程读健康状态（全站体检、DB 状态、版本一致性、错误日志、内容统计） | AI 远程建文（`create_post` 默认草稿；`list_recent_posts` 查重） |
-| token 变量 | `MCP_AUTH_TOKEN` | `MCP_WRITE_TOKEN`（**必须与前者取不同值**） |
-| 未配 token 时 | 整体关闭（401） | 整体关闭（**404**，连端点存在都不暴露） |
-| 限流 | 60 次/分钟/IP | 10 次/分钟/IP（更严） |
-| 审计 | — | 每次调用写「🧾 操作日志」（后台可查，username=`mcp`，记 token 前 8 位与来源 IP） |
-
-### 第 1 步：生成两个不同的 token
-
-```bash
-python3 -c "import secrets;print(secrets.token_hex(32))"   # 跑两次，分别得到两个不同值
-```
-第 1 次输出 → `MCP_AUTH_TOKEN`；第 2 次输出 → `MCP_WRITE_TOKEN`。**不要填进代码、不要提交 git**。
-
-### 第 2 步：宝塔填环境变量（Python 项目 → 设置 → 环境变量）
-
-| 变量 | 必填？ | 说明 |
-|---|---|---|
-| `MCP_AUTH_TOKEN` | 用 `/mcp` 就必填 | 留空 = `/mcp` 关闭（401），不会裸奔 |
-| `MCP_LOG_FILES` | 可选 | `/mcp`「最近错误日志」工具可读的日志绝对路径，逗号分隔；留空该工具不可用 |
-| `MCP_ALLOWED_ORIGINS` | 可选 | 额外合法 Origin 白名单（防 DNS 重绑定），两端共用，一般留空 |
-| `MCP_WRITE_TOKEN` | 用 `/mcp-write` 就必填 | 留空 = `/mcp-write` 关闭（404）；**须与 `MCP_AUTH_TOKEN` 不同值** |
-| `MCP_WRITE_DEFAULT_PUBLISH` | 可选 | 默认 `0` = 无论请求传什么都**强制转草稿**；改 `1` 才允许 MCP 直接发布 |
-| `MCP_WRITE_ALLOW_NOTIFY` | 可选 | 默认 `0` = 不群发；改 `1` 且请求显式 `notify_subscribers=true` 才通知订阅者 |
-| `MCP_WRITE_ALLOW_SUPER_FIELDS` | 可选 | 默认 `0` = 忽略提权字段（`is_pinned`/`is_private`/`reward_*`/`author_id`） |
-
-填完「保存」，然后宝塔对 Python 项目「**停止 → 启动**」（restart 不重载环境变量）。
-
-### 第 3 步：Nginx 补两段反代（一次复制两段）
-
-> 放在 `server { }` 里 `location / { ... }` 之前（精确匹配优先于前缀匹配，不加会被 Vue SPA 兜底成 index.html）。
-> `8686` 改成你 Python 项目的实际监听端口。加完点「重载配置」。**站点必须 HTTPS**（token 走请求头）。
-
-```nginx
-location = /mcp {
-    proxy_pass http://127.0.0.1:8686;
-    proxy_set_header Host $host;
-    proxy_set_header X-Real-IP $remote_addr;
-    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-    proxy_set_header X-Forwarded-Proto $scheme;
-}
-location = /mcp-write {
-    proxy_pass http://127.0.0.1:8686;
-    proxy_set_header Host $host;
-    proxy_set_header X-Real-IP $remote_addr;
-    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-    proxy_set_header X-Forwarded-Proto $scheme;
-}
-```
-
-（可选，推荐）两段各加 IP 白名单，只放行你常用的出口 IP：
-```nginx
-    allow 你的公网IP;
-    deny all;
-```
-
-### 第 4 步：上线核验（curl 四连，服务器或本机执行）
-
-```bash
-# ① /mcp 不带 token → 必须 401（若返回 HTML 说明反代没生效）
-curl -i -X POST https://你的域名/mcp -H 'Content-Type: application/json' \
-  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}'
-# ② /mcp 带对 token → 返回工具列表 JSON
-curl -s -X POST https://你的域名/mcp -H 'Content-Type: application/json' \
-  -H 'Accept: application/json, text/event-stream' -H "Authorization: Bearer 只读TOKEN" \
-  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}'
-# ③ /mcp-write 不带 token → 必须 404（已配 token 而没带对则是 401）
-curl -i -X POST https://你的域名/mcp-write -H 'Content-Type: application/json' \
-  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}'
-# ④ /mcp-write 带对 token → initialize 握手 JSON（server 名 llhhy-blog-write）
-curl -s -X POST https://你的域名/mcp-write -H 'Content-Type: application/json' \
-  -H "Authorization: Bearer 写TOKEN" \
-  -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"curl","version":"1.0"}}}'
-```
-
-### 第 5 步：AI 助手接入（本机 `~/.workbuddy/mcp.json`，两个 server 一起配）
-
-```json
-{
-  "mcpServers": {
-    "llhhy-blog-diag": {
-      "type": "http",
-      "url": "https://你的域名/mcp",
-      "headers": { "Authorization": "Bearer 只读TOKEN" }
-    },
-    "llhhy-blog-write": {
-      "type": "http",
-      "url": "https://你的域名/mcp-write",
-      "headers": { "Authorization": "Bearer 写TOKEN" }
-    }
-  }
-}
-```
-
-保存后到 WorkBuddy 连接器管理页，对 `llhhy-blog-diag`、`llhhy-blog-write` 各点一次「**信任**」才生效。之后可直接说「博客现在健康吗」（走只读）或「帮我建一篇草稿，标题是…正文是…」（走写端点，默认落草稿，后台审核后发布）。
-
-### 安全红线（两端通用）
-
-站点强制 HTTPS；token 定期轮换（两端分开轮换）；`/mcp` 尽量加 IP 白名单；写端点建议**保持 `MCP_WRITE_DEFAULT_PUBLISH=0`**（AI 只落草稿、人工后台把关发布），发布动作全部可在「🧾 操作日志」回溯。
-
-## 邮件设置（新文章通知订阅者 · 后台配置）
-
-> 邮件群发配置**不需要填环境变量**，直接在后台操作（更便捷）。
-
-1. 登录后台 → 左侧「**📧 邮件设置**」（超管可见）。
-2. 填写 SMTP 信息：
-   | 字段 | 示例（QQ 邮箱） | 说明 |
-   |---|---|---|
-   | SMTP 服务器 | `smtp.qq.com` | 163 用 `smtp.163.com`，Gmail 用 `smtp.gmail.com` |
-   | 端口 | `465` | QQ/163 用 465（SSL）；部分服务用 587（TLS，需取消勾选 SSL） |
-   | 邮箱账号 | `你的QQ号@qq.com` | 发件登录账号 |
-   | 授权码/密码 | `xxxxxxxxxxxxxxxx` | **QQ/163 邮箱必须用「授权码」**（邮箱设置 → 账户 → 开启 SMTP 后生成），不是登录密码 |
-   | 发件人地址 | 同邮箱账号 | 一般等于账号 |
-   | 使用 SSL | 勾选（465） | 587 端口取消勾选 |
-3. 点「保存」→ 再填一个测试收件人邮箱 → 点「**发送测试邮件**」，收到邮件即配置成功。
-4. 之后每次发布新文章，会自动给「✉️ 订阅者」里所有 active 邮箱发通知（含一键退订链接）。
-   - 未配置 SMTP 时群发自动跳过，不影响发文章。
-
-> **排错（异常栈直接打印到站点日志）**：若点「发送测试邮件」仍提示「错误详情见后端日志」，重部署后真实异常会打印到站点日志。定位站点目录：`ls /www/wwwroot/*/data/blog.db`（父目录即 `APP_DIR`）；查看：`tail -n 60 /www/wwwroot/<站点>/gunicorn.log | grep "SMTP ERROR"`。常见真实报错与对策：
-> - `535 Authentication failed` → 授权码错（QQ/163 必须用邮箱后台生成的**授权码**，不是登录密码）。
-> - `timeout` / `Connection refused` → 主机名拼错、端口错，或服务器出站 465/587 被防火墙/安全组拦截（国内机器常见）。
-> - `SSL: wrong version number` → 端口与 SSL 开关不匹配：465 **必须勾选** SSL，587 **必须取消**勾选。
-> - 另注意 `SMTP_PASSWORD_ENV_FIRST`（默认 `true`）：宝塔环境变量里的 `SMTP_PASSWORD` 优先于后台填的密码，若两者不一致以环境变量为准——核对宝塔「Python 项目 → 设置 → 环境变量」是否覆盖。
-
-## 友链 RSS 聚合到广场（博客圈）· 排错（失败原因日志可见）
-
-> 广场（博客圈）页面的「友链 RSS 聚合」依赖后台「友链管理」里给友链填的 RSS 地址。若广场上始终看不到友链文章，按以下顺序排查。
-
-1. **确认友链填了 RSS 地址**：后台 → 「🔗 友链管理」→ 给每个要聚合的友链填 `RSS 地址`（如 `https://example.com/feed.xml` 或 `atom.xml`）。未填的友链不会聚合。
-2. **确认服务器装了 feedparser**：SSH 进服务器 `pip show feedparser`；若未安装，在站点 Python 环境执行 `pip install feedparser==6.0.11`，然后宝塔「停止 → 启动」gunicorn。若未装，日志会明确提示 `pip install feedparser==6.0.11`。
-3. **确认服务器能出站抓 RSS**：服务器安全组/防火墙放行出站 443（HTTPS RSS 多为 443）。可用 `curl -I https://友链RSS地址` 在服务器上自测连通性。
-4. **看日志定位具体失败**：
-   - 定位日志：`tail -n 60 /www/wwwroot/<站点>/gunicorn.log | grep "FEED AGG"`
-   - 四类提示：
-     - `[FEED AGG] 共 N 条友链，其中 0 条填写了 RSS 地址` → 后台补填 RSS 地址即可。
-     - `[FEED AGG] 跳过友链「X」：RSS 地址未通过安全校验` → RSS 地址指向私有 IP（SSRF 防护拦截），换公网可访问地址。
-     - `[FEED AGG] feedparser 未安装！` → 按提示 `pip install feedparser==6.0.11` 后重启服务。
-     - `[FEED AGG] 抓取友链「X」RSS 失败: <错误类型>: <消息>` → 具体错误（超时/证书/格式），按消息修复（多为出站网络或 RSS 格式问题）。
-5. **缓存**：聚合结果内存缓存 15 分钟。确认配置正确后，等 15 分钟或重启服务即时生效。
-
-## 自动部署（GitHub push → 服务器自动更新）
-
-> 想让「GitHub 推送代码 = 服务器自动更新」，只需三步。**可选功能，不配不影响使用。**
-
-### 第一步：准备部署脚本
-
-仓库根目录已提供 `deploy.sh` 模板（从 GitHub Release 下载最新 zip → 备份 data/ 和 uploads → 覆盖代码 → 重启）。上传到服务器：
-
-```bash
-# 宝塔「文件」上传 deploy.sh 到 /www/wwwroot/myblog/，然后终端执行：
-chmod +x /www/wwwroot/myblog/deploy.sh
-```
-
-按你的环境修改脚本顶部的三个变量：`REPO`（默认已对）、`APP_DIR`、`FRONT_DIR`，以及 `RESTART_CMD`（重启方式，见脚本内注释）。
-
-> **一键更新重启权限（重要）**：若一键更新卡在第⑥步 `Operation not permitted`，根因是 gunicorn 由宝塔以 **`mw` 用户**（非 `www`）启动，且宝塔 Python 项目**不是** supervisor 管理。请用**最新 Release 附带的部署脚本**覆盖 `update.sh`/`deploy.sh` 到 `/www/wwwroot/myblog/`（最新版重启逻辑：宝塔 CLI 优先 → 以实际运行用户 `runuser` 真杀 + 宝塔真实 gunicorn 路径重新拉起，彻底绕开跨用户 kill）。若项目名不是 `myblog`，改两个脚本里的 `PROJECT_NAME`；若 gunicorn 属主不是 `mw`，改 `APP_USER`。
-
-> **一键更新完整性校验（三重防线）**：
-> - **① sha256.txt 列表比对**：`update.sh` 下载后端/前端部署包后比对 Release 附带的 `sha256.txt`，不一致**直接终止更新**（防止下载损坏/被篡改）。
-> - **② zip 注释内嵌哈希**：`package.py` 打包时把每个 zip 的 **「内容区」SHA256**（= 剥离 EOCD 尾注释后的 zip 字节，写入/修改注释不影响内容区）写进该 zip 自身的 EOCD 注释；`update.sh` 用内置 python 同样剥离注释重算内容区哈希二次比对。即使 `sha256.txt` 被整体替换，注释哈希依然能发现不一致（双源互证，解决「sha256.txt 自身被篡改」的死角）。注意：注释哈希按内容区计算，不能对含注释的整文件算（注释参与文件字节后必然对不上）。
-> - **③ HMAC 签名**（可选）：若发布时设置了 `UPDATE_HMAC_KEY`，`package.py` 会为 `sha256.txt` 内容生成 HMAC 首行，`update.sh` 配置同一密钥后强制校验签名（不签名直接拒绝更新）。设置方法：本地打包机与服务器都配置同一个 `UPDATE_HMAC_KEY` 环境变量。
->
-> 发布时请确保 `package.py` 生成的 `sha256.txt` 一并上传到 Release；若某次 Release 漏传，脚本会告警但不阻断（降级为仅告警）。
-
-### 第二步：告诉后端脚本路径
-
-宝塔「网站 → Python项目」→ 项目「设置」→「环境变量」新增：
-
-```
-DEPLOY_SCRIPT=/www/wwwroot/myblog/deploy.sh
-```
-
-> 同时建议配 `WH_DEPLOY_SECRET`（一段随机字符串），它是 Webhook 的鉴权密钥。**两个都配好后重启项目。**
-
-### 第三步：GitHub 仓库挂 Webhook
-
-1. 打开你的 GitHub 仓库 `Llhhy1/llhhy-blog` → **Settings → Webhooks → Add webhook**；
-2. 填写：
-   | 字段 | 值 |
-   |---|---|
-   | Payload URL | `https://你的域名/api/webhook/deploy?token=你在WH_DEPLOY_SECRET里填的字符串` |
-   | Content type | `application/json` |
-   | Secret | 留空（已用 URL token 鉴权） |
-   | Which events | **Just the push event**（默认即可） |
-3. 点 **Add webhook** 保存。
-
-之后每次 `git push origin main`，GitHub 会 POST 到你的站点 → 后端校验 token → 自动执行 `deploy.sh` → 服务器自动更新。后台左下角版本号会变成最新版。
-
-> **安全说明**：token 放在 URL 里会出现在 GitHub 后台，介意可改用 Header：把 Payload URL 设为 `https://你的域名/api/webhook/deploy`，并在 GitHub Webhook 的 **Secret** 字段填同一字符串（后端同时支持 Header `X-Deploy-Token` 校验，二者任一匹配即通过）。
-> **防重放**：Webhook 请求必须在 Header 带 `X-Deploy-Time`（Unix 秒级时间戳），后端会校验与服务器当前时间差是否在 `WH_REPLAY_WINDOW`（默认 300 秒）内，超窗或缺失一律拒绝（HTTP 400）。GitHub 原生 Webhook 不带此头时，可改用**自建小脚本**（如 GitHub Actions 里 `curl -H "X-Deploy-Time: $(date +%s)" ...`）触发；或跳过该头后仍可用 URL token 校验（防重放会降级为仅鉴权——若需严格防重放请带该头）。
-> **不会误伤数据**：`deploy.sh` 覆盖代码前会先备份 `data/blog.db` 和 `static/uploads/` 到 `data/backup/`，且解压时排除 `data/`，数据库永远不会被覆盖。
-
-## 访问统计功能说明
-
-- **统计入口**：前台导航「**统计**」→ `https://你的域名/stats`；后台仪表盘 →「📊 访问统计」。
-- **统计内容**：累计/今日访问次数、访客区域排行（今日 + 累计 TOP10）、最受关注的文章（含回读人数）、常搜词汇 TOP10、24 小时访问时段分布。
-- **统计口径**：前端每次打开/切换页面上报一次访问；打开文章记一次「阅读」（同一访客重复读会累加）；搜索关键词会被记录。
-- **IP 属地识别**：服务器后台线程异步解析，国内源优先多源兜底（太平洋 pconline → ipwho.is → api.ip.sb → ipinfo.io，任一成功即返回），仅公网 IP 才查询、仅缓存成功结果（外部源恢复后历史空属地自动回填）；解析失败显示「未知」，不影响页面响应速度。
-- **博客名称 / 浏览器便签**：后台 → 站点设置 → 可修改「博客名称」（前台顶部 Logo + 浏览器标签页标题）与「浏览器便签」（前台顶部一条可关闭的公告条，留空不显示）。
-
-## 常见问题排查
-
-| 现象 | 原因与解决 |
-|---|---|
-| 打开网站 502 | Python 项目没起来：到「网站 → Python项目」看是否「运行中」，点日志看报错（端口被占/依赖没装全最常见） |
-| 页面刷新 404 | Nginx 少了 `try_files $uri $uri/ /index.html;`，检查第 4 步 |
-| **后台能打开但完全没样式（全文本）** | **Nginx 少了 `location /static/` 反代**！`/static/admin.css` 返回 404。检查第 4 步，把 `/static/` 那段加上并重载配置 |
-| 改了后台样式没变化 | admin.css 有缓存：重启 Python 项目（刷新版本戳）+ 浏览器强刷 Ctrl+F5 |
-| 页面白屏 | 按 F12 → Network：`/api/site` 若 404/502，说明 `/api/` 反代没生效或 Python 项目没启动 |
-| 登录后点「退出」没反应 | 旧版前端的 bug：前台退出已改为调用接口（不再用 /logout 链接），重新上传 `vue-frontend-dist.zip` 并强刷 |
-| 后台登录提示密码错误 | 已设置过新密码；忘了就用下面的「重置密码」命令 |
-| 上传图片 500 | `static/uploads/` 无写权限：文件管理右键该目录 → 权限 → 755 |
-| 天气不显示 / 定位报错 | 已改双源（wttr.in 优先 + Open-Meteo 兜底）：定位被拒会自动回退默认城市；也可手动输城市名，无需 Key |
-| 备案号怎么填 | 后台 → 站点设置 → 页脚备案号，填 `京ICP备xxxxxx号` 格式 |
-
-## 忘记后台密码怎么办
-
-宝塔左侧 **「终端」** → 粘贴执行（把 `新密码123` 换成你的）：
-
-```bash
-cd /www/wwwroot/myblog
-# 找到项目的虚拟环境 python（宝塔 Python 项目详情里可看到，一般是 /www/wwwroot/myblog/venv/bin/python 或类似）
-python -c "
-from app import app
-from models import db, User
-from werkzeug.security import generate_password_hash
-with app.app_context():
-    u = User.query.filter_by(role='super').first()
-    u.password_hash = generate_password_hash('新密码123')
-    u.must_change_password = True
-    db.session.commit()
-    print('超级管理员密码已重置')
-"
-```
-
-若 `python` 找不到，先用 `ls /www/wwwroot/myblog/venv/bin/python` 确认路径，把命令开头的 `python` 换成完整路径。执行后用 `新密码123` 登录（会再次要求设置新密码）。
 
 ---
 
-## 云服务器安全组（如果端口访问不通）
+## 第五部分：可选功能总索引
 
-本博客对外只需 **80（HTTP）/ 443（HTTPS）** 两个端口。若部署后域名打不开，请到你的云厂商控制台 → 云服务器 → 安全组 → 确认入方向放行了 `80` 和 `443`（能正常打开面板一般说明安全组是通的，通常无需改动）。
+以下功能**全部可选**，不配不影响博客上线。它们从主手册拆出，按需查阅：
 
+| 功能 | 文档 | 什么时候需要 |
+|---|---|---|
+| 邮件通知（新文章通知订阅者） | [可选功能](../docs/deploy/optional-features.md#邮件设置新文章通知订阅者--后台配置) | 想让订阅者收到发文通知 |
+| 友链 RSS 聚合到广场 | [可选功能](../docs/deploy/optional-features.md#友链-rss-聚合到广场博客圈--排错失败原因日志可见) | 想在「广场」显示友链动态 |
+| 自动部署（GitHub push → 自动更新） | [可选功能](../docs/deploy/optional-features.md#自动部署github-push--服务器自动更新) | 想 push 后服务器自动拉新版 |
+| 访问统计 | [可选功能](../docs/deploy/optional-features.md#访问统计功能说明) | 想看访问数据怎么算的 |
+| MCP（AI 远程只读体检 / 远程写文） | [MCP 配置指南](../docs/deploy/mcp.md) | 想让 AI 助手接管运维或写文 |
+| 常见问题排查 | [排错必备](../docs/deploy/troubleshooting.md) | 出问题时 |
+| 忘记后台密码 | [排错必备](../docs/deploy/troubleshooting.md#忘记后台密码怎么办) | 进不去后台 |
+| 云服务器安全组（端口不通） | [排错必备](../docs/deploy/troubleshooting.md#云服务器安全组如果端口访问不通) | 端口访问不通 |

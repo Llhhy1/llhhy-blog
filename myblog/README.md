@@ -2,7 +2,7 @@
 
 llhhy-blog 的后端：Flask + SQLite，服务端渲染前台 + `/api/*` JSON 接口 + Jinja2 管理后台。
 
-- 当前版本：**v4.0.0**
+- 当前版本：**v4.1.0**
 - **版本历史一律记在 [CHANGELOG.md](../CHANGELOG.md)，本文件不重复记录。**
 - 根目录总览见 [README.md](../README.md)
 - 时区：展示统一北京时间（UTC+8），存储仍为 UTC；配置见 `config.TIME_ZONE`
@@ -50,8 +50,12 @@ myblog/
 ├── migrations/     # Flask-Migrate / Alembic 迁移（v3.11.0 起；基线对齐 v3.10.6）
 ├── API.md          # 全部 /api/* 端点文档
 ├── SECURITY_AUDIT.md  # 安全审计报告（R81 起；R1~R80 已归档至 ../docs/archive/）
-└── deploy_guide.md    # 宝塔部署手册
+├── deploy_guide.md    # 宝塔部署手册（含一键升级 / 全新装机）
+└── ../docs/deploy/    # 可选配置分册：MCP / 邮件 / 友链RSS / 自动部署 / 排错
 ```
+
+> **脚本三件套（仓库根目录）**：`install.sh`（半自动装机，默认体检模式）、
+> `update.sh`（一键升级，线上已经在跑的那个）、`deploy.sh`（Webhook 自动部署，委派给 update.sh）。
 
 ## 本地运行
 

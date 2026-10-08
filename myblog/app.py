@@ -101,8 +101,9 @@ def _ensure_settings(app):
         "theme_font": "md",         # 字号：sm / md / lg
         "nav_style": "light",       # 前台导航栏样式：light / dark
         "custom_css": "",           # 自定义 CSS（前后台都注入，可写覆盖样式）
-        # ===== v4.0.0 前台「自定义外部入口」 =====
-        # 默认指向百宝箱子站；名称/地址/图标/开关都在后台「站点设置」里改。
+        # ===== v4.1.0 前台「自定义外部入口」（v4.0.0 单条 → 多条） =====
+        # 旧四件套仍写入，是为了保证**老配置可读**（迁移会读它们）；
+        # 真正被前台使用的是 nav_entries（JSON 数组），由下方迁移即时生成。
         # ⚠️ 地址**必须**是 http/https 绝对地址 —— 前台用 :href 直接绑定，
         #    其它 scheme（javascript: 等）会变成存储型 XSS（见 utils.is_http_url）。
         "entry_enabled": "true",
@@ -114,6 +115,15 @@ def _ensure_settings(app):
         if not Setting.query.filter_by(key=k).first():
             db.session.add(Setting(key=k, value=v))
     db.session.commit()
+
+    # v4.1.0：把 v4.0.0 的四件套迁成 nav_entries 数组（只迁一次，幂等）。
+    # 生产不用迁移脚本 —— 这是**数据**搬运不是表结构变更，且必须对用户透明：
+    # 升级后打开后台，之前配的那个入口已经在列表里了，不需要手工补。
+    try:
+        import nav_entries
+        nav_entries.migrate_legacy()
+    except Exception as e:  # noqa: BLE001  迁移失败不能拖垮启动
+        logger.warning("遗留外部入口迁移失败（不影响启动）: %s", e)
 
 
 def _seed_default_badges():

@@ -35,4 +35,5 @@ from . import twofa        # v3.21.0：两步验证 2FA（注册路由用，非�
 from . import oauth_bindings  # 第三方账号绑定列表/解绑（R94 §94.8-7 可发现性缺口）
 from . import oauth_settings  # v3.25.7：第三方登录凭据配置（此前只有 env 入口，功能从未启用）
 from . import system_settings  # v3.25.8：运营开关集中配置（此前 2FA 等只能改服务器 + 重启）
+from . import nav_entries  # noqa: F401  v4.1.0：外部入口管理（多条 / 排序 / 启停）
 

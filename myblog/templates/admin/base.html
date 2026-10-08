@@ -78,6 +78,7 @@
         <a href="{{ url_for('admin.media_lib') }}" class="{{ 'active' if ep == 'admin.media_lib' }}"><span class="nav-emoji">🖼️</span>媒体库</a>
         <a href="{{ url_for('admin.comments') }}" class="{{ 'active' if ep == 'admin.comments' }}"><span class="nav-emoji">💬</span>评论管理{% if pending_comments %} <span class="nav-badge">{{ pending_comments }}</span>{% endif %}</a>
         <a href="{{ url_for('admin.links') }}" class="{{ 'active' if ep == 'admin.links' }}"><span class="nav-emoji">🔗</span>友链管理</a>
+        <a href="{{ url_for('admin.nav_entries') }}" class="{{ 'active' if ep == 'admin.nav_entries' }}"><span class="nav-emoji">🧰</span>外部入口</a>
         <a href="{{ url_for('admin.social') }}" class="{{ 'active' if ep == 'admin.social' }}"><span class="nav-emoji">🌐</span>社交账号</a>
         <a href="{{ url_for('admin.moments') }}" class="{{ 'active' if ep in ('admin.moments', 'admin.edit_moment') }}"><span class="nav-emoji">💭</span>微动态</a>
         <a href="{{ url_for('admin.manage_series') }}" class="{{ 'active' if ep == 'admin.manage_series' }}"><span class="nav-emoji">📚</span>系列管理</a>

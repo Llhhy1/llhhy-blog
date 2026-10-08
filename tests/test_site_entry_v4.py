@@ -47,6 +47,20 @@ def _login(client, username, password=PASSWORD):
                        headers={"X-CSRF-Token": _csrf(client)})
 
 
+@pytest.fixture(autouse=True)
+def _fresh_nav_entries(app):
+    """每条测试前清空入口列表。
+
+    **为什么必须清**：测试库是**整个 session 共享**的（`%TEMP%/llhhy-blog-pytest/test.db`），
+    不清的话上一条测试新增的入口会留到下一条，`items[0]` 就指到了别的对象上 ——
+    表现为「断言里的期望值和实际值都是合法数据，但不是同一条」，最难查的那种假失败。
+    """
+    import nav_entries
+    with app.app_context():
+        nav_entries.save([])
+    yield
+
+
 @pytest.fixture()
 def cert_recheck(monkeypatch):
     """拦掉「保存 site_url 后重跑证书检查」—— 它会真去连 443，测试绝不能出网。"""
@@ -90,10 +104,45 @@ def _entry(client):
     return (client.get("/api/site").get_json() or {}).get("entry") or {}
 
 
+def _entries(client):
+    return (client.get("/api/site").get_json() or {}).get("entries") or []
+
+
+def _mk(url, label="百宝箱", icon="🧰", enabled=True):
+    import nav_entries
+    return {"id": nav_entries.new_id(), "label": label, "url": url,
+            "icon": icon, "enabled": enabled}
+
+
+def _save_entries(app, *items):
+    """**绕过后台表单**直接写库。
+
+    这是刻意的：要验证的是「**出口过滤**」这条防线本身。
+    写入侧（后台）已经拦过一次，但如果哪天它被绕过 —— 迁移脚本、备份还原、
+    或后续改动 —— 出口必须是能独立兜住的那一个。**不能两条防线一起失效。**
+    """
+    import nav_entries
+    with app.app_context():
+        nav_entries.save(list(items))
+
+
+def _load_entries(app):
+    import nav_entries
+    with app.app_context():
+        return nav_entries.load()
+
+
 def _post_settings(client, **extra):
     payload = {"site_title": "T", "site_name": "N"}
     payload.update(extra)
     return client.post("/admin/settings", data=payload,
+                       headers={"X-CSRF-Token": _csrf(client)}, follow_redirects=True)
+
+
+def _post_entry(client, **fields):
+    payload = {"label": "工具箱", "url": "https://box.llhhy.cn", "icon": "🧰"}
+    payload.update(fields)
+    return client.post("/admin/nav-entries/add", data=payload,
                        headers={"X-CSRF-Token": _csrf(client)}, follow_redirects=True)
 
 
@@ -130,15 +179,14 @@ def test_is_http_url_rejects(raw):
 # ---------- 2. 出口过滤：非法地址绝不能到达前台 ----------
 
 def test_api_site_returns_entry_when_configured(client, app):
-    _set(app, "entry_enabled", "true")
-    _set(app, "entry_label", "百宝箱")
-    _set(app, "entry_url", "https://box.llhhy.cn")
-    _set(app, "entry_icon", "🧰")
+    _save_entries(app, _mk("https://box.llhhy.cn"))
     e = _entry(client)
     assert e["enabled"] is True
     assert e["url"] == "https://box.llhhy.cn"
     assert e["label"] == "百宝箱"
     assert e["icon"] == "🧰"
+    # v4.1.0：同一批入口的列表形态也要可用（前台工具箱下拉读它）
+    assert len(_entries(client)) == 1
 
 
 @pytest.mark.parametrize("bad", [
@@ -148,84 +196,116 @@ def test_api_site_returns_entry_when_configured(client, app):
     "file:///etc/passwd",
 ])
 def test_api_site_never_emits_unsafe_href(client, app, bad):
-    """**核心断言**：前台拿到的 url 必须为空 —— 不清洗就会变成存储型 XSS。"""
-    _set(app, "entry_enabled", "true")
-    _set(app, "entry_label", "百宝箱")
-    _set(app, "entry_url", bad)
+    """**核心断言**：前台拿到的 url 必须为空 —— 不清洗就会变成存储型 XSS。
+
+    v4.1.0 起这条比原来更硬：地址是**绕过后台表单直接写进库**的，
+    模拟「写入侧被绕过」的最坏情况。单一防线不够，这里是第二道。
+    """
+    _save_entries(app, _mk(bad))
     e = _entry(client)
     assert e["enabled"] is False, "地址非法时必须整个禁用，而不是只清 label"
     assert e["url"] == "", f"非法地址 {bad!r} 绝不能出现在前台 JSON 里"
     assert e["label"] == ""
+    assert _entries(client) == [], "列表形态同样不能泄漏非法地址"
 
 
 def test_entry_can_be_switched_off(client, app):
-    _set(app, "entry_url", "https://box.llhhy.cn")
-    _set(app, "entry_enabled", "false")
-    assert _entry(client)["enabled"] is False
-    _set(app, "entry_enabled", "true")
+    _save_entries(app, _mk("https://box.llhhy.cn", enabled=True))
     assert _entry(client)["enabled"] is True
+    _save_entries(app, _mk("https://box.llhhy.cn", enabled=False))
+    assert _entry(client)["enabled"] is False
 
 
 def test_entry_defaults_to_off_when_never_configured(client, app):
     """没配过 → 不显示。宁可入口消失，也不要显示一个空链接。"""
-    _set(app, "entry_url", "")
-    _set(app, "entry_enabled", "true")
+    _save_entries(app)                       # 空列表
     assert _entry(client)["enabled"] is False
+    assert _entries(client) == []
 
 
-# ---------- 3. 后台：输入框 / 保存 / 拒绝 ----------
+# ---------- 3. 后台：管理页 / 新增 / 拒绝 / 回滚 ----------
 
-def test_settings_page_has_all_entry_inputs(super_client):
+def test_management_page_has_all_entry_inputs(super_client):
+    html = super_client.get("/admin/nav-entries").get_data(as_text=True)
+    for name in ("label", "url", "icon"):
+        assert 'name="%s"' % name in html, f"管理页缺 {name} 输入框"
+    # 新增表单必须真的指向 add 路由，否则页面只是摆设
+    assert "/admin/nav-entries/add" in html
+
+
+def test_settings_page_points_to_management_page(super_client):
+    """v4.1.0：站点设置里不再维护入口，但要留**明确的指路**，不能让人找不到。"""
     html = super_client.get("/admin/settings").get_data(as_text=True)
-    for name in ("entry_enabled", "entry_label", "entry_url", "entry_icon"):
-        assert 'name="%s"' % name in html, f"后台缺 {name} 输入框"
-    # 文本类必须有 label（for 指向），否则读屏读不出这是什么
-    for name in ("entry_label", "entry_url", "entry_icon"):
-        assert 'id="%s"' % name in html
-        assert 'for="%s"' % name in html
-    # 开关是 checkbox：与站内其它开关一致，用**包裹式 label** 提供可访问名
-    # （不需要 for/id 配对，但必须真的被 label 包着，不能是裸 input）。
-    i = html.index('name="entry_enabled"')
-    assert "<label" in html[max(0, i - 300):i], "开关必须被 label 包裹，否则读屏读不出名字"
+    assert "/admin/nav-entries" in html, "站点设置必须指向新的入口管理页"
+    # 且确实不再有那四个输入框（避免两处都能改导致以哪边为准的困惑）
+    for name in ("entry_label", "entry_url", "entry_icon", "entry_enabled"):
+        assert 'name="%s"' % name not in html, f"站点设置里不应再能改 {name}"
 
 
-def test_post_saves_entry_fields(super_client, app):
-    r = _post_settings(super_client, entry_enabled="on", entry_label="工具箱",
-                       entry_url="https://box.llhhy.cn", entry_icon="🧰")
+def test_add_saves_entry(super_client, app):
+    r = _post_entry(super_client)
     assert r.status_code == 200
-    assert _get(app, "entry_enabled") == "true"
-    assert _get(app, "entry_label") == "工具箱"
-    assert _get(app, "entry_url") == "https://box.llhhy.cn"
-    assert _get(app, "entry_icon") == "🧰"
+    items = _load_entries(app)
+    assert len(items) == 1
+    assert items[0]["label"] == "工具箱"
+    assert items[0]["url"] == "https://box.llhhy.cn"
+    assert items[0]["icon"] == "🧰"
+    assert items[0]["enabled"] is True
 
 
-def test_post_saves_entry_disabled_when_unchecked(super_client, app):
-    _post_settings(super_client, entry_enabled="on", entry_url="https://box.llhhy.cn")
-    assert _get(app, "entry_enabled") == "true"
-    _post_settings(super_client, entry_url="https://box.llhhy.cn")   # 不带 checkbox
-    assert _get(app, "entry_enabled") == "false", "取消勾选必须真的关掉入口"
+def test_toggle_really_switches_entry(super_client, app):
+    """开关必须真的生效 —— 「后台可配」不是半个功能。"""
+    _post_entry(super_client)
+    eid = _load_entries(app)[0]["id"]
+    for expected in (False, True):
+        r = super_client.post("/admin/nav-entries/%s/toggle" % eid,
+                              headers={"X-CSRF-Token": _csrf(super_client)},
+                              follow_redirects=True)
+        assert r.status_code == 200
+        assert _load_entries(app)[0]["enabled"] is expected
+        assert _entry(super_client)["enabled"] is expected
 
 
-def test_bad_entry_url_is_not_saved_but_other_fields_are(super_client, app):
-    """同 site_url 的取舍：一个字段填错不能丢掉整张表单。"""
-    _post_settings(super_client, entry_enabled="on", entry_url="https://before-%s.example.com" % _r())
-    r = _post_settings(super_client, entry_url="javascript:alert(1)", site_name="好好博客")
+def test_bad_entry_url_is_not_saved_but_page_still_works(super_client, app):
+    """非法地址一条都不许进库，且必须提示用户（不能静默丢弃让人以为存了）。"""
+    r = _post_entry(super_client, url="javascript:alert(1)")
     assert r.status_code == 200
-    assert _get(app, "entry_url").startswith("https://before-"), "非法地址绝不能写库"
-    assert _get(app, "site_name") == "好好博客", "其它字段必须照常保存"
-    assert "入口" in r.get_data(as_text=True), "应提示用户「未保存」，不能静默丢弃"
+    assert _load_entries(app) == [], "非法地址绝不能写库"
+    html = r.get_data(as_text=True)
+    assert "必须以 http" in html, "应提示用户「未保存」，不能静默丢弃"
 
 
-def test_entry_enabled_is_in_rollback_snapshot(super_client, app):
-    """开关必须进快照 —— 误关了要能回滚，否则「后台可配」是半个功能。"""
-    _post_settings(super_client, entry_enabled="on", entry_url="https://a.example.com")
-    _post_settings(super_client, entry_url="https://a.example.com")
+def test_edit_keeps_url_when_new_url_is_bad(super_client, app):
+    """编辑时地址填错 → 保留旧地址，名称/图标照常改。
+
+    同 site_url 的取舍：一个字段填错不该让人丢掉整张表单的输入。
+    """
+    r0 = _post_entry(super_client, label="原名", url="https://before.example.com")
+    assert r0.status_code == 200
+    eid = _load_entries(app)[0]["id"]
+    r = super_client.post("/admin/nav-entries/%s/edit" % eid,
+                          data={"label": "新名", "icon": "🔧",
+                                "url": "javascript:alert(1)"},
+                          headers={"X-CSRF-Token": _csrf(super_client)},
+                          follow_redirects=True)
+    assert r.status_code == 200
+    it = _load_entries(app)[0]
+    assert it["url"] == "https://before.example.com", "非法地址不能覆盖掉旧地址"
+    assert it["label"] == "新名", "名称必须照常保存"
+    assert it["icon"] == "🔧", "图标必须照常保存"
+    assert "地址未保存" in r.get_data(as_text=True)
+
+
+def test_nav_entries_is_in_rollback_snapshot(super_client, app):
+    """入口必须进快照 —— 误删了要能回滚，否则「后台可配」是半个功能。"""
+    _post_entry(super_client)
+    _post_entry(super_client, label="第二个", url="https://b.example.com")
     with app.app_context():
         import config_rollback as cr
         snaps = cr.list_snapshots()
         assert snaps
         payload = json.loads(snaps[0].payload or "{}")
-    assert "entry_enabled" in payload
+    assert "nav_entries" in payload
 
 
 # ---------- 4. 前台：外域链接必须带 noopener ----------

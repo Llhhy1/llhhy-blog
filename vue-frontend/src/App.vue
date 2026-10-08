@@ -25,8 +25,13 @@
       <router-link to="/tags/hot" @click="drawerOpen = false"><span class="nav-emoji">🔥</span>{{ t('hot_tags') }}</router-link>
       <router-link to="/docs" @click="drawerOpen = false"><span class="nav-emoji">📖</span>{{ t('docs') }}</router-link>
       <router-link to="/guestbook" @click="drawerOpen = false"><span class="nav-emoji">📝</span>{{ t('guestbook') }}</router-link>
-      <!-- v4.0.0：自定义外部入口（后台「站点设置」可改名/改址/关掉） -->
-      <a v-if="siteEntry.on" class="site-entry-link" :href="siteEntry.url" target="_blank" rel="noopener" @click="drawerOpen = false"><span class="nav-emoji">{{ siteEntry.icon }}</span>{{ siteEntry.label }}</a>
+      <!-- v4.1.0：多条外部入口收进「🧰 工具箱」下拉（避免平铺撑破 nowrap 导航） -->
+      <div v-if="siteEntries.length" class="nav-toolbox nav-toolbox--drawer">
+        <button type="button" class="site-toolbox-toggle" aria-haspopup="true" :aria-expanded="toolboxOpen" @click="toggleToolbox"><span class="nav-emoji">🧰</span>工具箱 <span class="toolbox-caret">▾</span></button>
+        <div v-if="toolboxOpen" class="toolbox-menu">
+          <a v-for="e in siteEntries" :key="'drawer-' + e.url" class="site-entry-link" :href="e.url" target="_blank" rel="noopener" @click="drawerOpen = false"><span class="nav-emoji">{{ e.icon }}</span>{{ e.label }}</a>
+        </div>
+      </div>
       <!-- v3.9.0 M2：插件导航入口（结构化 <a>，不用 v-html） -->
       <template v-for="ni in pluginNav" :key="'drawer-' + ni.label">
         <a :href="ni.href || ni.to" class="plugin-nav-link" @click="drawerOpen = false"><span v-if="ni.icon" class="nav-emoji">{{ ni.icon }}</span>{{ ni.label }}</a>
@@ -66,8 +71,13 @@
         <router-link to="/tags/hot"><span class="nav-emoji">🔥</span>{{ t('hot_tags') }}</router-link>
         <router-link to="/docs"><span class="nav-emoji">📖</span>{{ t('docs') }}</router-link>
         <router-link to="/guestbook"><span class="nav-emoji">📝</span>{{ t('guestbook') }}</router-link>
-        <!-- v4.0.0：自定义外部入口（后台「站点设置」可改名/改址/关掉） -->
-        <a v-if="siteEntry.on" class="site-entry-link" :href="siteEntry.url" target="_blank" rel="noopener"><span class="nav-emoji">{{ siteEntry.icon }}</span>{{ siteEntry.label }}</a>
+        <!-- v4.1.0：多条外部入口收进「🧰 工具箱」下拉（避免平铺撑破 nowrap 导航） -->
+        <div v-if="siteEntries.length" class="nav-toolbox" @mouseleave="closeToolbox">
+          <button type="button" class="site-toolbox-toggle" aria-haspopup="true" :aria-expanded="toolboxOpen" @click="toggleToolbox"><span class="nav-emoji">🧰</span>工具箱 <span class="toolbox-caret">▾</span></button>
+          <div v-if="toolboxOpen" class="toolbox-menu">
+            <a v-for="e in siteEntries" :key="'desk-' + e.url" class="site-entry-link" :href="e.url" target="_blank" rel="noopener" @click="closeToolbox"><span class="nav-emoji">{{ e.icon }}</span>{{ e.label }}</a>
+          </div>
+        </div>
         <!-- v3.9.0 M2：插件导航入口（结构化 <a>，不用 v-html） -->
         <template v-for="ni in pluginNav" :key="'desk-' + ni.label">
           <a :href="ni.href || ni.to" class="plugin-nav-link"><span v-if="ni.icon" class="nav-emoji">{{ ni.icon }}</span>{{ ni.label }}</a>
@@ -188,13 +198,28 @@ const pluginFooter = ref([]);  // v3.9.0 插件页脚卡片
 const pluginNav = ref([]);     // v3.9.0 M2 插件导航入口
 const pluginSidebar = ref([]); // v3.9.0 M2 插件侧栏入口
 const pluginHtml = ref([]);    // v3.9.0 M3 插件富文本（已消毒渲染）
-// v4.0.0：前台自定义外链入口（后台「站点设置」配置，默认指向百宝箱子站）。
+// v4.1.0：多条自定义外链入口，**统一收进「🧰 工具箱」下拉**。
+// 为什么不逐条平铺：导航栏是 `flex-wrap: nowrap`（global.css），条目多了会横向撑破
+// 而不是换行 —— 收进下拉后，加 10 条入口也只占导航栏 1 个位置。
 // 后端已过滤掉非 http/https 的地址，这里只做判空兜底；外域一律新窗口 + noopener。
-const siteEntry = computed(() => {
-  const e = state.site.entry || {};
-  if (!e.enabled || !e.url) return { on: false, url: "", label: "", icon: "" };
-  return { on: true, url: e.url, label: e.label || "百宝箱", icon: e.icon || "🧰" };
+const siteEntries = computed(() => {
+  const list = Array.isArray(state.site.entries) ? state.site.entries : [];
+  // 后端还没升到 v4.1.0（或前端拿到的是旧缓存）时，退回 v4.0.0 的单入口字段。
+  const single = state.site.entry;
+  const source = list.length
+    ? list
+    : (single && single.enabled && single.url ? [single] : []);
+  return source
+    .filter((e) => e && e.url)
+    .map((e) => ({
+      url: e.url,
+      label: e.label || "工具",
+      icon: e.icon || "🧰",
+    }));
 });
+const toolboxOpen = ref(false);
+const toggleToolbox = () => { toolboxOpen.value = !toolboxOpen.value; };
+const closeToolbox = () => { toolboxOpen.value = false; };
 // v3.9.0 M3 远程预构建组件注册表：name -> 组件定义（由 widget.js 经 window.__pluginRegister 注入）
 const remoteDefs = reactive({});
 const router = useRouter();
@@ -467,7 +492,39 @@ router.afterEach(() => { loadNotifs(); });
   text-decoration: none; font-size: 13px;
 }
 .plugin-nav-link { /* 视觉由全局导航样式兜底 */ }
-.site-entry-link { /* v4.0.0 自定义外部入口：视觉由全局导航样式兜底 */ }
+/* v4.1.0 外部入口「🧰 工具箱」下拉 —— 视觉由全局导航样式兜底。
+   关键：必须显式清掉 `.site-header nav a` 与 `.drawer-nav a` 继承来的
+   margin-left / padding，否则菜单项会错开一个间距，看起来像没对齐。 */
+.nav-toolbox { position: relative; margin-left: 18px; }
+.nav-toolbox--drawer { margin-left: 0; display: flex; flex-direction: column; }
+.site-toolbox-toggle {
+  background: none; border: none; padding: 0; cursor: pointer;
+  display: inline-flex; align-items: center; gap: 5px;
+  color: var(--nav-fg); font-size: 15px; font-family: inherit; white-space: nowrap;
+}
+.site-toolbox-toggle:hover { color: var(--accent); }
+.toolbox-caret { font-size: 10px; opacity: .7; }
+.toolbox-menu {
+  position: absolute; top: 100%; left: 0; z-index: 60; min-width: 158px;
+  display: flex; flex-direction: column; padding: 6px 0; margin: 6px 0 0;
+  background: var(--surface-2, #fff);
+  border: 1px solid var(--border, #e6e8eb);
+  border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, .12);
+}
+.toolbox-menu .site-entry-link {
+  margin-left: 0 !important; padding: 9px 14px;
+  display: flex; align-items: center; gap: 8px;
+  color: var(--nav-fg); text-decoration: none; font-size: 14px; white-space: nowrap;
+  border-left: 0 !important;
+}
+.toolbox-menu .site-entry-link:hover { background: rgba(26, 115, 232, .08); color: var(--accent); }
+/* 抽屉里不做浮层：跟随抽屉本身的纵向堆叠，避免二级浮层遮住菜单 */
+.nav-toolbox--drawer .toolbox-menu {
+  position: static; margin: 0; min-width: 0; padding: 0 0 0 18px;
+  background: none; border: none; border-radius: 0; box-shadow: none;
+}
+.nav-toolbox--drawer .site-toolbox-toggle { padding: 13px 18px; width: 100%; justify-content: flex-start; }
 /* v3.21.0 PWA：可安装提示按钮（与回到顶部同处右下角，置于其上方） */
 #install-app {
   position: fixed;

@@ -754,3 +754,127 @@ def _safe_count(model, **filters):
     except Exception:
         return 0
 
+
+# ---------- v4.2.0 访客数据多区间（后台运营精细化）----------
+# 设计前提（延续 v3.20.0）：**零表结构变更** —— 只用 VisitLog 既有字段：
+#   `date`（"YYYY-MM-DD" 字符串，字典序 = 日期序，有索引）、`ip`、`is_bot`、
+#   `region`、`path`、`referrer`、`hour`。
+# ⚠️ 区间边界按**本地日期**（与 VisitLog.date 同口径）切，不用 created_at（UTC）——
+#    否则 UTC+8 下「今天」会少算 8 小时、跨日边界对不上。
+RANGE_PRESETS = (
+    ("today", "今天"),
+    ("yesterday", "昨天"),
+    ("7d", "近 7 天"),
+    ("15d", "近半月"),
+    ("30d", "近 1 月"),
+    ("90d", "近 3 月"),
+    ("180d", "近 6 月"),
+    ("365d", "近 1 年"),
+    ("730d", "近 2 年"),
+)
+DEFAULT_RANGE = "7d"
+_RANGE_DAYS = {"7d": 7, "15d": 15, "30d": 30, "90d": 90, "180d": 180,
+               "365d": 365, "730d": 730}
+
+
+def resolve_range(key):
+    """区间 key → (生效key, start, end, label)。非法 key 回落 DEFAULT_RANGE。
+
+    返回 date 对象（调用方自行 isoformat），label 供界面展示。
+    「今天 / 昨天」是单日区间（start == end）；其余为「近 N 天」含今天。
+    """
+    today = datetime.date.today()
+    key = (key or "").strip()
+    if key == "today":
+        return "today", today, today, "今天"
+    if key == "yesterday":
+        y = today - datetime.timedelta(days=1)
+        return "yesterday", y, y, "昨天"
+    days = _RANGE_DAYS.get(key)
+    if not days:
+        key, days = DEFAULT_RANGE, _RANGE_DAYS[DEFAULT_RANGE]
+    return (key, today - datetime.timedelta(days=days - 1), today,
+            dict(RANGE_PRESETS)[key])
+
+
+def _range_top(field, start_iso, end_iso, limit=10, exclude_empty=True):
+    """区间内某字段 TOP N（按次数降序）。字段名受本模块内部控制，不可外部注入。"""
+    col = getattr(VisitLog, field)
+    q = db.session.query(col, db.func.count(VisitLog.id).label("c"))
+    q = q.filter(VisitLog.date >= start_iso, VisitLog.date <= end_iso)
+    if exclude_empty:
+        q = q.filter(col != "")
+    rows = q.group_by(col).order_by(db.desc("c")).limit(limit).all()
+    return [{"key": r[0], "count": r[1]} for r in rows]
+
+
+def _range_top_referrers(start_iso, end_iso, limit=10):
+    """来源渠道 TOP N：先按 origin 聚合，再按可读名**归一合并**。
+
+    ⚠️ 不能先分组后各自改名就完事 —— 同一引擎常有多个域名
+    （www.baidu.com / m.baidu.com / sp0.baidu.com），不合并会被拆成
+    多行、每行计数偏小，排行失去意义。故先多取一些原始分组（limit×5），
+    按标签求和后再截断到 limit。
+    """
+    merged = {}
+    for r in _range_top("referrer", start_iso, end_iso, limit=limit * 5):
+        label = _label_referrer(r["key"])
+        merged[label] = merged.get(label, 0) + r["count"]
+    return [{"key": k, "count": v}
+            for k, v in sorted(merged.items(), key=lambda kv: (-kv[1], kv[0]))[:limit]]
+
+
+def _range_distinct_ip(start_iso, end_iso, human_only=False, bot_only=False):
+    """区间内独立 IP 数（UV）。human_only / bot_only 二选一（都不传 = 全部）。
+
+    ⚠️ bot_only 必须**直接查**而不是「全部 UV - 真人 UV」：同一个 IP 完全可能
+    既以真人身份访问、又被识别为爬虫（如共享出口 / 云主机），减法会把这种
+    混合 IP 错算成「爬虫独立 IP」。
+    """
+    q = db.session.query(db.func.count(db.func.distinct(VisitLog.ip)))
+    q = q.filter(VisitLog.date >= start_iso, VisitLog.date <= end_iso)
+    if human_only:
+        q = q.filter(VisitLog.is_bot.is_(False))
+    elif bot_only:
+        q = q.filter(VisitLog.is_bot.is_(True))
+    return int(q.scalar() or 0)
+
+
+def compute_range_stats(range_key=DEFAULT_RANGE):
+    """按预设区间聚合访客数据（v4.2.0，后台「访问统计」页区间切换用）。
+
+    输出：PV / UV（分真人·爬虫）/ 区间新增评论 / TOP 路径·属地·来源。
+    每个子查询独立降级（失败返回 0 或 []），不拖垮整页（降级范式）。
+    """
+    eff_key, start, end, label = resolve_range(range_key)
+    s, e = start.isoformat(), end.isoformat()
+
+    def _guard(fn, default):
+        try:
+            return fn()
+        except Exception as err:  # noqa: BLE001 —— 单指标失败不应拖垮统计页
+            logger.warning("compute_range_stats 子查询失败: %s", err)
+            return default
+
+    return {
+        "key": eff_key, "label": label, "start": s, "end": e,
+        "days": (end - start).days + 1,
+        "pv": _guard(lambda: VisitLog.query.filter(
+            VisitLog.date >= s, VisitLog.date <= e).count(), 0),
+        "uv": _guard(lambda: _range_distinct_ip(s, e), 0),
+        "human_pv": _guard(lambda: VisitLog.query.filter(
+            VisitLog.date >= s, VisitLog.date <= e,
+            VisitLog.is_bot.is_(False)).count(), 0),
+        "human_uv": _guard(lambda: _range_distinct_ip(s, e, human_only=True), 0),
+        "bot_pv": _guard(lambda: VisitLog.query.filter(
+            VisitLog.date >= s, VisitLog.date <= e,
+            VisitLog.is_bot.is_(True)).count(), 0),
+        "bot_uv": _guard(lambda: _range_distinct_ip(s, e, bot_only=True), 0),
+        "new_comments": _guard(lambda: Comment.query.filter(
+            Comment.created_at >= _dt(s),
+            Comment.created_at < _dt_tomorrow(end)).count(), 0),
+        "top_paths": _guard(lambda: _range_top("path", s, e, limit=10), []),
+        "top_regions": _guard(lambda: _range_top("region", s, e, limit=10), []),
+        "top_referrers": _guard(lambda: _range_top_referrers(s, e, limit=10), []),
+    }
+

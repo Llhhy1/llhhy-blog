@@ -1,0 +1,115 @@
+{% extends "admin/base.html" %}
+{% block title %}访客日志{% endblock %}
+{% block content %}
+  <style>
+.tag{display:inline-block;padding:1px 8px;border-radius:10px;font-size:12px;line-height:1.6;}
+.tag-human{background:rgba(56,178,172,.15);color:#319795;}
+.tag-ai{background:rgba(159,122,234,.15);color:#9f7aea;}
+.tag-tool{background:rgba(237,137,54,.15);color:#dd6b20;}
+.tag-unknown{background:rgba(160,174,192,.18);color:#718096;}
+.tag-blocked{background:rgba(229,62,62,.15);color:#e53e3e;}
+.vl-ip{font-family:ui-monospace,Consolas,monospace;font-size:13px;}
+.vl-path{max-width:280px;word-break:break-all;color:var(--muted,#888);font-size:12px;}
+.range-switch{display:flex;flex-wrap:wrap;gap:6px;margin:4px 0 12px;}
+.range-switch .btn.btn-active{background:#4a5568;color:#fff;border-color:#4a5568;}
+.vl-filters{display:flex;flex-wrap:wrap;gap:8px;align-items:flex-end;margin-bottom:14px;}
+.vl-filters label{display:flex;flex-direction:column;font-size:12px;color:var(--muted,#888);gap:3px;}
+.vl-filters input,.vl-filters select{padding:5px 8px;border:1px solid var(--line,#ddd);border-radius:6px;background:var(--card,#fff);color:inherit;font-size:13px;}
+  </style>
+
+  <h1 class="page-title">👣 访客日志
+    <span class="stats-updated">{{ range_start }} ~ {{ range_end }}（{{ range_label }}）</span>
+  </h1>
+
+  <div class="range-switch">
+    {% for k, label in ranges %}
+    <a class="btn {{ 'btn-active' if k == cur_range }}"
+       href="{{ url_for('admin.visit_logs', range=k, type=f_type, ip=f_ip, region=f_region, path=f_path) }}">{{ label }}</a>
+    {% endfor %}
+  </div>
+
+  <form method="GET" action="{{ url_for('admin.visit_logs') }}" class="vl-filters">
+    <input type="hidden" name="range" value="{{ cur_range }}">
+    <label>类型
+      <select name="type">
+        <option value="" {{ 'selected' if not f_type }}>全部</option>
+        <option value="human" {{ 'selected' if f_type == 'human' }}>真人访客</option>
+        <option value="bot" {{ 'selected' if f_type == 'bot' }}>爬虫 / Bot</option>
+      </select>
+    </label>
+    <label>IP<input type="text" name="ip" value="{{ f_ip }}" placeholder="支持部分匹配"></label>
+    <label>属地<input type="text" name="region" value="{{ f_region }}" placeholder="如 广东"></label>
+    <label>路径<input type="text" name="path" value="{{ f_path }}" placeholder="如 /post/"></label>
+    <button type="submit" class="btn">筛选</button>
+    <a class="btn" href="{{ url_for('admin.visit_logs') }}">重置</a>
+  </form>
+
+  <div class="stats-card">
+    <h3>🧾 访问明细（{{ pagination.total }} 条）</h3>
+    {% if logs %}
+    <table class="stats-table">
+      <thead>
+        <tr><th>时间</th><th>IP</th><th>属地</th><th>路径</th><th>来源</th><th>类型</th><th>操作</th></tr>
+      </thead>
+      <tbody>
+      {% for r in logs %}
+        <tr>
+          <td>{{ fmt_bj(r.created_at, "%m-%d %H:%M") }}</td>
+          <td class="vl-ip">{{ r.ip or '—' }}
+            {% if r.ip in blocked %}<span class="tag tag-blocked">已拉黑</span>{% endif %}
+          </td>
+          <td>{{ r.region or '—' }}</td>
+          <td class="vl-path">{{ r.path or '—' }}</td>
+          <td class="vl-path">{{ r.referrer or '直接访问' }}</td>
+          <td>
+            {% if r.is_bot %}
+              <span class="tag tag-{{ r.bot_category or 'unknown' }}">{{ r.bot_name or 'Bot' }}</span>
+            {% else %}
+              <span class="tag tag-human">真人</span>
+            {% endif %}
+          </td>
+          <td>
+            {% if r.ip and r.ip not in blocked %}
+            <form method="POST" action="{{ url_for('admin.visit_logs_block') }}" style="display:inline;">
+              {{ csrf_input() }}
+              <input type="hidden" name="ip" value="{{ r.ip }}">
+              <input type="hidden" name="next" value="{{ request.full_path }}">
+              <button type="submit" class="btn-sm" onclick="return confirm('确认拉黑 {{ r.ip }}？该 IP 将无法访问前台页面。')">拉黑</button>
+            </form>
+            {% elif r.ip in blocked %}
+            <form method="POST" action="{{ url_for('admin.visit_logs_unblock') }}" style="display:inline;">
+              {{ csrf_input() }}
+              <input type="hidden" name="ip" value="{{ r.ip }}">
+              <input type="hidden" name="next" value="{{ request.full_path }}">
+              <button type="submit" class="btn-sm">解封</button>
+            </form>
+            {% endif %}
+          </td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+
+    {% if pagination and pagination.pages > 1 %}
+    <nav class="pagination">
+      {% if pagination.page > 1 %}
+        <a href="{{ url_for('admin.visit_logs', page=pagination.page-1, range=cur_range, type=f_type, ip=f_ip, region=f_region, path=f_path) }}">← 上一页</a>
+      {% else %}<span class="disabled">← 上一页</span>{% endif %}
+      <span class="current">{{ pagination.page }} / {{ pagination.pages }}</span>
+      {% if pagination.page < pagination.pages %}
+        <a href="{{ url_for('admin.visit_logs', page=pagination.page+1, range=cur_range, type=f_type, ip=f_ip, region=f_region, path=f_path) }}">下一页 →</a>
+      {% else %}<span class="disabled">下一页 →</span>{% endif %}
+    </nav>
+    {% endif %}
+    {% else %}
+      <p class="stats-empty">该区间暂无访问记录。</p>
+    {% endif %}
+  </div>
+
+  <p class="stats-tip">
+    ⚠️ <b>拉黑说明</b>：手动拉黑<b>独立于</b>「反爬限流」开关 —— 开关关着也照拦；封禁为<b>永久</b>，
+    被拉黑 IP 访问前台页面会得到 429。仅覆盖前台页面请求（<code>/api/</code>、<code>/admin/</code>
+    有各自鉴权，不在此列）。误拉黑可从本页或「反爬限流保护」页解封，操作会记入操作日志。
+    属地为异步解析，刚访问的可能暂缺。
+  </p>
+{% endblock %}

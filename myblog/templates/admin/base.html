@@ -88,6 +88,9 @@
         <a href="{{ url_for('admin.recycle_bin') }}" class="{{ 'active' if ep == 'admin.recycle_bin' }}"><span class="nav-emoji">🗑️</span>回收站</a>
         <p class="side-group">系统设置</p>
         <a href="{{ url_for('admin.stats') }}" class="{{ 'active' if ep == 'admin.stats' }}"><span class="nav-emoji">📈</span>访问统计</a>
+        {# v4.2.0 访客日志：每次真实访问的 IP/属地/路径明细 + 拉黑。查看权同「访问统计」
+           （admin_required），拉黑/解封在页面内是 super_required。 #}
+        <a href="{{ url_for('admin.visit_logs') }}" class="{{ 'active' if ep == 'admin.visit_logs' }}"><span class="nav-emoji">👣</span>访客日志</a>
         <a href="/annual" target="_blank" rel="noopener" title="前台年度回顾页（含访客地图、成就徽章）"><span class="nav-emoji">🗺️</span>访客地图</a>
         {% if current_user.is_super %}
         <a href="{{ url_for('admin.ai_summary') }}" class="{{ 'active' if ep == 'admin.ai_summary' }}"><span class="nav-emoji">🤖</span>AI 摘要</a>

@@ -50,10 +50,17 @@ def dashboard():
 @admin_bp.route("/stats")
 @admin_required
 def stats():
-    """访问统计页（服务端渲染，含区域/时段/热读/常搜图表）。"""
-    from stats import compute_summary
+    """访问统计页（服务端渲染，含区域/时段/热读/常搜图表）。
+
+    v4.2.0：新增 `?range=` 区间切换（今天/昨天/近7天…近2年，见 stats.RANGE_PRESETS），
+    区间卡片数据由 `compute_range_stats()` 提供（零表结构变更，只用 VisitLog 既有字段）。
+    """
+    from stats import (RANGE_PRESETS, DEFAULT_RANGE, compute_range_stats,
+                       compute_summary)
     summary = compute_summary()
     guard = bot_guard.guard_stats()
+    range_key = (request.args.get("range") or "").strip() or DEFAULT_RANGE
+    range_stats = compute_range_stats(range_key)
     # 时段分布转成带百分比的行，供模板画横向条形图
     max_hour = max([b["count"] for b in summary["hourly"]] or [1]) or 1
     for b in summary["hourly"]:
@@ -67,7 +74,10 @@ def stats():
     max_search = max([s["count"] for s in summary["hot_searches"]] or [1]) or 1
     for s in summary["hot_searches"]:
         s["pct"] = round(s["count"] * 100 / max_search)
-    return render_template("admin/stats.html", summary=summary, guard=guard)
+    return render_template("admin/stats.html", summary=summary, guard=guard,
+                           range_stats=range_stats, ranges=RANGE_PRESETS,
+                           cur_range=range_stats["key"],
+                           export_days=min(range_stats["days"], 365))
 
 @admin_bp.route("/audit-logs")
 @login_required

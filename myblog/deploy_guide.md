@@ -595,8 +595,14 @@ sha256sum /tmp/og.png /www/wwwroot/你的站点根/og-default.png
 1. **备份（最重要）**：到「文件」下载留底：
    - `/www/wwwroot/myblog/data/blog.db`（全部数据）
    - `/www/wwwroot/myblog/static/uploads/`（上传的图片）
-1.1. **升级要点**（其余步骤与通用流程一致；适用于 v4.0.0 → v4.2.0）：
+1.1. **升级要点**（其余步骤与通用流程一致；适用于 v4.0.0 → v4.3.0）：
    - 本版**无表结构变更、无迁移**（Alembic head 仍为 `c7a2f19b4d30`），不需要手工跑 SQL。
+   - **v4.3.0（移动端管理接口 `/api/mobile/*`）**：
+     - 只动后端 + 后台模板，**前端未改**，不需要重新构建 `vue-frontend-dist.zip`；
+     - **必须整套覆盖后端**：`api/__init__.py` 现在会导入 `api/mobile.py`，手工只拷部分文件
+       （漏了它）会让应用启动即 `ImportError`，表现是「升级后站点完全打不开」；
+       走 `update.sh` / `package.py` 的正常流程不会踩到（整目录打包）。
+     - 不需要任何 nginx 改动：新接口都在既有 `/api/` 前缀下，反代规则不变。
    - **前端**：v4.1.0 改过 `vue-frontend/src/App.vue`（工具箱下拉），从 v4.0.0 升上来的必须连同
      新版 `vue-frontend-dist.zip` 一起覆盖，否则导航栏入口不出现（`package.py` 打的是构建产物，不是 src）；
      **v4.2.0 未改前端源码**，只覆盖后端也有全部新功能（新功能全在后台页面）。

@@ -2,6 +2,82 @@
 
 > **📦 历史归档**：v3.18.5 及以前的版本记录已归档至 `docs/archive/CHANGELOG_v1-v3.18.5.md`；本文件从 v3.18.6 起。
 
+## v4.3.0（2026-10-13）
+
+### 一、移动端管理接口：后台能力开成 JSON（`/api/mobile/*`，30 个端点）
+
+手机上管博客此前只有两条路：浏览器开 `/admin/*`（桌面排版，靠缩放），或 WebView 套壳。
+套壳除了「保登录 + 快捷导航」给不了任何原生东西，而 v4.2.0 的访客日志页在手机上还会
+因为 7 列表格超出可视宽度而点不到「拉黑」按钮。本版把后台管理能力正经开成 JSON：
+
+| 分组 | 端点 |
+|------|------|
+| 首屏 | `GET /api/mobile/overview`（待审/未读评论、未读通知、草稿、定时、待审友链、置顶申请、回收站计数 + 今日数据 + 最近 5 条评论） |
+| 文章 | `GET /posts`（后台同筛选/排序口径）、`GET/PUT/POST /post[/<id>]`、`/publish`、`/unpublish`、`/pin`、`/trash`、`GET /taxonomy` |
+| 评论 | `GET /comments`、`/comment/<id>/{approve,reject,read}`、`/comments/read-all`、`/comments/batch` |
+| 访客 | `GET /visit-logs`（九档区间随响应回传）、`GET /blocked`、`POST /ip/{block,unblock}` |
+| 其他 | `GET /stats`、`GET /trash` + `restore`/`purge`、`GET /moments` + 发布/删除、`GET /link-applications` + 通过/拒绝、`POST /upload`、`GET /notifications` |
+
+完整契约（鉴权级别、请求体字段、curl 联调样例）见 **`myblog/API.md` 的「移动端管理 /mobile」**。
+
+### 二、零业务复制：写入全部复用后台既有核心，并顺手消灭了三处历史重复
+
+新增接口一律「取参 → 鉴权 → 调既有核心 → 序列化」，**没有**复制任何字段级业务规则。
+为此把后台的编辑/发布/软删/还原逻辑抽成可复用核心（这一步是本版唯一的存量代码改动）：
+
+- 新增 `admin/_helpers.py::update_post_core` / `publish_post_core` / `trash_post_core` /
+  `form_flag` / `_announce_post_published`；`admin/post_trash.py::restore_recycle_core` /
+  `purge_recycle_core`。
+- `admin/post_editor.py::edit_post` 的 80 行 POST 分支改为调用 `update_post_core`（行为逐行等价）。
+- `admin/post_manage.py::publish_now` 与 `api/posts.py::publish_now` 原本**各抄一遍**发布副作用链
+  （翻状态 → 清定时 → FTS → 插件事件 → IM 推送 → SEO 自动收录 → 邮件群发），现统一走
+  `publish_post_core`；后台 `delete_post` 同理走 `trash_post_core`。
+- `form_flag` 让「SSR 表单的 `"on"`」与「JSON 的 `true`」共用一个判据，避免同一字段两套语义。
+
+### 三、权限与闸门（`/admin/*` 的语义原样搬到 JSON）
+
+- 后台的 `admin_required` / `super_required` 未登录时是 **302 跳登录页**，客户端拿到一页 HTML
+  分不清「没登录」还是「被重定向」—— 故本模块自带 `_role()`，一律 `401/403 + {"error": …}`。
+  判定条件与后台**逐条一致**（未登录 / 超管未改默认密码 / 角色不足），没有放宽任何一条。
+- 提权字段在服务端按角色丢弃：`is_pinned` 仅管理员、`is_private`/`reward_*` 仅超管，
+  客户端传了也不生效（`tests/test_api_mobile.py` 有专门一条钉住 —— API 没有「表单里没这个勾」
+  这层天然保护，必须代码里收紧）。
+- CSRF 与 2FA 自动生效：`/api/mobile/*` 不在 `app.py` 的 CSRF 豁免白名单里，写方法必须带
+  `X-CSRF-Token`；2FA 是会话级闸门，对 `/api/` 前缀返回 `401 {twofa_required:true}`。
+- 写接口按客户端 IP 限流；所有写操作落 `AuditLog`（`mobile_*` 动作名），后台操作日志可查。
+- ⚠️ 闸门顺序（测试已钉）：CSRF 检查在业务视图之前，**既未登录又缺 token** 时返回 403（CSRF）
+  而不是 401。真实客户端登录后立刻就有 token，不受影响。
+
+### 四、顺带修掉：访客日志页手机端「拉黑」按钮点不到
+
+`templates/admin/visit_logs.html` 用的是 `.stats-table`（≤900 横向滚动兜底）。7 列里
+IP / 路径 / 来源都是长文本，而 `base.html` 有 `body{overflow-x:clip}` —— 横滑会被裁掉，
+结果「操作」列在手机上根本够不着。现改为走全站既有的 `.admin-table` + 逐格 `data-label`
+卡片化机制（≤760 隐藏表头、单元格纵排、字段名由 `td[data-label]::before` 渲染）。
+这条约定由 `tests/test_admin_table_data_label.py` 强制，漏一格即红。
+
+### 五、零表结构变更、零迁移
+
+没有新增表、没有新列，Alembic head 仍是 `c7a2f19b4d30`，**升级不需要跑迁移**（照常重启即可）。
+前端（`vue-frontend/`）未改，也不需要重新构建。
+
+### 六、必须知道的一条部署约束
+
+`myblog/api/__init__.py` 现在会 `from . import mobile`。**部署必须整套覆盖后端**：
+只拷了部分文件（比如漏了 `api/mobile.py`）会让整个应用启动即 `ImportError`，
+表现是「升级后站点完全打不开」而不是「新功能没有」。`update.sh` / `package.py` 走的是整目录
+`os.walk` 打包，正常流程不会踩到；手工 scp 单个文件才需要当心。
+
+### 七、测试
+
+新增 `tests/test_api_mobile.py`（23 条）：未登录 401 / 越权 403 / 普通用户提权字段被丢弃 /
+CSRF 缺失被拦 / 发文-编辑-发布-撤回-软删-还原 全链路 / 定时时间的北京↔UTC 换算 /
+访客日志九档筛选与「已拉黑」标记 / 拉黑需超管且幂等解封 / 评论通过与驳回与批量 /
+友链通过要落 `FriendLink`、拒绝不落 / 上传拒绝伪装成 png 的 HTML / 首屏计数与表内一致。
+既有的 `test_admin_posts_characterization.py`、`test_edit_post_history.py`、
+`test_admin_explicit_imports.py`、`test_no_module_import_cycles.py` 全部保持通过
+—— 它们就是「抽取核心没有改变行为」的证据。
+
 ## v4.2.0（2026-10-12）
 
 ### 一、访客运营精细化：九档区间 + 独立访客日志 + 按 IP 拉黑

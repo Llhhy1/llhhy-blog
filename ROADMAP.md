@@ -60,6 +60,14 @@
   一键拉黑/解封 IP（默认永久）。复用既有 `VisitLog` 与 `BotBlock`，**不建表、无迁移**。
   🔑 修一个「配了没用上」的老缺陷：封禁检查原先整体位于 `guard_enabled()`（默认 false）之后，
   **开关关着时黑名单从不执行**；现手动黑名单检查前移到开关判断之前，且自动限流不得改短永久封禁 ✅
+- **D8 移动端管理接口（v4.3.0）**：后台管理能力开成 JSON（`/api/mobile/*`，30 个端点：首屏计数 /
+  文章增删改发布置顶软删回收站 / 评论单条与批量审核 / 访客日志九档 + IP 拉黑 / 统计 / 微动态 /
+  友链申请 / 图片上传 / 通知），原生 App 由此不必再套 WebView。**零新表、零迁移、`/admin/*` 一行未改**。
+  🔑 写入全部复用后台既有核心，并为此抽出 `update_post_core` / `publish_post_core` /
+  `trash_post_core` / `restore_recycle_core` —— 顺带消灭 `admin/post_manage.py::publish_now` 与
+  `api/posts.py::publish_now` 之间那份重复实现（「发布副作用链」FTS / 插件事件 / IM 推送 /
+  SEO 收录 / 邮件群发在两处各写一遍，任一侧改动另一侧就会静默漏掉）；
+  权限判定见 SECURITY_AUDIT **R120** ✅
 
 ### 模块 E：插件系统（全栈，v3.9.0 落地）✅
 - **E1 插件加载框架**：`myblog/plugins/` 动态加载 `register(app, cfg)`，失败隔离（单插件崩不拖垮博客）✅

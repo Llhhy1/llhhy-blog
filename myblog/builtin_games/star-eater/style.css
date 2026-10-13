@@ -1,0 +1,58 @@
+:root { color-scheme: dark; }
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+html, body {
+  margin: 0; padding: 0; height: 100%;
+  background: radial-gradient(120% 90% at 50% 0%, #1a1436 0%, #120e26 55%, #0a0818 100%);
+  color: #eef0ff;
+  font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+  touch-action: manipulation; user-select: none; -webkit-user-select: none; overflow: hidden;
+}
+#app {
+  height: 100dvh; max-width: 460px; margin: 0 auto;
+  display: flex; flex-direction: column; align-items: center;
+  padding: 3dvh 16px calc(2dvh + env(safe-area-inset-bottom));
+  text-align: center;
+}
+h1 { margin: 0; font-size: 23px; letter-spacing: 2px; }
+.sub { margin: 3px 0 0; color: #9b8fd4; font-size: 12px; }
+
+#topbar { display: flex; align-items: center; gap: 18px; margin-top: 2.2dvh; }
+.stat { display: flex; flex-direction: column; align-items: center; min-width: 66px; }
+.stat .k { color: #7d74ad; font-size: 11px; letter-spacing: 1px; }
+.stat .v { font-size: 24px; font-weight: 700; font-variant-numeric: tabular-nums; }
+#score .v { color: #ffd66b; }
+#best .v { color: #7fb0ff; }
+
+#stage { position: relative; margin-top: 2dvh; width: 100%; }
+canvas {
+  display: block; width: 100%; aspect-ratio: 1 / 1;
+  border-radius: 14px; background: #0d0b1f;
+  box-shadow: 0 0 0 1px #2a2350, 0 10px 30px rgba(0, 0, 0, .45);
+}
+#pad { display: none; margin-top: 2.4dvh; }
+#pad.show { display: grid; grid-template-columns: repeat(3, 62px); grid-template-rows: repeat(2, 62px); gap: 8px; }
+#pad button {
+  border: 1px solid #342c5e; background: #1a1638; color: #cfd4ff;
+  border-radius: 12px; font-size: 20px; cursor: pointer;
+}
+#pad button:active { background: #241d4a; }
+#pad .u { grid-column: 2; }
+#pad .l { grid-column: 1; grid-row: 2; }
+#pad .d { grid-column: 2; grid-row: 2; }
+#pad .r { grid-column: 3; grid-row: 2; }
+
+#hint { margin-top: 1.8dvh; color: #6f6799; font-size: 12px; line-height: 1.7; }
+#overlay {
+  position: absolute; inset: 0; display: none;
+  align-items: center; justify-content: center; flex-direction: column;
+  background: rgba(10, 8, 24, .86); border-radius: 14px; padding: 20px;
+}
+#overlay.show { display: flex; }
+#ovtitle { font-size: 22px; font-weight: 700; margin: 0 0 6px; }
+#ovmsg { color: #a79ed6; font-size: 13px; margin: 0 0 14px; }
+#again {
+  border: 0; border-radius: 999px; padding: 10px 26px; cursor: pointer;
+  background: linear-gradient(135deg, #7fb0ff, #6f7dff); color: #0b0d1e;
+  font-size: 15px; font-weight: 700;
+}
+#again:active { filter: brightness(.92); }

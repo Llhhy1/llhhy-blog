@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<meta name="color-scheme" content="dark">
+<title>贪吃星</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="app">
+  <h1>贪吃星</h1>
+  <p class="sub">吃一颗，长一节。撞墙或咬到自己就结束。</p>
+
+  <div id="topbar">
+    <div class="stat" id="score"><span class="k">得分</span><span class="v" id="scoreV">0</span></div>
+    <div class="stat"><span class="k">长度</span><span class="v" id="lenV">1</span></div>
+    <div class="stat" id="best"><span class="k">最高</span><span class="v" id="bestV">0</span></div>
+  </div>
+
+  <div id="stage">
+    <canvas id="cv" width="360" height="360"></canvas>
+    <div id="overlay">
+      <p id="ovtitle"></p>
+      <p id="ovmsg"></p>
+      <button id="again" type="button">再来一局</button>
+    </div>
+  </div>
+
+  <div id="pad">
+    <button class="u" type="button" data-dir="up" aria-label="上">↑</button>
+    <button class="l" type="button" data-dir="left" aria-label="左">←</button>
+    <button class="d" type="button" data-dir="down" aria-label="下">↓</button>
+    <button class="r" type="button" data-dir="right" aria-label="右">→</button>
+  </div>
+
+  <p id="hint">方向键 / WASD / 滑动操作<br>长按方向键可连续转向</p>
+</div>
+<script src="game.js"></script>
+</body>
+</html>

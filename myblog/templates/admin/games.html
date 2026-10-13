@@ -13,15 +13,24 @@
   <p><a class="btn" href="{{ url_for('admin.games_llm_config') }}">⚙️ LLM 代码审计配置</a></p>
 
   <table class="admin-table">
-    <thead><tr><th>ID</th><th>游戏</th><th>作者/版本</th><th>状态</th><th>静态分</th><th>文件数</th><th>收录时间</th><th>操作</th></tr></thead>
+    <thead><tr><th>ID</th><th>游戏</th><th>作者/版本</th><th>状态</th><th>审计</th><th>文件数</th><th>收录时间</th><th>操作</th></tr></thead>
     <tbody>
       {% for g in games %}
+        {% set verdict = latest_verdict(g) %}
         <tr>
           <td data-label="ID">{{ g.id }}</td>
           <td data-label="游戏"><strong>{{ g.title }}</strong><br><small>{{ g.slug }} · {{ g.description or '' }}</small></td>
           <td data-label="作者/版本">{{ g.author or '-' }} / {{ g.version }}</td>
           <td data-label="状态">{{ { 'pending':'待审','approved':'已上架','rejected':'已驳回','removed':'已下架' }.get(g.status, g.status) }}</td>
-          <td data-label="静态分">{{ g.audit_score if g.audit_score is not none else '-' }}</td>
+          <td data-label="审计">
+            {# v4.4.2：把 LLM 结论显式化。原表只有「静态分」一列，
+               而静态分与 LLM verdict 是两件独立的事，并排显示会误导。 #}
+            {% if verdict[0] == 'safe' %}<span class="tag tag-up">LLM 安全</span>
+            {% elif verdict[0] == 'risk' %}<span class="tag tag-down">LLM 有风险</span>
+            {% elif verdict[1] %}<span class="tag tag-flat">LLM 无法判定</span>
+            {% else %}<span class="tag tag-flat">未审计</span>{% endif %}
+            <br><small>静态分 {{ g.audit_score if g.audit_score is not none else '-' }}</small>
+          </td>
           <td data-label="文件数">{{ g.file_count }}</td>
           <td data-label="收录时间">{{ g.created_at | bj('%Y-%m-%d %H:%M') }}</td>
           <td data-label="操作">

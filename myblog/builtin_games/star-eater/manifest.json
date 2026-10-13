@@ -1,0 +1,8 @@
+{
+  "name": "贪吃星",
+  "slug": "star-eater",
+  "entry": "index.html",
+  "description": "一颗星在方格里游荡，吃掉星星会变长，长到塞不下就结束。分数和最高分都留在本机 —— 越吃越贪，越贪越死。",
+  "author": "llhhy",
+  "version": "1.0"
+}

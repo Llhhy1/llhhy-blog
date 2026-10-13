@@ -25,6 +25,7 @@ import os
 import glob
 import time
 import datetime
+import contextlib
 
 from flask import current_app
 from sqlalchemy import text
@@ -37,6 +38,12 @@ from _time import utcnow
 
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+# 本文件所在目录（= 代码根）。⚠️ **不要用 REPO_ROOT 拼 myblog/ 前缀**：
+# 本地开发时代码在 `<repo>/myblog/`，但线上（v3.18.6 起）代码直接铺在站点根
+# `/www/wwwroot/myblog/`，没有 `myblog/` 这一层 —— 用 REPO_ROOT 拼前缀在服务器上恒为空路径
+# （v4.4.1 修备份误报时踩到：旧代码 `REPO_ROOT/myblog/data/backups` 永远不存在）。
+_CODE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 
 def _severity(status):
@@ -267,13 +274,65 @@ def check_feed_agg():
 # ---------------------------------------------------------------------------
 # 5. 数据备份
 # ---------------------------------------------------------------------------
+def _backup_search_dirs():
+    """枚举**真实写入方**用到的本地备份目录：返回 `[(路径, 来源标签), ...]`（只含已存在的）。
+
+    v4.4.1 修：旧实现只猜一条 `REPO_ROOT/myblog/data/backups`，而备份实际有三处写入方：
+      ① 后台「数据备份」页面配置的目录 / `BACKUP_DIR` 环境变量；
+      ② `backup.py` 的滚动备份（`BACKUP_ROOT`，服务器上是**站点上级**的 `backups/`，
+         即每天 4 点 cron 跑出来的那批）；
+      ③ `update.sh` 每次部署前的直拷备份（`<代码同级>/data/backup`）。
+    旧代码猜的那条有两个错：目录名写成 `backups`（实际 `backup`，单数），
+    且多套了一层 `myblog/`（线上代码直接铺在站点根，没有这层）→ 路径恒不存在，
+    于是明明每天都在备份，体检却报「未找到备份文件」。
+
+    🔑 不自己重算 ② 的路径规则，直接取 `backup.BACKUP_ROOT`（唯一真相源）；
+    重算等于把写入方的规则抄一份，抄错就是今天这个 bug。
+    """
+    found = []
+    seen = set()
+
+    def _add(path, label):
+        if not path:
+            return
+        real = os.path.abspath(path)
+        if real in seen:
+            return
+        seen.add(real)
+        found.append((real, label, os.path.isdir(real)))
+
+    # ① 后台配置 / 环境变量
+    with contextlib.suppress(Exception):
+        from backup_settings import read_setting_db
+        _add(read_setting_db("backup_dir"), "后台配置目录")
+    _add(os.environ.get("BACKUP_DIR"), "环境变量 BACKUP_DIR")
+
+    # ② 定时任务目录：backup.py 自己解析出来的结果
+    try:
+        import backup as _bk
+        _add(getattr(_bk, "BACKUP_ROOT", None), "定时任务目录")
+    except Exception:  # noqa: BLE001 —— 体检不能因导入失败而崩，退回同规则的默认值
+        _add(os.path.join(os.path.dirname(REPO_ROOT), "backups"), "定时任务目录")
+
+    # ③ 部署备份目录：与代码同级（本地= myblog/data/backup，线上= 站点根/data/backup）
+    _add(os.path.join(_CODE_DIR, "data", "backup"), "部署备份目录")
+
+    return found
+
+
 def check_backup():
     items, notes, status = [], [], "ok"
     try:
         from backup_settings import read_setting_db
-        backup_dir = read_setting_db("backup_dir") or os.environ.get("BACKUP_DIR")
         retention = read_setting_db("backup_retention_days") or os.environ.get("BACKUP_RETENTION_DAYS", "14")
-        items.append({"label": "本地备份目录", "value": (backup_dir or "未设置（使用默认）"), "level": "info"})
+        dirs = _backup_search_dirs()
+        alive = [(p, lb) for p, lb, ok in dirs if ok]
+        items.append({
+            "label": "本地备份目录",
+            "value": ("；".join(p for p, _ in alive) if alive
+                      else "未找到可用的本地备份目录"),
+            "level": "ok" if alive else "warn",
+        })
         items.append({"label": "保留天数", "value": str(retention), "level": "info"})
 
         # 远端目标
@@ -289,30 +348,34 @@ def check_backup():
             notes.append("未配置任何远端备份目标，数据仅留本地，建议至少配一个异地/对象存储。")
             status = "warn" if status == "ok" else status
 
-        # 最近备份文件
-        search_dirs = []
-        if backup_dir and os.path.isdir(backup_dir):
-            search_dirs.append(backup_dir)
-        else:
-            cand = os.path.join(REPO_ROOT, "myblog", "data", "backups")
-            if os.path.isdir(cand):
-                search_dirs.append(cand)
+        # 配置了却不存在的目录 —— 是「配了没生效」，必须点出来而不是静默忽略
+        for path, label, ok in dirs:
+            if not ok:
+                items.append({"label": "目录缺失", "value": f"{path}（{label}）", "level": "warn"})
+                notes.append(f"{label}已配置但目录不存在：{path}")
+                status = "warn" if status == "ok" else status
+
+        # 最近备份文件：跨所有真实目录取最新，并标注它来自哪个来源
         latest = None
-        for d in search_dirs:
-            for f in glob.glob(os.path.join(d, "*")):
+        for path, label in alive:
+            for f in glob.glob(os.path.join(path, "*")):
                 if os.path.isfile(f) and f.lower().endswith((".db", ".sql", ".zip", ".sqlite")):
                     m = os.path.getmtime(f)
                     if latest is None or m > latest[1]:
-                        latest = (f, m)
+                        latest = (f, m, label)
         if latest:
             age = time.time() - latest[1]
-            items.append({"label": "最近备份", "value": f"{os.path.basename(latest[0])}（{_human_age(age)}前）", "level": "ok" if age < 7*86400 else "warn"})
-            if age >= 7*86400:
+            items.append({
+                "label": "最近备份",
+                "value": f"{os.path.basename(latest[0])}（{_human_age(age)}前 · {latest[2]}）",
+                "level": "ok" if age < 7 * 86400 else "warn",
+            })
+            if age >= 7 * 86400:
                 notes.append("最近一次备份已超过 7 天，建议检查定时备份是否正常运行。")
                 status = "warn" if status == "ok" else status
         else:
             items.append({"label": "最近备份", "value": "未找到备份文件", "level": "warn"})
-            notes.append("未发现任何备份文件，请确认备份任务已执行。")
+            notes.append("已找到本地备份目录但其中没有备份文件，请确认备份任务是否执行成功。")
             status = "warn" if status == "ok" else status
     except Exception as e:
         status = "error"

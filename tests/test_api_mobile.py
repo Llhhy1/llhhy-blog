@@ -275,6 +275,47 @@ def test_编辑别人的文章_403_自己的生效(app, client):
             _drop(pids=[pid] if pid else [], uids=[owner.id, other.id])
 
 
+def test_详情回传未回退的_seo_原值(app, client):
+    """移动端编辑要求「取全量再整单回传」，所以详情必须给出库里**未回退**的 SEO 原值。
+
+    `_post_summary` 的 `seo_description` 是「独立描述 **或** 回退到摘要」的展示值；
+    而 `update_post_core` 的表单语义是「缺省即清空」。客户端若把展示值原样回传，
+    就等于把「本来没填 SEO 描述」悄悄改写成「描述 = 当期摘要」——此后改摘要再也带不动
+    描述，且后台编辑页看起来一切正常。这类「接口不难用，但回传一次就静默改数据」的坑，
+    只能用一条往返测试钉住。
+    """
+    with app.app_context():
+        u = _mkuser()
+        title = "SEO 原值" + _uid()
+        summary = "这是摘要" + _uid()
+        pid = None
+        try:
+            tok = _auth(client, u.id)
+            pid = _req(client, "post", "/api/mobile/post", tok=tok, payload={
+                "title": title, "content": "正文", "summary": summary}).get_json()["id"]
+
+            d = client.get("/api/mobile/post/%d" % pid).get_json()
+            assert d["seo_description"] == summary, "展示值仍按既有口径回退到摘要"
+            assert d["seo_description_raw"] == "", "库里没填就必须是空串"
+
+            r = _req(client, "put", "/api/mobile/post/%d" % pid, tok=tok, payload={
+                "title": title, "content": "正文", "summary": summary,
+                "seo_description": d["seo_description_raw"]})
+            assert r.status_code == 200, r.get_json()
+            assert (db.session.get(Post, pid).seo_description or "") == "", \
+                "整单回传空原值不得把摘要写成独立描述"
+
+            r2 = _req(client, "put", "/api/mobile/post/%d" % pid, tok=tok, payload={
+                "title": title, "content": "正文", "summary": summary,
+                "seo_description": "独立描述" + _uid()})
+            assert r2.status_code == 200, r2.get_json()
+            d2 = client.get("/api/mobile/post/%d" % pid).get_json()
+            assert d2["seo_description_raw"].startswith("独立描述")
+            assert d2["seo_description"] == d2["seo_description_raw"], "填了之后两个字段应当一致"
+        finally:
+            _drop(pids=[pid] if pid else [], uids=[u.id])
+
+
 def test_发布与撤回沿用后台副作用链(app, client):
     """草稿 → 发布 → 撤回。
 

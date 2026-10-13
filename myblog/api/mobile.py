@@ -320,6 +320,11 @@ def mobile_post_detail(post_id):
     d.update({
         "content": post.content or "",
         "reward_qr": post.reward_qr or "",
+        # `_post_summary` 里的 `seo_description` 是「独立描述**或**回退到摘要」的展示值，
+        # 无法反推库里的原值。而 `update_post_core` 的表单语义是「缺省即清空」，客户端
+        # 必须回传完整表单 —— 于是拿展示值回传会把「本来没填」写成「等于摘要」，
+        # 以后改摘要就带不动 SEO 描述了。所以详情额外给一份**未回退**的原值。
+        "seo_description_raw": post.seo_description or "",
         "tag_names": ", ".join(t.name for t in post.tags),
         "url": "/post/" + (post.slug or ""),
         "previewable": bool(not post.published and not post.is_private and not post.in_trash),

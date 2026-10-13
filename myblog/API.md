@@ -435,7 +435,7 @@ myblog/
 |------|------|------|
 | `GET /api/mobile/overview` | 管理员 | 首屏一屏：`counts`（待审/未读评论、未读通知、草稿、定时、待审友链、置顶申请、回收站）+ `today` 数据 + 最近 5 条评论 |
 | `GET /api/mobile/posts` | 登录（普通用户仅自己） | 后台同筛选口径：`q/status(published\|draft\|scheduled\|pinned)/category_id/series_id/sort/order/page/per_page`；**列表不含正文** |
-| `GET /api/mobile/post/<id>` | 可编辑者 | 详情含 Markdown 原文、`tag_names`、`previewable` |
+| `GET /api/mobile/post/<id>` | 可编辑者 | 详情含 Markdown 原文、`tag_names`、`previewable`；另给 `seo_description_raw`（**库里未回退**的独立描述；`seo_description` 是「没填就回退摘要」的展示值，直接回传会把空描述写成摘要） |
 | `GET /api/mobile/taxonomy` | 登录 | 分类 / 系列 / 标签候选（编辑器下拉数据源） |
 | `GET /api/mobile/comments` | 管理员 | `status=pending\|approved`、`unread=1`；每条带 `post_title` 上下文 |
 | `GET /api/mobile/visit-logs` | **超管**（v4.3.1） | v4.2.0 访客日志的 JSON 版；`range/type/ip/region/path`；响应附 `ranges`（九档）与当前 `range` 边界。输出 IP 原文，故收成超管专属，与「拉黑/解封」同级 |

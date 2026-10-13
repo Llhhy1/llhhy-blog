@@ -27,7 +27,8 @@ import uuid
 from datetime import timedelta
 
 from models import (AuditLog, BotBlock, Comment, FriendLink, LinkApplication, Moment,
-                    Notification, Post, RecycleBin, User, VisitLog, db, ROLE_SUPER, ROLE_USER)
+                    Notification, Post, RecycleBin, User, VisitLog, db,
+                    ROLE_ADMIN, ROLE_SUPER, ROLE_USER)
 from utils import _sign_csrf
 from _time import utcnow
 
@@ -156,6 +157,34 @@ def test_新前缀不抢既有路由(app, client):
     for path in ("/api/mobile/overview", "/api/mobile/posts", "/api/mobile/comments",
                  "/api/mobile/visit-logs", "/api/mobile/stats"):
         assert client.get(path).status_code != 404, path
+
+
+def test_访客日志与封禁清单仅超管可读(app, client):
+    """v4.3.1：`/visit-logs` 与 `/blocked` 从「管理员」升到「超管」。
+
+    断言的是**这一条界线**：同为管理员，仍能审评论、看统计、看回收站，但拿不到
+    逐条访问日志与封禁 IP 清单。反过来说，如果哪天有人把这两个端点改回 `admin=True`，
+    这条会红 —— 那是有意的决定还是手滑，就该被看见。
+    """
+    with app.app_context():
+        admin = _mkuser(ROLE_ADMIN)
+        super_u = _mkuser(ROLE_SUPER)
+        try:
+            _auth(client, admin.id)
+            assert client.get("/api/mobile/visit-logs").status_code == 403, \
+                "访客日志输出 IP 原文，管理员不该能整表翻页抓走"
+            assert client.get("/api/mobile/blocked").status_code == 403, "封禁清单同上"
+            # 同级管理员的日常工作不受影响
+            assert client.get("/api/mobile/comments").status_code == 200
+            assert client.get("/api/mobile/stats").status_code == 200
+            assert client.get("/api/mobile/overview").status_code == 200
+            assert client.get("/api/mobile/trash").status_code == 200
+
+            _auth(client, super_u.id)
+            assert client.get("/api/mobile/visit-logs").status_code == 200
+            assert client.get("/api/mobile/blocked").status_code == 200
+        finally:
+            _drop(uids=[admin.id, super_u.id])
 
 
 # ---------------------------------------------------------------- 发文 / 改文

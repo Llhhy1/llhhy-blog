@@ -421,7 +421,9 @@ myblog/
   ⚠️ 闸门顺序：CSRF 检查在业务视图之前，所以**既未登录又缺 token** 时你拿到的是
   `403`（CSRF）而不是 401。真实客户端登录后立刻就有 token，不受影响。
 - 角色：`只读运营数据 = 管理员`；`发文/改自己的文 = 任意登录用户`；
-  `置顶直改、IP 拉黑与解封 = 超管`。提权字段（`is_pinned`/`is_private`/`reward_enabled`）
+  `置顶直改、IP 拉黑与解封 = 超管`；**v4.3.1 起 `访客日志 /visit-logs` 与封禁清单 /blocked 也是超管**
+  —— 两者输出访客 IP 原文，且解封本就是超管动作，清单与操作同级才好核对。
+  提权字段（`is_pinned`/`is_private`/`reward_enabled`）
   在服务端按角色丢弃，**客户端传了也不生效**（有回归测试钉住）。
 - 分页信封统一 `{items, total, page, pages}`；`per_page` 上限 100。
 - 时间字段全部北京时间字符串（与 SSR 后台同源 `fmt_bj`）。
@@ -436,8 +438,8 @@ myblog/
 | `GET /api/mobile/post/<id>` | 可编辑者 | 详情含 Markdown 原文、`tag_names`、`previewable` |
 | `GET /api/mobile/taxonomy` | 登录 | 分类 / 系列 / 标签候选（编辑器下拉数据源） |
 | `GET /api/mobile/comments` | 管理员 | `status=pending\|approved`、`unread=1`；每条带 `post_title` 上下文 |
-| `GET /api/mobile/visit-logs` | 管理员 | v4.2.0 访客日志的 JSON 版；`range/type/ip/region/path`；响应附 `ranges`（九档）与当前 `range` 边界 |
-| `GET /api/mobile/blocked` | 管理员 | 正在生效的封禁（含 `permanent` 判定） |
+| `GET /api/mobile/visit-logs` | **超管**（v4.3.1） | v4.2.0 访客日志的 JSON 版；`range/type/ip/region/path`；响应附 `ranges`（九档）与当前 `range` 边界。输出 IP 原文，故收成超管专属，与「拉黑/解封」同级 |
+| `GET /api/mobile/blocked` | **超管**（v4.3.1） | 正在生效的封禁（含 `permanent` 判定）；解封本就是超管动作，清单与操作同级 |
 | `GET /api/mobile/stats` | 管理员 | `stats.compute_summary()`；`?detail=1` 附 `trend`（`days` 1~90） |
 | `GET /api/mobile/trash` | 管理员 | 回收站未还原记录 |
 | `GET /api/mobile/moments` | 管理员 | 微动态列表（`q` 搜索，带 `comment_count`） |

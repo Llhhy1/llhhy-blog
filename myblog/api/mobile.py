@@ -37,6 +37,8 @@ JSON 输出，客户端可以用列表 / 卡片 / 滑动操作原生生成，排
   `/api/auth/2fa/verify` 后重试。
 - **角色**：只读运营数据 = 管理员（super/admin）；发文与编辑 = 任意登录用户（普通用户
   只能看/改自己 `author_id` 的文章，沿用 `_can_edit_post`）；直改置顶、拉黑/解封 = 超管。
+  **v4.3.1 例外**：`/mobile/visit-logs` 与 `/mobile/blocked` 也是超管专属 —— 它们输出访客
+  IP 原文，且解封本就是超管动作（理由与残留风险见 SECURITY_AUDIT R120.5 / R121）。
 - **限流**：写接口按客户端 IP 限流（`utils.rate_limit`），超限 `429`。只读接口沿用
   `/api/stats/*` 的口径（30/分钟）或不限流。
 """
@@ -663,8 +665,14 @@ def mobile_visit_logs():
 
     区间 key 直接复用 `stats.RANGE_PRESETS`（今天/昨天/近 7 天…九档），并随响应回给
     客户端，App 不必自己算日期。
+
+    ⚠️ **v4.3.1 起收成超管专属**（原与后台页面同级 = 管理员）。理由见 SECURITY_AUDIT R120.5：
+    这个端点输出**访客 IP 原文**，权限本身没比后台页面宽，但出口从「一个人一页一页看的页面」
+    变成「一个可以被脚本翻页批量抓的 JSON 接口」—— 风险不是「谁能看」，而是「能多快地全拿走」。
+    拉黑/解封本来就是超管专属，日志页与它配套，收成同级也更一致：
+    **能决定封谁的人，才应该能拿到那份 IP 清单**。
     """
-    user, deny = _role(admin=True)
+    user, deny = _role(super_only=True)
     if deny:
         return deny
     page, per_page = _page_args()
@@ -702,8 +710,12 @@ def mobile_visit_logs():
 
 @api_bp.route("/mobile/blocked")
 def mobile_blocked():
-    """正在生效的 IP 封禁列表（App 侧「谁被我拉黑了 / 解封」入口）。"""
-    user, deny = _role(admin=True)
+    """正在生效的 IP 封禁列表（App 侧「谁被我拉黑了 / 解封」入口）。
+
+    v4.3.1：与 `/mobile/visit-logs` 同步收成**超管专属** —— 内容同样是 IP 原文，
+    且解封本就是超管动作，列表与操作权限必须同级。
+    """
+    user, deny = _role(super_only=True)
     if deny:
         return deny
     now = utcnow()

@@ -5,14 +5,14 @@ import datetime
 from flask import (Blueprint, request, redirect, url_for,
                    session, current_app, abort)
 
-from models import (db, Post, Tag, Comment, User, Guestbook, AuditLog, PostHistory)
+from models import (db, Post, Tag, Comment, User, Guestbook, AuditLog, PostHistory, RecycleBin)
 from utils import (make_slug, count_words, validate_password, apply_slug_template,
                    BEIJING_TZ, get_client_ip, safe_redirect)
 from config import APP_VERSION
 import audit as _audit
 import fts
-import notify
 import mail_notify
+import notify
 from _time import utcnow
 import contextlib
 
@@ -373,6 +373,157 @@ def create_post_core(*, title, content, summary="", cover="", category_id=None,
     return post
 
 
+def form_flag(form, key):
+    """勾选框/布尔字段的统一取值（v4.3.0：后台表单与移动端 JSON 共用一个判据）。
+
+    - 后台 SSR 表单：勾选值为 `"on"`，未勾选时键缺失（`.get()` 返回 None）；
+    - 移动端 JSON：`true` / `false`（也可能被客户端序列化成 `"true"`）。
+    两套写法都归一成 bool，避免同一个字段在不同入口有两套语义。
+    """
+    v = form.get(key)
+    if isinstance(v, str):
+        return v.strip().lower() in ("on", "true", "1", "yes")
+    return bool(v)
+
+
+def update_post_core(post, form, user):
+    """编辑文章的**唯一**字段落库实现（v4.3.0 从 `post_editor.edit_post` 原样抽出）。
+
+    抽出动机：移动端管理接口（`api/mobile.py`）需要同一个编辑能力。若各处再写一遍
+    「哪个字段谁能改」，两份实现就会漂移——`_parse_scheduled` 的注释里记着「定时发布
+    曾错位 8 小时」，而「普通用户提交 is_pinned 必须被忽略」这类规则一旦只写在一处，
+    另一处迟早漏掉。行为与 v4.2.0 的 `edit_post` POST 分支**逐行等价**，
+    改动本函数等于同时改后台编辑页与移动端，务必跑 `tests/test_edit_post_history.py`
+    与 `tests/test_admin_posts_characterization.py`。
+
+    `form` 只需支持 `.get(key)`（`request.form` 或普通 dict 均可）。
+    返回错误文案；成功返回空字符串（此时 post 已提交并同步 FTS）。
+
+    权限分层与后台一致，刻意**不**信任调用方传入的提权字段：
+      · `is_pinned` / `pin_requested`：仅管理员可改（普通用户提交一律忽略）
+      · `is_private` / `reward_*`：仅超管可改
+    """
+    title = (form.get("title") or "").strip()
+    if not title:
+        return "标题不能为空"
+    # 保留旧值用于「是否记版本历史」与「是否刚转发布」判断：
+    # post.title / post.content / post.published 在下面就会被覆盖
+    old_title = post.title
+    old_content = post.content
+    was_published = post.published
+    from .taxonomy import _ensure_category_by_name, _ensure_series_by_name
+    post.title = title
+    # v3.7.0：slug 强制由全局模板决定，用户无法手工覆盖。标题 slug 未变则保持原 slug
+    # （不破坏已有 URL / SEO），变了（或原为空）才套模板重新生成。
+    if make_slug(title) != post.slug:
+        post.slug = apply_slug_template(post, title)
+    post.summary = (form.get("summary") or "").strip()
+    post.content = form.get("content") or ""
+    post.cover = (form.get("cover") or "").strip()
+    # v3.14.0：就地新建分类/系列（编辑页「＋新建…」随表单提交，同名自动复用）
+    new_cat = (form.get("new_category_name") or "").strip()
+    cid = _ensure_category_by_name(new_cat) if new_cat else (form.get("category_id") or None)
+    post.category_id = int(cid) if cid else None
+    new_ser = (form.get("new_series_name") or "").strip()
+    sid = _ensure_series_by_name(new_ser) if new_ser else (form.get("series_id") or None)
+    post.series_id = int(sid) if sid else None
+    scheduled_at = _parse_scheduled(form.get("scheduled_at"))
+    published = form_flag(form, "published")
+    # 定时发布：填了未来时间先存未发布，后台线程到点自动翻 published；
+    # 否则清空 scheduled_at，避免历史脏值把「立即发布」又拖回定时队列。
+    if scheduled_at is not None and scheduled_at > utcnow():
+        published = False
+    else:
+        scheduled_at = None
+    post.published = published
+    post.scheduled_at = scheduled_at
+    if user.is_admin_role:
+        post.is_pinned = form_flag(form, "is_pinned")
+        post.pin_requested = False  # 管理员直接操作置顶，不留申请态
+    post.seo_description = (form.get("seo_description") or "").strip()
+    post.seo_keywords = (form.get("seo_keywords") or "").strip()
+    post.lang = (form.get("lang") or "zh").strip() or "zh"
+    post.translation_group = (form.get("translation_group") or "").strip()
+    if user.is_super:
+        post.is_private = form_flag(form, "is_private")
+        post.reward_enabled = form_flag(form, "reward_enabled")
+        post.reward_qr = (form.get("reward_qr") or "").strip() if post.reward_enabled else ""
+    wc, rm = count_words(post.content)
+    post.word_count = wc
+    post.reading_minutes = rm
+    _sync_tags(post, form.get("tags") or "")
+    if post.content != old_content or old_title != title:
+        _save_post_history(post, user.username if user else "")
+    db.session.commit()
+    cleanup_orphan_tags()
+    with contextlib.suppress(Exception):
+        fts.sync_post(post)
+    # 「草稿/定时 → 已发布」这一次翻转才推送与群发（重复保存已发布文章不再骚扰订阅者）
+    if post.published and not was_published:
+        _announce_post_published(post)
+    return ""
+
+
+def _announce_post_published(post, notify_subscribers=True):
+    """文章转为已发布后的对外动作：站内/IM 推送 + SEO 自动收录 + 邮件群发（全部静默失败）。
+
+    v4.3.0 抽出：后台发布、移动端发布、编辑页「草稿转发布」三处原本各抄一遍同样的
+    5 行 try/suppress，容易漏掉其中一项（漏 `emit_post_published` 就少一次插件事件）。
+    """
+    with contextlib.suppress(Exception):
+        notify.notify_new_post(post, current_app.config.get("SITE_URL", ""))
+    with contextlib.suppress(Exception):
+        from plugins.signals import emit_post_published
+        emit_post_published(post)
+    with contextlib.suppress(Exception):
+        import seo_push
+        seo_push.maybe_auto_push(post)
+    if notify_subscribers:
+        with contextlib.suppress(Exception):
+            mail_notify.notify_subscribers_async(post)
+
+
+def publish_post_core(post, user):
+    """把文章置为已发布（定时/草稿 → 公开）。返回 True=本次真的翻了状态，False=无权限。
+
+    权限：管理员全部；普通用户仅自己发表的（`author_id` 匹配）。
+    后台「立即发布」与 `/api/post/<id>/publish-now`、移动端共用本函数（v4.3.0）。
+    """
+    if not _can_edit_post(user, post):
+        return False
+    if post.published:
+        return True
+    post.published = True
+    post.scheduled_at = None  # 清空定时，避免后台线程重复触发
+    db.session.commit()
+    fts.sync_post_quiet(post)
+    _announce_post_published(post)
+    return True
+
+
+def trash_post_core(post, user, snapshot=True):
+    """软删除：快照进回收站 + 标记 `in_trash` + 移出 FTS 索引。返回 False=无权限。
+
+    ⚠️ `fts.delete_post()` 必须在：不同步的话已删文章仍会被 `/api/search` 命中。
+    """
+    if not _can_edit_post(user, post):
+        return False
+    if snapshot:
+        with contextlib.suppress(Exception):
+            db.session.add(RecycleBin(
+                post_id=post.id, title=post.title or "", slug=post.slug or "",
+                summary=post.summary or "", content=post.content or "", cover=post.cover or "",
+                category_id=post.category_id, author_id=post.author_id, series_id=post.series_id,
+                deleted_by=user.username if user else "",
+            ))
+    post.in_trash = True
+    post.deleted_at = utcnow()
+    db.session.commit()
+    with contextlib.suppress(Exception):
+        fts.delete_post(post.id)
+    return True
+
+
 def unique_model_slug(model, base, exclude_id=None, max_len=80):
     """通用 slug 唯一化（Category / Series / Tag 等 Post 以外的表，v3.14.0）。
 
@@ -420,6 +571,9 @@ __all__ = [
     "merge_duplicate_tags",
     # 文章
     "create_post_core", "_can_edit_post", "_save_post_history", "_parse_scheduled",
+    # v4.3.0：编辑/发布/软删的唯一实现（后台 SSR 与移动端 JSON 共用）
+    "update_post_core", "publish_post_core", "trash_post_core", "form_flag",
+    "_announce_post_published",
     # 媒体 / 密码 / 统计
     "allowed_file", "_detect_image_magic", "_weak_password",
 ]

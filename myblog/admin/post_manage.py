@@ -1,12 +1,11 @@
 # -*- coding: utf-8 -*-
 """文章管理：列表 / 批量操作 / 定时发布 / 置顶申请与审批 / 软删除。（v3.18.1 由 admin/posts.py 拆出，路由与行为不变）。"""
-from ._helpers import _can_edit_post, log_audit, login_required, super_required, admin_bp     # 同一蓝图对象
-from flask import current_app, flash, redirect, render_template, request, session, url_for
+from ._helpers import (_can_edit_post, log_audit, login_required, publish_post_core,
+                       super_required, trash_post_core, admin_bp)     # 同一蓝图对象
+from flask import flash, redirect, render_template, request, session, url_for
 from models import Category, Post, RecycleBin, Series, User, db
 from _time import utcnow
 import fts
-import mail_notify
-import notify
 import contextlib
 
 
@@ -20,33 +19,13 @@ def publish_now(post_id):
     """
     post = Post.query.get_or_404(post_id)
     user = db.session.get(User, session.get("user_id"))
-    if not _can_edit_post(user, post):
+    was_published = post.published
+    # v4.3.0：发布动作收口到 publish_post_core（后台 / SSR、/api/post/<id>/publish-now、
+    # 移动端 /api/mobile/post/<id>/publish 三条入口共用同一实现，含 FTS 同步与对外推送）
+    if not publish_post_core(post, user):
         flash("只能操作自己发表的文章")
         return redirect(url_for("admin.my_posts"))
-    if not post.published:
-        post.published = True
-        post.scheduled_at = None
-        db.session.commit()
-        fts.sync_post_quiet(post)   # 与 create_post 一致：翻published必须同步索引
-        # v3.9.0 M1：文章发布 → 触发插件事件（订阅者异常已隔离）
-        try:
-            from plugins.signals import emit_post_published
-            emit_post_published(post)
-        except Exception:
-            pass
-        with contextlib.suppress(Exception):
-            notify.notify_new_post(post, current_app.config.get("SITE_URL", ""))
-        # v3.20.0：新文自动推送（默认关闭，见 seo_push.maybe_auto_push 的说明）
-        try:
-            import seo_push
-            seo_push.maybe_auto_push(post)
-        except Exception:  # noqa: BLE001, S110  (自动推送失败绝不影响发布主流程)
-            pass
-        with contextlib.suppress(Exception):
-            mail_notify.notify_subscribers_async(post)
-        flash("已立即发布该文章")
-    else:
-        flash("该文章已处于发布状态")
+    flash("已立即发布该文章" if not was_published else "该文章已处于发布状态")
     # 回到来源页（后台一键发布入口可能在 dashboard 或 my_posts）
     back = request.args.get("back") or "admin.dashboard"
     return redirect(url_for(back))
@@ -256,24 +235,11 @@ def delete_post(post_id):
     """
     post = Post.query.get_or_404(post_id)
     user = db.session.get(User, session.get("user_id"))
-    if not _can_edit_post(user, post):
+    # v4.3.0：软删除收口到 trash_post_core（快照入回收站 + 标记 + 移出 FTS 索引），
+    # 与移动端 /api/mobile/post/<id>/trash 共用同一实现，避免「一处删了索引、另一处没删」。
+    if not trash_post_core(post, user):
         flash("只能删除自己发表的文章")
         return redirect(url_for("admin.my_posts"))
-    # 入回收站：存快照 + 标记软删除
-    with contextlib.suppress(Exception):
-        db.session.add(RecycleBin(
-            post_id=post.id, title=post.title or "", slug=post.slug or "",
-            summary=post.summary or "", content=post.content or "", cover=post.cover or "",
-            category_id=post.category_id, author_id=post.author_id, series_id=post.series_id,
-            deleted_by=user.username if user else "",
-        ))
-    post.in_trash = True
-    post.deleted_at = utcnow()
-    db.session.commit()
-    # v3.25.9：SIM105 —— ruff 修不了这一处（try 体带行内注释，它判定为 unsafe），
-    # 手动改。行为等价：FTS 同步失败不该让「移入回收站」整体失败。
-    with contextlib.suppress(Exception):
-        fts.delete_post(post.id)  # 同步从 FTS 索引移除，避免搜索命中已删文章
     log_audit("delete", "post", post.id, f"移入回收站：{post.title}", user=user)
     flash("文章已移入回收站（可在回收站还原）")
     back = request.args.get("back") or (

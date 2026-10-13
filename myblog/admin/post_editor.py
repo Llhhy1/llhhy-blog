@@ -1,15 +1,11 @@
 # -*- coding: utf-8 -*-
 """写作面板：新建 / 编辑 / 自动保存 / 免登录预览 / 正文预览。（v3.18.1 由 admin/posts.py 拆出，路由与行为不变）。"""
-from ._helpers import _can_edit_post, _parse_scheduled, _save_post_history, _sync_tags, cleanup_orphan_tags, create_post_core, login_required, admin_bp     # 同一蓝图对象
+from ._helpers import _can_edit_post, _parse_scheduled, _sync_tags, cleanup_orphan_tags, create_post_core, login_required, update_post_core, admin_bp     # 同一蓝图对象
 from flask import abort, current_app, flash, jsonify, redirect, render_template, request, session, url_for
 from models import Category, Post, Series, User, db
-from utils import apply_slug_template, count_words, fmt_bj, make_slug
+from utils import count_words, fmt_bj
 from _time import utcnow
-import fts
-import mail_notify
-import notify
 from .taxonomy import _ensure_category_by_name, _ensure_series_by_name
-import contextlib
 
 
 @admin_bp.route("/post/new", methods=["GET", "POST"])
@@ -85,91 +81,16 @@ def edit_post(post_id):
         flash("只能编辑自己发表的文章")
         return redirect(url_for("admin.my_posts"))
     if request.method == "POST":
-        was_published = post.published
-        title = (request.form.get("title") or "").strip()
-        if not title:
-            flash("标题不能为空")
+        # v4.3.0：字段落库整块交给 update_post_core（后台与移动端 `/api/mobile/post/<id>` 共用
+        # 同一实现）。原本这里是 80 行内联逻辑，移动端接口若要同样的编辑能力就得再抄一遍。
+        err = update_post_core(post, request.form, user)
+        if err:
+            flash(err)
             return render_template("admin/edit_post.html", post=post)
-        old_title = post.title  # 保留旧标题，用于版本历史判断（与 old_content 对称；v3.10.6 评审发现：未捕获则"只改标题"永不触发历史）
-        post.title = title
-        # v3.7.0：链接后缀（slug）强制由后台全局设置（slug_mode/slug_template）决定，用户无法手工覆盖。
-        # 标题 slug 未变 → 保持原 slug 不动（不破坏已有 URL / SEO）；
-        # 标题 slug 变了（或原 slug 为空）→ 套用全局模板重新生成。
-        if make_slug(title) != post.slug:
-            post.slug = apply_slug_template(post, title)
-        post.summary = (request.form.get("summary") or "").strip()
-        content = request.form.get("content", "")  # 新内容（局部变量，供后面比较/保存）
-        old_content = post.content  # 保留旧内容，用于版本历史判断（v3.0.0 功能5）
-        post.content = content
-        post.cover = (request.form.get("cover") or "").strip()
-        cid = request.form.get("category_id") or None
-        # v3.14.0：编辑时就地新建分类/系列（同名自动复用）
-        new_cat = (request.form.get("new_category_name") or "").strip()
-        if new_cat:
-            cid = _ensure_category_by_name(new_cat)
-        post.category_id = int(cid) if cid else None
-        new_ser = (request.form.get("new_series_name") or "").strip()
-        if new_ser:
-            sid = _ensure_series_by_name(new_ser)
-        else:
-            sid = request.form.get("series_id") or None
-        post.series_id = int(sid) if sid else None
-        scheduled_at = _parse_scheduled(request.form.get("scheduled_at"))
-        published = request.form.get("published") == "on"
-        # 定时发布：填了未来时间则先存为未发布，后台线程到点自动翻 published
-        if scheduled_at is not None and scheduled_at > utcnow():
-            published = False
-        else:
-            scheduled_at = None  # 立即发布/草稿：清空定时，避免历史脏值
-        post.published = published
-        post.scheduled_at = scheduled_at
-        # 置顶权限分层（v2.8.1）：仅管理员/超管可改置顶；普通用户即便提交 is_pinned 也被忽略（防绕过）
-        if user.is_admin_role:
-            post.is_pinned = request.form.get("is_pinned") == "on"
-            post.pin_requested = False  # 管理员直接操作置顶，无需申请态
-        post.seo_description = (request.form.get("seo_description") or "").strip()
-        post.seo_keywords = (request.form.get("seo_keywords") or "").strip()
-        # v3.21.0 内容多语言：语言 + 译文组标识（任何角色都可为文章配对译文）
-        post.lang = (request.form.get("lang") or "zh").strip() or "zh"
-        post.translation_group = (request.form.get("translation_group") or "").strip()
-        # v3.0.0 功能13/14：隐私空间 + 打赏（仅超管可设置）
-        if user.is_super:
-            post.is_private = request.form.get("is_private") == "on"
-            post.reward_enabled = request.form.get("reward_enabled") == "on"
-            if post.reward_enabled:
-                post.reward_qr = (request.form.get("reward_qr") or "").strip()
-            else:
-                post.reward_qr = ""
-        # v3.0.0 功能12：字数统计 + 阅读时长
-        wc, rm = count_words(post.content)
-        post.word_count = wc
-        post.reading_minutes = rm
-        _sync_tags(post, request.form.get("tags", ""))
-        # v3.0.0 功能5：内容/标题有变化时保存版本历史
-        # 注意：post.content 已是新值，必须与修复前保留的旧值比较（旧 bug：引用未定义的 content 导致 NameError→500）
-        # 标题同理用 old_title 比较（v3.10.6 评审修复：post.title 已被上方赋为新值，直接比 title 恒为假）
-        if post.content != old_content or old_title != title:
-            _save_post_history(post, user.username if user else "")
-        db.session.commit()
-        cleanup_orphan_tags()  # v3.15.0：提交后清 0 使用标签
-        with contextlib.suppress(Exception):
-            fts.sync_post(post)
-        if post.published and not was_published:
-            with contextlib.suppress(Exception):
-                notify.notify_new_post(post, current_app.config.get("SITE_URL", ""))
-            try:
-                import seo_push
-                seo_push.maybe_auto_push(post)
-            except Exception:  # noqa: BLE001, S110  (自动推送失败绝不影响发布主流程)
-                pass
-            # C3 邮件群发：草稿转发布时也通知订阅者
-            with contextlib.suppress(Exception):
-                mail_notify.notify_subscribers_async(post)
-        if scheduled_at is not None and not published:
+        if post.scheduled_at is not None and not post.published:
             flash("已更新为定时发布，到点自动公开")
         else:
             flash("已保存修改")
-        user = db.session.get(User, session.get("user_id"))
         return redirect(url_for("admin.my_posts") if user and not user.is_admin_role
                         else url_for("admin.dashboard"))
     cats = Category.query.order_by(Category.id).all()

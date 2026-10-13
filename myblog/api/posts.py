@@ -706,37 +706,15 @@ def publish_now(post_id):
     p = db.session.get(Post, post_id)
     if not p:
         return jsonify({"error": "文章不存在"}), 404
-    # 权限：管理员全部可操作；普通用户仅自己文章
-    if not u.is_admin_role and not (p.author_id is not None and p.author_id == u.id):
+    # v4.3.0：发布动作收口到 admin._helpers.publish_post_core —— 下面这 40 行原本把
+    # 「翻 published / 清定时 / 同步 FTS / 插件事件 / IM 推送 / SEO 自动收录 / 邮件群发」
+    # 又抄了一遍后台实现，两套逻辑迟早漂移。`admin` 只能在函数内 import：
+    # `admin/ai_summary.py` 顶层已有一条 `admin → api` 边，模块级反向 import 会成环
+    # （tests/test_no_module_import_cycles.py 建图口径第 1 条：函数内 import 不进图）。
+    from admin._helpers import _can_edit_post, publish_post_core
+    if not _can_edit_post(u, p):
         return jsonify({"error": "没有权限操作这篇文章"}), 403
     if p.published:
         return jsonify({"ok": True, "message": "文章已处于发布状态", "published": True})
-    p.published = True
-    p.scheduled_at = None  # 清空定时，避免后台线程重复触发
-    db.session.commit()
-    import fts as _fts
-    _fts.sync_post_quiet(p)
-    # v3.9.0 M1：文章发布 → 触发插件事件（订阅者异常已隔离）
-    try:
-        from plugins.signals import emit_post_published
-        emit_post_published(p)
-    except Exception:
-        pass
-    # 发布后推送 + 邮件（与正常发布一致，全部静默）
-    try:
-        import notify as _notify
-        _notify.notify_new_post(p, current_app.config.get("SITE_URL", ""))
-    except Exception:
-        pass
-    # v3.20.0：新文自动推送（默认关闭，见 seo_push.maybe_auto_push 的说明）
-    try:
-        import seo_push
-        seo_push.maybe_auto_push(p)
-    except Exception:  # noqa: BLE001, S110  (自动推送失败绝不影响发布主流程)
-        pass
-    try:
-        import mail_notify as _mail
-        _mail.notify_subscribers_async(p)
-    except Exception:
-        pass
+    publish_post_core(p, u)
     return jsonify({"ok": True, "message": "已立即发布", "published": True})

@@ -1,10 +1,11 @@
 # -*- coding: utf-8 -*-
 """版本历史：历史列表 / 回滚 / 版本对比。（v3.18.1 由 admin/posts.py 拆出，路由与行为不变）。"""
-from ._helpers import _can_edit_post, _current_user_or_none, _save_post_history, log_audit, login_required, admin_bp     # 同一蓝图对象
+from ._helpers import (_can_edit_post, _current_user_or_none, admin_bp, log_audit,
+                       login_required, rollback_post_core)     # 同一蓝图对象
 from flask import flash, redirect, render_template, request, url_for
-from models import Post, PostHistory, db
-import fts
-import contextlib
+from models import Post, PostHistory
+# v4.4.0：回滚的实现搬进 `_helpers.rollback_post_core`（后台与移动端共用一份），
+# 本模块随之不再直接用 db / fts / contextlib / _save_post_history。
 
 
 @admin_bp.route("/post/<int:post_id>/history")
@@ -30,14 +31,12 @@ def rollback_post(post_id, hid):
         flash("只能回滚自己文章的版本")
         return redirect(url_for("admin.my_posts"))
     h = PostHistory.query.filter_by(id=hid, post_id=post_id).first_or_404()
-    # 回滚前先存当前版本，便于再撤销回滚
-    _save_post_history(post, user.username if user else "")
-    post.title = h.title
-    post.summary = h.summary
-    post.content = h.content
-    db.session.commit()
-    with contextlib.suppress(Exception):
-        fts.sync_post(post)
+    # v4.4.0：回滚动作本身搬进 `rollback_post_core`（后台与移动端共用），
+    # 这里只保留「回滚前先把当前版存进历史」之外的入口职责：审计与提示。
+    err = rollback_post_core(post, h, user)
+    if err:
+        flash(err)
+        return redirect(url_for("admin.my_posts"))
     log_audit("rollback", "post", post.id, f"回滚到版本 {hid}", user=user)
     flash("已回滚到该历史版本")
     return redirect(url_for("admin.post_history", post_id=post_id))

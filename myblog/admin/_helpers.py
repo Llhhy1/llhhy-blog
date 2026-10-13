@@ -5,7 +5,8 @@ import datetime
 from flask import (Blueprint, request, redirect, url_for,
                    session, current_app, abort)
 
-from models import (db, Post, Tag, Comment, User, Guestbook, AuditLog, PostHistory, RecycleBin)
+from models import (db, Post, Tag, Comment, User, Guestbook, AuditLog, PostHistory, RecycleBin,
+                    Announcement, FriendLink)
 from utils import (make_slug, count_words, validate_password, apply_slug_template,
                    BEIJING_TZ, get_client_ip, safe_redirect)
 from config import APP_VERSION
@@ -524,6 +525,171 @@ def trash_post_core(post, user, snapshot=True):
     return True
 
 
+# ---------------------------------------------------------------- v4.4.0 内容管理核心
+# 抽核心的原因与 `create_post_core` 一样：后台 SSR 页面与移动端 JSON 必须共用一套
+# 「哪个字段能写、怎么校验、有什么副作用」的实现，否则两边迟早漂移。
+# 本节的函数**只做数据与副作用**，`log_audit` / `flash` / `redirect` 留在各自入口
+# （与 `publish_post_core` 的分工一致）。
+
+ANNOUNCEMENT_LEVELS = ("info", "warning", "success")
+
+
+def _announcement_fields(form):
+    """归一公告表单字段 → `(字段 dict, 错误文案)`。
+
+    两条收紧（都是后台原来的缺口）：
+      · `content` 为空直接拒（原来会建出一条空白公告，前台顶部挂着一条空横幅）；
+      · `level` 只认白名单（原来任意字符串都能进库，前台按 level 上色会出现未知档）。
+    勾选框走 `form_flag`，后台表单的 `"on"` 与移动端 JSON 的 `true` 同一判据。
+    """
+    content = (form.get("content") or "").strip()
+    if not content:
+        return {}, "公告内容不能为空"
+    level = (form.get("level") or "info").strip().lower()
+    if level not in ANNOUNCEMENT_LEVELS:
+        level = "info"
+    return {"content": content, "level": level,
+            "active": form_flag(form, "active"),
+            "dismissible": form_flag(form, "dismissible")}, ""
+
+
+def create_announcement_core(form):
+    """新建公告 → `(Announcement, "")`；校验不过 → `(None, 错误文案)`。"""
+    fields, err = _announcement_fields(form)
+    if err:
+        return None, err
+    ann = Announcement(**fields)
+    db.session.add(ann)
+    db.session.commit()
+    return ann, ""
+
+
+def update_announcement_core(ann, form):
+    """整单修改一条公告。返回错误文案；成功返回 ""。"""
+    fields, err = _announcement_fields(form)
+    if err:
+        return err
+    ann.content = fields["content"]
+    ann.level = fields["level"]
+    ann.active = fields["active"]
+    ann.dismissible = fields["dismissible"]
+    db.session.commit()
+    return ""
+
+
+def normalize_link_url(raw):
+    """友链 URL 归一：补协议、去空白。返回 "" 表示不可用。
+
+    前台直接把 url 当 `href` 用，`javascript:` 之类的伪协议就是 XSS 入口，
+    所以这里只放行 http/https，且不带协议的自动补 `https://`（用户习惯只写域名）。
+    """
+    u = (raw or "").strip()
+    if not u or len(u) > 300:
+        return ""
+    if u.startswith("//"):
+        u = "https:" + u
+    if not u.startswith(("http://", "https://")):
+        # 第一个 "/" 之前出现 ":" 就说明是别的协议（javascript: / mailto: / data: / file:），
+        # 一律拒。前台把 url 直接当 href 用，这里放行一条就等于送一个可点执行的链接。
+        # 补 https:// 只对「光秃秃的域名/路径」做，且先排掉以 "/" 或 "\\" 开头的站内/绝对路径。
+        if ":" in u.split("/", 1)[0] or u.startswith(("/", "\\")):
+            return ""
+        u = "https://" + u
+    return u if u.startswith(("http://", "https://")) else ""
+
+
+def save_friend_link_core(link, form):
+    """新增（`link=None`）或修改一条友链 → `(错误文案, 附加提示, 落库后的行)`。
+
+    v4.4.0 才有的能力：后台原本只能「新增 / 存 RSS / 删除」，`name/url/description/sort`
+    **没有任何编辑入口**，改一个字都得删了重建（会丢排序位置）。新增与修改因此共用本函数。
+
+    三条一起补上的校验/行为：
+      · URL 归一（见 `normalize_link_url`）+ **同 URL 查重**（排除自身）。后台新增原先不查重，
+        而审核路径 `approve_link_application` 早就查了 —— 两个入口两套口径，这里统一到查重的这套。
+      · `sort` 取整数，缺省 0（越小越靠前，见 `models.FriendLink.sort` 注释）。
+      · `rss_url` 给了就**软**校验可达性（与既有 `set_link_rss` 一致：不可达只提示、不阻断保存，
+        因为对方源可能临时抽风，硬拦会把能用的友链挡在门外）。
+
+    第三个返回值是**落库后的 `FriendLink`**：新增时行对象在本函数内部创建，调用方（审计日志、
+    移动端 JSON）要拿到它的 id，否则只能按 URL 回查一次 —— 回查依赖「URL 唯一」这个本函数
+    刚刚建立的前提，绕一圈不如直接还回来。校验不过时为 `None`。
+    """
+    name = (form.get("name") or "").strip()
+    if not name:
+        return "友链名称不能为空", "", None
+    url = normalize_link_url(form.get("url"))
+    if not url:
+        return "网址不合法（只支持 http/https，且不能是站内相对路径）", "", None
+    dup = FriendLink.query.filter(FriendLink.url == url).first()
+    if dup and (link is None or dup.id != link.id):
+        return f"已存在指向同一网址的友链「{dup.name}」，请勿重复添加", "", None
+    try:
+        sort = int(form.get("sort") or 0)
+    except (TypeError, ValueError):
+        sort = 0
+    rss = (form.get("rss_url") or "").strip()[:300]
+    if link is None:
+        link = FriendLink(name=name, url=url)
+        db.session.add(link)
+    link.name = name[:100]
+    link.url = url
+    link.description = (form.get("description") or "").strip()[:200]
+    link.sort = sort
+    link.rss_url = rss
+    db.session.commit()
+    note = ""
+    if rss:
+        with contextlib.suppress(Exception):
+            import feed_agg
+            ok, reason = feed_agg.validate_feed_url(rss)
+            if not ok:
+                note = "该 RSS 地址可能不可用（%s），博客圈将无法聚合此源" % reason
+    return "", note, link
+
+
+def reorder_friend_links_core(ordered_ids):
+    """按给定顺序重排友链 `sort`（步长 10，给以后插位留空档）→ 实际改动的条数。
+
+    只认列表里出现的 id；表里其余条目**不动**（App 侧一次提交完整顺序，
+    半提交时未列出的保持原位，比把没列的甩到末尾更安全）。
+    """
+    moved = 0
+    for i, raw in enumerate(ordered_ids[:500]):
+        try:
+            lid = int(raw)
+        except (TypeError, ValueError):
+            continue
+        link = db.session.get(FriendLink, lid)
+        if link is None:
+            continue
+        want = (i + 1) * 10
+        if link.sort != want:
+            link.sort = want
+            moved += 1
+    db.session.commit()
+    return moved
+
+
+def rollback_post_core(post, hist, user):
+    """把文章回滚到某个历史版本（v4.4.0 从 `admin/post_history.py` 原样抽出）。
+
+    **只写回 `title` / `summary` / `content`** —— 不动 slug、封面、分类、标签、系列、
+    发布态、SEO，所以回滚不会破坏已分发出去的 URL，也不会把已发布文章悄悄变成草稿。
+    回滚前先 `_save_post_history` 备份当前版，因此回滚本身可再撤销（原行为保持）。
+    """
+    if not _can_edit_post(user, post):
+        return "只能操作自己发表的文章"
+    _save_post_history(post, user.username if user else "")
+    post.title = hist.title or post.title
+    post.summary = hist.summary or ""
+    post.content = hist.content or ""
+    db.session.commit()
+    with contextlib.suppress(Exception):
+        fts.sync_post(post)
+    return ""
+
+
 def unique_model_slug(model, base, exclude_id=None, max_len=80):
     """通用 slug 唯一化（Category / Series / Tag 等 Post 以外的表，v3.14.0）。
 
@@ -574,6 +740,10 @@ __all__ = [
     # v4.3.0：编辑/发布/软删的唯一实现（后台 SSR 与移动端 JSON 共用）
     "update_post_core", "publish_post_core", "trash_post_core", "form_flag",
     "_announce_post_published",
+    # v4.4.0：公告 / 友链 / 版本回滚的唯一实现（后台 SSR 与移动端 JSON 共用）
+    "ANNOUNCEMENT_LEVELS", "_announcement_fields", "create_announcement_core",
+    "update_announcement_core", "normalize_link_url", "save_friend_link_core",
+    "reorder_friend_links_core", "rollback_post_core",
     # 媒体 / 密码 / 统计
     "allowed_file", "_detect_image_magic", "_weak_password",
 ]

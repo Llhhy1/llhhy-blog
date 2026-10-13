@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 # 自动切片自 admin.py（v3.11.0）：原样搬运，路由/行为不变。
-from ._helpers import _current_user_or_none, admin_required, log_audit, admin_bp     # 同一蓝图对象
+from ._helpers import (_current_user_or_none, admin_required, log_audit, reorder_friend_links_core,
+                       save_friend_link_core, admin_bp)     # 同一蓝图对象
 from flask import flash, redirect, render_template, request, url_for
 from models import FriendLink, LinkApplication, db
 from _time import utcnow
@@ -9,47 +10,77 @@ from _time import utcnow
 @admin_required
 def links():
     if request.method == "POST":
-        name = (request.form.get("name") or "").strip()
-        url = (request.form.get("url") or "").strip()
-        if name and url:
-            db.session.add(FriendLink(
-                name=name, url=url,
-                description=(request.form.get("description") or "").strip(),
-                sort=request.form.get("sort", 0, type=int),
-                rss_url=(request.form.get("rss_url") or "").strip(),
-            ))
-            db.session.commit()
-            flash("友链已添加")
+        # v4.4.0：新增/编辑统一走 `save_friend_link_core`（URL 归一 + 同 URL 查重 + RSS 软校验），
+        # 后台原先这条路径不查重，同一站点能连加两次。
+        err, note, link = save_friend_link_core(None, request.form)
+        if err:
+            flash(err)
+        else:
+            flash("友链已添加" + (f"（{note}）" if note else ""))
+            log_audit("create", "friend_link", link.id if link else None,
+                      f"新增友链：{(request.form.get('name') or '').strip()}",
+                      user=_current_user_or_none())
         return redirect(url_for("admin.links"))
     links = FriendLink.query.order_by(FriendLink.sort).all()
     return render_template("admin/links.html", links=links)
 
+@admin_bp.route("/link/<int:lid>/update", methods=["POST"])
+@admin_required
+def update_link(lid):
+    """编辑友链（v4.4.0 新增）。
+
+    后台原本只能「新增 / 存 RSS / 删除」，`name/url/description/sort` **没有任何编辑入口**，
+    改一个字就得删了重建。移动端同样需要，所以补这条路由，与新增共用同一个 core。
+    """
+    link = FriendLink.query.get_or_404(lid)
+    err, note, _ = save_friend_link_core(link, request.form)
+    flash(err or ("友链已更新" + (f"（{note}）" if note else "")))
+    if not err:
+        log_audit("update", "friend_link", lid, f"编辑友链：{link.name}",
+                  user=_current_user_or_none())
+    return redirect(url_for("admin.links"))
+
+@admin_bp.route("/links/reorder", methods=["POST"])
+@admin_required
+def reorder_links():
+    """友链排序（v4.4.0 新增）：`ids` 为逗号分隔的目标顺序（越靠前越先显示）。"""
+    ids = [x for x in (request.form.get("ids") or "").split(",") if x.strip()]
+    moved = reorder_friend_links_core(ids)
+    log_audit("reorder", "friend_link", None, f"友链重排：改动 {moved} 条",
+              user=_current_user_or_none())
+    flash(f"排序已更新（改动 {moved} 条）")
+    return redirect(url_for("admin.links"))
+
 @admin_bp.route("/link/<int:lid>/rss", methods=["POST"])
 @admin_required
 def set_link_rss(lid):
-    """保存某条友链的 RSS 地址（用于「博客圈」聚合）。"""
+    """只改某条友链的 RSS 地址（旧入口）。
+
+    v4.4.0：页面把 RSS 收进了「编辑」行，本路由不再被模板引用，但**留着** —— 它是个
+    有用的窄入口（只想挂个源、不想重填名称网址时）。落库改走 `save_friend_link_core`：
+    原先这里自己写了一遍「存 rss + 软校验可达性」，与编辑路径各有一套判据，正是本仓库
+    反对的两套逻辑；现在整行字段从库里回填、只覆盖 rss_url，校验与软提示只剩一份。
+    """
     link = FriendLink.query.get_or_404(lid)
-    link.rss_url = (request.form.get("rss_url") or "").strip()
-    db.session.commit()
-    flash("已保存 RSS 地址")
-    # v3.10.4：软校验 RSS 可达性（非阻塞，保存照常）。提前暴露「/feed/ 返回 HTML」
-    # 这类填错——之前用户填了首页路径当 RSS，博客圈悄无声息为空。
-    if link.rss_url:
-        try:
-            import feed_agg
-            ok, reason = feed_agg.validate_feed_url(link.rss_url)
-            if not ok:
-                flash("⚠️ 该 RSS 地址可能不可用（%s），博客圈将无法聚合此源。" % reason, "warning")
-        except Exception:
-            pass
+    form = {"name": link.name, "url": link.url, "description": link.description or "",
+            "sort": link.sort or 0, "rss_url": request.form.get("rss_url") or ""}
+    err, note, saved = save_friend_link_core(link, form)
+    if err:
+        flash(err)
+        return redirect(url_for("admin.links"))
+    flash("已保存 RSS 地址" + (f"（{note}）" if note else ""))
+    log_audit("update", "friend_link", lid, f"设置友链 RSS：{saved.name}",
+              user=_current_user_or_none())
     return redirect(url_for("admin.links"))
 
 @admin_bp.route("/link/<int:lid>/delete", methods=["POST"])
 @admin_required
 def delete_link(lid):
     link = FriendLink.query.get_or_404(lid)
+    name = link.name
     db.session.delete(link)
     db.session.commit()
+    log_audit("delete", "friend_link", lid, f"删除友链：{name}", user=_current_user_or_none())
     flash("友链已删除")
     return redirect(url_for("admin.links"))
 

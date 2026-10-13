@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 # 自动切片自 admin.py（v3.11.0）：原样搬运，路由/行为不变。
-from ._helpers import _detect_image_magic, admin_required, allowed_file, login_required, admin_bp     # 同一蓝图对象
+from ._helpers import (_current_user_or_none, _detect_image_magic, admin_required, allowed_file,
+                       log_audit, login_required, admin_bp)     # 同一蓝图对象
 from flask import current_app, flash, jsonify, redirect, render_template, request, url_for
 from werkzeug.utils import secure_filename
 from models import Post
@@ -46,44 +47,67 @@ def upload():
     return jsonify({"url": url})
 
 
-@admin_bp.route("/media", methods=["GET"])
-@admin_required
-def media_lib():
-    """媒体库（v3.14.0）：浏览 / 复用 / 删除 static/uploads 下已上传的图片（仅管理员）。
+def media_refs_for(name, posts=None):
+    """列出**疑似**引用某上传文件的在库文章（封面 / 正文），完整返回、不截断。
 
-    按文件名里的时间戳前缀倒序（后上传在前）。每张图标注文件大小、归属类型与
-    「疑似引用它的文章」，删除前有明确提醒，避免误删正在使用的封面/插图。
+    判据与抽出前的 `collect_media` 行内实现逐字一致：
+      · 封面：`p.cover` 里出现整个文件名（含时间戳前缀）；
+      · 正文：Markdown 里出现**去掉时间戳前缀**后的 `bare` 片段 —— 正文一般写整条
+        `/static/uploads/<ts>-<name>`，但历史数据里也有改名后只留 basename 的写法，
+        用 `bare` 匹配是「宁可多报」：多报只多一次确认，漏报就是删图后文章图裂。
+
+    抽成独立函数的第二个理由：移动端删除前只要判断**一个**文件有没有被引用，
+    不该为这件事付整目录的扫描代价（见 `/api/mobile/media/<name>/delete`）。
+    显示用的截断交给调用方，总数请用本函数返回的 `len()` —— 原实现先截断再取
+    `len()`，`ref_total` 永远不超过 6，是个「看起来像总数」的假数。
     """
-    folder = current_app.config["UPLOAD_FOLDER"]
+    if posts is None:
+        posts = Post.query.filter(Post.in_trash == False).all()  # noqa: E712  (与既有实现一致)
+    bare = name.split("-", 1)[-1] if "-" in name else name
+    refs = []
+    for p in posts:
+        kind = ""
+        if p.cover and name in p.cover:
+            kind = "封面"
+        elif bare and (p.content or "").count(bare):
+            kind = "正文"
+        if kind:
+            refs.append({"id": p.id, "title": p.title, "kind": kind})
+    return refs
+
+
+def collect_media(folder=None):
+    """媒体库清单的唯一实现（v4.4.0 抽出，后台页面与 `/api/mobile/media` 共用）。
+
+    返回按上传时间倒序的 dict 列表，键名与既有模板保持一致（`name/url/size/ts/time_str/
+    refs/ref_total`），后台模板不用改。
+
+    两个已知代价，写在这里而不是藏在调用方：
+      · 一次读全目录，**引用判定是 O(文件数 × 文章数)** 的字符串包含 —— 上传目录大了会慢，
+        但引用信息正是「删这张图会不会让文章图裂」的唯一依据，砍掉它就等于没有提醒。
+      · 时间取文件名前缀的 unix 秒（上传时 `f"{int(time.time())}-{name}"` 写进去的），
+        不是 `st_mtime`：移动/恢复文件不会改变显示顺序，比 mtime 稳。
+    """
+    folder = folder or current_app.config["UPLOAD_FOLDER"]
     items = []
     try:
         names = [n for n in os.listdir(folder) if not n.startswith(".")]
     except OSError:
         names = []
-    posts = Post.query.filter(Post.in_trash == False).all()
+    posts = Post.query.filter(Post.in_trash == False).all()  # noqa: E712  (与既有实现一致)
     for n in names:
         fp = os.path.join(folder, n)
         try:
             st = os.stat(fp)
         except OSError:
             continue
+        if not os.path.isfile(fp):
+            continue
         ts = 0
         head = n.split("-", 1)[0]
         if head.isdigit():
             ts = int(head)
-        # 疑似引用判定：封面 URL 含文件名 / 正文 Markdown 含去时间戳后的文件名片段
-        bare = n.split("-", 1)[-1] if "-" in n else n
-        refs = []
-        for p in posts:
-            kind = ""
-            if p.cover and n in p.cover:
-                kind = "封面"
-            elif bare and (p.content or "").count(bare):
-                kind = "正文"
-            if kind:
-                refs.append({"id": p.id, "title": p.title, "kind": kind})
-            if len(refs) >= 6:
-                break
+        refs = media_refs_for(n, posts)
         items.append({
             "name": n,
             "url": url_for("static", filename="uploads/" + n),
@@ -94,25 +118,50 @@ def media_lib():
             "ref_total": len(refs),
         })
     items.sort(key=lambda x: x["ts"], reverse=True)
-    return render_template("admin/media_lib.html", items=items)
+    return items
+
+
+def delete_media_core(name):
+    """删除 uploads 里的一个文件 → `(是否成功, 说明)`。路径校验与既有实现逐条一致。
+
+    五道防护：①`basename` 剥掉一切目录成分 ②拒空串 / `.` / `..`
+    ③绝对路径必须落在 uploads **那一层内** ④必须是普通文件 ⑤才敢 `os.remove`。
+    副作用沿用现状：只删点名的那个文件，`maybe_convert_webp` 生成的同名 `.avif` 旁路
+    会留成孤儿（不在本次改动范围内，需要的话另开一条清孤儿文件的维护接口）。
+    """
+    safe = os.path.basename((name or "").strip())
+    if not safe or safe in (".", ".."):
+        return False, "文件名不合法"
+    folder = current_app.config["UPLOAD_FOLDER"]
+    fp = os.path.join(folder, safe)
+    if not os.path.abspath(fp).startswith(os.path.abspath(folder) + os.sep) or not os.path.isfile(fp):
+        return False, "文件不存在"
+    try:
+        os.remove(fp)
+    except OSError as e:
+        return False, "删除失败：" + str(e)[:120]
+    return True, safe
+
+
+@admin_bp.route("/media", methods=["GET"])
+@admin_required
+def media_lib():
+    """媒体库（v3.14.0）：浏览 / 复用 / 删除 static/uploads 下已上传的图片（仅管理员）。
+
+    按文件名里的时间戳前缀倒序（后上传在前）。每张图标注文件大小、归属类型与
+    「疑似引用它的文章」，删除前有明确提醒，避免误删正在使用的封面/插图。
+    """
+    return render_template("admin/media_lib.html", items=collect_media())
 
 
 @admin_bp.route("/media/delete", methods=["POST"])
 @admin_required
 def delete_media():
     """删除媒体库文件：仅管理员；只接受 uploads 目录内的文件名（路径穿越防护用 basename）。"""
-    name = os.path.basename((request.form.get("name") or "").strip())
-    if not name or name in (".", ".."):
-        flash("参数不合法")
-        return redirect(url_for("admin.media_lib"))
-    folder = current_app.config["UPLOAD_FOLDER"]
-    fp = os.path.join(folder, name)
-    if not os.path.abspath(fp).startswith(os.path.abspath(folder) + os.sep) or not os.path.isfile(fp):
-        flash("文件不存在")
-        return redirect(url_for("admin.media_lib"))
-    try:
-        os.remove(fp)
-        flash(f"已删除：{name}")
-    except OSError as e:
-        flash("删除失败：" + str(e)[:120])
+    ok, msg = delete_media_core(request.form.get("name"))
+    if ok:
+        log_audit("delete", "media", None, f"删除媒体文件：{msg}", user=_current_user_or_none())
+        flash(f"已删除：{msg}")
+    else:
+        flash(msg)
     return redirect(url_for("admin.media_lib"))

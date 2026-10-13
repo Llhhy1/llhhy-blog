@@ -405,7 +405,7 @@ myblog/
 
 ---
 
-## 移动端管理 /mobile（v4.3.0）
+## 移动端管理 /mobile（v4.3.0 · v4.4.0 补齐内容管理全套，共 66 个端点）
 
 把后台管理能力（发文/审核/访客日志/拉黑…）以 JSON 暴露，供原生 App 或第三方客户端使用。
 **页面接口 `/admin/*` 一个都没改**：这一组是并排的第二入口，复用同一批业务核心。
@@ -425,6 +425,15 @@ myblog/
   —— 两者输出访客 IP 原文，且解封本就是超管动作，清单与操作同级才好核对。
   提权字段（`is_pinned`/`is_private`/`reward_enabled`）
   在服务端按角色丢弃，**客户端传了也不生效**（有回归测试钉住）。
+- **v4.4.0 内容管理这一批的权限口径**：公告 / 留言 / 订阅 / 分类·标签·系列 / 友链本体 /
+  媒体库 = **管理员**（与对应后台页面的 `admin_required` 同级）；版本历史与回滚 = **可编辑者**
+  （普通用户只能看/改自己 `author_id` 的文章，沿用 `_can_edit_post`）。
+- **PII 分层（v4.4.0）**：同一个字段在不同角色下形态不同 —— 留言 `ip` 只给超管；
+  订阅 `email` 对管理员遮敏、对超管全量；`Subscriber.unsub_token` **任何角色都不返回**。
+  判断依据是「这个出口能不能被脚本整表抓走」，不是「页面上给不给他看」。
+- **状态类写接口一律收显式目标值**，不收「翻转」：`{"active": true|false}`、`{"pinned": true}`。
+  后台网页的按钮是翻转语义（点了就是相反状态），但弱网重发会让翻转来回横跳；显式值重发
+  多少次结果都一样。缺该字段时报 **400** 而不是静默按 `false` 落库（`_need_flag`）。
 - 分页信封统一 `{items, total, page, pages}`；`per_page` 上限 100。
 - 时间字段全部北京时间字符串（与 SSR 后台同源 `fmt_bj`）。
   唯一例外：`scheduled_at` 入参用 `YYYY-MM-DDTHH:MM` 北京时间，落库转 UTC naive。
@@ -433,7 +442,7 @@ myblog/
 
 | 接口 | 鉴权 | 说明 |
 |------|------|------|
-| `GET /api/mobile/overview` | 管理员 | 首屏一屏：`counts`（待审/未读评论、未读通知、草稿、定时、待审友链、置顶申请、回收站）+ `today` 数据 + 最近 5 条评论 |
+| `GET /api/mobile/overview` | 管理员 | 首屏一屏：`counts`（待审/未读评论、未读通知、草稿、定时、待审友链、置顶申请、回收站、**未读留言 `unread_guestbook`（v4.4.0）**）+ `today` 数据 + 最近 5 条评论 |
 | `GET /api/mobile/posts` | 登录（普通用户仅自己） | 后台同筛选口径：`q/status(published\|draft\|scheduled\|pinned)/category_id/series_id/sort/order/page/per_page`；**列表不含正文** |
 | `GET /api/mobile/post/<id>` | 可编辑者 | 详情含 Markdown 原文、`tag_names`、`previewable`；另给 `seo_description_raw`（**库里未回退**的独立描述；`seo_description` 是「没填就回退摘要」的展示值，直接回传会把空描述写成摘要） |
 | `GET /api/mobile/taxonomy` | 登录 | 分类 / 系列 / 标签候选（编辑器下拉数据源） |
@@ -445,6 +454,18 @@ myblog/
 | `GET /api/mobile/moments` | 管理员 | 微动态列表（`q` 搜索，带 `comment_count`） |
 | `GET /api/mobile/link-applications` | 管理员 | 友链申请，默认 `status=pending`，附 `pending_count` |
 | `GET /api/mobile/notifications` | 登录 | 站内通知；管理员额外得到 `unread_comments` |
+| `GET /api/mobile/announcements` | 管理员 | 公告列表（v4.4.0）：`active=1/0`；`content` 是**库里的 Markdown 原文**，不是公开 `/api/announcements` 的渲染 HTML；`levels` 给档位白名单 |
+| `GET /api/mobile/announcement/<id>` | 管理员 | 公告详情（编辑器载入用） |
+| `GET /api/mobile/guestbook` | 管理员 | 留言墙（v4.4.0）：`q` 搜昵称与内容、`unread=1` 只看未读。⚠️ `ip` 字段**只对超管出现**，管理员拿到 `region`/`device`（与 v4.3.1 访客日志同一条界线） |
+| `GET /api/mobile/subscribers` | 管理员 | 订阅者（v4.4.0）：`q` 搜邮箱、`active=1/0`。邮箱对管理员**遮敏**（`su***@dom`）、对超管全量；`unsub_token` **任何角色都不返回**（拿到它就能替别人免登录退订） |
+| `GET /api/mobile/categories` | 管理员 | 分类清单（v4.4.0）：每行带 `post_count`，删除前就知道会影响几篇 |
+| `GET /api/mobile/tags` | 管理员 | 标签清单（v4.4.0）：带 `post_count` 与 `orphan_count`；用量一条 GROUP BY 查出（`tag_usage_counts`） |
+| `GET /api/mobile/series` | 管理员 | 系列清单（v4.4.0）：后台同排序口径（`sort` 升序、再按创建时间倒序），带 `post_count` |
+| `GET /api/mobile/links` | 管理员 | 友链本体清单（v4.4.0）：按 `sort` 升序 = 前台展示顺序，排序界面直接用这个顺序 |
+| `GET /api/mobile/post/<id>/history` | 可编辑者 | 版本历史列表（v4.4.0）：时间倒序，**不含正文**（`size` 是正文字符数），另附 `current` 当前版摘要 |
+| `GET /api/mobile/post/<id>/history/<hid>` | 可编辑者 | 某个历史版本的完整正文（预览 / 逐字比对用） |
+| `GET /api/mobile/post/<id>/history/diff` | 可编辑者 | `?a=<历史 id>` 与**当前正文**逐行 diff（复用后台 `_line_diff`，等值段只留 2 行上下文）。无历史时 404 而不是空数组 |
+| `GET /api/mobile/media` | 管理员 | 媒体库（v4.4.0）：数据源是**目录列举**不是数据库，分页在内存切；`q` 搜文件名、`only_free=1` 只看疑似无引用。`refs` 最多 6 条、`ref_total` 是**完整**篇数。首次拉全量偏慢（O(文件数×文章数)），`per_page` 建议 20~30 |
 
 ### 写入
 
@@ -470,6 +491,30 @@ myblog/
 | `POST /api/mobile/link-application/<id>/approve` | 管理员 | 通过并写入 `FriendLink`（同 URL 已存在则跳过） |
 | `POST /api/mobile/link-application/<id>/reject` | 管理员 | 可带 `{"note":"…"}` |
 | `POST /api/mobile/upload` | 登录 | multipart 字段 `file`；后缀白名单 + 文件头 16 字节魔数校验，与 `/admin/upload` 同一条链 |
+| `POST /api/mobile/announcement` | 管理员 | 新建公告（v4.4.0），走 `create_announcement_core`：`content` 必填、`level` 非白名单归一 `info` |
+| `POST`/`PUT /api/mobile/announcement/<id>` | 管理员 | **整单**修改公告（v4.4.0）：先 GET 详情再回传全量，没带的布尔按「没勾选」落库 |
+| `POST /api/mobile/announcement/<id>/active` | 管理员 | `{"active": true\|false}` —— **显式目标值**、幂等；缺 `active` 返回 400（不静默停用） |
+| `POST /api/mobile/announcement/<id>/delete` | 管理员 | 删除公告。⚠️ 硬删除，公告没有回收站 |
+| `POST /api/mobile/guestbook/<id>/read` | 管理员 | 留言标已读（幂等，重发不变） |
+| `POST /api/mobile/guestbook/read-all` | 管理员 | 全部留言标已读，返回 `updated` 条数 |
+| `POST /api/mobile/guestbook/<id>/delete` | 管理员 | 删除留言。⚠️ **硬删除、不进回收站**；审计只记内容前 60 字，不记 IP/设备 |
+| `POST /api/mobile/subscriber/<id>/active` | 管理员 | `{"active": true\|false}`：停用即**不再收到发文邮件**（`mail_notify` 只取 `active=True`），比删除可逆 |
+| `POST /api/mobile/subscriber/<id>/delete` | 管理员 | 删除订阅者。⚠️ 硬删除；同一邮箱再次订阅会拿到**新的** `unsub_token` |
+| `POST /api/mobile/category` | 管理员 | 新建分类（v4.4.0）：同名精确判重，与编辑器「就地新建」同一判据 |
+| `POST`/`PUT /api/mobile/category/<id>` | 管理员 | 分类改名。**沿用后台行为：改名会重算 slug**，响应 `note` 写明「/category/旧 → /category/新，此前发出去的旧链接会失效」—— 本站没有 slug 别名表也没有 301，这条提醒不是客套话 |
+| `POST /api/mobile/category/<id>/delete` | 管理员 | 删除分类：可选 `{"move_to": 目标分类 id}`。响应给 `affected`（受影响篇数）与 `moved`（实际转移篇数）；不给 `move_to` 就是「文章留着、变无分类」。`move_to` 非法或指向自身 → **400**，不静默退化 |
+| `POST /api/mobile/tag` | 管理员 | 新建标签：按 `normalize_tag_key`（小写 + 去空白）判重，`AI`/`ai`/`a i` 只留一个 |
+| `POST /api/mobile/tag/<id>/delete` | 管理员 | 删除标签：被文章用着则 **400**（标签是文章属性，级联清理等于悄悄改文章） |
+| `POST /api/mobile/tags/merge` | 管理员 | 一键整理：合并重复 + 清理 0 使用，返回 `{merged, cleaned}`（与后台 `/admin/tags` 的 merge 按钮同一对函数） |
+| `POST /api/mobile/series` | 管理员 | 新建系列（v4.4.0）：`name` 必填；⚠️ `Series.name` **没有唯一约束**，重名照建，只能按 id 定位 |
+| `POST`/`PUT /api/mobile/series/<id>` | 管理员 | 编辑系列：`name` 必填，`description/cover/sort` **给了才改**（缺省语义是「保持原值」，与 `/mobile/post/<id>` 的「缺省即清空」**相反**，别看串行）。改名同样换 slug 并在 `note` 里说明 |
+| `POST /api/mobile/series/<id>/delete` | 管理员 | 删除系列：不给 `move_to` 与后台原行为一致（文章留着、脱离系列）；给则是本次新增的可选去路。`affected`/`moved` 含义同分类 |
+| `POST /api/mobile/link` | 管理员 | 新增友链（v4.4.0）：URL 归一（补 `https://`；只放行 http/https，拒 `javascript:`/`mailto:`/`data:`/`file:` 与站内相对路径）+ **同 URL 查重**（后台原先不查） |
+| `POST`/`PUT /api/mobile/link/<id>` | 管理员 | 编辑友链（v4.4.0，后台原本只能删了重建、会丢 `sort` 位置）。`note` 非空 = RSS **软**校验没通过但**保存已成功**，客户端要当提示不是错误 |
+| `POST /api/mobile/link/<id>/delete` | 管理员 | 删除友链。⚠️ 硬删除，重新添加保不住原排序位置 |
+| `POST /api/mobile/links/reorder` | 管理员 | 友链排序：`{"ids": [id, …]}`，数组顺序即展示顺序；`sort=(i+1)*10` 留插位空档，**只有列出的 id 会动**（上限 500） |
+| `POST /api/mobile/post/<id>/history/<hid>/rollback` | 可编辑者 | 回滚到指定历史版本（v4.4.0，走 `rollback_post_core`）：**只写回 `title`/`summary`/`content`**，不动 slug/封面/分类/标签/系列/发布态/SEO；回滚前自动备份当前版，所以这一步本身还能撤销 |
+| `POST /api/mobile/media/delete` | 管理员 | 删除上传文件：`{"name": "文件名", "force": true}`。**被文章引用时先 409 + 引用清单**，必须再发一次带 `force` 才真删（不进回收站，文章里的图会当场裂）；本模块唯一用 409 表达「请先确认」的接口。路径防护见 `delete_media_core`（`basename` + 必须落在 uploads 层内 + 必须是普通文件） |
 
 ### 用 curl 走通一遍（联调起点）
 

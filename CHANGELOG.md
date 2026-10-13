@@ -2,6 +2,121 @@
 
 > **📦 历史归档**：v3.18.5 及以前的版本记录已归档至 `docs/archive/CHANGELOG_v1-v3.18.5.md`；本文件从 v3.18.6 起。
 
+## v4.4.0（2026-10-13）
+
+### 一、移动端「内容全套」：公告 / 留言 / 订阅 / 分类·标签·系列 / 友链本体 / 版本历史 / 媒体库
+
+v4.3.0~v4.3.1 把「文章 + 评论 + 访客」搬上了手机，但后台还有一整排只能回电脑才能做的事。
+本次补齐**内容管理这一批**（30 → 66 个 `/api/mobile/*` 端点），并且照旧一条原则不放松：
+**JSON 侧不写第二套业务逻辑**，全部复用后台核心函数。
+
+**新端点（按界面分组）**
+
+| 组 | 端点 | 权限 |
+|----|------|------|
+| 公告 | `GET /mobile/announcements`、`GET/POST /mobile/announcement[/<id>]`、`POST …/active`、`POST …/delete` | 管理员 |
+| 留言 | `GET /mobile/guestbook`、`POST /mobile/guestbook/<id>/read`、`POST /mobile/guestbook/read-all`、`POST /mobile/guestbook/<id>/delete` | 管理员（`ip` 字段仅超管） |
+| 订阅 | `GET /mobile/subscribers`、`POST /mobile/subscriber/<id>/active`、`POST /mobile/subscriber/<id>/delete` | 管理员（邮箱全量仅超管） |
+| 分类 | `GET /mobile/categories`、`POST /mobile/category`、`POST/PUT /mobile/category/<id>`、`POST …/delete?move_to` | 管理员 |
+| 标签 | `GET /mobile/tags`、`POST /mobile/tag`、`POST /mobile/tag/<id>/delete`、`POST /mobile/tags/merge` | 管理员 |
+| 系列 | `GET /mobile/series`、`POST /mobile/series`、`POST/PUT /mobile/series/<id>`、`POST …/delete?move_to` | 管理员 |
+| 友链本体 | `GET /mobile/links`、`POST /mobile/link`、`POST/PUT /mobile/link/<id>`、`POST …/delete`、`POST /mobile/links/reorder` | 管理员 |
+| 版本历史 | `GET /mobile/post/<id>/history[/<hid>]`、`GET …/history/diff?a=`、`POST …/history/<hid>/rollback` | 可编辑者（`_can_edit_post`） |
+| 媒体库 | `GET /mobile/media`、`POST /mobile/media/delete` | 管理员 |
+
+**顺带补上的首屏指标**：`/mobile/overview` 的 `counts` 新增 `unread_guestbook`。
+后台导航角标早就有这个数（`inject_notification_counts` 的 `pending_guestbook`），
+App 之前却只能自己拉一页留言去数 —— 现在两端同源。
+
+### 二、这次一并补的**后台缺失能力**（不是只为移动端加的）
+
+盘点时发现三件事在网页端也做不到，本次一起补，移动端与网页端共用同一份实现：
+
+- **公告没有编辑入口**：原先只有「新建 / 启停 / 删除」。公告一删不进回收站、无法还原，
+  重建还会掉到列表末尾 —— 改一个错别字的代价是丢掉整条公告的位置。新增
+  `POST /admin/announcement/<id>/update` + `templates/admin/announcements.html` 的编辑行。
+- **友链没有编辑入口**：`name/url/description/sort` 全都不能改，只能删了重建（丢排序位置）。
+  新增 `POST /admin/link/<id>/update`（与新增共用 `save_friend_link_core`）。
+- **友链没有排序界面**：`sort` 只能靠新增时手填。新增 `POST /admin/links/reorder`
+  （整单顺序提交，`sort=(i+1)*10` 留出插位空档；**未列出的 id 一律不动**），
+  页面用 ↑↓ 直接调，改动立刻保存。
+
+`set_link_rss` 这条旧路由也一并接到 `save_friend_link_core` 上：原先它自己写了一遍
+「存 rss + 软校验可达性」，与编辑路径各有一套判据 —— 正是本仓库反对的两套逻辑。
+
+### 三、抽出来的核心（`*_core`，SSR 与 JSON 共用）
+
+`admin/_helpers.py`：`ANNOUNCEMENT_LEVELS` / `_announcement_fields` / `create_announcement_core`
+/ `update_announcement_core` / `normalize_link_url` / `save_friend_link_core`
+/ `reorder_friend_links_core` / `rollback_post_core`。
+`admin/taxonomy.py`：`create_category_core` / `rename_category_core` / `delete_category_core`
+/ `create_tag_core` / `delete_tag_core` / `tag_usage_counts` / `create_series_core`
+/ `rename_series_core` / `delete_series_core`。
+`admin/media.py`：`collect_media` / `media_refs_for` / `delete_media_core`。
+
+两条判据因此从「两套」变「一套」：
+
+- **友链新增原先不查重**（同 URL 能连加两次），而审核友链申请那条路早就查了；
+- **公告 `level` 原先不校验**（任意字符串都能进库，前台按 level 上色会出现未知档），
+  且内容为空时能建出一条挂在前顶部的空横幅。
+
+### 四、三条产品口径（本次确认过的决定）
+
+- **订阅邮箱**：对管理员**遮敏**（`su***@exemple.com`）、对超管全量。理由是「可直接群发的
+  PII + App 会本地缓存列表」。`Subscriber.unsub_token` **任何角色都不返回** —— 拿到它就
+  等于能替别人免登录退订。
+- **分类 / 系列改名**：**沿用后台既有行为**（无条件重算 slug），不改判据、不建别名表、
+  不加 301；改为把「旧 → 新」如实回传（`note` 字段），由界面在提交前显示提醒。
+  静默改名让外发链接 404 这件事，本来就该被看见。
+- **删除类操作全部如实标注可逆性**：留言 / 订阅者 / 友链 / 媒体文件都是**硬删除**，
+  不进回收站；媒体文件被文章引用时先返回 `409 + 引用清单`，必须再发一次
+  `{"force": true}` 才真删（本模块唯一用 409 表达「请先确认」的接口）。
+
+### 五、幂等性：状态类接口不收「翻转」
+
+后台网页的启停按钮是**翻转**语义（点了就是相反状态，符合页面直觉），移动端一律改成
+**显式目标值**：`POST …/active {"active": true|false}`。
+弱网下客户端重发同一个请求，翻转会来回横跳（用户以为停用了，实际又启用），显式值重发
+多少次结果都一样。同理，`_need_flag()` 对**缺字段**返回 400 而不是静默按 False 落库 ——
+整单表单「没勾就是 False」是对的，改单个状态时就是静默改数据。
+
+### 影响面
+
+零表结构变更、零迁移（Alembic head 仍为 `c7a2f19b4d30`）、前端未改（不需要重新构建
+`vue-frontend-dist.zip`）、无需 nginx 改动。后台行为变化只有两处：友链新增开始查重、
+公告 `level` 开始归一（非法值落 `info`）。
+
+### 测试
+
+`tests/test_api_mobile.py` 从 24 条增至 **36 条**，新增 12 条覆盖上述每一条口径：
+权限分层（普通用户 / 管理员 / 超管三级）、level 白名单归一、显式启停幂等与缺字段 400、
+邮箱遮敏 vs 超管全量 + `unsub_token` 不出现在**原始响应文本**里、留言 IP 分层与
+「PII 不进审计」、分类改名的 slug 提醒与 `move_to` 两条去路（含非法落点必须报错）、
+标签在用拒删与一键整理合并、系列 `name` 不唯一与删除脱离、友链 URL 归一/查重/排序只动
+列出的 id、回滚只改三字段且回滚前自动备份、媒体库 `force` 与 `../` 路径穿越、
+以及「网页端新补的编辑/排序入口真的能提交」（SSR 写、JSON 读回同一行）。
+
+顺带修掉两处**本仓库既有**的实现问题：
+
+- `media.collect_media` 原先把引用列表截断到 6 条后再取 `len()` 当 `ref_total`，
+  那个数**永远不超过 6**，是个看起来像总数的假数；现在 `media_refs_for` 完整返回、
+  调用方自己截断显示。
+- 标签用量原先逐行 `len(t.posts)` 把每个标签的全部文章对象读进内存；改成
+  `tag_usage_counts()` 一条 GROUP BY（后台标签页与 `/mobile/tags` 共用）。
+
+另：本文件的测试模块加了 autouse 的 `_isolate_rate_limit` fixture。`/api/mobile/*` 的写接口
+全按客户端 IP 限流，而测试客户端永远是同一个 IP，`utils.net._RATE` 又是模块级字典、
+整个会话累积 —— 累积到 20 次发文就会出现「第 21 次返回 429、用例拿到 None 去下标」这种
+与业务无关的红。限流本身仍由 `test_posts_pagination_v4.py` 专门测（同 `test_oauth.py` 的做法）。
+
+### 文档归档（同 v3.25.13 的循环）
+
+`SECURITY_AUDIT.md` 写完 R122 后到 163 KB，触发体积守卫（上限 160 KB）。按「新增轮次写进
+主文件、历史段落才归档」把 **R91~R100** 逐字搬到 `docs/archive/SECURITY_AUDIT_r91-r100.md`
+（80 KB），主文件从 R101 起、顶部指针已更新，`tests/test_doc_archival.py` 的 `PAIRS`
+同步加了一条（归档件存在 / 主文件留指针 / 锚点齐全 三件事一起钉住）。查 R95、R98 这些
+老轮次请去归档件，内容没做任何删改。
+
 ## v4.3.1（2026-10-13）
 
 ### 一条权限收口：访客日志与封禁清单从「管理员」升到「超管」

@@ -1,6 +1,8 @@
 # -*- coding: utf-8 -*-
 # 自动切片自 admin.py（v3.11.0）：原样搬运，路由/行为不变。
-from ._helpers import admin_required, super_required, unique_model_slug, admin_bp     # 同一蓝图对象
+from ._helpers import (_current_user_or_none, admin_required, create_announcement_core,
+                       log_audit, super_required, unique_model_slug, update_announcement_core,
+                       admin_bp)     # 同一蓝图对象
 from flask import current_app, flash, jsonify, redirect, render_template, request, url_for
 from models import Announcement, Category, Guestbook, SocialAccount, Subscriber, db
 from _time import utcnow
@@ -14,14 +16,17 @@ import os
 @admin_required
 def categories():
     if request.method == "POST":
+        # v4.4.0：建分类的判据搬到 `admin.taxonomy.create_category_core`，
+        # 与移动端 `/api/mobile/category` 走同一份代码（同名判据不能有两套）。
+        from .taxonomy import create_category_core
         name = (request.form.get("name") or "").strip()
-        if name:
-            if Category.query.filter_by(name=name).first():
-                flash(f"已存在同名分类「{name}」，请勿重复添加")
-            else:
-                db.session.add(Category(name=name, slug=unique_model_slug(Category, name, max_len=80)))
-                db.session.commit()
-                flash("分类已添加")
+        new_id, err = create_category_core(name)
+        if err:
+            flash(err)
+        else:
+            flash("分类已添加")
+            log_audit("create", "category", new_id, f"新建分类：{name}",
+                      user=_current_user_or_none())
         return redirect(url_for("admin.categories"))
     cats = Category.query.order_by(Category.id).all()
     return render_template("admin/categories.html", cats=cats)
@@ -31,21 +36,21 @@ def categories():
 def rename_category(cid):
     """分类编辑（v3.14.0）：改名（slug 自动重算并保持唯一）。
 
-    Category.name 唯一：撞名不覆盖；需要合并的请用「删除并转移文章到…」。
+    v4.4.0：判据搬到 `admin.taxonomy.rename_category_core`，移动端改名共用同一份；
+    改名会换 slug 且站点没有 301，所以把「旧 → 新」显示出来（原实现静默改，
+    用户不知道外发链接已经失效）。
     """
+    from .taxonomy import rename_category_core
     cat = Category.query.get_or_404(cid)
     name = (request.form.get("name") or "").strip()
-    if not name:
-        flash("分类名称不能为空")
-        return redirect(url_for("admin.categories"))
-    dup = Category.query.filter(Category.name == name, Category.id != cid).first()
-    if dup:
-        flash(f"已存在同名分类「{name}」，未修改（如需合并：删除本分类并把文章转移到目标分类）")
-        return redirect(url_for("admin.categories"))
-    cat.name = name
-    cat.slug = unique_model_slug(Category, name, exclude_id=cid, max_len=80)
-    db.session.commit()
-    flash(f"分类已更新：{name}")
+    old_slug = cat.slug
+    err, note = rename_category_core(cat, name)
+    if err:
+        flash(err)
+    else:
+        log_audit("rename", "category", cid,
+                  f"分类改名：{name}（{old_slug} → {cat.slug}）", user=_current_user_or_none())
+        flash(f"分类已更新：{name}" + (f"（{note}）" if note else ""))
     return redirect(url_for("admin.categories"))
 
 @admin_bp.route("/social", methods=["GET", "POST"])
@@ -95,34 +100,57 @@ def bot_guard_view():
 @admin_required
 def manage_announcements():
     if request.method == "POST":
-        content = (request.form.get("content") or "").strip()
-        if content:
-            db.session.add(Announcement(
-                content=content,
-                level=(request.form.get("level") or "info"),
-                active=request.form.get("active", "on") == "on",
-                dismissible=request.form.get("dismissible", "on") == "on",
-            ))
-            db.session.commit()
+        ann, err = create_announcement_core(request.form)
+        if err:
+            flash(err)
+        else:
             flash("公告已添加")
+            log_audit("create", "announcement", ann.id,
+                      f"新建公告：{(ann.content or '')[:40]}", user=_current_user_or_none())
         return redirect(url_for("admin.manage_announcements"))
     items = Announcement.query.order_by(Announcement.created_at.desc()).all()
     return render_template("admin/announcements.html", items=items)
+
+
+@admin_bp.route("/announcement/<int:aid>/update", methods=["POST"])
+@admin_required
+def update_announcement(aid):
+    """公告编辑（v4.4.0 新增）。
+
+    之前后台**只有「新建 + 启停 + 删除」**，改一个字都得删了重建 —— 而公告一删就没法还原
+    （不进回收站），重建还会把它掉到列表末尾。App 侧同样需要编辑，所以补在这里，
+    落库逻辑与新建共用 `_announcement_fields`（内容非空 + level 白名单）。
+    """
+    a = Announcement.query.get_or_404(aid)
+    err = update_announcement_core(a, request.form)
+    flash(err or "公告已更新")
+    if not err:
+        log_audit("update", "announcement", a.id,
+                  f"编辑公告：{(a.content or '')[:40]}", user=_current_user_or_none())
+    return redirect(url_for("admin.manage_announcements"))
+
 
 @admin_bp.route("/announcement/<int:aid>/toggle", methods=["POST"])
 @admin_required
 def toggle_announcement(aid):
     a = Announcement.query.get_or_404(aid)
+    # v4.4.0：网页按钮仍是「翻转」（点了就是相反状态，符合页面直觉）；
+    # 移动端 JSON 传的是显式目标值，见 `/api/mobile/announcement/<id>/active`。
     a.active = not a.active
     db.session.commit()
+    log_audit("toggle", "announcement", a.id,
+              f"公告{'启用' if a.active else '停用'}", user=_current_user_or_none())
     return redirect(url_for("admin.manage_announcements"))
+
 
 @admin_bp.route("/announcement/<int:aid>/delete", methods=["POST"])
 @admin_required
 def delete_announcement(aid):
     a = Announcement.query.get_or_404(aid)
+    preview = (a.content or "")[:40]
     db.session.delete(a)
     db.session.commit()
+    log_audit("delete", "announcement", aid, f"删除公告：{preview}", user=_current_user_or_none())
     flash("公告已删除")
     return redirect(url_for("admin.manage_announcements"))
 
@@ -154,8 +182,13 @@ def mark_all_guestbook_read():
 @admin_required
 def delete_guestbook(gid):
     g = Guestbook.query.get_or_404(gid)
+    preview = (g.content or "")[:40]
     db.session.delete(g)
     db.session.commit()
+    # v4.4.0：这三类操作原先在 misc.py 里**一条审计都没有**（对照 moments.py 有 4 条）。
+    # 留言删除是硬删、不进回收站，出事只能靠审计回推是谁删的，所以补上。
+    # detail 只放正文预览，**不放 ip**（`audit.log_audit` 的纪律：敏感值不进 detail）。
+    log_audit("delete", "guestbook", gid, f"删除留言：{preview}", user=_current_user_or_none())
     flash("留言已删除")
     return redirect(url_for("admin.manage_guestbook"))
 

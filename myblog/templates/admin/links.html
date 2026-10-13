@@ -2,41 +2,106 @@
 {% block title %}友链管理{% endblock %}
 {% block content %}
   <h1 class="page-title">友情链接管理</h1>
+  <p class="hint">顺序由「排序」列决定（越小越靠前），也可用 ↑↓ 直接调；改动会立刻保存。</p>
   <form method="post" action="{{ url_for('admin.links') }}" class="link-form">
         {{ csrf_input() }}
     <input aria-label="名称" type="text" name="name" placeholder="名称" required>
     <input aria-label="链接地址" type="text" name="url" placeholder="https://..." required>
     <input aria-label="描述" type="text" name="description" placeholder="描述（可选）">
     <input aria-label="RSS 地址" type="text" name="rss_url" placeholder="RSS 地址（可选，用于博客圈聚合）">
-    <input type="number" name="sort" value="0" title="排序，越小越靠前">
+    <input aria-label="排序" type="number" name="sort" value="0" title="排序，越小越靠前">
     <button type="submit" class="btn">添加</button>
   </form>
+  {# v4.4.0：整行顺序提交给 `admin.reorder_links`，hidden 由下面的脚本按当前 DOM 顺序回填。 #}
+  <form method="post" action="{{ url_for('admin.reorder_links') }}" id="link-reorder-form" class="inline-form">
+        {{ csrf_input() }}
+    <input type="hidden" name="ids" id="link-reorder-ids" value="">
+  </form>
   <table class="admin-table">
-    <thead><tr><th>名称</th><th>链接</th><th>描述</th><th>RSS 地址</th><th>操作</th></tr></thead>
-    <tbody>
+    <thead><tr><th>名称</th><th>链接</th><th>描述</th><th>RSS 地址</th><th>排序</th><th>操作</th></tr></thead>
+    <tbody id="link-tbody">
       {% for l in links %}
-        <tr>
+        <tr class="link-row" data-id="{{ l.id }}">
           <td data-label="名称">{{ l.name }}</td>
           <td data-label="链接"><a href="{{ l.url }}" target="_blank" rel="noopener">{{ l.url }}</a></td>
           <td data-label="描述">{{ l.description }}</td>
-          <td data-label="RSS 地址">
-            <form method="post" action="{{ url_for('admin.set_link_rss', lid=l.id) }}" class="inline-form link-rss-form">
-                  {{ csrf_input() }}
-              <input aria-label="RSS 地址" type="text" name="rss_url" value="{{ l.rss_url or '' }}" placeholder="https://.../feed.xml">
-              <button type="submit">保存</button>
-            </form>
+          <td data-label="RSS 地址">{{ l.rss_url or '' }}</td>
+          <td data-label="排序">
+            {{ l.sort }}
+            <button type="button" class="btn-sm" data-move="up" title="上移">↑</button>
+            <button type="button" class="btn-sm" data-move="down" title="下移">↓</button>
           </td>
-          <td data-label="操作">
-            <form method="post" action="{{ url_for('admin.delete_link', lid=l.id) }}" class="inline-form" onsubmit="return confirm('确定删除？');">
+          <td class="row-ops" data-label="操作">
+            <button type="button" class="link-btn" data-edit-row="edit-{{ l.id }}">✏️ 编辑</button>
+            <form method="post" action="{{ url_for('admin.delete_link', lid=l.id) }}" class="inline-form" onsubmit="return confirm('确定删除？友链不进回收站，重新添加会丢掉原排序位置。');">
                   {{ csrf_input() }}
               <button type="submit" class="link-danger">删除</button>
             </form>
           </td>
         </tr>
+        {# v4.4.0 编辑行：后台原先只能删了重建，`sort` 位置会丢；现在整单走 save_friend_link_core。 #}
+        <tr class="editor-row" id="edit-{{ l.id }}" style="display:none;">
+          <td colspan="6" class="row-editor-cell">
+            <form method="post" action="{{ url_for('admin.update_link', lid=l.id) }}" class="editor-form editor-form-grid">
+                  {{ csrf_input() }}
+              <label class="qc-label" for="link-name-{{ l.id }}">名称</label>
+              <input type="text" id="link-name-{{ l.id }}" name="name" value="{{ l.name }}" required>
+              <label class="qc-label" for="link-url-{{ l.id }}">链接地址（只支持 http/https）</label>
+              <input type="text" id="link-url-{{ l.id }}" name="url" value="{{ l.url }}" required>
+              <label class="qc-label" for="link-desc-{{ l.id }}">描述</label>
+              <input type="text" id="link-desc-{{ l.id }}" name="description" value="{{ l.description or '' }}">
+              <label class="qc-label" for="link-rss-{{ l.id }}">RSS 地址（博客圈聚合，留空则不参与）</label>
+              <input type="text" id="link-rss-{{ l.id }}" name="rss_url" value="{{ l.rss_url or '' }}" placeholder="https://.../feed.xml">
+              <label class="qc-label" for="link-sort-{{ l.id }}">排序</label>
+              <input type="number" id="link-sort-{{ l.id }}" name="sort" value="{{ l.sort or 0 }}" title="越小越靠前">
+              <button type="submit" class="btn small">保存</button>
+            </form>
+          </td>
+        </tr>
       {% else %}
-        <tr><td colspan="5">暂无友链</td></tr>
+        <tr><td colspan="6">暂无友链</td></tr>
       {% endfor %}
     </tbody>
   </table>
   <a class="btn" href="{{ url_for('admin.dashboard') }}">返回仪表盘</a>
+
+  <script>
+  (function () {
+    // 编辑行展开/收起（与 series.html 同一套）
+    document.querySelectorAll("[data-edit-row]").forEach(function (b) {
+      b.addEventListener("click", function () {
+        var r = document.getElementById(b.getAttribute("data-edit-row"));
+        if (!r) return;
+        r.style.display = r.style.display === "none" ? "" : "none";
+      });
+    });
+    // 排序：按当前 DOM 顺序重算 ids 后整单提交，服务端 `reorder_friend_links_core` 按序号写 sort。
+    // 顺序从 DOM 取而不是从页面初始值取，是为了让「连点两次 ↑」在一次提交后仍与看到的一致。
+    var form = document.getElementById("link-reorder-form");
+    var input = document.getElementById("link-reorder-ids");
+    var body = document.getElementById("link-tbody");
+    if (!form || !input || !body) return;
+    function ordered_ids() {
+      var out = [];
+      body.querySelectorAll("tr[data-id]").forEach(function (tr) { out.push(tr.getAttribute("data-id")); });
+      return out.join(",");
+    }
+    body.addEventListener("click", function (e) {
+      var btn = e.target.closest ? e.target.closest("[data-move]") : null;
+      if (!btn) return;
+      var row = btn.closest("tr");
+      if (!row) return;
+      var want_up = btn.getAttribute("data-move") === "up";
+      var other = want_up ? row.previousElementSibling : row.nextElementSibling;
+      // 只认友链行：编辑行（无 data-id）夹在中间时不该被当成邻居换掉
+      while (other && !other.hasAttribute("data-id")) {
+        other = want_up ? other.previousElementSibling : other.nextElementSibling;
+      }
+      if (!other) return;
+      if (want_up) { body.insertBefore(row, other); } else { body.insertBefore(other, row); }
+      input.value = ordered_ids();
+      form.submit();
+    });
+  })();
+  </script>
 {% endblock %}

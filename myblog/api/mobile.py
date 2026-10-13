@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
-"""移动端管理接口（v4.3.0）：把后台管理能力以 JSON 暴露给原生 App / 第三方客户端。
+"""移动端管理接口（v4.3.0 起，v4.4.0 补齐内容管理全套，共 66 个端点）：把后台管理能力以
+JSON 暴露给原生 App / 第三方客户端。
 
 ## 为什么要有这个模块
 
@@ -39,6 +40,14 @@ JSON 输出，客户端可以用列表 / 卡片 / 滑动操作原生生成，排
   只能看/改自己 `author_id` 的文章，沿用 `_can_edit_post`）；直改置顶、拉黑/解封 = 超管。
   **v4.3.1 例外**：`/mobile/visit-logs` 与 `/mobile/blocked` 也是超管专属 —— 它们输出访客
   IP 原文，且解封本就是超管动作（理由与残留风险见 SECURITY_AUDIT R120.5 / R121）。
+  **v4.4.0 内容全套**（公告 / 留言 / 订阅 / 分类·标签·系列 / 友链本体 / 版本历史 / 媒体库）
+  与对应后台页面同级 = 管理员，版本历史与回滚 = 可编辑者。
+- **PII 分层（v4.4.0，判据见 SECURITY_AUDIT R122）**：同一字段可以按角色给不同形态 ——
+  留言 `ip` 只出现在超管响应里（管理员拿 `region`/`device`）；订阅 `email` 对管理员遮敏、
+  对超管全量；`Subscriber.unsub_token` **任何角色都不返回**（拿到就能替别人免登录退订）。
+  审计 `detail` 里不写 IP / 设备 / 完整邮箱。
+- **状态类写接口收显式目标值**（`{"active": true|false}`），不收「翻转」：网页按钮的翻转
+  语义在弱网重发下会来回横跳。缺该字段报 400，不静默按 `False` 落库（`_need_flag`）。
 - **限流**：写接口按客户端 IP 限流（`utils.rate_limit`），超限 `429`。只读接口沿用
   `/api/stats/*` 的口径（30/分钟）或不限流。
 """
@@ -46,8 +55,9 @@ import contextlib
 
 from flask import current_app, jsonify, request, url_for
 
-from models import (BotBlock, Category, Comment, FriendLink, LinkApplication, Moment,
-                    Notification, Post, RecycleBin, Series, Tag, User, VisitLog, db)
+from models import (Announcement, BotBlock, Category, Comment, FriendLink, Guestbook,
+                    LinkApplication, Moment, Notification, Post, PostHistory, RecycleBin,
+                    Series, Subscriber, Tag, User, VisitLog, db)
 from utils import client_key, fmt_bj, rate_limit
 from _time import utcnow
 
@@ -102,6 +112,30 @@ def _flag(data, key):
     """勾选框 / 布尔字段的统一取值（委托 `admin._helpers.form_flag`，两处同一判据）。"""
     from admin._helpers import form_flag
     return form_flag(data, key)
+
+
+def _tri(name):
+    """筛选参数的三态：缺省 / 空串 → `None`（不筛），其余按 `form_flag` 判据取 bool。
+
+    列表接口写 `?active=` 时「没带参数」和「带了 0」必须是两件事：前者不看状态，
+    后者只看停用的。用 `None` 区分，别让 `bool(request.args.get(...))` 把 `"0"` 当真。
+    """
+    raw = request.args.get(name)
+    if raw is None or raw.strip() == "":
+        return None
+    return _flag({name: raw}, name)
+
+
+def _need_flag(body, key):
+    """请求体里的**必填**布尔：键缺失返回 `None`（调用方给 400），存在则按 `form_flag` 取值。
+
+    与 `_flag` 的差别只在于「缺键」：`form_flag` 缺键返回 `False`，这对整单表单是对的
+    （后台表单没勾就是没勾），但用在「设置单个状态」的接口上就等于
+    「客户端漏传字段 → 静默改成停用」。这类接口宁可显式报错。
+    """
+    if not isinstance(body, dict) or key not in body:
+        return None
+    return _flag(body, key)
 
 
 def _page_args(default=_DEFAULT_PER_PAGE):
@@ -248,6 +282,10 @@ def mobile_overview():
         "pending_links": LinkApplication.query.filter_by(status="pending").count(),
         "pin_requests": Post.query.filter_by(pin_requested=True).count(),
         "trash": RecycleBin.query.filter_by(restored=False).count(),
+        # v4.4.0：留言未读数。后台导航角标早就有它（`inject_notification_counts` 的
+        # `pending_guestbook`），App 侧此前只能自己再打一次列表接口才能知道有没有新留言，
+        # 而首屏本来就要请求 overview —— 补在这里，两端同一个数据源。
+        "unread_guestbook": Guestbook.query.filter_by(is_read=False).count(),
     }
     keys = ("today_visits", "bot_today", "online", "total_visits", "today_date")
     return jsonify({
@@ -950,6 +988,935 @@ def mobile_upload():
             filename = os.path.basename(converted)
     return jsonify({"ok": True, "name": filename,
                     "url": url_for("static", filename=f"uploads/{filename}")}), 201
+
+
+# ---------------------------------------------------------------- 公告 / 留言 / 订阅（v4.4.0）
+
+
+def _announcement_json(a):
+    """公告行：`content` 是**库里的 Markdown 原文**，不是公开 `/api/announcements` 的渲染 HTML。
+
+    两套表示不能混：公开接口给前台横幅用（已清洗过的 HTML），这里给编辑器载入用。
+    `levels` 每条都带一份（就 3 个短字符串，列表最多 100 条），这样客户端只要拉过一次
+    列表就能渲染档位选择器，不必再猜服务端支持哪些 level。
+    """
+    from admin._helpers import ANNOUNCEMENT_LEVELS
+    return {
+        "id": a.id, "content": a.content or "", "level": a.level or "info",
+        "levels": list(ANNOUNCEMENT_LEVELS), "active": bool(a.active),
+        "dismissible": bool(a.dismissible), "created_at": _iso(a.created_at),
+        "preview": (a.content or "")[:60],
+    }
+
+
+@api_bp.route("/mobile/announcements")
+def mobile_announcements():
+    """公告列表（管理员）：`active=1/0` 只看启用/停用，按创建时间倒序分页。"""
+    user, deny = _role(admin=True)
+    if deny:
+        return deny
+    page, per_page = _page_args()
+    q = Announcement.query.order_by(Announcement.created_at.desc(), Announcement.id.desc())
+    tri = _tri("active")
+    if tri is not None:
+        q = q.filter(Announcement.active.is_(tri))
+    return _paged(q, page, per_page, _announcement_json)
+
+
+@api_bp.route("/mobile/announcement/<int:aid>")
+def mobile_announcement_detail(aid):
+    """公告详情（编辑器载入用）。"""
+    user, deny = _role(admin=True)
+    if deny:
+        return deny
+    ann = db.session.get(Announcement, aid)
+    if ann is None:
+        return jsonify({"error": "公告不存在"}), 404
+    return jsonify(_announcement_json(ann))
+
+
+@api_bp.route("/mobile/announcement", methods=["POST"])
+def mobile_announcement_create():
+    """新建公告（管理员），走 `create_announcement_core`。
+
+    请求体：`content` 必填；`level` ∈ info/warning/success（其它值归一为 info，与后台同）；
+    `active` / `dismissible` 按 `form_flag` 判据取值（JSON 用 `true/false`）。
+    公告是**全站顶部横幅**，写错了前台每个人都能看到，所以 App 侧应该先给预览再提交。
+    """
+    user, deny = _role(admin=True)
+    if deny:
+        return deny
+    blocked = _limit("announcement_write", 20)
+    if blocked:
+        return blocked
+    from admin._helpers import create_announcement_core
+    ann, err = create_announcement_core(_body())
+    if err:
+        return jsonify({"error": err}), 400
+    log_audit("mobile_ann_create", "announcement", ann.id,
+              f"移动端新增公告：{(ann.content or '')[:60]}", user=user)
+    return jsonify({"ok": True, "id": ann.id, "item": _announcement_json(ann)}), 201
+
+
+@api_bp.route("/mobile/announcement/<int:aid>", methods=["POST", "PUT"])
+def mobile_announcement_update(aid):
+    """整单修改公告（管理员），走 `update_announcement_core`。
+
+    ⚠️ **要回传完整表单**（`content/level/active/dismissible`）：核心函数的语义与后台表单
+    一致 —— 没带的布尔字段等同「没勾选」，会被写成 False。先 GET 详情再改再整体回传。
+    """
+    user, deny = _role(admin=True)
+    if deny:
+        return deny
+    blocked = _limit("announcement_write", 20)
+    if blocked:
+        return blocked
+    ann = db.session.get(Announcement, aid)
+    if ann is None:
+        return jsonify({"error": "公告不存在"}), 404
+    from admin._helpers import update_announcement_core
+    err = update_announcement_core(ann, _body())
+    if err:
+        return jsonify({"error": err}), 400
+    log_audit("mobile_ann_update", "announcement", aid,
+              f"移动端修改公告：{(ann.content or '')[:60]}", user=user)
+    return jsonify({"ok": True, "item": _announcement_json(ann)})
+
+
+@api_bp.route("/mobile/announcement/<int:aid>/active", methods=["POST"])
+def mobile_announcement_active(aid):
+    """设置启用状态：`{"active": true|false}` —— **显式目标值，不是反转**。
+
+    后台的 `/announcement/<id>/toggle` 是翻转语义，手机上不能照搬：弱网下客户端重发
+    同一个请求，翻转会来回横跳（用户以为停用了，实际又启用），而显式值重发多少次
+    结果都一样。写类接口一律取这个形态（同 `/mobile/post/<id>/pin`）。
+    """
+    user, deny = _role(admin=True)
+    if deny:
+        return deny
+    blocked = _limit("announcement_write", 20)
+    if blocked:
+        return blocked
+    ann = db.session.get(Announcement, aid)
+    if ann is None:
+        return jsonify({"error": "公告不存在"}), 404
+    want = _need_flag(_body(), "active")
+    if want is None:
+        return jsonify({"error": "请带上 active（true/false）"}), 400
+    ann.active = want
+    db.session.commit()
+    log_audit("mobile_ann_active", "announcement", aid,
+              f"移动端公告{'启用' if want else '停用'}", user=user)
+    return jsonify({"ok": True, "item": _announcement_json(ann)})
+
+
+@api_bp.route("/mobile/announcement/<int:aid>/delete", methods=["POST"])
+def mobile_announcement_delete(aid):
+    """删除公告（管理员）。⚠️ 硬删除，公告没有回收站。"""
+    user, deny = _role(admin=True)
+    if deny:
+        return deny
+    blocked = _limit("announcement_write", 20)
+    if blocked:
+        return blocked
+    ann = db.session.get(Announcement, aid)
+    if ann is None:
+        return jsonify({"error": "公告不存在"}), 404
+    preview = (ann.content or "")[:60]
+    db.session.delete(ann)
+    db.session.commit()
+    log_audit("mobile_ann_delete", "announcement", aid,
+              f"移动端删除公告：{preview}", user=user)
+    return jsonify({"ok": True})
+
+
+def _guestbook_json(g, with_ip=False):
+    d = {
+        "id": g.id, "author": g.author or "", "content": g.content or "",
+        "created_at": _iso(g.created_at), "likes": g.likes or 0,
+        "is_read": bool(g.is_read), "region": g.region or "", "device": g.device or "",
+    }
+    if with_ip:
+        d["ip"] = g.ip or ""
+    return d
+
+
+@api_bp.route("/mobile/guestbook")
+def mobile_guestbook():
+    """留言墙（管理员）：`q` 搜昵称与内容、`unread=1` 只看未读，时间倒序分页。
+
+    权限分层沿用 v4.3.1 对访客日志的口径（SECURITY_AUDIT R120.5）：**IP 原文只给超管**，
+    管理员拿到 `region` / `device` 足够巡检。后台页面本来连 IP 都不显示，这里给超管
+    是「手机上处理骚扰留言时不用再回电脑上查」，不是放宽普通管理员的可见范围。
+    """
+    user, deny = _role(admin=True)
+    if deny:
+        return deny
+    page, per_page = _page_args()
+    q = Guestbook.query.order_by(Guestbook.created_at.desc(), Guestbook.id.desc())
+    unread = _tri("unread")
+    if unread is not None:
+        q = q.filter(Guestbook.is_read.is_(not unread))
+    kw = (request.args.get("q") or "").strip()
+    if kw:
+        like = _like(kw)
+        q = q.filter(db.or_(Guestbook.author.ilike(like), Guestbook.content.ilike(like)))
+    serializer = lambda g: _guestbook_json(g, user.is_super)  # noqa: E731  (角色决定字段可见性)
+    return _paged(q, page, per_page, serializer)
+
+
+@api_bp.route("/mobile/guestbook/<int:gid>/read", methods=["POST"])
+def mobile_guestbook_read(gid):
+    """标为已读（管理员）。幂等：重复调用结果不变，弱网重试安全。"""
+    user, deny = _role(admin=True)
+    if deny:
+        return deny
+    g = db.session.get(Guestbook, gid)
+    if g is None:
+        return jsonify({"error": "留言不存在"}), 404
+    g.is_read = True
+    db.session.commit()
+    log_audit("mobile_guest_read", "guestbook", gid, "移动端留言标已读", user=user)
+    return jsonify({"ok": True, "item": _guestbook_json(g, user.is_super)})
+
+
+@api_bp.route("/mobile/guestbook/read-all", methods=["POST"])
+def mobile_guestbook_read_all():
+    """全部留言标已读（管理员）。返回实际改动条数，客户端据此提示。"""
+    user, deny = _role(admin=True)
+    if deny:
+        return deny
+    blocked = _limit("guestbook_batch", 10)
+    if blocked:
+        return blocked
+    n = Guestbook.query.filter_by(is_read=False).update({"is_read": True})
+    db.session.commit()
+    log_audit("mobile_guest_read_all", "guestbook", None,
+              f"移动端留言全部已读（{n} 条）", user=user)
+    return jsonify({"ok": True, "updated": n})
+
+
+@api_bp.route("/mobile/guestbook/<int:gid>/delete", methods=["POST"])
+def mobile_guestbook_delete(gid):
+    """删除留言（管理员）。
+
+    ⚠️ **硬删除、不进回收站**：`RecycleBin` 只登记文章，留言删了就没有下一步。
+    App 侧必须二次确认，文案要写明「删除后无法恢复」。审计只记内容前 60 字，
+    不记 IP / 设备 —— 审计表是长期留存的，没必要为一条被删的留言再留一份定位信息。
+    """
+    user, deny = _role(admin=True)
+    if deny:
+        return deny
+    blocked = _limit("guestbook_delete", 30)
+    if blocked:
+        return blocked
+    g = db.session.get(Guestbook, gid)
+    if g is None:
+        return jsonify({"error": "留言不存在"}), 404
+    preview = (g.content or "")[:60]
+    db.session.delete(g)
+    db.session.commit()
+    log_audit("mobile_guest_delete", "guestbook", gid, f"移动端删除留言：{preview}", user=user)
+    return jsonify({"ok": True})
+
+
+def _mask_email(raw):
+    """邮箱遮敏：保留用户名前 2 位与整个域名，中间固定 `***`。
+
+    默认遮的两个理由：`Subscriber.email` 是可直接群发的 PII；而 App 会把列表留在本地
+    缓存、也会在非私密场合打开。超管拿全量是为了联系/导出（`reveal=True`）。
+    ⚠️ `Subscriber.unsub_token` **任何角色都不返回**：`/unsubscribe/<token>` 免登录校验，
+    泄露它等于任何人都能替博主的订阅者退订。
+    """
+    e = (raw or "").strip()
+    if "@" not in e:
+        return (e[:2] + "***") if e else ""
+    local, _, domain = e.partition("@")
+    head = local[:2] if len(local) > 2 else local[:1]
+    return f"{head}***@{domain}"
+
+
+def _subscriber_json(s, reveal=False):
+    return {
+        "id": s.id,
+        "email": (s.email or "") if reveal else _mask_email(s.email),
+        "email_masked": not reveal,
+        "active": bool(s.active),
+        "created_at": _iso(s.created_at),
+    }
+
+
+@api_bp.route("/mobile/subscribers")
+def mobile_subscribers():
+    """订阅者（管理员）：`q` 搜邮箱、`active=1/0` 筛生效/退订，时间倒序分页。
+
+    邮箱对管理员**遮敏**、对超管全量（见 `_mask_email`）。总数 `total` 是精确值 ——
+    统计口径不受遮敏影响，客户端不用自己数。
+    """
+    user, deny = _role(admin=True)
+    if deny:
+        return deny
+    page, per_page = _page_args()
+    q = Subscriber.query.order_by(Subscriber.created_at.desc(), Subscriber.id.desc())
+    tri = _tri("active")
+    if tri is not None:
+        q = q.filter(Subscriber.active.is_(tri))
+    kw = (request.args.get("q") or "").strip()
+    if kw:
+        q = q.filter(Subscriber.email.ilike(_like(kw)))
+    reveal = user.is_super
+    serializer = lambda s: _subscriber_json(s, reveal)  # noqa: E731  (角色决定邮箱形态)
+    return _paged(q, page, per_page, serializer)
+
+
+@api_bp.route("/mobile/subscriber/<int:sid>/active", methods=["POST"])
+def mobile_subscriber_active(sid):
+    """设置订阅状态：`{"active": true|false}`（管理员），显式目标值、幂等。
+
+    `active=False` 就**不再收到发文邮件**（`mail_notify` 只取 `active=True` 的订阅者），
+    但记录留着 —— 比删除可逆得多，处理投诉时应该先用它而不是删人。
+    """
+    user, deny = _role(admin=True)
+    if deny:
+        return deny
+    blocked = _limit("subscriber_write", 20)
+    if blocked:
+        return blocked
+    sub = db.session.get(Subscriber, sid)
+    if sub is None:
+        return jsonify({"error": "订阅者不存在"}), 404
+    want = _need_flag(_body(), "active")
+    if want is None:
+        return jsonify({"error": "请带上 active（true/false）"}), 400
+    sub.active = want
+    db.session.commit()
+    log_audit("mobile_sub_active", "subscriber", sid,
+              f"移动端订阅者{'恢复接收' if want else '停止发送'}", user=user)
+    return jsonify({"ok": True, "item": _subscriber_json(sub, user.is_super)})
+
+
+@api_bp.route("/mobile/subscriber/<int:sid>/delete", methods=["POST"])
+def mobile_subscriber_delete(sid):
+    """删除订阅者（管理员）。⚠️ 硬删除，且**下次同一邮箱再订阅会拿到新的 unsub_token**。
+
+    审计 `detail` 不写邮箱（PII 不进长期留存的审计表），只记 id；真要追溯回后台页面看。
+    """
+    user, deny = _role(admin=True)
+    if deny:
+        return deny
+    blocked = _limit("subscriber_write", 20)
+    if blocked:
+        return blocked
+    sub = db.session.get(Subscriber, sid)
+    if sub is None:
+        return jsonify({"error": "订阅者不存在"}), 404
+    db.session.delete(sub)
+    db.session.commit()
+    log_audit("mobile_sub_delete", "subscriber", sid, f"移动端删除订阅者 #{sid}", user=user)
+    return jsonify({"ok": True})
+
+
+# ---------------------------------------------------------------- 分类 / 标签 / 系列（v4.4.0）
+
+
+def _category_json(c):
+    return {
+        "id": c.id, "name": c.name, "slug": c.slug,
+        "post_count": c.posts.count(), "url": "/category/" + (c.slug or ""),
+    }
+
+
+def _tag_json(t, used=None):
+    """标签行。`used` 由调用方给（`tag_usage_counts()` 一次查完），没给才退回单独数一次。"""
+    if used is None:
+        from models import PostTag
+        used = PostTag.query.filter_by(tag_id=t.id).count()
+    return {"id": t.id, "name": t.name, "slug": t.slug,
+            "post_count": used, "url": "/tag/" + (t.slug or "")}
+
+
+def _series_json(s):
+    return {
+        "id": s.id, "name": s.name, "slug": s.slug, "description": s.description or "",
+        "cover": s.cover or "", "sort": s.sort or 0,
+        "post_count": Post.query.filter_by(series_id=s.id).count(),
+        "created_at": _iso(s.created_at), "url": "/series/" + (s.slug or ""),
+    }
+
+
+@api_bp.route("/mobile/categories")
+def mobile_categories():
+    """分类清单（管理员）：每行带 `post_count`，删除前就知道会影响几篇。
+
+    与只读的 `/mobile/taxonomy`（编辑器下拉数据源）不同，这里是**治理视角**：
+    多给了文章数与访问地址，少不起「这个分类还有没有文章用」。
+    """
+    user, deny = _role(admin=True)
+    if deny:
+        return deny
+    rows = Category.query.order_by(Category.name).all()
+    return jsonify({"items": [_category_json(c) for c in rows], "total": len(rows)})
+
+
+@api_bp.route("/mobile/category", methods=["POST"])
+def mobile_category_create():
+    """新建分类（管理员），走 `create_category_core`：`{"name": "…"}`。
+
+    同名精确判重（`Category.name` 有唯一约束），与编辑器里的「就地新建」同一判据 ——
+    两边口径不同就会出现「App 建一个、编辑器再建一个」的双胞胎分类。
+    """
+    user, deny = _role(admin=True)
+    if deny:
+        return deny
+    blocked = _limit("taxonomy_write", 20)
+    if blocked:
+        return blocked
+    from admin.taxonomy import create_category_core
+    cid, err = create_category_core((_body().get("name") or ""))
+    if err:
+        return jsonify({"error": err}), 400
+    cat = db.session.get(Category, cid)
+    log_audit("mobile_cat_create", "category", cid, f"移动端新建分类：{cat.name}", user=user)
+    return jsonify({"ok": True, "item": _category_json(cat)}), 201
+
+
+@api_bp.route("/mobile/category/<int:cid>", methods=["POST", "PUT"])
+def mobile_category_rename(cid):
+    """分类改名（管理员），走 `rename_category_core`：`{"name": "…"}`。
+
+    ⚠️ 返回里的 `note` 会说「地址已由 /category/旧 改为 /category/新，此前发出去的旧链接会失效」。
+    这是**沿用后台既有行为**（改名无条件重算 slug），本次没有改判据，只是把结果如实回传，
+    让 App 能在提交前把它显示出来。站点没有 slug 别名表也没有 301，所以这条提醒不是客套话。
+    """
+    user, deny = _role(admin=True)
+    if deny:
+        return deny
+    blocked = _limit("taxonomy_write", 20)
+    if blocked:
+        return blocked
+    cat = db.session.get(Category, cid)
+    if cat is None:
+        return jsonify({"error": "分类不存在"}), 404
+    from admin.taxonomy import rename_category_core
+    err, note = rename_category_core(cat, (_body().get("name") or ""))
+    if err:
+        return jsonify({"error": err}), 400
+    log_audit("mobile_cat_rename", "category", cid, f"移动端分类改名：{cat.name}｜{note}", user=user)
+    return jsonify({"ok": True, "note": note, "item": _category_json(cat)})
+
+
+@api_bp.route("/mobile/category/<int:cid>/delete", methods=["POST"])
+def mobile_category_delete(cid):
+    """删除分类（管理员），走 `delete_category_core`：可选 `{"move_to": 目标分类 id}`。
+
+    两种结果都必须让调用方知道：
+      · 给了可用的 `move_to` → 文章整体转移（`moved` = 转移篇数）；
+      · 不给 → 文章**留着但变成无分类**（`moved=0`，`affected` 就是受影响篇数）。
+    所以响应同时返回 `affected` 与 `moved`，App 的确认框要按这两个数说人话。
+    `move_to` 指向不存在的分类或自身时直接 400，而不是静默退化成「无分类」。
+    """
+    user, deny = _role(admin=True)
+    if deny:
+        return deny
+    blocked = _limit("taxonomy_write", 20)
+    if blocked:
+        return blocked
+    cat = db.session.get(Category, cid)
+    if cat is None:
+        return jsonify({"error": "分类不存在"}), 404
+    body = _body()
+    move_to = body.get("move_to")
+    if move_to not in (None, "", 0, "0"):
+        try:
+            target = db.session.get(Category, int(move_to))
+        except (TypeError, ValueError):
+            target = None
+        if target is None or target.id == cid:
+            return jsonify({"error": "move_to 必须是另一个存在的分类 id"}), 400
+    affected = cat.posts.count()
+    from admin.taxonomy import delete_category_core
+    moved, name = delete_category_core(cat, move_to)
+    log_audit("mobile_cat_delete", "category", cid,
+              f"移动端删除分类：{name}（转移 {moved}/{affected} 篇）", user=user)
+    return jsonify({"ok": True, "name": name, "affected": affected, "moved": moved})
+
+
+@api_bp.route("/mobile/tags")
+def mobile_tags():
+    """标签清单（管理员）：带每个标签的使用篇数与 `orphan_count`（0 使用的标签数）。
+
+    与后台 `/admin/tags` 同一份计数（`tag_usage_counts()` 一条 GROUP BY，不逐标签拖文章）。
+    `orphan_count > 0` 时 App 可以提示「可用一键整理」。
+    """
+    user, deny = _role(admin=True)
+    if deny:
+        return deny
+    from admin.taxonomy import tag_usage_counts
+    counts = tag_usage_counts()
+    rows = Tag.query.order_by(Tag.name).all()
+    items = [_tag_json(t, counts.get(t.id, 0)) for t in rows]
+    return jsonify({"items": items, "total": len(items),
+                    "orphan_count": sum(1 for i in items if not i["post_count"])})
+
+
+@api_bp.route("/mobile/tag", methods=["POST"])
+def mobile_tag_create():
+    """新建标签（管理员），走 `create_tag_core`：`{"name": "…"}`。
+
+    查重按 `normalize_tag_key`（小写 + 去空白）扫全表，所以 `AI` / `ai` / `a i`
+    只会留一个 —— 这条判据和后台「一键整理」合并重复标签用的是同一个函数。
+    """
+    user, deny = _role(admin=True)
+    if deny:
+        return deny
+    blocked = _limit("taxonomy_write", 20)
+    if blocked:
+        return blocked
+    from admin.taxonomy import create_tag_core
+    tid, err = create_tag_core((_body().get("name") or ""))
+    if err:
+        return jsonify({"error": err}), 400
+    tag = db.session.get(Tag, tid)
+    log_audit("mobile_tag_create", "tag", tid, f"移动端新建标签：{tag.name}", user=user)
+    return jsonify({"ok": True, "item": _tag_json(tag)}), 201
+
+
+@api_bp.route("/mobile/tag/<int:tid>/delete", methods=["POST"])
+def mobile_tag_delete(tid):
+    """删除标签（管理员），走 `delete_tag_core`。
+
+    被文章用着就**拒绝**（400，不是 409：这是业务规则而不是并发冲突）。标签是文章的
+    属性，级联清理等于悄悄改文章；要合并请走 `/mobile/tags/merge`。
+    """
+    user, deny = _role(admin=True)
+    if deny:
+        return deny
+    blocked = _limit("taxonomy_write", 20)
+    if blocked:
+        return blocked
+    tag = db.session.get(Tag, tid)
+    if tag is None:
+        return jsonify({"error": "标签不存在"}), 404
+    from admin.taxonomy import delete_tag_core
+    err = delete_tag_core(tag)
+    if err:
+        return jsonify({"error": err}), 400
+    log_audit("mobile_tag_delete", "tag", tid, f"移动端删除标签：{tag.name}", user=user)
+    return jsonify({"ok": True})
+
+
+@api_bp.route("/mobile/tags/merge", methods=["POST"])
+def mobile_tags_merge():
+    """一键整理标签（管理员）：合并大小写/空白变体 + 清理 0 使用的标签。
+
+    与后台 `/admin/tags` 的 merge 按钮同一对函数（`merge_duplicate_tags` /
+    `cleanup_orphan_tags`）。这里单独成一条 POST 而不是塞进 `DELETE /mobile/tags`：
+    它会改动多篇文章的标签关联，属于「先看清单再按」的动作，App 侧应二次确认。
+    """
+    user, deny = _role(admin=True)
+    if deny:
+        return deny
+    blocked = _limit("tags_merge", 5)
+    if blocked:
+        return blocked
+    from admin._helpers import cleanup_orphan_tags, merge_duplicate_tags
+    merged = merge_duplicate_tags()
+    cleaned = cleanup_orphan_tags()
+    log_audit("mobile_tags_merge", "tag", None,
+              f"移动端标签整理：合并 {merged} 个，清理未使用 {cleaned} 个", user=user)
+    return jsonify({"ok": True, "merged": merged, "cleaned": cleaned})
+
+
+@api_bp.route("/mobile/series")
+def mobile_series():
+    """系列清单（管理员）：按后台同排序口径（`sort` 升序、再按创建时间倒序），带文章数。"""
+    user, deny = _role(admin=True)
+    if deny:
+        return deny
+    rows = Series.query.order_by(Series.sort, Series.created_at.desc()).all()
+    items = [_series_json(s) for s in rows]
+    return jsonify({"items": items, "total": len(items)})
+
+
+@api_bp.route("/mobile/series", methods=["POST"])
+def mobile_series_create():
+    """新建系列（管理员），走 `create_series_core`：`{"name": "…", "description", "cover", "sort"}`。
+
+    `Series.name` **没有唯一约束**（与 `Category` 不同），所以重名不会被拒 —— 核心的查重
+    只在编辑器「就地新建」那条路径上按名精确定位复用。App 里想避免重复系列，先拉清单比对。
+    """
+    user, deny = _role(admin=True)
+    if deny:
+        return deny
+    blocked = _limit("taxonomy_write", 20)
+    if blocked:
+        return blocked
+    from admin.taxonomy import create_series_core
+    sid, err = create_series_core(_body())
+    if err:
+        return jsonify({"error": err}), 400
+    ser = db.session.get(Series, sid)
+    log_audit("mobile_series_create", "series", sid, f"移动端新建系列：{ser.name}", user=user)
+    return jsonify({"ok": True, "item": _series_json(ser)}), 201
+
+
+@api_bp.route("/mobile/series/<int:sid>", methods=["POST", "PUT"])
+def mobile_series_update(sid):
+    """编辑系列（管理员），走 `rename_series_core`：`name` 必填，`description/cover/sort` 给了才改。
+
+    「给了才改」是后台原行为，移动端整单回传时等于全量覆盖；只想改简介就别带 `cover`
+    以外的字段？—— 不必小心翼翼：本接口的缺省语义就是「保持原值」，与 `/mobile/post/<id>`
+    的「缺省即清空」**相反**，两个接口的表单语义不同，写客户端时别看串行。
+    改名同样会换 slug 并在 `note` 里说明旧链接失效。
+    """
+    user, deny = _role(admin=True)
+    if deny:
+        return deny
+    blocked = _limit("taxonomy_write", 20)
+    if blocked:
+        return blocked
+    ser = db.session.get(Series, sid)
+    if ser is None:
+        return jsonify({"error": "系列不存在"}), 404
+    from admin.taxonomy import rename_series_core
+    err, note = rename_series_core(ser, _body())
+    if err:
+        return jsonify({"error": err}), 400
+    log_audit("mobile_series_update", "series", sid,
+              f"移动端编辑系列：{ser.name}｜{note}", user=user)
+    return jsonify({"ok": True, "note": note, "item": _series_json(ser)})
+
+
+@api_bp.route("/mobile/series/<int:sid>/delete", methods=["POST"])
+def mobile_series_delete(sid):
+    """删除系列（管理员），走 `delete_series_core`：可选 `{"move_to": 目标系列 id}`。
+
+    不给 `move_to` 与后台原行为一致：文章留着、只是脱离系列（上/下篇导航随之消失）。
+    转移是这次为手机端**新增的可选去路**，不是改默认行为。`affected` / `moved` 的含义
+    同分类删除。
+    """
+    user, deny = _role(admin=True)
+    if deny:
+        return deny
+    blocked = _limit("taxonomy_write", 20)
+    if blocked:
+        return blocked
+    ser = db.session.get(Series, sid)
+    if ser is None:
+        return jsonify({"error": "系列不存在"}), 404
+    body = _body()
+    move_to = body.get("move_to")
+    if move_to not in (None, "", 0, "0"):
+        try:
+            target = db.session.get(Series, int(move_to))
+        except (TypeError, ValueError):
+            target = None
+        if target is None or target.id == sid:
+            return jsonify({"error": "move_to 必须是另一个存在的系列 id"}), 400
+    affected = Post.query.filter_by(series_id=sid).count()
+    from admin.taxonomy import delete_series_core
+    moved, name = delete_series_core(ser, move_to)
+    log_audit("mobile_series_delete", "series", sid,
+              f"移动端删除系列：{name}（转移 {moved}/{affected} 篇）", user=user)
+    return jsonify({"ok": True, "name": name, "affected": affected, "moved": moved})
+
+
+# ---------------------------------------------------------------- 友链本体（v4.4.0）
+
+
+def _friend_link_json(f):
+    return {
+        "id": f.id, "name": f.name, "url": f.url, "description": f.description or "",
+        "sort": f.sort or 0, "rss_url": f.rss_url or "",
+    }
+
+
+@api_bp.route("/mobile/links")
+def mobile_links():
+    """友链清单（管理员）：按 `sort` 升序，与前台展示顺序一致（排序界面直接用这个顺序）。"""
+    user, deny = _role(admin=True)
+    if deny:
+        return deny
+    rows = FriendLink.query.order_by(FriendLink.sort).all()
+    items = [_friend_link_json(f) for f in rows]
+    return jsonify({"items": items, "total": len(items)})
+
+
+@api_bp.route("/mobile/link", methods=["POST"])
+def mobile_link_create():
+    """新增友链（管理员），走 `save_friend_link_core`：`{"name","url","description","sort","rss_url"}`。
+
+    URL 归一与校验都在核心里（补 `https://`、只放行 http/https、拒 `javascript:` 等伪协议
+    与站内相对路径），同 URL 会查重。后台原先**不查重**，这次统一到审核路径已有的那套口径。
+    """
+    user, deny = _role(admin=True)
+    if deny:
+        return deny
+    blocked = _limit("link_write", 20)
+    if blocked:
+        return blocked
+    from admin._helpers import save_friend_link_core
+    err, note, link = save_friend_link_core(None, _body())
+    if err:
+        return jsonify({"error": err}), 400
+    log_audit("mobile_link_create", "friend_link", link.id,
+              f"移动端新增友链：{link.name}", user=user)
+    return jsonify({"ok": True, "note": note, "item": _friend_link_json(link)}), 201
+
+
+@api_bp.route("/mobile/link/<int:lid>", methods=["POST", "PUT"])
+def mobile_link_update(lid):
+    """编辑友链（管理员），走同一个 `save_friend_link_core`。
+
+    这条能力后台原本也没有：只能删了重建，而重建会把 `sort` 位置弄丢。
+    `note` 非空表示 RSS 软校验没通过（**保存已成功**，只是博客圈可能聚合不到），
+    客户端要把它当提示而不是错误 —— 对方源可能临时抽风，硬拦会把能用的友链挡在门外。
+    """
+    user, deny = _role(admin=True)
+    if deny:
+        return deny
+    blocked = _limit("link_write", 20)
+    if blocked:
+        return blocked
+    link = db.session.get(FriendLink, lid)
+    if link is None:
+        return jsonify({"error": "友链不存在"}), 404
+    from admin._helpers import save_friend_link_core
+    err, note, saved = save_friend_link_core(link, _body())
+    if err:
+        return jsonify({"error": err}), 400
+    log_audit("mobile_link_update", "friend_link", lid, f"移动端编辑友链：{saved.name}", user=user)
+    return jsonify({"ok": True, "note": note, "item": _friend_link_json(saved)})
+
+
+@api_bp.route("/mobile/link/<int:lid>/delete", methods=["POST"])
+def mobile_link_delete(lid):
+    """删除友链（管理员）。⚠️ 硬删除；下次想加回来要重新填，`sort` 位置也保不住。"""
+    user, deny = _role(admin=True)
+    if deny:
+        return deny
+    blocked = _limit("link_write", 20)
+    if blocked:
+        return blocked
+    link = db.session.get(FriendLink, lid)
+    if link is None:
+        return jsonify({"error": "友链不存在"}), 404
+    name = link.name
+    db.session.delete(link)
+    db.session.commit()
+    log_audit("mobile_link_delete", "friend_link", lid, f"移动端删除友链：{name}", user=user)
+    return jsonify({"ok": True})
+
+
+@api_bp.route("/mobile/links/reorder", methods=["POST"])
+def mobile_links_reorder():
+    """友链排序（管理员）：`{"ids": [id, id, …]}`，数组顺序即展示顺序。
+
+    走 `reorder_friend_links_core`：`sort` 按 `(i+1)*10` 重算（留空档便于以后插位），
+    **只有列出来的 id 会动**，没列的保持原位 —— 半提交时把未列出的甩到末尾才是更危险的行为。
+    上限 500 条：手机上一次拖完整个列表，超过这个数量说明应该去后台分页处理。
+    """
+    user, deny = _role(admin=True)
+    if deny:
+        return deny
+    blocked = _limit("link_reorder", 10)
+    if blocked:
+        return blocked
+    ids = _body().get("ids")
+    if not isinstance(ids, list) or not ids:
+        return jsonify({"error": "ids 必须是非空数组"}), 400
+    from admin._helpers import reorder_friend_links_core
+    moved = reorder_friend_links_core(ids[:500])
+    log_audit("mobile_link_reorder", "friend_link", None,
+              f"移动端友链重排：改动 {moved} 条", user=user)
+    return jsonify({"ok": True, "moved": moved})
+
+
+# ---------------------------------------------------------------- 文章版本历史（v4.4.0）
+
+
+def _history_json(h, full=False):
+    d = {
+        "id": h.id, "post_id": h.post_id, "title": h.title or "",
+        "summary": h.summary or "", "author": h.author or "",
+        "created_at": _iso(h.created_at), "size": len(h.content or ""),
+    }
+    if full:
+        d["content"] = h.content or ""
+    return d
+
+
+@api_bp.route("/mobile/post/<int:post_id>/history")
+def mobile_post_history(post_id):
+    """版本历史列表（可编辑者）：时间倒序，**不含正文**（`size` 是正文字符数）。
+
+    权限沿用后台同一条 `_can_edit_post`：普通用户只能看自己的文章，管理员看全部。
+    列表不返回正文是有意的 —— 一次历史可能十几版，每版几十 KB。
+    """
+    user, deny = _role()
+    if deny:
+        return deny
+    post = db.session.get(Post, post_id)
+    if post is None:
+        return jsonify({"error": "文章不存在"}), 404
+    from admin._helpers import _can_edit_post
+    if not _can_edit_post(user, post):
+        return jsonify({"error": "只能查看自己文章的版本历史"}), 403
+    rows = (PostHistory.query.filter_by(post_id=post_id)
+            .order_by(PostHistory.created_at.desc()).all())
+    return jsonify({"items": [_history_json(h) for h in rows], "total": len(rows),
+                    "post_id": post_id, "post_title": post.title,
+                    "current": {"title": post.title, "summary": post.summary or "",
+                                "size": len(post.content or "")}})
+
+
+@api_bp.route("/mobile/post/<int:post_id>/history/<int:hid>")
+def mobile_post_history_detail(post_id, hid):
+    """某个历史版本的完整正文（供预览 / 逐字比对）。"""
+    user, deny = _role()
+    if deny:
+        return deny
+    post = db.session.get(Post, post_id)
+    if post is None:
+        return jsonify({"error": "文章不存在"}), 404
+    from admin._helpers import _can_edit_post
+    if not _can_edit_post(user, post):
+        return jsonify({"error": "只能查看自己文章的版本历史"}), 403
+    h = PostHistory.query.filter_by(id=hid, post_id=post_id).first()
+    if h is None:
+        return jsonify({"error": "历史版本不存在"}), 404
+    return jsonify(_history_json(h, full=True))
+
+
+@api_bp.route("/mobile/post/<int:post_id>/history/diff")
+def mobile_post_history_diff(post_id):
+    """版本对比（可编辑者）：`?a=<历史 id>` 与**当前正文**做逐行 diff。
+
+    实现直接复用后台的 `_line_diff`（等值段只留 2 行上下文），所以手机上看到的差异
+    与后台页面逐字一致；不指定 `a` 时与最近一版比。没有历史时返回 404，而不是空数组
+    —— 客户端需要区分「没差异」和「没历史」。
+    """
+    user, deny = _role()
+    if deny:
+        return deny
+    post = db.session.get(Post, post_id)
+    if post is None:
+        return jsonify({"error": "文章不存在"}), 404
+    from admin._helpers import _can_edit_post
+    if not _can_edit_post(user, post):
+        return jsonify({"error": "只能查看自己文章的版本对比"}), 403
+    from admin.post_history import _line_diff
+    versions = PostHistory.query.filter_by(post_id=post_id) \
+        .order_by(PostHistory.created_at.desc()).all()
+    a_id = request.args.get("a", type=int)
+    base = None
+    if a_id:
+        base = PostHistory.query.filter_by(id=a_id, post_id=post_id).first()
+    if base is None and versions:
+        base = versions[0]
+    if base is None:
+        return jsonify({"error": "暂无历史版本可对比"}), 404
+    rows = [{"kind": k, "old": o, "new": n}
+            for k, o, n in _line_diff(base.content or "", post.content or "")]
+    return jsonify({"post_id": post_id, "base": _history_json(base), "rows": rows})
+
+
+@api_bp.route("/mobile/post/<int:post_id>/history/<int:hid>/rollback", methods=["POST"])
+def mobile_post_rollback(post_id, hid):
+    """回滚到指定历史版本（可编辑者），走 `rollback_post_core`。
+
+    ⚠️ **只写回 `title` / `summary` / `content`**：不动 slug、封面、分类、标签、系列、
+    发布态、SEO —— 所以回滚不会破坏已分发的 URL，也不会把已发布文章悄悄变草稿。
+    回滚前会先把当前版本存进历史，因此这一步本身还能再撤销（App 侧可以据此写文案）。
+    """
+    user, deny = _role()
+    if deny:
+        return deny
+    blocked = _limit("rollback", 20)
+    if blocked:
+        return blocked
+    post = db.session.get(Post, post_id)
+    if post is None:
+        return jsonify({"error": "文章不存在"}), 404
+    from admin._helpers import _can_edit_post, rollback_post_core
+    if not _can_edit_post(user, post):
+        return jsonify({"error": "只能回滚自己文章的版本"}), 403
+    h = PostHistory.query.filter_by(id=hid, post_id=post_id).first()
+    if h is None:
+        return jsonify({"error": "历史版本不存在"}), 404
+    err = rollback_post_core(post, h, user)
+    if err:
+        return jsonify({"error": err}), 403
+    log_audit("mobile_rollback", "post", post_id, f"移动端回滚到版本 {hid}", user=user)
+    return jsonify({"ok": True, "title": post.title, "size": len(post.content or "")})
+
+
+# ---------------------------------------------------------------- 媒体库（v4.4.0）
+
+
+@api_bp.route("/mobile/media")
+def mobile_media():
+    """媒体库（管理员）：`static/uploads` 清单，`q` 搜文件名、`only_free=1` 只看疑似无引用。
+
+    数据源是**目录列举**而不是数据库（上传不入库，这是本站既有设计），所以分页在内存里切，
+    `total` 是文件数。代价见 `admin.media.collect_media`：引用判定是 O(文件数 × 文章数) 的
+    字符串包含，第一次拉全量会有点慢；`per_page` 请传 20~30，别一次 100。
+    每项 `refs` 是最多 6 条「疑似引用它的文章」，`ref_total` 是**完整**篇数。
+    """
+    user, deny = _role(admin=True)
+    if deny:
+        return deny
+    import os
+    from admin.media import collect_media
+    page, per_page = _page_args(20)
+    kw = (request.args.get("q") or "").strip().lower()
+    only_free = _tri("only_free")
+    items = collect_media()
+    if kw:
+        items = [i for i in items if kw in i["name"].lower()]
+    if only_free:
+        items = [i for i in items if not i["ref_total"]]
+    total = len(items)
+    pages = max(1, (total + per_page - 1) // per_page)
+    start = (min(page, pages) - 1) * per_page
+    return jsonify({"items": items[start:start + per_page], "total": total,
+                    "page": min(page, pages), "pages": pages})
+
+
+@api_bp.route("/mobile/media/delete", methods=["POST"])
+def mobile_media_delete():
+    """删除上传文件（管理员）：`{"name": "文件名", "force": true}`。
+
+    走 `delete_media_core` 的五道路径防护（basename / 拒空与 `.` `..` / 必须落在 uploads 层内 /
+    必须是普通文件 / 才 remove），所以 `../` 之类的穿越在这里一律无效。
+
+    被引用时默认 **409 + 引用清单**，必须再发一次带 `force: true` 的请求才会真删：
+    删图不会进回收站，也没有「恢复上一版」，而文章里的 `![](/static/uploads/x.png)`
+    会当场图裂 —— 这是本模块唯一一个用 409 表达「请先确认」的接口。
+    副作用照旧：只删点名的文件，转格式生成的同名 `.avif` 旁路会留成孤儿。
+    """
+    user, deny = _role(admin=True)
+    if deny:
+        return deny
+    blocked = _limit("media_delete", 20)
+    if blocked:
+        return blocked
+    import os
+    from admin.media import delete_media_core, media_refs_for
+    body = _body()
+    name = os.path.basename((body.get("name") or "").strip())
+    if not name or name in (".", ".."):
+        return jsonify({"error": "参数不合法"}), 400
+    refs = media_refs_for(name)
+    if refs and not _flag(body, "force"):
+        return jsonify({"error": f"该文件疑似被 {len(refs)} 篇文章引用，删除后文章图片会失效",
+                        "refs": refs[:6], "ref_total": len(refs), "need_force": True}), 409
+    ok, msg = delete_media_core(name)
+    if not ok:
+        return jsonify({"error": msg}), 404 if msg == "文件不存在" else 400
+    log_audit("mobile_media_delete", "media", None,
+              f"移动端删除文件：{name}（引用 {len(refs)} 篇）", user=user)
+    return jsonify({"ok": True, "name": msg, "ref_total": len(refs)})
 
 
 # ---------------------------------------------------------------- 通知

@@ -48,6 +48,14 @@ PAIRS = [
         "docs/archive/SECURITY_AUDIT_r81-r90.md",
         "## R90 · 后台「🔍 收录」控制台",  # 归档件的最后一条（R90）
     ),
+    # v4.4.0 追加：加完 R122（移动端「内容全套」设计期审计）后主文件涨到 163 KB 再次触发
+    # 体积守卫（上限 160 KB）。同一次「先写进主文件、撑满再把最老的十轮搬走」的循环。
+    (
+        "SECURITY_AUDIT_r91-r100.md",
+        "myblog/SECURITY_AUDIT.md",
+        "docs/archive/SECURITY_AUDIT_r91-r100.md",
+        "## R100 · v3.25.2",  # 归档件的最后一条（R100）
+    ),
 ]
 
 # 整份搬走的快照（一次性审查报告）

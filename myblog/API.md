@@ -17,6 +17,7 @@
 - [留言墙 /guestbook](#留言墙-guestbook)
 - [订阅 /subscribe](#订阅-subscribe)
 - [通知 /notifications](#通知-notifications)
+- [移动端管理 /mobile](#移动端管理-mobilev430)
 - [系统 /system](#系统-system)
 
 ---
@@ -75,6 +76,7 @@ myblog/
 │   ├── guestbook.py     # 留言墙
 │   ├── subscribe.py     # 邮件订阅/退订
 │   ├── notifications.py # 站内通知
+│   ├── mobile.py        # v4.3.0：移动端管理接口（后台管理能力的 JSON 版）
 │   └── system.py        # 版本更新/部署 webhook
 ```
 
@@ -400,6 +402,90 @@ myblog/
 
 - 鉴权：登录
 - 成功：`200 {\"ok\": true}`
+
+---
+
+## 移动端管理 /mobile（v4.3.0）
+
+把后台管理能力（发文/审核/访客日志/拉黑…）以 JSON 暴露，供原生 App 或第三方客户端使用。
+**页面接口 `/admin/*` 一个都没改**：这一组是并排的第二入口，复用同一批业务核心。
+
+实现位于 `myblog/api/mobile.py`，鉴权闸门是它自带的 `_role()`（不是后台的
+`admin_required`——后者未登录时 302 跳登录页，客户端拿到的是一页 HTML 而不是错误码）。
+
+### 通用约定（仅本组，与上面的全局约定叠加）
+
+- 登录：`POST /api/auth/login` 后由服务端下发**会话级** cookie（无 `Expires`/`Max-Age`）。
+  非浏览器客户端必须自行保存并在每次请求带回，重启进程也要带回，否则会天天 401。
+- 写操作（POST/PUT/DELETE）一律要 `X-CSRF-Token`（见「CSRF 保护」）。
+  ⚠️ 闸门顺序：CSRF 检查在业务视图之前，所以**既未登录又缺 token** 时你拿到的是
+  `403`（CSRF）而不是 401。真实客户端登录后立刻就有 token，不受影响。
+- 角色：`只读运营数据 = 管理员`；`发文/改自己的文 = 任意登录用户`；
+  `置顶直改、IP 拉黑与解封 = 超管`。提权字段（`is_pinned`/`is_private`/`reward_enabled`）
+  在服务端按角色丢弃，**客户端传了也不生效**（有回归测试钉住）。
+- 分页信封统一 `{items, total, page, pages}`；`per_page` 上限 100。
+- 时间字段全部北京时间字符串（与 SSR 后台同源 `fmt_bj`）。
+  唯一例外：`scheduled_at` 入参用 `YYYY-MM-DDTHH:MM` 北京时间，落库转 UTC naive。
+
+### 只读
+
+| 接口 | 鉴权 | 说明 |
+|------|------|------|
+| `GET /api/mobile/overview` | 管理员 | 首屏一屏：`counts`（待审/未读评论、未读通知、草稿、定时、待审友链、置顶申请、回收站）+ `today` 数据 + 最近 5 条评论 |
+| `GET /api/mobile/posts` | 登录（普通用户仅自己） | 后台同筛选口径：`q/status(published\|draft\|scheduled\|pinned)/category_id/series_id/sort/order/page/per_page`；**列表不含正文** |
+| `GET /api/mobile/post/<id>` | 可编辑者 | 详情含 Markdown 原文、`tag_names`、`previewable` |
+| `GET /api/mobile/taxonomy` | 登录 | 分类 / 系列 / 标签候选（编辑器下拉数据源） |
+| `GET /api/mobile/comments` | 管理员 | `status=pending\|approved`、`unread=1`；每条带 `post_title` 上下文 |
+| `GET /api/mobile/visit-logs` | 管理员 | v4.2.0 访客日志的 JSON 版；`range/type/ip/region/path`；响应附 `ranges`（九档）与当前 `range` 边界 |
+| `GET /api/mobile/blocked` | 管理员 | 正在生效的封禁（含 `permanent` 判定） |
+| `GET /api/mobile/stats` | 管理员 | `stats.compute_summary()`；`?detail=1` 附 `trend`（`days` 1~90） |
+| `GET /api/mobile/trash` | 管理员 | 回收站未还原记录 |
+| `GET /api/mobile/moments` | 管理员 | 微动态列表（`q` 搜索，带 `comment_count`） |
+| `GET /api/mobile/link-applications` | 管理员 | 友链申请，默认 `status=pending`，附 `pending_count` |
+| `GET /api/mobile/notifications` | 登录 | 站内通知；管理员额外得到 `unread_comments` |
+
+### 写入
+
+| 接口 | 鉴权 | 说明 |
+|------|------|------|
+| `POST /api/mobile/post` | 登录 | 新建（草稿/发布/定时），走 `create_post_core`；`201 {ok,id,slug,published,scheduled_at}` |
+| `POST`/`PUT /api/mobile/post/<id>` | 可编辑者 | 改文（含状态），走 `update_post_core`。**要回传完整表单**：缺省字段按后台表单语义等同「清空」 |
+| `POST /api/mobile/post/<id>/publish` | 可编辑者 | 发布：清 `scheduled_at` + 同步 FTS + 推送/群发（`publish_post_core`） |
+| `POST /api/mobile/post/<id>/unpublish` | 管理员 | 转草稿并清定时，同步 FTS（否则 `/api/search` 仍命中） |
+| `POST /api/mobile/post/<id>/pin` | 超管 | `{"pinned": true/false}` |
+| `POST /api/mobile/post/<id>/trash` | 可编辑者 | 软删除进回收站（`trash_post_core`，含移出 FTS） |
+| `POST /api/mobile/trash/<rid>/restore` | 管理员 | 还原或按快照重建草稿（`restore_recycle_core`） |
+| `POST /api/mobile/trash/<rid>/purge` | 管理员 | 彻底删除（含清 `SeoSubmission` 悬空行） |
+| `POST /api/mobile/comment/<id>/approve` | 管理员 | 通过并标已读 |
+| `POST /api/mobile/comment/<id>/reject` | 管理员 | 驳回＝删除（与后台同口径） |
+| `POST /api/mobile/comment/<id>/read` | 管理员 | 仅标已读 |
+| `POST /api/mobile/comments/read-all` | 管理员 | 全部已读 |
+| `POST /api/mobile/comments/batch` | 管理员 | `{"action":"approve\|delete","ids":[…]}`，单次上限 500 |
+| `POST /api/mobile/ip/block` | 超管 | `{"ip":"1.2.3.4"}`；默认永久；非法 IP 返回 400 |
+| `POST /api/mobile/ip/unblock` | 超管 | 幂等；从未封禁过的 IP 返回 404 |
+| `POST /api/mobile/moment` | 登录 | 发微动态（限流 5/分钟，与前台同强度） |
+| `POST /api/mobile/moment/<mid>/delete` | 管理员 | 删除（级联删评论） |
+| `POST /api/mobile/link-application/<id>/approve` | 管理员 | 通过并写入 `FriendLink`（同 URL 已存在则跳过） |
+| `POST /api/mobile/link-application/<id>/reject` | 管理员 | 可带 `{"note":"…"}` |
+| `POST /api/mobile/upload` | 登录 | multipart 字段 `file`；后缀白名单 + 文件头 16 字节魔数校验，与 `/admin/upload` 同一条链 |
+
+### 用 curl 走通一遍（联调起点）
+
+```bash
+B=https://www.llhhy.cn
+# 1) 登录并**保存 cookie**（会话级，必须由客户端自己带上）
+curl -c /tmp/mc.txt -s -X POST "$B/api/auth/login" \
+     -H 'Content-Type: application/json' \
+     -d '{"username":"<用户名>","password":"<密码>"}'
+# 2) 取 CSRF token
+TOK=$(curl -b /tmp/mc.txt -s "$B/api/csrf" | sed -n 's/.*"csrf_token":"\([^"]*\)".*/\1/p')
+# 3) 首屏
+curl -b /tmp/mc.txt -s "$B/api/mobile/overview"
+# 4) 发一篇草稿
+curl -b /tmp/mc.txt -s -X POST "$B/api/mobile/post" \
+     -H "Content-Type: application/json" -H "X-CSRF-Token: $TOK" \
+     -d '{"title":"手机发的草稿","content":"正文"}'
+```
 
 ---
 

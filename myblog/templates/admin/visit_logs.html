@@ -47,28 +47,35 @@
   <div class="stats-card">
     <h3>🧾 访问明细（{{ pagination.total }} 条）</h3>
     {% if logs %}
-    <table class="stats-table">
+    {# v4.3.0：改用 .admin-table + 逐格 data-label。
+       原先这张表是 .stats-table（≤900 横向滚动兜底），7 列里 IP/路径/来源都是长文本，
+       手机上要靠横滑才看得到最后一列的「拉黑」按钮 —— 而 base.html 有
+       `body{overflow-x:clip}`，横向一滑就把内容裁掉，等于「操作列点不到」。
+       .admin-table 在 ≤760 由 base.html 卡片化（隐藏 thead、td 纵排），
+       配合 td[data-label]::before 显示字段名，手机端才既读得懂又点得到。
+       这一约定由 tests/test_admin_table_data_label.py 强制：漏一格即红。#}
+    <table class="admin-table">
       <thead>
         <tr><th>时间</th><th>IP</th><th>属地</th><th>路径</th><th>来源</th><th>类型</th><th>操作</th></tr>
       </thead>
       <tbody>
       {% for r in logs %}
         <tr>
-          <td>{{ fmt_bj(r.created_at, "%m-%d %H:%M") }}</td>
-          <td class="vl-ip">{{ r.ip or '—' }}
+          <td data-label="时间">{{ fmt_bj(r.created_at, "%m-%d %H:%M") }}</td>
+          <td data-label="IP" class="vl-ip">{{ r.ip or '—' }}
             {% if r.ip in blocked %}<span class="tag tag-blocked">已拉黑</span>{% endif %}
           </td>
-          <td>{{ r.region or '—' }}</td>
-          <td class="vl-path">{{ r.path or '—' }}</td>
-          <td class="vl-path">{{ r.referrer or '直接访问' }}</td>
-          <td>
+          <td data-label="属地">{{ r.region or '—' }}</td>
+          <td data-label="路径" class="vl-path">{{ r.path or '—' }}</td>
+          <td data-label="来源" class="vl-path">{{ r.referrer or '直接访问' }}</td>
+          <td data-label="类型">
             {% if r.is_bot %}
               <span class="tag tag-{{ r.bot_category or 'unknown' }}">{{ r.bot_name or 'Bot' }}</span>
             {% else %}
               <span class="tag tag-human">真人</span>
             {% endif %}
           </td>
-          <td>
+          <td data-label="操作">
             {% if r.ip and r.ip not in blocked %}
             <form method="POST" action="{{ url_for('admin.visit_logs_block') }}" style="display:inline;">
               {{ csrf_input() }}

@@ -88,7 +88,7 @@ App 之前却只能自己拉一页留言去数 —— 现在两端同源。
 
 ### 测试
 
-`tests/test_api_mobile.py` 从 24 条增至 **36 条**，新增 12 条覆盖上述每一条口径：
+`tests/test_api_mobile.py` 从 25 条增至 **36 条**（新增 11 条），逐条覆盖上面的口径；`tests/test_doc_archival.py` 的归档守卫随 `PAIRS` 多一条而多 3 个参数化用例。CI 对照（同为 python 3.13 ubuntu）：main `fe117c7` 是 **7 failed / 824 passed**，本 PR 是 **7 failed / 838 passed** —— 824+11+3=838 正好对上新增，红的还是那 7 条（6 条 `test_cert_watch.py` 的 runner OpenSSL 问题 + 1 条 `test_point_log_dedup_and_retention`），一条不是本次引入。
 权限分层（普通用户 / 管理员 / 超管三级）、level 白名单归一、显式启停幂等与缺字段 400、
 邮箱遮敏 vs 超管全量 + `unsub_token` 不出现在**原始响应文本**里、留言 IP 分层与
 「PII 不进审计」、分类改名的 slug 提醒与 `move_to` 两条去路（含非法落点必须报错）、

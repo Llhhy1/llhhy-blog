@@ -113,6 +113,19 @@
       <span class="stat-num" style="color:#e53e3e;">{{ guard.blocked_now }}</span>
       <span class="stat-label">限流封禁中（🛡️）</span>
     </div>
+    {# v4.5.0 平均阅读时长：⚠️ 这是**全站**口径，不随上面的区间切换 ——
+       `read_log` 没有日期列（只有 ip/post_id/read_count/duration/updated_at），
+       按区间过滤需要另建按日汇总表才能做。标签里必须写明，否则会被误读成区间数据。
+       duration 为 0 = 该次阅读没有上报时长（升级前的历史阅读都落在这一档）。 #}
+    <div class="stat-card">
+      {% if summary.avg_read_seconds %}
+      <span class="stat-num">{{ summary.avg_read_seconds // 60 }}分{{ summary.avg_read_seconds % 60 }}秒</span>
+      <span class="stat-label">平均单次阅读时长（全站）</span>
+      {% else %}
+      <span class="stat-num">—</span>
+      <span class="stat-label">平均阅读时长（暂无上报数据）</span>
+      {% endif %}
+    </div>
   </div>
 
   <div class="stats-grid">

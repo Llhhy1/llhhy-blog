@@ -6,6 +6,8 @@ from flask import request, jsonify, current_app
 
 from .common import (api_bp, db, Post, Category, Tag, Comment, FriendLink, Setting, LinkApplication, Announcement, visible_posts_query, _settings_map, clean_html, render_markdown, rate_limit, client_key)
 from themes import current_theme
+# v4.5.0 首页壁纸。单向依赖（theme 不引用 site），不构成包级循环。
+from .theme import _wallpaper
 import stats  # myblog/stats.py：client_ip（友链申请归属地）
 
 def _nav_entry_items():
@@ -76,6 +78,8 @@ def site():
         "theme_pack": current_theme()["pack_id"],
         "theme_tokens": current_theme()["light"],
         "theme_dark_tokens": current_theme()["dark"],
+        # v4.5.0 首页壁纸（存 Setting KV，零表结构变更；URL 已限定本站 uploads）
+        "wallpaper": _wallpaper(),
         "categories": [
             {"name": c.name, "slug": c.slug,
              "count": visible_posts_query().filter_by(category_id=c.id).count()}

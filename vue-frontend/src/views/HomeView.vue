@@ -1,10 +1,33 @@
 <template>
   <div>
-    <!-- v3.4.1 首页渐变横幅：与后台 hero-card 同款设计语言 -->
-    <div class="home-hero">
-      <h2 class="home-hero-title">{{ state.site.site_name || state.site.site_title || '我的博客' }}</h2>
-      <p class="home-hero-sub">{{ state.site.site_description || '记录思考，分享知识' }}</p>
-    </div>
+    <!-- v4.5.0 首页首屏大图：启用壁纸时铺满整屏，站点标题与联系方式图标叠加其上，
+         向下滚动即进入文章列表；未配置壁纸时退化为 v3.4.1 的渐变横幅（原观感不变）。
+         ⚠️ 亮/暗两套壁纸通过 CSS 变量交给 `[data-theme]` 选择器切换 ——
+         主题切换发生在 App.vue，把这件事留在 JS 里就得双向同步，漏一处就会
+         出现「切了主题壁纸还是亮色」。 -->
+    <section class="home-cover" :class="{ 'has-wall': !!wallpaperUrl }" :style="coverStyle">
+      <div class="home-cover-inner">
+        <h2 class="home-cover-title">{{ state.site.site_name || state.site.site_title || '我的博客' }}</h2>
+        <p class="home-cover-sub">{{ state.site.site_description || '记录思考，分享知识' }}</p>
+        <div v-if="socials.length" class="home-cover-social" aria-label="联系方式">
+          <component
+            :is="s.href ? 'a' : 'button'"
+            v-for="s in socials.slice(0, 8)"
+            :key="s.id"
+            class="hcs-item"
+            :href="s.href || null"
+            :target="s.href ? '_blank' : null"
+            :rel="s.href ? 'noopener' : null"
+            :type="s.href ? null : 'button'"
+            :title="s.meta.label + (s.handle ? '：' + s.handle : '')"
+            @click="s.href ? null : onCopySocial(s)"
+          >{{ s.meta.icon }}</component>
+        </div>
+        <div v-if="wallpaperUrl" class="home-cover-hint" aria-hidden="true">
+          <span class="hch-arrow">↓</span><span>向下滚动</span>
+        </div>
+      </div>
+    </section>
 
     <!-- v3.17.0 Bento Grid：站点概览数据卡 -->
     <section class="bento" aria-label="站点概览">
@@ -124,6 +147,28 @@ async function onCopySocial(s) {
   else toastErr("已弹窗，请手动复制");
 }
 onMounted(loadSocials);
+
+// ---------- v4.5.0 首页壁纸 ----------
+// 后端 `/api/site` 下发 `wallpaper`（initSite 用 Object.assign，已自动进 state.site）。
+// 这里只负责把「亮/暗两张 + 遮罩」转成 CSS 变量，具体按哪个主题取图交给 CSS：
+// `[data-theme="dark"]` 换一张 url 即可，比在 JS 里监听主题切换再重算可靠。
+const wallpaper = computed(() => state.site.wallpaper || null);
+const wallpaperUrl = computed(() => {
+  const wp = wallpaper.value;
+  if (!wp || !wp.enabled) return "";
+  return wp.light || wp.dark || "";
+});
+const coverStyle = computed(() => {
+  const wp = wallpaper.value;
+  if (!wp || !wp.enabled || !wallpaperUrl.value) return {};
+  const o = Math.min(0.8, Math.max(0, Number(wp.overlay) || 0));
+  const veil = `linear-gradient(rgba(0,0,0,${o}), rgba(0,0,0,${o}))`;
+  // 用 JSON.stringify 生成 url() 里的引号转义：壁纸 URL 来自 Setting，
+  // 即便后端已限定本站 uploads，也不该在模板绑定里裸拼进 CSS 声明。
+  const light = wp.light ? `url(${JSON.stringify(wp.light)})` : "none";
+  const dark = wp.dark ? `url(${JSON.stringify(wp.dark)})` : light;
+  return { "--wall-veil": veil, "--wall-light": light, "--wall-dark": dark };
+});
 function fmtNum(n) {
   n = Number(n) || 0;
   if (n >= 10000) return (n / 10000).toFixed(1) + "w";

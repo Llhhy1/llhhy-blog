@@ -168,6 +168,11 @@ class ReadLog(db.Model):
     post_id = db.Column(db.Integer, db.ForeignKey("post.id"), nullable=False)
     ip = db.Column(db.String(64), index=True)
     read_count = db.Column(db.Integer, default=1)
+    # v4.5.0：累计停留秒数。平均阅读时间由 SUM(duration)/SUM(read_count) 得出。
+    # 之所以加在 ReadLog 而不是 VisitLog：ReadLog 已经按 (post_id, ip) 唯一，
+    # 累加语义天然成立；而 VisitLog 是「每次访问一行」的流水，
+    # 拿它算时长必须先配对相邻记录，离开页面后无后续记录会严重低估。
+    duration = db.Column(db.Integer, default=0, server_default="0")
     updated_at = db.Column(db.DateTime, default=utcnow, onupdate=utcnow)
     __table_args__ = (db.UniqueConstraint("post_id", "ip", name="uq_read_post_ip"),)
 

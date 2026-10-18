@@ -55,7 +55,13 @@ def stats_search():
 
 @api_bp.route("/stats/read", methods=["POST"])
 def stats_read():
-    """记录一次文章阅读（同一访客重复读会累加）。全量审计加固：60 次/分钟 限流防刷库。"""
+    """记录一次文章阅读（同一访客重复读会累加）。全量审计加固：60 次/分钟 限流防刷库。
+
+    v4.5.0：可选带 `duration`（秒，本次停留时长）。前端在页面隐藏/离开时补报，
+    与首次进入时的无参调用**是两次不同的上报** —— 前者只加 read_count，
+    后者才带时长；`record_read` 内部会把两者累加进同一行。
+    时长由服务端 `_clamp_read_seconds` 钳制，客户端伪造无效。
+    """
     if not rate_limit(client_key("api_stats_read"), limit=60, window=60):
         return jsonify({"ok": True, "skipped": True})
     data = request.get_json(silent=True) or {}
@@ -65,7 +71,12 @@ def stats_read():
     # 累加阅读量（借 slug 探测文章是否存在）。
     p = visible_posts_query().filter_by(slug=slug).first() if slug else None
     if p:
-        stats.record_read(p.id, stats.client_ip())
+        ip = stats.client_ip()
+        if data.get("only_duration") is True:
+            # 补报停留时长：不累加 read_count，否则切一次后台就多算一次阅读。
+            stats.add_read_duration(p.id, ip, data.get("duration"))
+        else:
+            stats.record_read(p.id, ip, data.get("duration"))
     return jsonify({"ok": True})
 
 

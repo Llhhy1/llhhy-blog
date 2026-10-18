@@ -192,7 +192,7 @@ say "  ⚠ 生产禁止 db.create_all()，一律走 Alembic。"
 if [ -x "$VENV/bin/python" ] && [ -d "$APP_DIR/migrations" ] && [ "$APPLY" = "1" ]; then
   run env BLOG_MIGRATE_ONLY=1 FLASK_APP=app:create_app \
       "$VENV/bin/python" -m flask db upgrade
-  ok "迁移完成（head 应为 c7a2f19b4d30）"
+  ok "迁移完成（head 应为 a7e3c92d5b18）"
 else
   say "  [dry-run] 将执行："
   say "    BLOG_MIGRATE_ONLY=1 FLASK_APP=app:create_app $VENV/bin/python -m flask db upgrade"

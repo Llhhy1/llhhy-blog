@@ -244,6 +244,8 @@ async function load() {
       .catch(() => {});
     // 阅读埋点（统计"反复阅读"的文章）
     apiPost("/api/stats/read", { slug }).catch(() => {});
+    // v4.5.0：开始计时，离开/切后台时补报停留时长
+    _startReadTimer(slug);
     // 「看了又看」协同过滤推荐（v3.0.0 功能8）
     apiGet(`/api/post/${encodeURIComponent(slug)}/also-viewed`)
       .then((r) => { related.value = r.items || []; }).catch(() => {});
@@ -330,14 +332,61 @@ function setOgMeta(p) {
   set("keywords", p.seo_keywords || (p.tags || []).map((t) => t.name).join(","));
 }
 
+// ---------- v4.5.0 阅读时长埋点 ----------
+// 口径：离开文章页 / 切后台 / 关标签时，把这一段停留秒数补报一次。
+// 报的是**分段累计**（一次阅读可能被切成多段），后端累加到同一行，
+// 所以反复切后台不会重复计时、也不会漏计。
+let _readEnterAt = 0;
+let _readSlug = "";
+
+function _startReadTimer(slug) {
+  _readSlug = slug;
+  _readEnterAt = Date.now();
+}
+
+function _reportReadDuration() {
+  if (!_readEnterAt || !_readSlug) return;
+  const secs = Math.round((Date.now() - _readEnterAt) / 1000);
+  _readEnterAt = 0; // 幂等：这一段只报一次
+  if (secs < 3) return; // 秒开秒关没有统计意义，留着只会拉低均值
+  const payload = { slug: _readSlug, duration: secs, only_duration: true };
+  // ⚠️ 卸载/关标签期间 fetch 会被浏览器直接丢弃，必须走 sendBeacon。
+  // `/api/stats/read` 在 CSRF 豁免名单内，所以这里无需带 token。
+  if (navigator.sendBeacon) {
+    const blob = new Blob([JSON.stringify(payload)], { type: "application/json" });
+    if (navigator.sendBeacon("/api/stats/read", blob)) {
+      _readSlug = "";
+      return;
+    }
+  }
+  apiPost("/api/stats/read", payload).catch(() => {});
+}
+
+function _onVisibility() {
+  if (document.visibilityState === "hidden") {
+    _reportReadDuration();
+  } else if (_readSlug) {
+    // 回到前台且仍在同一篇 → 重新开始计时
+    _readEnterAt = Date.now();
+  }
+}
+
 onMounted(() => {
   load();
   document.addEventListener("keydown", lbKey);
+  document.addEventListener("visibilitychange", _onVisibility);
+  window.addEventListener("pagehide", _reportReadDuration);
 });
 onBeforeUnmount(() => {
+  _reportReadDuration();
   document.removeEventListener("keydown", lbKey);
+  document.removeEventListener("visibilitychange", _onVisibility);
+  window.removeEventListener("pagehide", _reportReadDuration);
 });
-watch(() => route.params.slug, () => { load(); });
+watch(() => route.params.slug, () => {
+  _reportReadDuration(); // 换文章前先结算上一篇
+  load();
+});
 </script>
 
 <style scoped>

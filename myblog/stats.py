@@ -353,26 +353,84 @@ def record_search(keyword):
         db.session.rollback()
 
 
-def record_read(post_id, ip):
-    """文章阅读 +1；同一访客重复读同一篇会累加 read_count（"反复阅读"）。异常静默。"""
+# 单次阅读停留秒数的合理上限：封顶 2 小时。
+# duration 完全由客户端上报、**不可信** —— 不钳制的话一个伪造请求
+# (`{"slug":"x","duration":999999}`) 就能把「平均阅读时间」抬到任意值。
+# 超过 2 小时基本是客户端时钟异常或页面被挂起整夜，不该计入均值。
+_MAX_READ_SECONDS = 7200
+
+
+def _clamp_read_seconds(raw):
+    """把客户端上报的时长夹到 [0, 7200] 秒；非法输入一律当 0（不上报）。"""
+    try:
+        v = int(raw)
+    except (TypeError, ValueError):
+        return 0
+    return 0 if v <= 0 else min(v, _MAX_READ_SECONDS)
+
+
+def record_read(post_id, ip, duration=0):
+    """文章阅读 +1；同一访客重复读同一篇会累加 read_count 与 duration。
+
+    `duration`（秒，v4.5.0）由前端在页面隐藏/离开时上报，经 `_clamp_read_seconds`
+    钳制后再累加。异常静默（同旧行为：埋点失败不该影响读者读文章）。
+    """
     if not post_id:
         return
+    secs = _clamp_read_seconds(duration)
     try:
         row = ReadLog.query.filter_by(post_id=post_id, ip=ip).first()
         if row:
             row.read_count += 1
+            row.duration = (row.duration or 0) + secs
         else:
-            db.session.add(ReadLog(post_id=post_id, ip=ip, read_count=1))
+            db.session.add(ReadLog(post_id=post_id, ip=ip, read_count=1,
+                                    duration=secs))
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+
+
+def add_read_duration(post_id, ip, duration=0):
+    """只累加停留时长，**不动 read_count**（v4.5.0）。
+
+    为什么必须与 `record_read` 分开：`read_count` 的语义是「打开了几次」，
+    而停留时长会在切后台、跳下一篇文章时多次补报。若两者复用同一入口，
+    读者一次阅读会被记成两三次 —— 热门文章榜与「反复阅读」榜双双虚高。
+
+    `read_count` 为 0 的时段（钳制后）直接跳过：低于 3 秒的秒开秒关没有
+    统计意义，留着只会把均值往 0 拉。
+
+    记录不存在时**不凭空造行**：时长必须挂在一次真实阅读上，否则
+    `SUM(duration)/SUM(read_count)` 的分母里会多出没有阅读的时长。
+    """
+    if not post_id:
+        return
+    secs = _clamp_read_seconds(duration)
+    if not secs:
+        return
+    try:
+        row = ReadLog.query.filter_by(post_id=post_id, ip=ip).first()
+        if row is None:
+            return
+        row.duration = (row.duration or 0) + secs
         db.session.commit()
     except Exception:
         db.session.rollback()
 
 
 def _top_region(limit=10, date=None):
+    """访客属地排行（**仅真人**，爬虫不计入）。
+
+    ⚠️ v4.5.0 修复：此前只过滤空属地，漏了 `is_bot`。爬虫多为境外机房 IP，
+    属地异步回填后会挤占真人省份的名次（榜单里混进"美国· fremont"这类机房）。
+    前台公开接口 `/api/geo/visitors`（`api/review.py`）一直都有
+    `is_bot.is_(False)`，此处属**遗漏而非设计**，现与之一致。
+    """
     q = db.session.query(VisitLog.region, db.func.count(VisitLog.id).label("c"))
     if date:
         q = q.filter(VisitLog.date == date)
-    q = q.filter(VisitLog.region != "")
+    q = q.filter(VisitLog.region != "", VisitLog.is_bot.is_(False))
     rows = q.group_by(VisitLog.region).order_by(db.desc("c")).limit(limit).all()
     return [{"region": r[0], "count": r[1]} for r in rows]
 
@@ -404,6 +462,26 @@ def _hot_posts(limit=10):
         result.append({"slug": p.slug, "title": p.title,
                        "reads": int(reads), "readers": int(readers)})
     return result
+
+
+def _avg_read_seconds():
+    """v4.5.0：平均单次阅读时长（秒）。无有效数据返回 0。
+
+    两个口径上的坑，都必须避开：
+
+    1. **分母用 `SUM(read_count)` 而不是 `COUNT(*)`**。`ReadLog` 一行代表
+       「一个访客对一篇的累计」，行数是访客数而非阅读次数 —— 同一访客读了
+       5 次，用 COUNT(*) 当分母会把均值压到 1/5。
+    2. **只算 `duration > 0` 的行**。升级前的历史阅读 duration 全是 0，
+       把它们计进分母，均值会被拉到接近 0（真实数据一进来就"人均 0.3 秒"）。
+    """
+    row = (db.session.query(
+        db.func.coalesce(db.func.sum(ReadLog.duration), 0),
+        db.func.coalesce(db.func.sum(ReadLog.read_count), 0))
+        .filter(ReadLog.duration > 0).first())
+    if not row or not row[1]:
+        return 0
+    return int(round(row[0] / row[1]))
 
 
 def _hot_searches(limit=10):
@@ -519,6 +597,7 @@ def compute_summary():
         "regions_all": _top_region(),
         "hot_posts": _hot_posts(),
         "hot_searches": _hot_searches(),
+        "avg_read_seconds": _avg_read_seconds(),
         "hourly": _hourly(),
         "trend": compute_trend(30),
         "bot_visits": VisitLog.query.filter_by(is_bot=True).count(),
@@ -797,11 +876,20 @@ def resolve_range(key):
             dict(RANGE_PRESETS)[key])
 
 
-def _range_top(field, start_iso, end_iso, limit=10, exclude_empty=True):
-    """区间内某字段 TOP N（按次数降序）。字段名受本模块内部控制，不可外部注入。"""
+def _range_top(field, start_iso, end_iso, limit=10, exclude_empty=True,
+               human_only=False):
+    """区间内某字段 TOP N（按次数降序）。字段名受本模块内部控制，不可外部注入。
+
+    `human_only=True` 排除爬虫（v4.5.0）。**只在属地维度开启**：
+    属地榜是"读者来自哪"，混入机房 IP 没有意义；而 `path`（热门页面）里
+    爬虫抓取本身就是真实热度，来源渠道榜的爬虫 referrer 则是其自身来源、
+    本就没有读者信息 —— 两者都不该跟着属地一起被过滤。
+    """
     col = getattr(VisitLog, field)
     q = db.session.query(col, db.func.count(VisitLog.id).label("c"))
     q = q.filter(VisitLog.date >= start_iso, VisitLog.date <= end_iso)
+    if human_only:
+        q = q.filter(VisitLog.is_bot.is_(False))
     if exclude_empty:
         q = q.filter(col != "")
     rows = q.group_by(col).order_by(db.desc("c")).limit(limit).all()
@@ -874,7 +962,8 @@ def compute_range_stats(range_key=DEFAULT_RANGE):
             Comment.created_at >= _dt(s),
             Comment.created_at < _dt_tomorrow(end)).count(), 0),
         "top_paths": _guard(lambda: _range_top("path", s, e, limit=10), []),
-        "top_regions": _guard(lambda: _range_top("region", s, e, limit=10), []),
+        "top_regions": _guard(
+            lambda: _range_top("region", s, e, limit=10, human_only=True), []),
         "top_referrers": _guard(lambda: _range_top_referrers(s, e, limit=10), []),
     }
 

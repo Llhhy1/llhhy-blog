@@ -21,6 +21,45 @@
     <button type="button" class="btn" id="tcExportBtn">导出当前主题 JSON</button>
   </div>
 
+  <!-- 首页壁纸（v4.5.0）：首屏满屏大图，标题与联系方式叠加其上 -->
+  <div class="tc-wall">
+    <h3>首页壁纸（首屏大图）</h3>
+    <p style="color:var(--text-muted,#6b7280);font-size:13px;margin:0 0 14px;max-width:760px;">
+      启用后首页顶部铺满整屏壁纸，站点标题与联系方式图标叠加在遮罩之上，
+      向下滚动即进入文章列表。建议用 1920×1080 以上的横图；
+      暗色模式留空则沿用亮色壁纸。
+    </p>
+    <div class="wp-row">
+      <div class="wp-slot">
+        <span class="wp-label">亮色模式壁纸</span>
+        <img class="wp-prev" id="wpPrevLight" alt="">
+        <div class="wp-btns">
+          <button type="button" class="btn" data-wppick="light">选择图片</button>
+          <button type="button" class="btn ghost" data-wpclear="light">清除</button>
+        </div>
+        <input type="file" id="wpFileLight" accept="image/png,image/jpeg,image/webp,image/gif" hidden>
+      </div>
+      <div class="wp-slot">
+        <span class="wp-label">暗色模式壁纸（可留空）</span>
+        <img class="wp-prev" id="wpPrevDark" alt="">
+        <div class="wp-btns">
+          <button type="button" class="btn" data-wppick="dark">选择图片</button>
+          <button type="button" class="btn ghost" data-wpclear="dark">清除</button>
+        </div>
+        <input type="file" id="wpFileDark" accept="image/png,image/jpeg,image/webp,image/gif" hidden>
+      </div>
+    </div>
+    <div class="wp-ctl">
+      <label class="wp-check"><input type="checkbox" id="wpEnabled"> 启用壁纸</label>
+      <label class="wp-range">遮罩强度
+        <input type="range" id="wpOverlay" min="0" max="0.8" step="0.05">
+        <span id="wpOverlayVal">0.35</span>
+      </label>
+      <button type="button" class="btn" id="wpSaveBtn">保存壁纸设置</button>
+      <span id="wpMsg" class="tc-msg"></span>
+    </div>
+  </div>
+
   <!-- 预设包网格 -->
   <div class="tc-grid">
     {% for p in presets %}
@@ -99,6 +138,97 @@
     // 初始填充导出框（当前主题）
     jsonEl.value = JSON.stringify({ light: {{ current.light | tojson }}, dark: {{ current.dark | tojson }} }, null, 2);
 
+    // ---------- v4.5.0 首页壁纸 ----------
+    var wp = { enabled: false, light: '', dark: '', overlay: 0.35 };
+    var wpEnabled = document.getElementById('wpEnabled');
+    var wpOverlay = document.getElementById('wpOverlay');
+    var wpOverlayVal = document.getElementById('wpOverlayVal');
+    var wpMsg = document.getElementById('wpMsg');
+
+    function renderWp() {
+      ['light', 'dark'].forEach(function (k) {
+        var img = document.getElementById('wpPrev' + k[0].toUpperCase() + k.slice(1));
+        if (img) {
+          if (wp[k]) { img.src = wp[k]; img.classList.add('has'); }
+          else { img.removeAttribute('src'); img.classList.remove('has'); }
+        }
+      });
+      wpEnabled.checked = !!wp.enabled;
+      wpOverlay.value = String(wp.overlay);
+      wpOverlayVal.textContent = Number(wp.overlay).toFixed(2);
+    }
+
+    function showWpMsg(text, ok) {
+      wpMsg.textContent = text;
+      wpMsg.style.color = ok ? 'var(--success,#188038)' : 'var(--danger,#e5484d)';
+      setTimeout(function () { wpMsg.textContent = ''; }, 4000);
+    }
+
+    function uploadImage(file, cb) {
+      var fd = new FormData();
+      fd.append('file', file);
+      fetch('/admin/upload', {
+        method: 'POST',
+        headers: { 'X-CSRF-Token': csrf },
+        body: fd
+      }).then(function (r) {
+        return r.json().then(function (d) { return { ok: r.ok, d: d }; });
+      }).then(function (res) {
+        if (res.ok && res.d && res.d.url) cb(res.d.url);
+        else showWpMsg((res.d && res.d.error) || '上传失败', false);
+      }).catch(function () { showWpMsg('上传失败：网络错误', false); });
+    }
+
+    Array.prototype.forEach.call(document.querySelectorAll('[data-wppick]'), function (btn) {
+      btn.addEventListener('click', function () {
+        var kind = btn.getAttribute('data-wppick');
+        document.getElementById('wpFile' + kind[0].toUpperCase() + kind.slice(1)).click();
+      });
+    });
+    Array.prototype.forEach.call(document.querySelectorAll('[data-wpclear]'), function (btn) {
+      btn.addEventListener('click', function () {
+        wp[btn.getAttribute('data-wpclear')] = '';
+        renderWp();
+      });
+    });
+    ['light', 'dark'].forEach(function (kind) {
+      var el = document.getElementById('wpFile' + kind[0].toUpperCase() + kind.slice(1));
+      if (!el) return;
+      el.addEventListener('change', function () {
+        if (!el.files || !el.files[0]) return;
+        uploadImage(el.files[0], function (url) {
+          wp[kind] = url;
+          renderWp();
+          showWpMsg('图片已上传，记得点「保存壁纸设置」', true);
+        });
+        el.value = '';
+      });
+    });
+    wpOverlay.addEventListener('input', function () {
+      wp.overlay = Number(wpOverlay.value);
+      wpOverlayVal.textContent = wp.overlay.toFixed(2);
+    });
+    wpEnabled.addEventListener('change', function () { wp.enabled = wpEnabled.checked; });
+    document.getElementById('wpSaveBtn').addEventListener('click', function () {
+      applyAxios({ wallpaper: {
+        enabled: wpEnabled.checked, light: wp.light, dark: wp.dark,
+        overlay: Number(wpOverlay.value)
+      }}).then(function (res) {
+        if (res.ok) {
+          wp = res.d.wallpaper;
+          renderWp();
+          showWpMsg('壁纸设置已保存', true);
+        } else {
+          showWpMsg(res.d.error || '保存失败', false);
+        }
+      }).catch(function () { showWpMsg('保存失败：网络错误', false); });
+    });
+
+    // 初始壁纸配置
+    fetch('/api/theme').then(function (r) { return r.json(); }).then(function (d) {
+      if (d.wallpaper) { wp = d.wallpaper; renderWp(); }
+    }).catch(function () {});
+
     // 应用预设
     Array.prototype.forEach.call(document.querySelectorAll('.tc-apply'), function (btn) {
       btn.addEventListener('click', function () {
@@ -172,5 +302,22 @@
     .tc-custom h3 { margin:0 0 8px; }
     .tc-msg { font-size:13px; align-self:center; }
     .btn.ghost { background:transparent; border:1px solid var(--border-strong,#d9dde3); color:var(--text,#2c2c2c); }
+    /* v4.5.0 首页壁纸配置区 */
+    .tc-wall { margin:0 0 22px; background:var(--surface,#fff); border:1px solid var(--border,#ececec);
+      border-radius:14px; padding:16px; }
+    .tc-wall h3 { margin:0 0 6px; }
+    .wp-row { display:grid; grid-template-columns:repeat(auto-fit,minmax(240px,1fr)); gap:14px; }
+    .wp-slot { display:flex; flex-direction:column; gap:8px; }
+    .wp-label { font-size:13px; color:var(--text-muted,#6b7280); }
+    .wp-prev { display:block; width:100%; aspect-ratio:16/9; object-fit:cover;
+      border:1px solid var(--border,#ececec); border-radius:10px; background:var(--bg,#f7f8fa); }
+    .wp-prev:not(.has) { display:flex; align-items:center; justify-content:center;
+      color:var(--text-muted,#9aa0a6); font-size:13px; }
+    .wp-prev:not(.has)::after { content:'尚未设置'; }
+    .wp-btns { display:flex; gap:8px; flex-wrap:wrap; }
+    .wp-ctl { display:flex; align-items:center; gap:16px; flex-wrap:wrap; margin-top:16px; }
+    .wp-check, .wp-range { display:flex; align-items:center; gap:6px; font-size:13px;
+      color:var(--text-muted,#6b7280); }
+    .wp-range input[type=range] { width:150px; }
   </style>
 {% endblock %}

@@ -27,7 +27,7 @@
       <router-link to="/guestbook" @click="drawerOpen = false"><span class="nav-emoji">📝</span>{{ t('guestbook') }}</router-link>
       <!-- v4.1.0：多条外部入口收进「🧰 工具箱」下拉（避免平铺撑破 nowrap 导航） -->
       <div v-if="siteEntries.length" class="nav-toolbox nav-toolbox--drawer">
-        <button type="button" class="site-toolbox-toggle" aria-haspopup="true" :aria-expanded="toolboxOpen" @click="toggleToolbox"><span class="nav-emoji">🧰</span>工具箱 <span class="toolbox-caret">▾</span></button>
+        <button type="button" class="site-toolbox-toggle" aria-haspopup="true" :aria-expanded="toolboxOpen" @click="openToolbox"><span class="nav-emoji">🧰</span>工具箱 <span class="toolbox-caret">▾</span></button>
         <div v-if="toolboxOpen" class="toolbox-menu">
           <a v-for="e in siteEntries" :key="'drawer-' + e.url" class="site-entry-link" :href="e.url" target="_blank" rel="noopener" @click="drawerOpen = false"><span class="nav-emoji">{{ e.icon }}</span>{{ e.label }}</a>
         </div>
@@ -68,8 +68,8 @@
         <!-- v4.1.0：外站入口（「工具箱」）。⚠️ 与下面的「更多」是**两回事**：
              这里的条目是外部域名，必须带 target=_blank + rel=noopener，
              因此类名固定为 .site-entry-link（tests/test_nav_entries_v4_1.py 守着这条）。 -->
-        <div v-if="siteEntries.length" class="nav-toolbox" @mouseleave="closeToolbox">
-          <button type="button" class="site-toolbox-toggle" aria-haspopup="true" :aria-expanded="toolboxOpen" @click="toggleToolbox"><span class="nav-emoji">🧰</span>工具箱 <span class="toolbox-caret">▾</span></button>
+        <div v-if="siteEntries.length" class="nav-toolbox" @mouseenter="openToolbox" @mouseleave="closeToolbox" @keydown.esc="closeToolbox">
+          <button type="button" class="site-toolbox-toggle" aria-haspopup="true" :aria-expanded="toolboxOpen" @click="openToolbox"><span class="nav-emoji">🧰</span>工具箱 <span class="toolbox-caret">▾</span></button>
           <div v-if="toolboxOpen" class="toolbox-menu">
             <a v-for="e in siteEntries" :key="'desk-' + e.url" class="site-entry-link" :href="e.url" target="_blank" rel="noopener" @click="closeToolbox"><span class="nav-emoji">{{ e.icon }}</span>{{ e.label }}</a>
           </div>
@@ -79,8 +79,8 @@
              「回顾」已并入 /stats 的年度回顾区块，故不再单列。
              ⚠️ 站内链接用 .more-link（不是 .site-entry-link）—— 后者的语义是
              「外域链接」，带 target/noopener，混用会被测试判为外链写法不合规。 -->
-        <div class="nav-toolbox nav-more" @mouseleave="closeMore">
-          <button type="button" class="site-toolbox-toggle" aria-haspopup="true" :aria-expanded="moreOpen" @click="toggleMore"><span class="nav-emoji">⋯</span>{{ t('more') }} <span class="toolbox-caret">▾</span></button>
+        <div class="nav-toolbox nav-more" @mouseenter="openMore" @mouseleave="closeMore" @keydown.esc="closeMore">
+          <button type="button" class="site-toolbox-toggle" aria-haspopup="true" :aria-expanded="moreOpen" @click="openMore"><span class="nav-emoji">⋯</span>{{ t('more') }} <span class="toolbox-caret">▾</span></button>
           <div v-if="moreOpen" class="toolbox-menu">
             <router-link to="/series" class="more-link" @click="closeMore"><span class="nav-emoji">📚</span>{{ t('series') }}</router-link>
             <router-link to="/docs" class="more-link" @click="closeMore"><span class="nav-emoji">📖</span>{{ t('docs') }}</router-link>
@@ -228,11 +228,18 @@ const siteEntries = computed(() => {
     }));
 });
 const toolboxOpen = ref(false);
-const toggleToolbox = () => { toolboxOpen.value = !toolboxOpen.value; };
+// v4.7.1 修「点开更多后鼠标一移开菜单就没了」：
+//   根因是 `.toolbox-menu` 的 `margin:6px 0 0` 在容器与菜单间留出一段**不属于容器**的
+//   空隙，鼠标穿过时触发容器 mouseleave；且 mouseleave 不可逆，关掉就再也回不去。
+//   CSS 侧已把 margin 归零（间隙改由菜单自身 padding 提供）。
+//   这里再把开关语义收敛成**幂等的「确保打开」**，而不是取反：
+//   若保留 toggle，鼠标移上去（mouseenter 已开）再点击就会把它关掉 —— 用户看到的是
+//   「点一下开了、又点一下没了」，比原 bug 更迷惑。
+const openToolbox = () => { toolboxOpen.value = true; };
 const closeToolbox = () => { toolboxOpen.value = false; };
 // v4.7.0 顶栏「⋯ 更多」下拉（桌面顶栏专用；抽屉里仍平铺全部入口）
 const moreOpen = ref(false);
-const toggleMore = () => { moreOpen.value = !moreOpen.value; };
+const openMore = () => { moreOpen.value = true; };
 const closeMore = () => { moreOpen.value = false; };
 // v3.9.0 M3 远程预构建组件注册表：name -> 组件定义（由 widget.js 经 window.__pluginRegister 注入）
 const remoteDefs = reactive({});
@@ -520,7 +527,12 @@ router.afterEach(() => { loadNotifs(); });
 .toolbox-caret { font-size: 10px; opacity: .7; }
 .toolbox-menu {
   position: absolute; top: 100%; left: 0; z-index: 60; min-width: 158px;
-  display: flex; flex-direction: column; padding: 6px 0; margin: 6px 0 0;
+  /* v4.7.1：`margin` 必须为 0 —— 原来 `margin: 6px 0 0` 会在容器（.nav-toolbox）与
+     菜单之间留出一段**不属于容器**的空隙。鼠标从按钮向下穿过那段空隙时，
+     容器触发 mouseleave → 菜单立刻关闭，而 mouseleave 不可逆（不像 mouseenter
+     能再触发回来）→ 用户「点开后鼠标一移开菜单就没了，根本点不到」。
+     视觉间隙改由本元素自己的 `padding: 6px 0` 提供，容器与菜单保持连续。 */
+  display: flex; flex-direction: column; padding: 6px 0; margin: 0;
   background: var(--surface-2, #fff);
   border: 1px solid var(--border, #e6e8eb);
   border-radius: 10px;

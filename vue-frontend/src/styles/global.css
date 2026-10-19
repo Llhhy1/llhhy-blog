@@ -256,12 +256,19 @@ body {
 :root:has(.home-cover.has-wall) .site-header .logo,
 /* ⚠️ 选择器必须用 `> nav > a`（**只命中顶栏直接子项**），不能写 `nav a`：
  * 后者会连下拉浮层里的链接一起染成白色 —— 而浮层是 `background: var(--surface-2)`
- * 的浅色卡片，白字压浅底 = 几乎看不见（v4.7.1 实测截图才发现）。 */
-:root:has(.home-cover.has-wall) .site-header > .container > nav > a {
+ * 的浅色卡片，白字压浅底 = 几乎看不见（v4.7.1 实测截图才发现）。
+ * ⚠️ 但**光有 `> a` 又不够**（v4.7.2 才发现）：「⋯ 更多」「🧰 工具箱」是
+ * `<button class="site-toolbox-toggle">`，不是 `<a>` —— 漏掉它们就等于顶栏白字规则
+ * 独缺一块，**深色按钮压在亮色壁纸上完全看不清**（用户报障）。
+ * 用 `.site-toolbox-toggle` 精确补上：它只出现在按钮自身上，
+ * 下拉浮层里的条目是 `.toolbox-menu a`，两者不会互相污染。 */
+:root:has(.home-cover.has-wall) .site-header > .container > nav > a,
+:root:has(.home-cover.has-wall) .site-header .site-toolbox-toggle {
  color: #fff; text-shadow: 0 1px 10px rgba(0,0,0,.38);
  transition: color .25s ease, opacity .18s ease;
 }
-:root:has(.home-cover.has-wall) .site-header > .container > nav > a:hover { color: #fff; opacity: .78; }
+:root:has(.home-cover.has-wall) .site-header > .container > nav > a:hover,
+:root:has(.home-cover.has-wall) .site-header .site-toolbox-toggle:hover { color: #fff; opacity: .78; }
 
 /* 滚过首屏（JS 加 .is-solid）→ 变回实心条，导航恢复主题本色 */
 :root:has(.home-cover.has-wall) .site-header.is-solid {
@@ -271,10 +278,12 @@ body {
 }
 :root:has(.home-cover.has-wall) .site-header.is-solid::before { opacity: 0; }
 :root:has(.home-cover.has-wall) .site-header.is-solid .logo,
-:root:has(.home-cover.has-wall) .site-header.is-solid > .container > nav > a {
+:root:has(.home-cover.has-wall) .site-header.is-solid > .container > nav > a,
+:root:has(.home-cover.has-wall) .site-header.is-solid .site-toolbox-toggle {
  color: var(--nav-fg); text-shadow: none;
 }
-:root:has(.home-cover.has-wall) .site-header.is-solid > .container > nav > a:hover { color: var(--accent); opacity: 1; }
+:root:has(.home-cover.has-wall) .site-header.is-solid > .container > nav > a:hover,
+:root:has(.home-cover.has-wall) .site-header.is-solid .site-toolbox-toggle:hover { color: var(--accent); opacity: 1; }
 
 /* ===== v4.6.1 首页满屏壁纸：让整站外框让路 =====
  * 🔴 **v4.6.0 漏了这一层，壁纸被「套住」**。`.site-frame`（v3.1.0 的整站大框）是

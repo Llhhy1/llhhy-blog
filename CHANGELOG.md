@@ -4,6 +4,56 @@
 > v3.18.6 ~ v3.19.2 → `docs/archive/CHANGELOG_v3.18.6-v3.19.2.md`（v4.7.0 因体积守卫触发，按「新增轮次写进主文件、历史段落才归档」搬出）。
 > 本文件从 v3.20.0 起。**归档不是删除** —— 查旧版本变更细节时去上述文件。
 
+## v4.7.2（2026-10-19）
+
+修 v4.7.1 遗留的一处漏改：满屏壁纸下，顶栏「⋯ 更多」「🧰 工具箱」**深色按钮压在
+亮色壁纸上几乎看不清**（用户报障）。
+
+### 根因：v4.7.1 把选择器收窄时，只想到了一种元素
+
+v4.7.1 修「下拉菜单白字压浅底」时，把壁纸模式的白字规则从 `nav a`（后代选择器，
+会误染下拉浮层）收窄成 `nav > a`：
+
+```css
+:root:has(.home-cover.has-wall) .site-header > .container > nav > a { color: #fff; }
+```
+
+**但顶栏不全是 `<a>`** —— 「⋯ 更多」和「🧰 工具箱」是
+`<button class="site-toolbox-toggle">`。它们不匹配 `> a`，于是被收窄的规则一并漏掉，
+保持 `color: var(--nav-fg)`（深色）压在壁纸上。
+
+也就是说 v4.7.1 那次「收窄」是**按元素类型逐个排查漏掉的**——改了 `<a>` 却没数一遍
+顶栏里到底还有哪几种元素。
+
+### 修法
+
+把按钮用 `.site-toolbox-toggle` 精确补进同一条规则（而不是退回宽泛的后代选择器）：
+
+```css
+:root:has(.home-cover.has-wall) .site-header > .container > nav > a,
+:root:has(.home-cover.has-wall) .site-header .site-toolbox-toggle { color: #fff; }
+```
+
+下拉浮层里的条目是 `.toolbox-menu a`，与 `.site-toolbox-toggle` 互不重叠，
+所以**既能染白顶栏按钮，又不会重新引入 v4.7.1 那个「白字压浅底」**。
+`.is-solid`（滚过首屏变实心条）的恢复规则同步补上。
+
+### 验证
+
+playwright 实测（computed color，非肉眼估计）：
+
+```
+moreColor(壁纸模式)=rgb(255,255,255)  moreShadow=rgba(0,0,0,0.38)  logoColor=rgb(255,255,255)
+headerSolid=1  moreColor(实心条)=rgb(85,85,85)
+```
+
+即：壁纸模式下按钮与 logo、其余导航项同为白色并带暗投影；滚过首屏后恢复主题本色。
+
+### 范围
+
+纯 CSS，改动文件仅 `vue-frontend/src/styles/global.css`（+ 文档与版本号）。
+**无表结构变更、无后端代码改动、无新依赖。**
+
 ## v4.7.1（2026-10-19）
 
 修 v4.7.0 新增的「⋯ 更多」下拉**完全无法使用**。两个叠加的问题，都在真实浏览器里

@@ -61,27 +61,37 @@
         <router-link to="/"><span class="nav-emoji">🏠</span>{{ t('home') }}</router-link>
         <router-link to="/archive"><span class="nav-emoji">🗂️</span>{{ t('archive') }}</router-link>
         <router-link to="/stats"><span class="nav-emoji">📊</span>{{ t('stats') }}</router-link>
-        <router-link to="/annual"><span class="nav-emoji">📅</span>{{ t('annual') }}</router-link>
-        <router-link to="/about"><span class="nav-emoji">ℹ️</span>{{ t('about') }}</router-link>
+        <router-link to="/tags/hot"><span class="nav-emoji">🔥</span>{{ t('hot_tags') }}</router-link>
         <router-link to="/links"><span class="nav-emoji">🤝</span>{{ t('links') }}</router-link>
         <router-link to="/square"><span class="nav-emoji">💬</span>{{ t('square') }}</router-link>
-        <router-link to="/social"><span class="nav-emoji">🔗</span>{{ t('social') }}</router-link>
-        <router-link to="/series"><span class="nav-emoji">📚</span>{{ t('series') }}</router-link>
-        <router-link to="/games"><span class="nav-emoji">🎮</span>{{ t('games') }}</router-link>
-        <router-link to="/tags/hot"><span class="nav-emoji">🔥</span>{{ t('hot_tags') }}</router-link>
-        <router-link to="/docs"><span class="nav-emoji">📖</span>{{ t('docs') }}</router-link>
         <router-link to="/guestbook"><span class="nav-emoji">📝</span>{{ t('guestbook') }}</router-link>
-        <!-- v4.1.0：多条外部入口收进「🧰 工具箱」下拉（避免平铺撑破 nowrap 导航） -->
+        <!-- v4.1.0：外站入口（「工具箱」）。⚠️ 与下面的「更多」是**两回事**：
+             这里的条目是外部域名，必须带 target=_blank + rel=noopener，
+             因此类名固定为 .site-entry-link（tests/test_nav_entries_v4_1.py 守着这条）。 -->
         <div v-if="siteEntries.length" class="nav-toolbox" @mouseleave="closeToolbox">
           <button type="button" class="site-toolbox-toggle" aria-haspopup="true" :aria-expanded="toolboxOpen" @click="toggleToolbox"><span class="nav-emoji">🧰</span>工具箱 <span class="toolbox-caret">▾</span></button>
           <div v-if="toolboxOpen" class="toolbox-menu">
             <a v-for="e in siteEntries" :key="'desk-' + e.url" class="site-entry-link" :href="e.url" target="_blank" rel="noopener" @click="closeToolbox"><span class="nav-emoji">{{ e.icon }}</span>{{ e.label }}</a>
           </div>
         </div>
-        <!-- v3.9.0 M2：插件导航入口（结构化 <a>，不用 v-html） -->
-        <template v-for="ni in pluginNav" :key="'desk-' + ni.label">
-          <a :href="ni.href || ni.to" class="plugin-nav-link"><span v-if="ni.icon" class="nav-emoji">{{ ni.icon }}</span>{{ ni.label }}</a>
-        </template>
+        <!-- v4.7.0 顶栏瘦身：原 13 项在英文下约需 1550px，1440 屏装不下。
+             保留 7 项高频入口，站内次要页（系列/文档/关于/社交/游戏）收进「⋯ 更多」。
+             「回顾」已并入 /stats 的年度回顾区块，故不再单列。
+             ⚠️ 站内链接用 .more-link（不是 .site-entry-link）—— 后者的语义是
+             「外域链接」，带 target/noopener，混用会被测试判为外链写法不合规。 -->
+        <div class="nav-toolbox nav-more" @mouseleave="closeMore">
+          <button type="button" class="site-toolbox-toggle" aria-haspopup="true" :aria-expanded="moreOpen" @click="toggleMore"><span class="nav-emoji">⋯</span>{{ t('more') }} <span class="toolbox-caret">▾</span></button>
+          <div v-if="moreOpen" class="toolbox-menu">
+            <router-link to="/series" class="more-link" @click="closeMore"><span class="nav-emoji">📚</span>{{ t('series') }}</router-link>
+            <router-link to="/docs" class="more-link" @click="closeMore"><span class="nav-emoji">📖</span>{{ t('docs') }}</router-link>
+            <router-link to="/about" class="more-link" @click="closeMore"><span class="nav-emoji">ℹ️</span>{{ t('about') }}</router-link>
+            <router-link to="/social" class="more-link" @click="closeMore"><span class="nav-emoji">🔗</span>{{ t('social') }}</router-link>
+            <router-link to="/games" class="more-link" @click="closeMore"><span class="nav-emoji">🎮</span>{{ t('games') }}</router-link>
+            <template v-for="ni in pluginNav" :key="'more-' + ni.label">
+              <a :href="ni.href || ni.to" class="plugin-nav-link more-link" @click="closeMore"><span v-if="ni.icon" class="nav-emoji">{{ ni.icon }}</span>{{ ni.label }}</a>
+            </template>
+          </div>
+        </div>
         <template v-if="state.user">
           <span class="nav-user">
             👤 {{ state.user.username }}
@@ -220,6 +230,10 @@ const siteEntries = computed(() => {
 const toolboxOpen = ref(false);
 const toggleToolbox = () => { toolboxOpen.value = !toolboxOpen.value; };
 const closeToolbox = () => { toolboxOpen.value = false; };
+// v4.7.0 顶栏「⋯ 更多」下拉（桌面顶栏专用；抽屉里仍平铺全部入口）
+const moreOpen = ref(false);
+const toggleMore = () => { moreOpen.value = !moreOpen.value; };
+const closeMore = () => { moreOpen.value = false; };
 // v3.9.0 M3 远程预构建组件注册表：name -> 组件定义（由 widget.js 经 window.__pluginRegister 注入）
 const remoteDefs = reactive({});
 const router = useRouter();
@@ -519,6 +533,17 @@ router.afterEach(() => { loadNotifs(); });
   border-left: 0 !important;
 }
 .toolbox-menu .site-entry-link:hover { background: rgba(26, 115, 232, .08); color: var(--accent); }
+/* v4.7.0「⋯ 更多」里的**站内**链接。刻意不与 .site-entry-link 共用类名：
+ * 后者带 target=_blank + rel=noopener，语义是「外域链接」，
+ * 混用会让 tests/test_nav_entries_v4_1.py 的外链守卫判为不合规。 */
+.toolbox-menu .more-link {
+  margin-left: 0 !important; padding: 9px 14px;
+  display: flex; align-items: center; gap: 8px;
+  color: var(--nav-fg); text-decoration: none; font-size: 14px; white-space: nowrap;
+  border-left: 0 !important;
+}
+.toolbox-menu .more-link:hover,
+.toolbox-menu .more-link.router-link-active { background: rgba(26, 115, 232, .08); color: var(--accent); }
 /* 抽屉里不做浮层：跟随抽屉本身的纵向堆叠，避免二级浮层遮住菜单 */
 .nav-toolbox--drawer .toolbox-menu {
   position: static; margin: 0; min-width: 0; padding: 0 0 0 18px;

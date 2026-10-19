@@ -150,6 +150,30 @@ body.admin {
  background: #fafbfc; z-index: 3; }
 .admin-table td {
  padding: 10px 12px; border-bottom: 1px solid #f2f3f5; font-size: 14px; vertical-align: middle; white-space: nowrap; }
+/* ---------- 长文本单元格（v4.7.0 修「文字超出单元格」） ----------
+ * 上面 `.admin-table td` 的 `white-space: nowrap` 是为了让短列不换行、保持行高一致，
+ * 但它对**长文本列是致命的**：URL / 路径 / 文章标题这类无空格长串在 nowrap 下
+ * 永不换行，直接把单元格撑破横向溢出。
+ *
+ * ⚠️ 注意 `max-width` 在 `display: table-cell` 上是**无效的**（CSS 规范如此），
+ * 所以此前 `.vl-path{max-width:280px}` 从来没生效过 —— 视觉上「设了上限却还是溢出」，
+ * 就是因为上限根本没起作用。真正管用的是 `white-space: normal` + `word-break`。
+ * `max-width` 只在移动端卡片化（td 变 display:block）下才有意义，留着无害。 */
+.admin-table td.vl-path,
+.admin-table td.cell-wrap {
+ white-space: normal;
+ word-break: break-word;      /* 先按词断，词太长再切 */
+ overflow-wrap: anywhere;
+ line-height: 1.55;
+ max-width: 320px;
+}
+.admin-table td.cell-break {   /* 整串无空格（纯 URL / IP+UA 串）必须任意处切 */
+ white-space: normal;
+ word-break: break-all;
+ overflow-wrap: anywhere;
+ line-height: 1.5;
+ max-width: 320px;
+}
 .admin-table tr:last-child td {
  border-bottom: none; }
 .admin-table tr:hover td {
@@ -404,6 +428,16 @@ body.admin {
  display: block; font-size: 11px; color: #98a1ad; }
 .rank-count {
  text-align: right; color: #5a6472; font-weight: 600; }
+/* v4.7.0：`.stats-table` / `.rank-table` 的长文本兜底换行。
+ * 这两张表**没有** `.admin-table` 那条全局 `white-space: nowrap`，理论上能自然换行；
+ * 但表格列宽由内容决定，URL/标题一长就会把所在列撑得极宽、把卡片挤破，
+ * 所以显式给换行 + 断词兜底（`overflow-wrap:anywhere` 比 `word-break:break-all`
+ * 温和：优先在词边界断，只有超长无空格串才切）。 */
+.stats-table td, .rank-table td {
+ overflow-wrap: anywhere; min-width: 0; }
+/* ⚠️ 这里**刻意不用** `table-layout: fixed`：它会把「路径 / 次数」这类表的两列
+ * 强行均分成 50/50 —— 数值列被撑到和长 URL 一样宽，比溢出更难看。
+ * 宁可让列按内容自适应（auto），只保证长串能在单元格内断行。 */
 .bar-track {
  height: 8px; background: #eef1f5; border-radius: 6px; overflow: hidden; }
 .bar-fill {

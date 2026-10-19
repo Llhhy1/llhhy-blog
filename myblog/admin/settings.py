@@ -87,6 +87,8 @@ def settings():
                   "theme_mode", "theme_radius", "theme_font", "nav_style", "custom_css",
                   # v3.0.0 功能2：垃圾评论关键词（逗号分隔）；功能11：前台默认语言
                   "comment_spam_keywords", "site_lang", "reward_qr_default",
+                  # v4.7.0 开站时间（后台可配；留空则前台回退到最早可见文章的时间）
+                  "site_since",
                   # v3.5.2 链接后缀全局模板
                   "slug_mode", "slug_template",
                   # v3.8.0 反爬限流保护配置
@@ -112,6 +114,16 @@ def settings():
                 if _site_url_value is None:
                     continue        # 校验没过：一个字段填错不该丢掉整张表单的其它编辑
                 val = _site_url_value
+            elif f == "site_since":
+                # v4.7.0：只接受 YYYY-MM-DD。**填错时保留旧值而不是存垃圾**——
+                # 这个字段会直接显示在前台，写坏了等于把错误日期公开出去。
+                # 留空（主动清空）合法，前台会回退到最早可见文章的发布时间。
+                from api.site import _valid_since
+                raw = (request.form.get(f, "") or "").strip()
+                if raw and not _valid_since(raw):
+                    flash("开站时间格式不对，应为 YYYY-MM-DD，已保留原值。", "error")
+                    continue
+                val = raw
             else:
                 val = request.form.get(f, "")
             row = Setting.query.filter_by(key=f).first()

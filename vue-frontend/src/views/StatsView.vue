@@ -2,6 +2,45 @@
   <div class="stats-page">
     <h1 class="page-title">📊 运营驾驶舱</h1>
 
+    <!-- v4.7.0 站点概览：原首页 bento 六卡的接盘处。
+         刻意放在 `v-if="!loaded"` **之外** —— 它读的是 /api/site（App.vue 已并入 store），
+         不该跟着 dashboard 接口一起空着；也不该让驾驶舱整体卡在「加载中」。 -->
+    <section class="stats-card site-overview" aria-label="站点概览">
+      <h3>🏷️ 站点概览</h3>
+      <div class="ov-grid">
+        <router-link class="ov-cell" to="/archive">
+          <span class="ov-k">文章</span><span class="ov-v">{{ fmt(overview.posts) }}</span>
+          <span class="ov-s">全部归档 →</span>
+        </router-link>
+        <div class="ov-cell">
+          <span class="ov-k">累计阅读</span><span class="ov-v">{{ fmt(overview.views) }}</span>
+        </div>
+        <div class="ov-cell">
+          <span class="ov-k">评论</span><span class="ov-v">{{ fmt(overview.comments) }}</span>
+        </div>
+        <div class="ov-cell">
+          <span class="ov-k">分类</span><span class="ov-v">{{ overview.categories }}</span>
+        </div>
+        <router-link class="ov-cell" to="/tags/hot">
+          <span class="ov-k">标签</span><span class="ov-v">{{ overview.tags }}</span>
+        </router-link>
+        <router-link class="ov-cell" to="/links">
+          <span class="ov-k">友链</span><span class="ov-v">{{ overview.links }}</span>
+        </router-link>
+        <div class="ov-cell ov-since" v-if="overview.since">
+          <span class="ov-k">开站</span><span class="ov-v">{{ overview.since }}</span>
+          <span class="ov-s" v-if="runningDays">已运行 {{ humanSince(runningDays) }}（{{ fmt(runningDays) }} 天）</span>
+        </div>
+      </div>
+      <!-- ⚠️ 用 `v-if="!..."` 而非 `v-else`：`.ov-grid` 的闭合标签夹在两者之间，
+           v-else 必须与 v-if **相邻**，否则编译器直接报
+           "v-else/v-else-if has no adjacent v-if or v-else-if"。 -->
+      <p class="ov-note" v-if="!overview.since">
+        开站时间可在<a href="/admin/settings" target="_blank" rel="noopener">后台设置</a>里填写；
+        留空时自动取最早一篇公开文章的发布时间。
+      </p>
+    </section>
+
     <div v-if="!loaded" class="stats-loading">数据加载中…</div>
 
     <template v-else>
@@ -163,12 +202,69 @@
     </template>
 
     <p class="stats-tip" v-if="loaded">数据实时累计：每次打开页面/切换页面记一次访问；区域属地由服务器异步识别。最后更新 {{ s.generated_at }}</p>
+
+    <!-- v4.7.0 年度回顾：原独立「回顾」页（/annual）的核心内容并入此处，
+         顶栏因此少一项。/annual 路由保留可直达（含访客地图，本区块不放它）。 -->
+    <section class="stats-card annual-review" aria-label="年度回顾">
+      <h3>
+        📅 {{ annual ? annual.year : '' }} 年度回顾
+        <em class="ar-switch" v-if="annualYears.length">
+          <button v-for="y in annualYears" :key="y" type="button"
+                  class="ar-year" :class="{ active: y === annualYear }"
+                  @click="loadAnnual(y)">{{ y }}</button>
+        </em>
+      </h3>
+      <p v-if="annualLoading" class="stats-empty">加载中…</p>
+      <template v-else-if="annual">
+        <div class="ov-grid">
+          <div class="ov-cell"><span class="ov-k">发文</span><span class="ov-v">{{ annual.posts }}</span></div>
+          <div class="ov-cell"><span class="ov-k">阅读</span><span class="ov-v">{{ fmt(annual.views) }}</span></div>
+          <div class="ov-cell"><span class="ov-k">评论</span><span class="ov-v">{{ annual.comments }}</span></div>
+          <div class="ov-cell"><span class="ov-k">字数</span><span class="ov-v">{{ fmt(annual.words) }}</span></div>
+          <div class="ov-cell"><span class="ov-k">访客</span><span class="ov-v">{{ fmt(annual.visitors) }}</span></div>
+        </div>
+
+        <h4 class="ar-sub">月度发文</h4>
+        <div class="ar-months">
+          <div v-for="(m, i) in annual.months" :key="i" class="ar-month" :title="`${i + 1} 月：${m} 篇`">
+            <div class="ar-bar-track"><div class="ar-bar" :style="{ height: pct(m, maxMonth) + '%' }"></div></div>
+            <span class="ar-mlabel">{{ i + 1 }}</span>
+            <span class="ar-mcount">{{ m }}</span>
+          </div>
+        </div>
+
+        <div class="ar-cols">
+          <div class="ar-col">
+            <h4 class="ar-sub">🔥 最热文章</h4>
+            <p v-if="!annual.hot_posts.length" class="stats-empty">这一年还没有文章</p>
+            <ol v-else class="ar-list">
+              <li v-for="(p, i) in annual.hot_posts" :key="p.slug">
+                <span class="ar-no">{{ i + 1 }}</span>
+                <router-link :to="`/post/${p.slug}`">{{ p.title }}</router-link>
+                <span class="ar-num">{{ fmt(p.views) }}</span>
+              </li>
+            </ol>
+          </div>
+          <div class="ar-col">
+            <h4 class="ar-sub">🏷️ 高频标签</h4>
+            <p v-if="!annual.tags.length" class="stats-empty">这一年没有标签</p>
+            <div v-else class="search-tags">
+              <router-link v-for="t in annual.tags" :key="t.slug" class="search-tag"
+                           :to="`/tags/${t.slug}`">{{ t.name }}<span class="search-count">{{ t.count }}</span></router-link>
+            </div>
+            <router-link to="/annual" class="ar-more">查看完整年度回顾（含访客地图）→</router-link>
+          </div>
+        </div>
+      </template>
+      <p v-else class="stats-empty">年度数据暂不可用</p>
+    </section>
   </div>
 </template>
 
 <script setup>
 import { computed, onMounted, ref } from "vue";
 import { apiGet } from "../lib/api.js";
+import { state } from "../store.js";
 
 const loaded = ref(false);
 const range = ref(30);
@@ -315,10 +411,126 @@ async function setRange(r) {
   await load();
 }
 
-onMounted(load);
+// ---------- v4.7.0 站点概览（首页 bento 移入此处） ----------
+// 数据源是 /api/site（App.vue 的 initSite 已把它并进 state.site），
+// 所以这里只是读现成数据，不额外发请求 —— 概览卡不必等 dashboard 接口。
+const overview = computed(() => {
+  const st = state.site || {};
+  const q = st.stats || {};
+  return {
+    posts: q.posts || 0,
+    views: q.views || 0,
+    comments: q.comments || 0,
+    categories: (st.categories || []).length,
+    tags: (st.tags || []).length,
+    links: (st.links || []).length,
+    since: st.site_since || "",
+  };
+});
+// 已运行天数。⚠️ 只按「自然日差」算，不做「满 N 月」那种含糊换算 ——
+// 后者会在同一天里随小时变化，读起来像 bug。
+const runningDays = computed(() => {
+  const d = overview.value.since;
+  if (!d) return 0;
+  const t = new Date(d + "T00:00:00");
+  if (isNaN(t.getTime())) return 0;
+  return Math.max(0, Math.floor((Date.now() - t.getTime()) / 86400000));
+});
+// 「已运行 3 年 2 个月」比「1094 天」好读；不足 1 年只报月，不报 0 个月。
+function humanSince(days) {
+  if (!days) return "";
+  const y = Math.floor(days / 365);
+  const m = Math.floor((days % 365) / 30);
+  if (y && m) return y + " 年 " + m + " 个月";
+  if (y) return y + " 年";
+  if (m) return m + " 个月";
+  return days + " 天";
+}
+
+// ---------- v4.7.0 年度回顾（/annual 页的内容并入此处） ----------
+// /api/review/annual 已支持 ?year=，且响应里带 years[]，正好做切换器的可选项。
+// 独立请求、独立失败 —— 挂掉不影响上方驾驶舱主体。
+const annual = ref(null);
+const annualYear = ref(0);
+const annualLoading = ref(false);
+async function loadAnnual(year) {
+  annualLoading.value = true;
+  try {
+    annual.value = await apiGet("/api/review/annual", year ? { year: year } : {});
+    annualYear.value = (annual.value && annual.value.year) || 0;
+  } catch (e) {
+    console.warn("年度回顾加载失败", e);
+    annual.value = null;
+  } finally {
+    annualLoading.value = false;
+  }
+}
+const maxMonth = computed(() => Math.max(1, ...((annual.value && annual.value.months) || [0])));
+const annualYears = computed(() => ((annual.value && annual.value.years) || []).slice().sort((a, b) => b - a));
+
+onMounted(() => {
+  load();
+  // v4.7.0：年度回顾与驾驶舱并发拉，互不阻塞
+  loadAnnual(0);
+});
 </script>
 
 <style scoped>
+/* ===== v4.7.0 站点概览（首页 bento 的接盘处）=====
+ * 沿用 dashboard 卡的语言（圆角 + 悬停微抬），但网格更密：概览是「一眼扫完」的信息，
+ * 不该跟需要逐条对比的指标卡抢注意力。 */
+.site-overview { margin-bottom: 16px; }
+.ov-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(132px, 1fr));
+  gap: 10px;
+}
+.ov-cell {
+  display: flex; flex-direction: column; gap: 2px;
+  padding: 12px 14px; border-radius: 10px;
+  background: var(--surface-2, #f7f8fa);
+  border: 1px solid var(--border, #ececec);
+  text-decoration: none; color: inherit;
+  transition: transform .16s ease, border-color .16s ease;
+}
+a.ov-cell:hover { transform: translateY(-2px); border-color: var(--accent, #1a73e8); }
+.ov-k { font-size: 12px; color: var(--text-muted, #8a8f98); }
+.ov-v { font-size: 20px; font-weight: 700; color: var(--text, #222); line-height: 1.25; }
+/* 开站时间字符串比数字长，允许占两格并在窄屏独占一行 */
+.ov-since { grid-column: span 2; }
+.ov-s { font-size: 11px; color: var(--text-muted, #8a8f98); }
+.ov-note { margin: 10px 0 0; font-size: 12px; color: var(--text-muted, #8a8f98); }
+.ov-note a { color: var(--accent, #1a73e8); }
+
+/* ===== v4.7.0 年度回顾 ===== */
+.annual-review { margin-top: 16px; }
+.ar-switch { float: right; font-style: normal; display: flex; gap: 4px; }
+.ar-year {
+  border: 1px solid var(--border, #ececec); background: transparent;
+  color: var(--text-muted, #8a8f98); font-size: 12px;
+  padding: 2px 9px; border-radius: 999px; cursor: pointer;
+}
+.ar-year.active { background: var(--accent, #1a73e8); border-color: var(--accent, #1a73e8); color: #fff; }
+.ar-sub { margin: 16px 0 8px; font-size: 13px; color: var(--text-muted, #6b7280); font-weight: 500; }
+.ar-months { display: flex; align-items: flex-end; gap: 6px; height: 96px; }
+.ar-month { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: center; gap: 3px; height: 100%; }
+.ar-bar-track { flex: 1; width: 100%; display: flex; align-items: flex-end; background: var(--surface-2, #f7f8fa); border-radius: 5px; overflow: hidden; }
+.ar-bar { width: 100%; background: linear-gradient(180deg, #7cb0ff, var(--accent, #1a73e8)); border-radius: 5px; min-height: 2px; transition: height .3s ease; }
+.ar-mlabel { font-size: 10px; color: var(--text-muted, #8a8f98); }
+.ar-mcount { font-size: 11px; color: var(--text, #222); font-weight: 500; }
+.ar-cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 18px; }
+.ar-list { margin: 0; padding: 0; list-style: none; }
+.ar-list li { display: flex; align-items: center; gap: 8px; padding: 6px 0; border-bottom: 1px dashed var(--border, #ececec); font-size: 13px; }
+.ar-list li:last-child { border-bottom: none; }
+.ar-no { width: 18px; color: var(--text-muted, #8a8f98); font-weight: 700; font-size: 12px; flex-shrink: 0; }
+.ar-list a { flex: 1; min-width: 0; color: var(--text, #222); text-decoration: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ar-list a:hover { color: var(--accent, #1a73e8); }
+.ar-num { color: var(--text-muted, #8a8f98); font-size: 12px; flex-shrink: 0; }
+.ar-more { display: inline-block; margin-top: 12px; font-size: 12px; color: var(--accent, #1a73e8); text-decoration: none; }
+@media (max-width: 640px) {
+  .ov-since { grid-column: span 1; }
+  .ar-switch { float: none; margin-top: 6px; }
+}
 /* ===== 概览指标卡片 ===== */
 .dash-cards {
   display: grid;

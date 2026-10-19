@@ -1317,25 +1317,9 @@ button:hover, .btn:hover {
   .home-hero-title { font-size: 26px; }
 }
 
-/* Bento Grid 概览（v3.17.0） */
-.bento { display: grid; grid-template-columns: repeat(4, 1fr); grid-auto-rows: 88px; gap: 12px; margin: 0 0 24px; }
-.bento-card {
-  display: flex; flex-direction: column; justify-content: center; gap: 2px;
-  background: var(--surface); border: 1px solid var(--border);
-  border-radius: var(--radius-md, 12px); padding: 12px 14px;
-  text-decoration: none; color: inherit; overflow: hidden;
-  transition: transform var(--transition, 160ms ease), box-shadow var(--transition, 160ms ease), border-color var(--transition, 160ms ease);
-}
-.bento-card:hover { transform: translateY(-2px); box-shadow: var(--shadow-md); border-color: var(--accent); }
-.bento-k { font-size: 12px; color: var(--text-muted); }
-.bento-v { font-size: 22px; font-weight: 700; color: var(--text); line-height: 1.15; }
-.bento-s { font-size: 12px; color: var(--accent); }
-.bento-wide { grid-column: span 2; }
-@media (max-width: 720px) {
-  .bento { grid-template-columns: repeat(2, 1fr); grid-auto-rows: 80px; }
-  /* 窄屏两列：最后一张（评论）占满一行，保证 6 卡正好铺满不空格 */
-  .bento-card:last-child { grid-column: span 2; }
-}
+/* v4.7.0：v3.17.0「Bento Grid 概览」样式已随模板移除 ——
+ * 六张卡的内容并入 /stats「站点概览」，那里用的是 `.ov-grid` / `.ov-cell`
+ * （更密的网格 + 悬停微抬），不复用 bento 的 `grid-auto-rows: 88px` 定高布局。 */
 
 /* 排版升级：流式字阶 + 阅读舒适度（v3.17.0） */
 body { text-rendering: optimizeLegibility; }
@@ -1352,22 +1336,10 @@ body { text-rendering: optimizeLegibility; }
 }
 
 /* ===== v3.17.9 主页「找到我」社交墙 ===== */
-.home-social { margin: 18px 0 6px; }
-.home-social-head { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 10px; }
-.home-social-head h2 { font-size: 16px; margin: 0; }
-.home-social-more { font-size: 13px; color: var(--accent); text-decoration: none; }
-.home-social-grid { display: flex; flex-wrap: wrap; gap: 10px; }
-.home-social-item {
-  display: inline-flex; align-items: center; gap: 8px; padding: 8px 12px;
-  background: var(--surface); border: 1px solid var(--border); border-radius: 999px;
-  color: inherit; text-decoration: none; cursor: pointer; font-size: 13px;
-  transition: transform 140ms ease, border-color 140ms ease;
-}
-.home-social-item:hover { transform: translateY(-2px); border-color: var(--accent); }
-.hs-icon { width: 22px; height: 22px; border-radius: 6px; display: grid; place-items: center; font-size: 13px; line-height: 1; }
-@media (max-width: 640px) {
-  .home-social-item { padding: 6px 10px; font-size: 12px; }
-}
+/* v4.7.0：v3.17.0「站点概览 bento」与 v3.17.9「找到我」社交墙的样式已随模板
+ * 一起移除（两块的**内容**移入 /stats「站点概览」与首屏 `.home-cover-social`，
+ * 社交图标本身仍在首屏）。此处保留占位说明，避免后人以为漏删而在别处引用空类。
+ * ⚠️ 首屏的 `.home-cover-social` / `.hcs-item` 是**另一套**，未删。 */
 
 /* ===== v3.17.2 打印优化：正文优先，去掉交互元素、还原可读版式 ===== */
 @media print {

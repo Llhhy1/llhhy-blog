@@ -1717,3 +1717,48 @@ v4.6.0 上线后**用户实际看到的效果是错的**（「壁纸没占满整
 - 全量 **902 passed**；`vite build` 通过。
 - 产物逐项 grep：`HomeView-*.js` 含 `home-page`；`index-*.css` 含 `home-page` / `100svh` / `:has(` / `is-solid`。
 - 表结构变更：无。依赖变更：无。
+
+## 128. v4.7.0 首页瘦身 / 开站时间 / 顶栏瘦身 / 后台表格换行
+
+### 128.1 范围
+
+前端 5 个文件 + 后端 3 个文件。**无表结构变更**（`site_since` 存 Setting KV）、无新依赖。
+
+### 128.2 逐项审计
+
+| 维度 | 结论 |
+|---|---|
+| XSS | 新增的 `site_since` 只经 `_valid_since` 白名单校验（`^\d{4}-\d{2}-\d{2}$` **且** `datetime.date()` 能构造），非法值后台保存时**保留旧值**并 flash 提示，不入库。前台渲染为文本，无 `v-html` |
+| 输出编码 | 开站日期只可能是数字与短横，即使混入也只会显示为文本，不构成注入面 |
+| SSRF / 越权 / SQL 注入 | 不适用（无新路由、无新查询；`site_since` 回退查询走既有 `visible_posts_query()`） |
+| CSRF | `/admin/settings` 是既有表单，新增字段走同一 POST，未新增端点 |
+| 密钥 | 无凭据、无环境变量 |
+| 资源泄漏 | 无新增监听器（`IntersectionObserver` 本版未动） |
+| 可见性 | 回退查询用 `visible_posts_query()` 而非 `Post.query` —— **不可见草稿时间更早**，用它会把开站日期算早 |
+
+### 128.3 测试门禁抓到的两处（本版自查）
+
+1. **我把 `site-entry-link` 用在了站内 `router-link` 上** —— 该类语义是「外域链接」
+   （必带 `target=_blank` + `rel="noopener"`），`test_nav_entries_v4_1` 与
+   `test_site_entry_v4` 同时拦下。已拆成两类：站内用 `.more-link`，
+   外站保持 `.site-entry-link`，并**恢复独立的「🧰 工具箱」下拉**（不做合并）。
+2. **CHANGELOG 体积守卫**：追加本轮四条长条目后涨到 201 KB > 上限 200 KB。
+   按项目既定规则搬走最老的一批（v3.18.6 ~ v3.19.2 → `docs/archive/`），
+   **而不是压缩本轮新写的条目**，并按惯例在 `test_doc_archival.PAIRS` 追加一条。
+
+### 128.4 已知限制（非缺陷）
+
+- **开站时间的回退值是近似值**：第一篇文章未必等于建站日。后台留了手工覆盖入口。
+- **`/annual` 未删除**：`/stats` 的年度回顾区块未搬访客地图（需额外加载 `china.json` 与
+  `/api/geo/visitors`，单次请求明显更重），故该路由保留可直达，区块底部给了入口。
+- **顶栏断点**：≤1280px 走汉堡菜单（英文长度问题只存在于桌面顶栏）。
+
+### 128.5 验证
+
+- 全量 **902 passed**；`vite build` 通过。
+- 产物 grep：`HomeView` 中 `bento` / `home-social` 已归零、`hcs-item`（首屏图标）与
+  `social-accounts` 仍在；`StatsView` 含 `site_since` / `review/annual` / `ov-grid`；
+  入口 chunk 中 `/annual` 由 3 处降到 2 处（**顶栏已移除**，抽屉与路由表保留）。
+- **真实浏览器验证**（`vite dev` + proxy 到线上 API + `playwright-cli` 截图）：
+  首页无六卡无社交墙、统计页站点概览与年度回顾均正确渲染、
+  **英文 1440px 顶栏无溢出且右侧仍有余量**。

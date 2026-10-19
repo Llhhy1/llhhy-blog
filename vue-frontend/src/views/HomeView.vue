@@ -32,60 +32,11 @@
       </div>
     </section>
 
-    <!-- v3.17.0 Bento Grid：站点概览数据卡 -->
-    <section class="bento" aria-label="站点概览">
-      <router-link class="bento-card bento-wide" to="/archive">
-        <span class="bento-k">文章</span>
-        <span class="bento-v">{{ siteStats.posts }}</span>
-        <span class="bento-s">全部归档 →</span>
-      </router-link>
-      <div class="bento-card">
-        <span class="bento-k">累计阅读</span>
-        <span class="bento-v">{{ fmtNum(siteStats.views) }}</span>
-      </div>
-      <div class="bento-card">
-        <span class="bento-k">分类</span>
-        <span class="bento-v">{{ (state.site.categories || []).length }}</span>
-      </div>
-      <router-link class="bento-card" to="/hot-tags">
-        <span class="bento-k">标签</span>
-        <span class="bento-v">{{ (state.site.tags || []).length }}</span>
-      </router-link>
-      <router-link class="bento-card bento-wide" to="/links">
-        <span class="bento-k">友链</span>
-        <span class="bento-v">{{ (state.site.links || []).length }}</span>
-        <span class="bento-s">博客圈 →</span>
-      </router-link>
-      <div class="bento-card">
-        <span class="bento-k">评论</span>
-        <span class="bento-v">{{ fmtNum(siteStats.comments) }}</span>
-      </div>
-    </section>
-
-    <!-- v3.17.9：社交账号墙入口（独立页 /social；此处展示前 6 个） -->
-    <section v-if="socials.length" class="home-social" aria-label="找到我">
-      <div class="home-social-head">
-        <h2>🔗 找到我</h2>
-        <router-link to="/social" class="home-social-more">全部 {{ socials.length }} 个 →</router-link>
-      </div>
-      <div class="home-social-grid">
-        <component
-          :is="s.href ? 'a' : 'button'"
-          v-for="s in socials.slice(0, 6)"
-          :key="s.id"
-          class="home-social-item"
-          :href="s.href || null"
-          :target="s.href ? '_blank' : null"
-          :rel="s.href ? 'noopener' : null"
-          :type="s.href ? null : 'button'"
-          :title="s.handle || s.tip"
-          @click="s.href ? null : onCopySocial(s)"
-        >
-          <span class="hs-icon" :style="{ background: s.meta.color || 'var(--surface-2)' }">{{ s.meta.icon }}</span>
-          <span class="hs-label">{{ s.meta.label }}</span>
-        </component>
-      </div>
-    </section>
+    <!-- v4.7.0：原「站点概览 bento 六卡」与「找到我」社交墙已移入「运营驾驶舱」（/stats）。
+         移走理由：满屏壁纸首屏之后立刻堆六张数据卡 + 一排社交入口，视觉噪声大于信息量；
+         且首屏壁纸里已经有联系方式图标，与「找到我」一栏重复。
+         数据本身没丢，只是不再占用首页黄金位。⚠️ `socials` 仍被首屏
+         `.home-cover-social` 使用，**不可随之删除**。 -->
 
     <div class="layout">
       <div class="content">
@@ -135,10 +86,10 @@ const route = useRoute();
 const items = ref([]);
 const loading = ref(true);   // v3.17.0 骨架屏
 const page = ref(1);
-// v3.17.0 Bento 概览数据（/api/site 的 stats + categories/tags/links）
-const siteStats = computed(() => state.site.stats || { posts: 0, views: 0, comments: 0 });
+// v4.7.0：`siteStats` / `fmtNum` 随 bento 一起移入 /stats，首页不再需要。
+// （社交账号仍要用 —— 首屏 `.home-cover-social` 依赖它，下面三行保留。）
 
-// v3.17.9：社交账号墙（独立页 /social；主页展示前 6 个）
+// v3.17.9：社交账号（独立页 /social；首页仅首屏图标展示）
 const rawSocials = ref([]);
 const socials = computed(() => (rawSocials.value || []).map(toSocialItem));
 async function loadSocials() {

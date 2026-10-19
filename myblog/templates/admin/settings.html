@@ -47,6 +47,13 @@
     <label for="beian_code">页脚备案号（ICP 备案码，如「京ICP备12345678号-1」；留空则不显示）</label>
     <input id="beian_code" type="text" name="beian_code" value="{{ settings.beian_code }}">
 
+    <label for="site_since">开站时间（显示在「运营驾驶舱 → 站点概览」；留空则自动取最早一篇公开文章的发布时间）</label>
+    <input id="site_since" type="date" name="site_since" value="{{ settings.site_since or '' }}" min="2000-01-01" max="2100-12-31">
+    <p style="color:var(--muted,#888);font-size:13px;margin:4px 0 10px;">
+      自动取值只是<b>近似值</b>——第一篇文章未必等于建站日（可能先写草稿、换过域名、迁移过旧站）。
+      知道准确日期就填这里，前台会显示「已运行 N 天」。
+    </p>
+
     <label style="margin-top:24px;font-size:15px;color:var(--accent);">🧰 外部入口（子站 / 工具站）</label>
     <p style="color:var(--muted,#888);font-size:13px;margin:4px 0 10px;">
       <b>v4.1.0 起移到了独立页面</b>：支持<b>多条</b>入口、排序、逐条启停，

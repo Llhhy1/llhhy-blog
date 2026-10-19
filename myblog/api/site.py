@@ -47,6 +47,46 @@ def _public_entry():
     return dict(items[0], enabled=True)
 
 
+# ---------- v4.7.0 开站时间 ----------
+# ⚠️ 这是**近似值**：最早一篇可见文章的发布时间未必等于真实建站日（可能先写了
+# 几篇草稿、换过域名、迁移过旧站）。所以后台提供 `site_since` 让站主手工覆盖，
+# 这里只在它为空/非法时才回退 —— 有配置的永远以配置为准。
+_SINCE_RE = _re.compile(r"^\d{4}-\d{2}-\d{2}$")
+
+
+def _valid_since(v):
+    """`YYYY-MM-DD` 且必须是真实存在的日期（否则 `2026-02-30` 这类会被放行）。"""
+    s = (v or "").strip()
+    if not _SINCE_RE.match(s):
+        return ""
+    import datetime as _dt
+    try:
+        y, m, d = (int(x) for x in s.split("-"))
+        _dt.date(y, m, d)
+    except (ValueError, TypeError):
+        return ""
+    return s
+
+
+def _site_since(s):
+    """开站日期（`YYYY-MM-DD`）。优先后台配置 `site_since`，否则取最早一篇
+    可见文章的发布时间；都没有则返回空串（前台据此不显示该项）。
+
+    只取**可见**文章：不可见/未发布的草稿时间更早，用它会把开站日期算早。
+    """
+    v = _valid_since(s.get("site_since", ""))
+    if v:
+        return v
+    row = (visible_posts_query()
+           .with_entities(Post.created_at)
+           .order_by(Post.created_at.asc())
+           .first())
+    if not row or not row[0]:
+        return ""
+    d = row[0].strftime("%Y-%m-%d")
+    return d
+
+
 # ---------- 站点公共信息（导航 / 页脚 / 侧边栏用）----------
 @api_bp.route("/site")
 def site():
@@ -80,6 +120,8 @@ def site():
         "theme_dark_tokens": current_theme()["dark"],
         # v4.5.0 首页壁纸（存 Setting KV，零表结构变更；URL 已限定本站 uploads）
         "wallpaper": _wallpaper(),
+        # v4.7.0 开站时间（后台可配，未配时回退最早可见文章的发布时间）
+        "site_since": _site_since(s),
         "categories": [
             {"name": c.name, "slug": c.slug,
              "count": visible_posts_query().filter_by(category_id=c.id).count()}

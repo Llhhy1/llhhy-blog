@@ -141,11 +141,20 @@ body {
  flex: 1; min-width: 0; }
 .sidebar {
  width: 280px; flex-shrink: 0; }
-/* ===== v4.5.0 首页首屏大图 =====
- * 未配置壁纸时退回 v3.4.1 的渐变横幅观感；启用壁纸后铺满整屏，
+/* ===== v4.5.0 首页首屏大图 / v4.6.0 铺满整屏 =====
+ * 未配置壁纸时退回 v3.4.1 的渐变横幅观感；启用壁纸后铺满**整个视口**，
  * 站点标题 + 联系方式图标叠加在遮罩之上，向下滚动进入文章列表。
  * 亮/暗两张图由 JS 写成 --wall-light / --wall-dark，这里按 [data-theme] 取，
- * 主题切换无需重算（.home-hero 保留：插件远程组件可能仍引用它）。 */
+ * 主题切换无需重算（.home-hero 保留：插件远程组件可能仍引用它）。
+ *
+ * v4.6.0 对齐 DeepChirp(Butterfly) 的 `height:100vh` + `background-attachment:fixed`
+ * + `top:43%` 三件套，改动点与理由：
+ *  1) `calc(100vh - 58px)` → `100svh`：原来扣掉顶栏高度，视觉上不满屏。
+ *     用 svh（小视口）而非 vh —— 移动端地址栏展开/收起会让 vh 跳动，svh 稳定。
+ *  2) `background-attachment: fixed`：滚动时壁纸停在视口里、内容掠过，产生纵深。
+ *     **桌面才开**：fixed 背景在移动端滚动时每帧重绘大图，代价高收益低；
+ *     iOS Safari 对 fixed 另有支持缺陷，用 @supports 单独回退（Butterfly 用 .apple 类做同一件事）。
+ *  3) 文字区 flex 居中 → `top:43%`：几何正中偏上一点是封面构图的稳态位置。 */
 .home-cover {
   position: relative; overflow: hidden;
   display: flex; align-items: center; justify-content: center;
@@ -157,16 +166,29 @@ body {
   color: #fff;
 }
 .home-cover.has-wall {
-  min-height: calc(100vh - 58px);
-  padding: 72px 24px;
+  min-height: 100svh;
+  padding: 0 24px;
   margin-bottom: 0;
+  display: block;
   background-image: var(--wall-veil), var(--wall-light, none);
   background-size: cover;
-  background-position: center;
+  background-position: center center;
   background-repeat: no-repeat;
+}
+@media (min-width: 641px) {
+  .home-cover.has-wall { background-attachment: fixed; }
+}
+@supports (-webkit-touch-callout: none) {
+  .home-cover.has-wall { background-attachment: scroll; }
 }
 [data-theme="dark"] .home-cover.has-wall {
   background-image: var(--wall-veil), var(--wall-dark, var(--wall-light, none));
+}
+/* 文字块压在中线偏上 43% */
+.home-cover.has-wall .home-cover-inner {
+  position: absolute; top: 43%; left: 0; right: 0;
+  transform: translateY(-50%);
+  max-width: 780px; margin: 0 auto;
 }
 .home-cover-inner { position: relative; z-index: 1; max-width: 780px; }
 .home-cover-title {
@@ -192,8 +214,12 @@ body {
   transition: transform .18s ease, background .18s ease;
 }
 .hcs-item:hover { transform: translateY(-3px); background: rgba(255,255,255,.3); }
+/* v4.6.0：滚动提示从文字流里挪到视口底部绝对定位（对齐 DeepChirp 的
+ * `#page-header #scroll-down{position:absolute;bottom:10px}`），
+ * 不再跟着标题走，滚动条位置一目了然。 */
 .home-cover-hint {
-  margin-top: 32px; display: flex; flex-direction: column; align-items: center; gap: 2px;
+  position: absolute; left: 0; right: 0; bottom: 18px; z-index: 1;
+  display: flex; flex-direction: column; align-items: center; gap: 2px;
   font-size: 12px; letter-spacing: .14em; color: rgba(255,255,255,.8);
 }
 .hch-arrow { font-size: 18px; animation: cover-hint 1.8s ease-in-out infinite; }
@@ -202,10 +228,51 @@ body {
   50% { transform: translateY(5px); opacity: 1; }
 }
 @media (prefers-reduced-motion: reduce) { .hch-arrow { animation: none; } }
+
+/* ===== v4.6.0 顶栏浮在壁纸上 =====
+ * DeepChirp 是把 nav 放进 `height:100vh` 的大图 header 里，天然浮在图上；
+ * 我们的 .site-header 独立且 sticky。要让壁纸真正顶到屏幕最上沿，
+ * 必须在「首页 + 已配壁纸」时把它改成 fixed + 透明。
+ * 这里用 `:root:has()` 而不是 JS 切 body 类 —— 路由切走后条件自动失效，
+ * 不存在「切走了忘清理」的中间态；且不引入任何生命周期管理。 */
+:root:has(.home-cover.has-wall) .site-header {
+  position: fixed; top: 0; left: 0; right: 0; z-index: 20;
+  background: transparent;
+  border-bottom-color: transparent;
+  transition: background .25s ease, border-bottom-color .25s ease;
+}
+/* 顶部渐变：让浮在壁上的白字始终可读。强度复用遮罩滑块（JS 写 --wall-veil-top），
+ * 顶栏不会因为用户把遮罩调淡而变成"白底白字"。 */
+:root:has(.home-cover.has-wall) .site-header::before {
+  content: ""; position: absolute; inset: 0; pointer-events: none;
+  background: var(--wall-veil-top, linear-gradient(rgba(0,0,0,.24), rgba(0,0,0,0)));
+  transition: opacity .25s ease;
+}
+:root:has(.home-cover.has-wall) .site-header .logo,
+:root:has(.home-cover.has-wall) .site-header nav a {
+  color: #fff; text-shadow: 0 1px 10px rgba(0,0,0,.38);
+  transition: color .25s ease, opacity .18s ease;
+}
+:root:has(.home-cover.has-wall) .site-header nav a:hover { color: #fff; opacity: .78; }
+
+/* 滚过首屏（JS 加 .is-solid）→ 变回实心条，导航恢复主题本色 */
+:root:has(.home-cover.has-wall) .site-header.is-solid {
+  background: var(--nav-bg);
+  -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px);
+  border-bottom-color: var(--nav-border);
+}
+:root:has(.home-cover.has-wall) .site-header.is-solid::before { opacity: 0; }
+:root:has(.home-cover.has-wall) .site-header.is-solid .logo,
+:root:has(.home-cover.has-wall) .site-header.is-solid nav a {
+  color: var(--nav-fg); text-shadow: none;
+}
+:root:has(.home-cover.has-wall) .site-header.is-solid nav a:hover { color: var(--accent); opacity: 1; }
+
 @media (max-width: 640px) {
   .home-cover { padding: 44px 18px; min-height: 240px; }
-  .home-cover.has-wall { min-height: calc(100vh - 58px); padding: 52px 18px; }
-  .home-cover-hint { margin-top: 22px; }
+  .home-cover.has-wall { padding: 0 18px; }
+  .home-cover-hint { bottom: 14px; }
+  .hcs-item { width: 40px; height: 40px; font-size: 18px; }
 }
 
 /* ===== 首页渐变横幅（v3.4.1：与后台 hero-card 同款设计语言） ===== */.home-hero {

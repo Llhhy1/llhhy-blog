@@ -2,6 +2,69 @@
 
 > **📦 历史归档**：v3.18.5 及以前的版本记录已归档至 `docs/archive/CHANGELOG_v1-v3.18.5.md`；本文件从 v3.18.6 起。
 
+## v4.6.0（2026-10-19）
+
+### 一、首页首屏：壁纸真正铺满整个屏幕
+
+v4.5.0 把壁纸做出来了，但它**并没有真的占满屏幕** —— 首屏高度写的是
+`calc(100vh - 58px)`，那个 `58px` 是当初为了给顶栏留位减掉的，视觉上就是
+「壁纸从导航栏下面开始」。本版参照 [DeepChirp](https://blog.deepchirp.com/)
+（Hexo + Butterfly 5.7.0）的做法重做，实测其 CSS 为：
+
+```css
+#page-header.full_page            { height: 100vh; background-attachment: fixed; }
+#page-header.full_page #site-info { position: absolute; top: 43%; width: 100%; }
+```
+
+改动五处：
+
+| 项 | 原 | 现 | 理由 |
+|---|---|---|---|
+| 首屏高度 | `calc(100vh - 58px)` | **`100svh`** | 原来扣掉顶栏不满屏。用 `svh` 而非照抄 `vh` —— 移动端地址栏收放会让 `vh` 跳动 |
+| 背景 | 无 | **`background-attachment: fixed`**（仅 ≥641px） | 滚动时壁纸停在视口、内容掠过，产生纵深。移动端每帧重绘大图代价高；iOS Safari 对 fixed 另有支持缺陷，用 `@supports (-webkit-touch-callout: none)` 回退 |
+| 文字位置 | flex 居中 50% | **`top: 43%` + `translateY(-50%)`** | 几何正中偏上是封面构图的稳态位置 |
+| 滚动提示 | 跟在标题下面（`margin-top: 32px`） | **移出文字流，贴视口底部 `bottom: 18px`** | 不再随标题位置漂 |
+| 顶栏 | `sticky`、不透明、占 58px 文档流 | **浮在壁上，滚过首屏变实心固定条** | 壁纸要能顶到屏幕最上沿，顶栏就不能占位 |
+
+### 二、顶栏为什么能浮起来
+
+顶栏独立于首屏（DeepChirp 是把 nav 塞进大图 header 里，天然浮在图上），
+所以要靠两条机制接上：
+
+- **位置与透明度交给纯 CSS**：`:root:has(.home-cover.has-wall) .site-header { position: fixed; … }`。
+  选 `:has()` 而不是 JS 切 body 类 —— 路由切走后条件**自动失效**，
+  不存在「切走了忘清理」的中间态，也不引入生命周期管理。
+- **「滚过去了没」交给 `IntersectionObserver`**（threshold 0），不用 `scroll` 事件：
+  这个 `100svh` 元素整页生命周期里进出视口最多两次，`scroll` 是每帧回调。
+  命中后给顶栏加 `.is-solid` 恢复主题本色 + 毛玻璃；`onBeforeUnmount` 里
+  `disconnect()` 并清掉 `.is-solid`。
+
+不配壁纸时 `:has()` 不命中，顶栏保持原样，**未启用壁纸的站点零影响**。
+
+### 三、一处自查出的真 bug（已修）
+
+顶栏浮到壁上之后，它**不在 `.home-cover` 的 `background-image` 里**，拿不到那层遮罩，
+白字会直接压在亮色壁纸上。补了一条顶部渐变，强度与后台遮罩滑块联动 ——
+但第一次实现把 `--wall-veil-top` 放进了 `coverStyle`（inline style 打在 `.home-cover` 上），
+而 **CSS 自定义属性只向下继承**，`.site-header` 是它的兄弟节点，永远拿不到，
+只会命中 fallback 常量 → **滑块联动是假的**。
+
+改为挂在 `:root` 并在 `onBeforeUnmount` 里 `removeProperty`，避免把首页专用的渐变
+留在全局污染其他页面。
+
+### 四、刻意不照搬的两处
+
+- **不删遮罩层**。DeepChirp 没有遮罩，纯靠 `text-shadow` 撑可读性，因为他的
+  `banner.avif` 是自己做的暗色设计图；我们的壁纸是后台上传的任意图，
+  白底壁纸上白字会瞎 —— 后台那个遮罩强度滑块保留。
+- **不隐藏社交图标**。DeepChirp 桌面端 `#site_social_icons` 是 `display:none`
+  （靠侧边栏显示联系方式），本站首屏图标是明确需求，保留。
+
+### 五、本版范围
+
+纯前端，**无表结构变更、无后端代码改动、无新依赖**。改动文件仅两个：
+`vue-frontend/src/styles/global.css`、`vue-frontend/src/views/HomeView.vue`。
+
 ## v4.5.0（2026-10-18）
 
 ### 一、访客数据：平均阅读时间（全链路，此前零数据）

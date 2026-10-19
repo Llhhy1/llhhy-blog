@@ -5,7 +5,7 @@
          ⚠️ 亮/暗两套壁纸通过 CSS 变量交给 `[data-theme]` 选择器切换 ——
          主题切换发生在 App.vue，把这件事留在 JS 里就得双向同步，漏一处就会
          出现「切了主题壁纸还是亮色」。 -->
-    <section class="home-cover" :class="{ 'has-wall': !!wallpaperUrl }" :style="coverStyle">
+    <section ref="coverRef" class="home-cover" :class="{ 'has-wall': !!wallpaperUrl }" :style="coverStyle">
       <div class="home-cover-inner">
         <h2 class="home-cover-title">{{ state.site.site_name || state.site.site_title || '我的博客' }}</h2>
         <p class="home-cover-sub">{{ state.site.site_description || '记录思考，分享知识' }}</p>
@@ -23,9 +23,10 @@
             @click="s.href ? null : onCopySocial(s)"
           >{{ s.meta.icon }}</component>
         </div>
-        <div v-if="wallpaperUrl" class="home-cover-hint" aria-hidden="true">
-          <span class="hch-arrow">↓</span><span>向下滚动</span>
-        </div>
+      </div>
+      <!-- v4.6.0：移到 .home-cover-inner 外 —— 贴视口底部绝对定位，不跟标题走 -->
+      <div v-if="wallpaperUrl" class="home-cover-hint" aria-hidden="true">
+        <span class="hch-arrow">↓</span><span>向下滚动</span>
       </div>
     </section>
 
@@ -118,7 +119,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref, watch } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useRoute } from "vue-router";
 import { apiGet } from "../lib/api.js";
 import { state } from "../store.js";
@@ -161,13 +162,64 @@ const wallpaperUrl = computed(() => {
 const coverStyle = computed(() => {
   const wp = wallpaper.value;
   if (!wp || !wp.enabled || !wallpaperUrl.value) return {};
-  const o = Math.min(0.8, Math.max(0, Number(wp.overlay) || 0));
+  const o = veilOpacity.value;
   const veil = `linear-gradient(rgba(0,0,0,${o}), rgba(0,0,0,${o}))`;
   // 用 JSON.stringify 生成 url() 里的引号转义：壁纸 URL 来自 Setting，
   // 即便后端已限定本站 uploads，也不该在模板绑定里裸拼进 CSS 声明。
   const light = wp.light ? `url(${JSON.stringify(wp.light)})` : "none";
   const dark = wp.dark ? `url(${JSON.stringify(wp.dark)})` : light;
-  return { "--wall-veil": veil, "--wall-light": light, "--wall-dark": dark };
+  return {
+    "--wall-veil": veil,
+    "--wall-light": light,
+    "--wall-dark": dark,
+  };
+});
+
+// v4.6.0：顶栏浮到壁纸上后，它不在 .home-cover 的 background-image 里，
+// 拿不到那层遮罩 → 白字可能压在亮色壁纸上读不清。补一条顶部渐变，取遮罩的七成。
+// 🔑 **这条变量必须挂 :root，不能放进 coverStyle**：.site-header 与 .home-cover
+// 是兄弟节点，CSS 自定义属性只向下继承，写在 .home-cover 的 inline style 上
+// 永远传不到 header —— 那样 header 只会拿到 fallback 常量，遮罩滑块就联动不了。
+const veilOpacity = computed(() => {
+  const wp = wallpaper.value;
+  if (!wp || !wp.enabled || !wallpaperUrl.value) return 0;
+  return Math.min(0.8, Math.max(0, Number(wp.overlay) || 0));
+});
+const veilTop = computed(() => {
+  if (!veilOpacity.value) return "";
+  const top = (veilOpacity.value * 0.7).toFixed(3);
+  return `linear-gradient(rgba(0,0,0,${top}), rgba(0,0,0,0))`;
+});
+function _applyVeilTop(v) {
+  const el = document.documentElement;
+  if (!el) return;
+  if (v) el.style.setProperty("--wall-veil-top", v);
+  else el.style.removeProperty("--wall-veil-top");
+}
+watch(veilTop, _applyVeilTop, { immediate: true });
+
+// ---------- v4.6.0 顶栏：浮在壁上 → 滚过首屏变实心固定条 ----------
+// 顶栏的位置样式由 CSS `:root:has(.home-cover.has-wall)` 决定，JS 只负责一个
+// 「滚过去了没」的开关。用 IntersectionObserver 而不是 scroll 事件 ——
+// 后者每帧回调，而这个 100svh 元素整页生命周期里进出视口最多两次。
+const coverRef = ref(null);
+let _coverIO = null;
+function _setHeaderSolid(on) {
+  const hd = document.querySelector(".site-header");
+  if (hd) hd.classList.toggle("is-solid", !!on);
+}
+onMounted(() => {
+  _setHeaderSolid(false);
+  if (!("IntersectionObserver" in window) || !coverRef.value) return;
+  _coverIO = new IntersectionObserver((entries) => {
+    _setHeaderSolid(!entries[0].isIntersecting);
+  }, { threshold: 0 });
+  _coverIO.observe(coverRef.value);
+});
+onBeforeUnmount(() => {
+  if (_coverIO) { _coverIO.disconnect(); _coverIO = null; }
+  _setHeaderSolid(false);
+  _applyVeilTop("");   // 别把首页专用的渐变留在 :root 上污染其他页面
 });
 function fmtNum(n) {
   n = Number(n) || 0;

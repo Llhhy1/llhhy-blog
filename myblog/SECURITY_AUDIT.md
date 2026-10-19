@@ -1618,3 +1618,55 @@ API 侧用 `only_duration` 开关分流。同时补上守卫测试（单元级 +
   取反 / 均值分母改 `COUNT(*)` / 补报时长误加 `read_count`。
 - 全量 **902 passed**，ruff 全仓通过，lint 棘轮 F401 回落基线 116。
 - 表结构变更：`read_log` 加 `duration`（迁移 `a7e3c92d5b18`）；壁纸为 Setting KV，零表变更。
+
+## 126. v4.6.0 首页首屏铺满整屏（纯前端）
+
+### 126.1 范围
+
+改动文件仅 2 个：`vue-frontend/src/styles/global.css`、`vue-frontend/src/views/HomeView.vue`。
+**无表结构变更、无后端代码改动、无新依赖、无新路由、无新环境变量。**
+
+### 126.2 逐项审计
+
+| 维度 | 结论 |
+|---|---|
+| XSS | 无新增 HTML 注入面。唯一的动态 CSS 值是 `--wall-veil-top`，由 `veilOpacity`（`Math.min(0.8, Math.max(0, Number(...)))`）经 `toFixed(3)` 生成，**只可能是纯数字**。壁纸 URL 仍走 v4.5.0 已有的 `JSON.stringify()` 转义 |
+| SQL 注入 | 不适用（无后端改动） |
+| 越权 | 不适用（无新路由） |
+| SSRF | 不适用（壁纸 URL 仍由后端 `_safe_wp_url` 限定本站 `/static/uploads/`，前端未放宽） |
+| CSRF | 不适用（无新请求） |
+| 密钥 | 本轮无凭据、无环境变量 |
+| 资源泄漏 | 新增的 `IntersectionObserver` 在 `onBeforeUnmount` 中 `disconnect()`；写进 `:root` 的 `--wall-veil-top` 同步 `removeProperty()`，不残留全局污染 |
+| 限流 | 不适用（无新接口） |
+
+### 126.3 自查发现并修复的缺陷
+
+**CSS 自定义属性只向下继承，兄弟节点拿不到。**
+
+顶栏浮到壁纸上之后，它不在 `.home-cover` 的 `background-image` 里，拿不到那层遮罩，
+白字会直接压在亮色壁面上。补顶部渐变的第一次实现把 `--wall-veil-top` 放进 `coverStyle`（inline style
+打在 `.home-cover` 上），而 `.site-header` 是它的**兄弟节点**，继承链到不了 —— 
+永远只会命中 fallback 常量，**「遮罩滑块联动」是假的**。
+
+改为挂在 `:root`，并在 `onBeforeUnmount` 里 `removeProperty()`。
+
+> 一般规律：**给 CSS 变量找消费者时，先确认它在 DOM 里的位置关系**。
+> 写在兄弟节点上的变量不会"流过去"；这类错误不会报错、不会红测，
+> 只会让某个 CSS 值静默退回默认值 —— 与「审计报告有 PoC ≠ 结论成立」是同一类陷阱。
+
+### 126.4 已知限制（非缺陷）
+
+- **`background-attachment: fixed` 仅在桌面 ≥641px 开启**：移动端滚动时每帧重绘大图，
+  代价高收益低；iOS Safari 对 fixed 背景另有支持缺陷，用 `@supports (-webkit-touch-callout: none)`
+  单独回退（Butterfly 主题用 `.apple` 类做的是同一件事）。
+- **CSS `:has()` 依赖**：Chrome 105+ / Safari 15.4+ / Firefox 121+。更旧的浏览器
+  仅表现为顶栏不浮起来，壁纸仍满屏，无功能损失。
+
+### 126.5 验证
+
+- `vite build` 通过（13s，无报错）；产物逐项 grep 确认：
+  `HomeView-*.js` 含 `setProperty` / `removeProperty` / `IntersectionObserver` / `is-solid`；
+  `index-*.css` 含 `100svh` / `:has(` / `background-attachment` / `wall-veil-top` / `is-solid`。
+- 已知全绿陷阱：`grep -c` 逐项计数**必须全部 > 0** —— 任一项为 0 说明改动没进包，
+  而 build 本身不会报错（它只认目录存在，见经验 42）。
+- 后端零改动，故未新增 Python 测试；全量测试套件结果见 CHANGELOG。

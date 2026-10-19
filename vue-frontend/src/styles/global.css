@@ -191,14 +191,18 @@ body {
   max-width: 780px; margin: 0 auto;
 }
 .home-cover-inner { position: relative; z-index: 1; max-width: 780px; }
+/* v4.6.1 文字阴影改成「近锐 + 远柔」双层：原来只有一层 18px 的大扩散，
+ * 看着像光晕、实际不提供锐利暗边，亮色壁纸上白字照样发糊（实测草地背景 0.15 遮罩时看不清）。
+ * 近距 2px 的小阴影负责把字边缘「切」出来，远距大阴影负责与背景分离。 */
 .home-cover-title {
-  margin: 0 0 10px; font-size: clamp(24px, 5.4vw, 44px); font-weight: 800;
-  line-height: 1.2; letter-spacing: .5px; color: #fff;
-  text-shadow: 0 2px 18px rgba(0,0,0,.32);
+ margin: 0 0 10px; font-size: clamp(24px, 5.4vw, 44px); font-weight: 800;
+ line-height: 1.2; letter-spacing: .5px; color: #fff;
+ text-shadow: 0 1px 2px rgba(0,0,0,.55), 0 6px 28px rgba(0,0,0,.45);
 }
 .home-cover-sub {
-  margin: 0; font-size: clamp(14px, 2.1vw, 18px); line-height: 1.7;
-  color: rgba(255,255,255,.93); text-shadow: 0 1px 10px rgba(0,0,0,.28);
+ margin: 0; font-size: clamp(14px, 2.1vw, 18px); line-height: 1.7;
+ color: rgba(255,255,255,.96);
+ text-shadow: 0 1px 2px rgba(0,0,0,.5), 0 3px 16px rgba(0,0,0,.38);
 }
 .home-cover-social {
   display: flex; justify-content: center; flex-wrap: wrap; gap: 10px;
@@ -220,7 +224,8 @@ body {
 .home-cover-hint {
   position: absolute; left: 0; right: 0; bottom: 18px; z-index: 1;
   display: flex; flex-direction: column; align-items: center; gap: 2px;
-  font-size: 12px; letter-spacing: .14em; color: rgba(255,255,255,.8);
+  font-size: 12px; letter-spacing: .14em; color: rgba(255,255,255,.9);
+  text-shadow: 0 1px 3px rgba(0,0,0,.5);
 }
 .hch-arrow { font-size: 18px; animation: cover-hint 1.8s ease-in-out infinite; }
 @keyframes cover-hint {
@@ -267,6 +272,39 @@ body {
   color: var(--nav-fg); text-shadow: none;
 }
 :root:has(.home-cover.has-wall) .site-header.is-solid nav a:hover { color: var(--accent); opacity: 1; }
+
+/* ===== v4.6.1 首页满屏壁纸：让整站外框让路 =====
+ * 🔴 **v4.6.0 漏了这一层，壁纸被「套住」**。`.site-frame`（v3.1.0 的整站大框）是
+ * `max-width:1100px + margin:22px auto 28px + border + border-radius + overflow:hidden`，
+ * 首页内容在它里面，于是壁纸：左右被 padding 挤窄、顶部被 margin 压出一条白边、
+ * 四角被圆角裁掉 —— 就是「被一个框套住」。
+ * Butterfly 没有这层框（它的 body 直接到 header），所以 `height:100vh` 才是真的。
+ * 这里在「首页 + 已配壁纸」时把外框整体放开；未配壁纸时 `:has()` 不命中，框照旧。
+ * ⚠️ 破框后必须自己把下方内容重新限宽，否则 4 列 .bento 会在宽屏上拉成一条。 */
+:root:has(.home-cover.has-wall) .site-frame {
+  max-width: none;
+  margin: 0;
+  padding: 0;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  overflow: visible;
+  box-shadow: none;
+}
+:root:has(.home-cover.has-wall) .site-frame-inner { padding: 0; }
+[data-theme="dark"]:has(.home-cover.has-wall) .site-frame { background: transparent; }
+
+/* 破框后的内容宽度：1100 − 16×2(padding) − 1×2(border) = 1066，即原框内的可用宽度 */
+:root:has(.home-cover.has-wall) .home-page > *:not(.home-cover) {
+  max-width: 1066px;
+  margin-left: auto;
+  margin-right: auto;
+}
+:root:has(.home-cover.has-wall) .site-footer {
+  max-width: 1066px;
+  margin-left: auto;
+  margin-right: auto;
+}
 
 @media (max-width: 640px) {
   .home-cover { padding: 44px 18px; min-height: 240px; }

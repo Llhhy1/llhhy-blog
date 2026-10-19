@@ -1,5 +1,7 @@
 <template>
-  <div>
+  <!-- v4.6.1 根节点挂 .home-page：首屏要「破框」铺满整屏（整站外框 .site-frame 的
+       限宽/边框/圆角会把壁纸套住），破框后下方区块靠 .home-page 重新限宽居中。 -->
+  <div class="home-page">
     <!-- v4.5.0 首页首屏大图：启用壁纸时铺满整屏，站点标题与联系方式图标叠加其上，
          向下滚动即进入文章列表；未配置壁纸时退化为 v3.4.1 的渐变横幅（原观感不变）。
          ⚠️ 亮/暗两套壁纸通过 CSS 变量交给 `[data-theme]` 选择器切换 ——
@@ -187,7 +189,9 @@ const veilOpacity = computed(() => {
 });
 const veilTop = computed(() => {
   if (!veilOpacity.value) return "";
-  const top = (veilOpacity.value * 0.7).toFixed(3);
+  // ⚠️ 有下限 0.28：顶栏白字压在**亮色**壁纸上时，只靠遮罩滑块会糊掉
+  // （实测遮罩 0.15 时导航项几乎看不清）。顶栏可读性优先，不跟着滑块一路降到 0。
+  const top = Math.max(0.28, veilOpacity.value * 0.7).toFixed(3);
   return `linear-gradient(rgba(0,0,0,${top}), rgba(0,0,0,0))`;
 });
 function _applyVeilTop(v) {

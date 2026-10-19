@@ -2,6 +2,78 @@
 
 > **📦 历史归档**：v3.18.5 及以前的版本记录已归档至 `docs/archive/CHANGELOG_v1-v3.18.5.md`；本文件从 v3.18.6 起。
 
+## v4.6.1（2026-10-19）
+
+### 修：壁纸被整站外框「套住」，首屏其实没铺满
+
+v4.6.0 把 `.home-cover` 改成 `100svh`，但**漏掉了它外面还有一层框**。
+`.site-frame`（v3.1.0 的整站大框）是：
+
+```css
+max-width: 1100px;  margin: 22px auto 28px;
+padding: 0 16px;    border: 1px solid #e6e8eb;
+border-radius: var(--theme-radius, 12px);  overflow: hidden;
+```
+
+首页内容在这个框里，于是壁纸：左右被 padding 挤窄、顶部被 margin 压出一条白边、
+四角被圆角裁掉 —— 就是用户看到的「被一个框套住」。参考站 Butterfly **没有这层框**
+（body 直接到 header），所以它的 `height:100vh` 才是真的。
+
+线上实测截图确认：1440×900 下壁纸只占中间约 1100px，顶部有 22px 白条，
+移动端左右各露一条白边。
+
+**修法**：在「首页 + 已配壁纸」时把外框整体放开。
+
+```css
+:root:has(.home-cover.has-wall) .site-frame {
+  max-width: none; margin: 0; padding: 0;
+  background: transparent; border: 0; border-radius: 0;
+  overflow: visible; box-shadow: none;
+}
+```
+
+破框后下方内容会失去限宽（`.bento` / `.content` / `.home-social` 本身都没有
+`max-width`），所以给首页根节点挂 `.home-page`，用
+`.home-page > *:not(.home-cover) { max-width: 1066px; margin-inline: auto }`
+把非首屏区块重新限宽居中（1066 = 1100 − 16×2 − 1×2，即原框内的可用宽度）。
+
+未配置壁纸时 `:has()` 不命中，外框照旧，**零影响**。
+
+### 修：文字阴影只有一层大扩散，亮色壁纸上照样发糊
+
+原 `text-shadow: 0 2px 18px rgba(0,0,0,.32)` —— 18px 的扩散看着像光晕，
+实际不提供锐利暗边。改成「近锐 + 远柔」双层：
+
+- `0 1px 2px rgba(0,0,0,.55)`：把字边缘切出来
+- `0 6px 28px rgba(0,0,0,.45)`：与背景分离
+
+### 修：顶栏渐变不该跟着遮罩滑块一路降到 0
+
+v4.6.0 让 `--wall-veil-top = overlay × 0.7`，本意是「遮罩淡则顶栏也淡」。
+实测问题相反：顶栏是**白字**，遮罩调淡后导航项先糊。加下限：
+
+```js
+Math.max(0.28, overlay * 0.7)
+```
+
+### 验证方式（本版的关键）
+
+前几版都是「构建通过 + 产物 grep」就算过，**这次用户实际看到的是错的**。
+本版改用 `playwright-cli` 对**线上真实页面**取证：
+
+1. 先截「修复前」线上图 —— 复现了框、白边、遮罩过重三个现象
+2. 用 `page.evaluate` 把修复 CSS **注入线上页面**（不动线上文件），截图验证
+3. 分别验桌面 1440×900 / 移动 390×844 / 滚动后（`.is-solid`）/ 遮罩 0.15 四种状态
+4. 确认无误后才发版
+
+> 教训：**「代码写了」「构建过了」都不等于「用户看到的是对的」**。
+> 有浏览器可用时，视觉改动必须以真实截图为准。
+
+### 范围
+
+纯前端，**无表结构变更、无后端代码改动、无新依赖**。
+改动文件仅 `vue-frontend/src/styles/global.css`、`vue-frontend/src/views/HomeView.vue`。
+
 ## v4.6.0（2026-10-19）
 
 ### 一、首页首屏：壁纸真正铺满整个屏幕

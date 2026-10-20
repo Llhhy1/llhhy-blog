@@ -596,6 +596,14 @@ sha256sum /tmp/og.png /www/wwwroot/你的站点根/og-default.png
    - `/www/wwwroot/myblog/data/blog.db`（全部数据）
    - `/www/wwwroot/myblog/static/uploads/`（上传的图片）
 1.1. **升级要点**（其余步骤与通用流程一致；适用于 v4.0.0 → v4.7.3）：
+   - **v4.7.7（修 v4.7.6 回归：测试 / CI 会往生产发真实心跳）**：
+     - **无迁移**，head 仍为 `c3d9e2f71a04`。
+     - ⚠️ v4.7.6 上线后站点注册表被注入 5 条假站点（`total` 从 1 变 6）：
+       来源是**跑 pytest 的本机**与 **GitHub Actions CI** —— 因为默认开启 +
+       真实默认中心 + 某处 `create_app()` 没关调度器，后台线程真的打了生产。
+     - 修法：`ecosystem._is_test_runtime()` 护栏（pytest / TESTING 下零出站）
+       + `test_mcp_write.py` 改为 `enable_scheduler=False`。
+     - 已清理生产的 5 条假站点，只留官方站点一行。
    - **v4.7.6（生态统计改为默认开启 + 匿名路径）**：
      - **无迁移**（本版不碰表结构），head 仍为 `c3d9e2f71a04`。
      - ⚠️ 生态统计默认值由「关」改为「**开**」：升级后所有站点**默认每小时上报一次心跳**。

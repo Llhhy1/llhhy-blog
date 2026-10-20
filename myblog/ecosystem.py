@@ -115,12 +115,39 @@ def own_site_url():
     return ""
 
 
+def _is_test_runtime():
+    """当前是否处于测试 / CI 运行时。**是则绝不发真实心跳**。
+
+    ⚠️ v4.7.6 把默认值翻成「开」之后暴露的回归：默认开启 + 真实 `DEFAULT_CENTER`
+    意味着**任何在本地或 CI 里 `create_app()` 的进程**（pytest fixture、
+    清数据用的辅助函数、GitHub Actions）都会往生产发真实心跳 —— 既污染站点注册表
+    （实测一次 CI + 两次本地全量测试注入 5 条假站点），也让「站点数」虚高。
+
+    写两道判据而不只靠一处：
+      · `PYTEST_CURRENT_TEST` —— pytest 运行时一定存在，覆盖测试进程本身；
+      · Flask 的 `TESTING` 配置 —— 覆盖「用测试配置起的应用」这类场景。
+    """
+    import os
+    if os.environ.get("PYTEST_CURRENT_TEST"):
+        return True
+    try:
+        from flask import current_app, has_app_context
+        if has_app_context() and current_app.config.get("TESTING"):
+            return True
+    except Exception:  # noqa: BLE001, S110 （拿不到上下文就按「不是测试」处理）
+        pass
+    return False
+
+
 def report_heartbeat(force=False):
     """向生态中心发一次心跳。**永不抛异常**（失败静默）。
 
     走 `outbound.open_url()` —— 统一出站层：禁跟随 3xx + 固定已校验的 IP。
     """
     if not opt_in():
+        return False
+    if not force and _is_test_runtime():
+        # force=True 只给人工排障用（显式要求发一次），正常路径一律挡住
         return False
     center = center_url()
     if not center:

@@ -88,6 +88,36 @@ def test_中心地址为内网时不上报(app):
         assert ecosystem.report_heartbeat() is False
 
 
+# ---------- 测试态护栏（v4.7.6 回归）----------
+
+
+def test_pytest_里绝不发出真实心跳(app, monkeypatch):
+    """回归：默认开启 + 真实默认中心后，pytest/CI 会往生产发真实心跳。
+
+    实测一次 CI + 两次本地全量测试注入了 5 条假站点（其中含 CI 机器）。
+    护栏必须钉死：默认路径下一个请求都不许发。
+    """
+    import outbound
+    sent = []
+    monkeypatch.setattr(outbound, "open_url", lambda *a, **k: sent.append(a))
+    monkeypatch.setattr(outbound, "safe_public_url", lambda u: True)
+    with app.app_context():
+        _wipe()
+        assert ecosystem.opt_in() is True, "前提是默认开启"
+        assert ecosystem.report_heartbeat() is False, "pytest 里发出了真实心跳"
+    assert sent == [], "pytest 里不应产生任何出站请求"
+
+
+def test_护栏本身是唯一拦路者(app, monkeypatch):
+    """变异验证：摘掉护栏后必须**真的会发** —— 否则上一条是假绿。"""
+    import outbound
+    sent = _capture(monkeypatch)
+    with app.app_context():
+        _wipe()
+        assert ecosystem.report_heartbeat() is True
+    assert len(sent) == 1, "摘掉护栏后仍未发出，说明上一条测试是假绿"
+
+
 # ---------- 客户端：url 只在愿意公开时才带 ----------
 
 
@@ -112,6 +142,8 @@ def _capture(monkeypatch):
     monkeypatch.setattr(outbound, "open_url", _fake)
     # 默认中心是真实域名，测试环境不保证能解析 —— 校验本身另有测试覆盖
     monkeypatch.setattr(outbound, "safe_public_url", lambda u: True)
+    # 本组用例**就是要验发送逻辑**，所以要显式摘掉测试态护栏
+    monkeypatch.setattr(ecosystem, "_is_test_runtime", lambda: False)
     return sent
 
 

@@ -44,7 +44,9 @@ def _purge_mcpw_posts():
     from models import db, Post
 
     def _purge():
-        app = create_app()
+        # ⚠️ 必须关调度器：开着会起后台线程，而 v4.7.6 起生态心跳默认开启 +
+        # 有真实默认中心 → 这个线程会往**生产**发真实心跳（污染注册表、站点数虚高）。
+        app = create_app(enable_scheduler=False)
         with app.app_context():
             Post.query.filter(Post.title.like("MCPW%")).delete()
             db.session.commit()

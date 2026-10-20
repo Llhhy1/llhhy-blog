@@ -2037,3 +2037,51 @@ fail-silent（失败只记日志，绝不抛、绝不拖垮发布主流程），
   匿名心跳不带 url + 中心端清空 url）
 - 「取消参与后零出站」用 monkeypatch 接住 `outbound.open_url` 断言调用次数为 0 ——
   不依赖真实网络，也不靠「返回 False」间接推断
+
+---
+
+## 第一百三十五轮（R135）· v4.7.7 修 v4.7.6 回归：测试 / CI 往生产发真实心跳
+
+### 135.1 现象与取证
+
+v4.7.6 上线后 `GET /api/ecosystem/stats` 的 `total` 由 1 变成 6，且出现
+`https://c-1e568c3f.example.com` 这类测试域名。查 nginx 访问日志定位到三个来源：
+
+| 来源 IP | 身份 | 说明 |
+|---|---|---|
+| `8.138.98.164` | 生产服务器自身 | 正常上报 |
+| `223.74.146.47` | 本机 pytest | **异常**，7 次 |
+| `20.98.135.189` | GitHub Actions CI（Azure 段） | **异常**，3 次 |
+
+教训：先查**访问日志**再下结论。此前两次猜测（调度线程 race、他人伪造）都不对，
+看日志一条命令就定位了。
+
+### 135.2 根因（三个条件叠加）
+
+1. 默认值翻成「开」；
+2. 新增真实 `DEFAULT_CENTER`（缺了它「默认开启」也发不出去）；
+3. `tests/test_mcp_write.py:47` 用 `create_app()` **未关调度器** —— 后台线程
+   调用 `report_heartbeat()` 直连生产。
+
+⚠️ **教训（可复用）**：把一个「默认关闭的外发功能」改成「默认开启」时，
+必须同步确认**所有会实例化 app 的非生产路径**（测试夹具、清理脚本、CI、
+命令行工具）都被挡住。默认值一翻，攻击面从「只有生产」变成「任何跑代码的地方」。
+
+### 135.3 修复
+
+- `ecosystem._is_test_runtime()`：`PYTEST_CURRENT_TEST` 环境变量 + Flask `TESTING`
+  配置双判据；`report_heartbeat()` 非 `force` 时命中即返回 False（保留 `force=True`
+  给人工排障）
+- `tests/test_mcp_write.py` 改为 `create_app(enable_scheduler=False)`，从源头不起线程
+
+### 135.4 数据处置
+
+生产 `ecosystem_site` 删除 5 条假站点，仅保留官方站点（`site_key=618633f37e…`），
+`total` 恢复为 1。WAL checkpoint + 属主已复原。
+
+### 135.5 验证（含反证）
+
+- `test_pytest_里绝不发出真实心跳`：pytest 下断言出站调用数为 0
+- `test_护栏本身是唯一拦路者`：**摘掉护栏后必须真的发出** ——
+  否则上一条可能是「本来就没发」的假绿
+- 修复后重跑测试，生产行数不再变化（实测确认）

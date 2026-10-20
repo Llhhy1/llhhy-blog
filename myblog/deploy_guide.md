@@ -600,7 +600,9 @@ sha256sum /tmp/og.png /www/wwwroot/你的站点根/og-default.png
      - **无迁移**，head 仍为 `c3d9e2f71a04`。
      - 依赖升级：`@vitejs/plugin-vue` 6.0.10、`markdown` 3.11.1、`feedparser` 6.0.14、
        `Flask-Migrate` 4.1.0、`segno` >=1.6.6、`redis` 8.1.0。
-       ⚠️ 服务器需 `pip install -r requirements.txt` 才会真正用上新版本（一键更新不装依赖）。
+       ✅ **无需手动装依赖**：`update.sh` 第 ④b 步会自动跑
+       `pip install -r requirements.txt`（阿里云镜像优先，失败回退官方 PyPI，各 300s 超时）。
+       实测本次 4 秒完成，站点版本报告里能看到「✅ Python 依赖已安装/已满足」。
      - ⚠️ **`_RENDER_VERSION` 3 → 4**：markdown 升级后全部文章缓存失效，
        **升级后首次访问每篇文章会重新渲染**（一次性开销，长文首访略慢）。
      - 前端 plugin-vue 升到 6 需重新 `npm install` + `vite build` 才生效。

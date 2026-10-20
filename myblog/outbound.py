@@ -150,11 +150,12 @@ def open_public(url, timeout=10, headers=None, data=None):
     if isinstance(url, urllib.request.Request):
         req = url
     else:
-        # 这行是 CodeQL `py/full-ssrf` 认定的汇聚点，但它认不出**紧接下一行**的
+        # 这里被 `py/full-ssrf` 认成汇聚点，但 CodeQL 认不出**紧接其后**的
         # `resolve_public()` 才是净化器：那里已做完「http/https + 无凭据 +
         # 解析结果全部公网」判定，且下面建连用的就是这次解析得到的 IP，
         # 不存在第二次解析、不跟随 3xx、环境代理禁用。
-        req = urllib.request.Request(url, data=data, headers=dict(headers or {}))  # codeql[py/full-ssrf] 下一行立即校验并固定 IP
+        # codeql[py/full-ssrf] 下一行构造的 Request 在发出前必定经过 resolve_public() 校验
+        req = urllib.request.Request(url, data=data, headers=dict(headers or {}))
     _host, _port, pin_ip = resolve_public(req.full_url)
     opener = urllib.request.build_opener(
         NoRedirect,
@@ -162,6 +163,4 @@ def open_public(url, timeout=10, headers=None, data=None):
         _PinnedHTTPHandler(pin_ip),
         _PinnedHTTPSHandler(pin_ip),
     )
-    # 两处汇聚点都要抑制（CodeQL 会把「构造 Request」与「真正发出」都当成汇聚点，
-    # 只注释掉一处时告警会跳到另一处）：判据与固定 IP 见上面 resolve_public()。
-    return opener.open(req, timeout=timeout)  # codeql[py/full-ssrf] 地址已校验并固定到公网 IP
+    return opener.open(req, timeout=timeout)

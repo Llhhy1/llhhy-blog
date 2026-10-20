@@ -37,7 +37,7 @@ import os
 import pytest
 import secrets
 import uuid
-from datetime import timedelta
+from datetime import date, timedelta
 
 from models import (AuditLog, Announcement, BotBlock, Category, Comment, FriendLink, Guestbook,
                     LinkApplication, Moment, Notification, Post, PostHistory, RecycleBin, Series,
@@ -592,7 +592,10 @@ def test_访客日志区间筛选与字段(app, client):
         ip = _test_ip("203.0.113")
         try:
             _auth(client, u.id)
-            today = utcnow().date().isoformat()
+            # ⚠️ 必须用与生产相同的口径：stats.today_str() 是**北京时间**的日期，
+            # 而 utcnow().date() 是 UTC 日期。两者在北京时间 00:00~08:00 差一天，
+            # 用后者会让这两条测试每夜必然变红（生产读写一致，不是生产 bug）。
+            today = date.today().isoformat()
             db.session.add(VisitLog(date=today, hour=9, ip=ip, region="浙江·杭州",
                                     path="/post/abc", referrer="baidu.com",
                                     is_bot=False, created_at=utcnow()))
@@ -639,7 +642,7 @@ def test_拉黑需超管_且日志页标记已拉黑(app, client):
             row = next((i for i in listed["items"] if i["ip"] == ip), None)
             assert row is not None and row["permanent"] is True, "默认永久封禁"
 
-            db.session.add(VisitLog(date=utcnow().date().isoformat(), hour=1, ip=ip,
+            db.session.add(VisitLog(date=date.today().isoformat(), hour=1, ip=ip,
                                     path="/post/x", is_bot=False, created_at=utcnow()))
             db.session.commit()
             logs = client.get("/api/mobile/visit-logs?range=today").get_json()

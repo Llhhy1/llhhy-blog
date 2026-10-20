@@ -15,9 +15,12 @@ GitHub 侧只能看到 **fork 派生关系**（实测：本仓库 fork=1、star=
 **只有中心端会收到心跳、才有数据** —— 别的部署实例的注册表是空的。
 这意味着「中心端」不需要特殊开关：你的站点开着接收 API，自然就是中心。
 
-**信任边界**
-- 开关**默认关闭** —— 未经告知的遥测会毁掉开源项目的信任。
-- 站点可以**拒绝被列出**（只计数、不公开 URL）。
+**信任边界（v4.7.6 起改为 opt-out）**
+- **默认开启、可随时关闭** —— 后台「设置 → 🌐 生态统计」取消勾选即停止上报。
+  默认值从「关」改为「开」的理由：不上报就**永远统计不到**（GitHub 只看得到 fork），
+  而关闭入口始终存在，使用者仍然握有选择权。
+- **关掉「公开展示」即匿名**：`listed=0` 时心跳**不带 url**，且中心端会把
+  已存的 url 清空 —— 只计数、不留身份。
 - 中心端注册表里的数据是**自报**的，任何人都能伪造 → 展示时必须如实标注。
 """
 import datetime
@@ -38,6 +41,11 @@ KEY_SITE_KEY = "ecosystem_site_key"   # 随机安装 ID（自动生成）
 
 _SITE_KEY_RE = re.compile(r"^[0-9a-f]{16,64}$")
 _MAX_URL = 300
+
+# 内置默认中心。**「默认开启」要真的生效，就必须有一个默认中心** ——
+# 否则新部署的实例 `ecosystem_center` 为空，opt-in 开了也一个请求都发不出去。
+# 自部署者可在设置里改成自己的中心；留空即回退到这里。
+DEFAULT_CENTER = "https://www.llhhy.cn"
 
 
 # ---------- 客户端侧 ----------
@@ -78,9 +86,9 @@ def db_add_setting(key, value):
 
 
 def opt_in():
-    """是否参与生态统计（**默认关闭**）。"""
+    """是否参与生态统计（**默认开启**，可在后台随时关闭）。"""
     from utils.settings import get_setting
-    return str(get_setting(KEY_OPT_IN, "0")).strip() in ("1", "true", "yes", "on")
+    return str(get_setting(KEY_OPT_IN, "1")).strip() not in ("0", "false", "no", "off")
 
 
 def listed():
@@ -90,9 +98,10 @@ def listed():
 
 
 def center_url():
-    """生态中心地址（空 = 不上报）。"""
+    """生态中心地址（留空 = 回退内置默认中心 `DEFAULT_CENTER`）。"""
     from utils.settings import get_setting
-    return str(get_setting(KEY_CENTER, "") or "").strip()
+    v = str(get_setting(KEY_CENTER, "") or "").strip()
+    return v or DEFAULT_CENTER
 
 
 def own_site_url():
@@ -122,11 +131,13 @@ def report_heartbeat(force=False):
         logger.warning("[ECOSYSTEM] 生态中心地址未通过安全校验，已跳过上报")
         return False
     url = center.rstrip("/") + "/api/ecosystem/heartbeat"
+    is_listed = listed()
     payload = {
         "site_key": site_key(),
-        "url": own_site_url(),
+        # ⚠️ **不公开列出 = 匿名**：这时连 url 都不发（URL 对个人博客就是身份）。
+        "url": own_site_url() if is_listed else "",
         "version": _app_version(),
-        "listed": listed(),
+        "listed": is_listed,
     }
     try:
         with open_url(url, timeout=10, method="POST",
@@ -175,7 +186,9 @@ def receive_heartbeat(data):
     try:
         row = EcosystemSite.query.filter_by(site_key=key).first()
         if row:
-            row.url = url or row.url
+            # 「不愿公开列出」= 匿名：连之前存过的 url 也一并清掉。
+            # 只留 `url or row.url` 会让人以为关掉了，旧地址其实还躺在表里。
+            row.url = url if is_listed else ""
             row.version = version or row.version
             row.listed = is_listed
             row.last_seen = now

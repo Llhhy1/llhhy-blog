@@ -778,8 +778,9 @@ def _start_scheduler(app):
                     # ---------- v4.7.5 生态统计心跳（每小时一次）----------
                     # 部署实例向「生态中心」报告自己还活着 —— 这是统计
                     # 「有多少个站点在用本系统」的唯一可靠来源（GitHub 只看得到 fork）。
-                    # ⚠️ **默认关闭**（设置项 ecosystem_opt_in），未开启时 report_heartbeat
-                    # 直接返回 False，什么都不发。失败一律静默，绝不影响发布主流程。
+                    # ⚠️ **默认开启**（设置项 ecosystem_opt_in），v4.7.6 起默认值改为开 ——
+                    # 不上报就永远统计不到使用量。取消勾选后 report_heartbeat 直接
+                    # 返回 False，什么都不发。失败一律静默，绝不影响发布主流程。
                     _h = now.hour
                     if _last_eco_hour[0] != _h:
                         _last_eco_hour[0] = _h

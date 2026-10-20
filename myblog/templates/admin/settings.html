@@ -198,19 +198,22 @@
     <label for="seo_block_bots">SEO：robots.txt 中屏蔽的坏 Bot（逗号分隔，如 AhrefsBot,MJ12Bot；留空=不屏蔽）</label>
     <input id="seo_block_bots" type="text" name="seo_block_bots" value="{{ settings.seo_block_bots or '' }}" placeholder="AhrefsBot,MJ12Bot">
 
-    <label style="margin-top:24px;font-size:15px;color:var(--accent);">🌐 v4.7.5 生态统计</label>
+    <label style="margin-top:24px;font-size:15px;color:var(--accent);">🌐 v4.7.6 生态统计</label>
     <p style="color:var(--muted,#888);font-size:13px;margin:4px 0 10px;">
-      让部署了本系统的站点<b>可选地</b>向「生态中心」发一次心跳（每小时一次），
-      用来统计「有多少个站点在用本系统」。<br>
+      本站点会向「生态中心」发一次心跳（<b>每小时一次</b>），用来统计
+      「有多少个站点在用本系统」。<br>
       ⚠️ 上报内容<b>仅限四项</b>：站点 URL、版本号、随机安装 ID、时间戳 ——
       <b>不含任何访客数据</b>、不含文章内容、不含账号信息。<br>
-      ⚠️ <b>默认关闭</b>。不开启就不会发出任何请求。中心地址必须是<b>公网</b>地址
-      （本机或内网会被拒绝）。心跳里的数据是<b>自报</b>的，站点可拒绝被公开展示。
+      ⚠️ <b>默认开启，下面两个开关可随时关闭。</b>
+      取消「参与生态统计」即<b>完全停止</b>任何上报；
+      取消「公开展示本站」则心跳<b>连 URL 都不带</b>（只计数，匿名）。
+      中心地址必须是<b>公网</b>地址（本机或内网会被拒绝）。
+      心跳里的数据是<b>自报</b>的，任何人都能伪造，因此前台会如实标注。
     </p>
-    <label><input type="checkbox" name="ecosystem_opt_in" {{ 'checked' if settings.ecosystem_opt_in == 'true' }}> 参与生态统计（默认关闭）</label>
-    <label for="ecosystem_center">生态中心地址（留空 = 不上报）</label>
-    <input id="ecosystem_center" type="text" name="ecosystem_center" value="{{ settings.ecosystem_center or '' }}" placeholder="https://example.com">
-    <label><input type="checkbox" name="ecosystem_listed" {{ 'checked' if settings.ecosystem_listed != 'false' }}> 在中心的站点列表里公开展示本站（关闭则只计数、不展示）</label>
+    <label><input type="checkbox" name="ecosystem_opt_in" {{ 'checked' if settings.ecosystem_opt_in != 'false' }}> 参与生态统计（默认开启，取消勾选即完全停止上报）</label>
+    <label for="ecosystem_center">生态中心地址（留空 = 用官方中心 {{ default_center }}）</label>
+    <input id="ecosystem_center" type="text" name="ecosystem_center" value="{{ settings.ecosystem_center or '' }}" placeholder="{{ default_center }}">
+    <label><input type="checkbox" name="ecosystem_listed" {{ 'checked' if settings.ecosystem_listed != 'false' }}> 在中心的站点列表里公开展示本站（取消则改为匿名：心跳不带 URL，只计数）</label>
 
     <button type="submit" class="btn">保存设置</button>
   </form>

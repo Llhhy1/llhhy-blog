@@ -133,7 +133,7 @@ def settings():
                 from outbound import safe_public_url
                 raw = (request.form.get(f, "") or "").strip().rstrip("/")
                 if not raw:
-                    val = ""            # 留空 = 不上报，合法
+                    val = ""            # 留空 = 回退内置默认中心（见 ecosystem.DEFAULT_CENTER）
                 elif not raw.lower().startswith(("http://", "https://")):
                     flash("生态中心地址必须以 http:// 或 https:// 开头，已保留原值。", "error")
                     continue
@@ -163,8 +163,8 @@ def settings():
             cer.value = cer_val
         else:
             db.session.add(Setting(key="comment_email_required", value=cer_val))
-        # v4.7.5 生态统计：参与开关（**默认关闭**）+ 是否公开展示我的站点
-        for cb, dv in (("ecosystem_opt_in", "false"), ("ecosystem_listed", "true")):
+        # v4.7.6 生态统计：参与开关（**默认开启**，取消勾选即停止上报）+ 是否公开展示
+        for cb, dv in (("ecosystem_opt_in", "true"), ("ecosystem_listed", "true")):
             row = Setting.query.filter_by(key=cb).first()
             val = "true" if request.form.get(cb) else dv
             if row:
@@ -190,7 +190,10 @@ def settings():
     settings = {s.key: s.value for s in Setting.query.all()}
     # site_base_now：**实际生效**的对外地址（DB site_url → 环境变量 SITE_URL → 空），
     # 让页面能直接显示"当前是什么"，而不是只回显输入框里那个值。
-    return render_template("admin/settings.html", settings=settings, site_base_now=site_base())
+    import ecosystem
+    return render_template("admin/settings.html", settings=settings,
+                           site_base_now=site_base(),
+                           default_center=ecosystem.DEFAULT_CENTER)
 
 @admin_bp.route("/api/slug-preview", methods=["GET"])
 @admin_required

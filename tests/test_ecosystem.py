@@ -3,12 +3,13 @@
 这个功能能成立的前提是**信任边界**，所以测试的重点不是「能不能收到心跳」，
 而是「不该收的收下、该关的关着」：
 
-1. **默认关闭**：不主动开启就一个请求都不发（未经告知的遥测会毁掉信任）。
+1. **默认开启、可关闭**：v4.7.6 起默认值改为「开」（不上报就永远统计不到），
+   但取消勾选必须**真的一个请求都不发** —— 这是这个功能能被接受的前提。
 2. **上报内容受限**：只认 site_key / url / version / listed 四项，
    坏格式一律拒收。
 3. **中心地址必须公网**：否则这个设置会变成「让服务器请求任意地址」的后门。
 4. **去重**：同一站点多次心跳只算一个（site_key 唯一）。
-5. **不公开列出**：作者可以只计数、不被展示。
+5. **不公开列出 = 匿名**：心跳**不带 url**，且中心端要把已存的 url 清掉。
 6. **在线数是近似值**：接口必须如实标 `approx`，不能装作精确值。
 """
 import secrets
@@ -47,28 +48,35 @@ def _clean(app):
         db.session.commit()
 
 
-# ---------- 客户端：默认关闭 ----------
+# ---------- 客户端：默认开启、可关闭 ----------
 
 
-def test_默认不参与(app):
-    """**默认关闭** —— 这是这个功能能被接受的前提。"""
+def test_默认参与(app):
+    """v4.7.6：**默认开启** —— 不上报就永远统计不到使用量。"""
     with app.app_context():
         _wipe()
-        assert ecosystem.opt_in() is False
+        assert ecosystem.opt_in() is True
 
 
-def test_未开启时不上报(app):
+def test_取消参与后不上报(app, monkeypatch):
+    """勾选框是**真的开关**：取消后必须一个请求都不发。"""
+    import outbound
+    sent = []
+    monkeypatch.setattr(outbound, "open_url", lambda *a, **k: sent.append(a))
     with app.app_context():
         _wipe()
+        _set("ecosystem_opt_in", "false")
         _set("ecosystem_center", "https://example.com")
-        assert ecosystem.report_heartbeat() is False, "未开启却发出了请求"
+        assert ecosystem.report_heartbeat() is False, "已取消参与却发出了请求"
+    assert sent == [], "取消参与后不应产生任何出站请求"
 
 
-def test_没有中心地址时不上报(app):
+def test_没有中心地址时回退默认中心(app):
+    """「默认开启」要生效，就必须有默认中心 —— 否则 opt-in 开着也发不出去。"""
     with app.app_context():
         _wipe()
-        _set("ecosystem_opt_in", "true")
-        assert ecosystem.report_heartbeat() is False
+        assert ecosystem.center_url() == ecosystem.DEFAULT_CENTER
+        assert ecosystem.DEFAULT_CENTER.startswith("https://")
 
 
 def test_中心地址为内网时不上报(app):
@@ -78,6 +86,79 @@ def test_中心地址为内网时不上报(app):
         _set("ecosystem_opt_in", "true")
         _set("ecosystem_center", "http://127.0.0.1:8080")
         assert ecosystem.report_heartbeat() is False
+
+
+# ---------- 客户端：url 只在愿意公开时才带 ----------
+
+
+def _capture(monkeypatch):
+    """把出站请求接住，返回 (记录列表,)。避免测试依赖真实网络。"""
+    import outbound
+    sent = []
+
+    class _Resp:
+        status = 200
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+    def _fake(url, **kw):
+        sent.append((url, kw))
+        return _Resp()
+
+    monkeypatch.setattr(outbound, "open_url", _fake)
+    # 默认中心是真实域名，测试环境不保证能解析 —— 校验本身另有测试覆盖
+    monkeypatch.setattr(outbound, "safe_public_url", lambda u: True)
+    return sent
+
+
+def _payload(sent):
+    import json
+    assert len(sent) == 1, "应恰好发出一次心跳"
+    return json.loads(sent[0][1]["data"].decode("utf-8"))
+
+
+def test_默认公开时心跳带_url(app, monkeypatch):
+    sent = _capture(monkeypatch)
+    monkeypatch.setattr(ecosystem, "own_site_url", lambda: "https://mine.example.com")
+    with app.app_context():
+        _wipe()
+        assert ecosystem.report_heartbeat() is True
+    p = _payload(sent)
+    assert p["url"] == "https://mine.example.com"
+    assert p["listed"] is True
+
+
+def test_不愿公开时心跳不带_url(app, monkeypatch):
+    """「不公开列出」= 匿名：URL 对个人博客就是身份，这时连发都不该发。"""
+    sent = _capture(monkeypatch)
+    monkeypatch.setattr(ecosystem, "own_site_url", lambda: "https://mine.example.com")
+    with app.app_context():
+        _wipe()
+        _set("ecosystem_listed", "false")
+        assert ecosystem.report_heartbeat() is True
+    p = _payload(sent)
+    assert p["url"] == "", "不愿公开却仍然上报了 url"
+    assert p["listed"] is False
+    assert p["site_key"], "仍然要发 site_key（否则中心端无法去重）"
+
+
+def test_关闭公开展示后中心端清空_url(app):
+    """遗忘：只留 `url or 旧值` 会让人以为关掉了，旧地址其实还躺着。"""
+    from models import EcosystemSite
+    with app.app_context():
+        _wipe()
+        d = _hb(url="https://was-public.example.com", listed=True)
+        ecosystem.receive_heartbeat(d)
+        row = EcosystemSite.query.filter_by(site_key=d["site_key"]).first()
+        assert row.url == "https://was-public.example.com"
+        ecosystem.receive_heartbeat(_hb(site_key=d["site_key"], url="", listed=False))
+        row = EcosystemSite.query.filter_by(site_key=d["site_key"]).first()
+        assert row.url == "", "关闭公开展示后，中心端应把 url 清掉"
+        assert row.listed is False
 
 
 # ---------- 客户端：site_key 稳定且随机 ----------
@@ -243,9 +324,12 @@ def test_设置页含生态统计配置区():
     assert 'name="ecosystem_opt_in"' in src, "缺少「参与生态统计」开关"
     assert 'name="ecosystem_center"' in src, "缺少生态中心地址输入"
     assert 'name="ecosystem_listed"' in src, "缺少「是否公开展示」开关"
-    # 开关必须写明「默认关闭」与「不含访客数据」
-    assert "默认关闭" in src
+    # 开关必须写明「默认开启且可关闭」与「不含访客数据」
+    assert "默认开启" in src, "设置页必须如实写明默认是开的"
+    assert "可随时关闭" in src
     assert "不含任何访客数据" in src
+    # 匿名路径必须写清楚：取消公开展示 = 心跳不带 URL
+    assert "匿名" in src
 
 
 def test_中心地址保存时校验为公网():

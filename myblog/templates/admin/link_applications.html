@@ -13,7 +13,9 @@
     <tbody>
       {% for a in rows %}
         <tr>
-          <td data-label="站点名">{{ a.name }}</td>
+          <td data-label="站点名">{{ a.name }}
+            {%- if a.uses_llhhy %} <span class="tag" title="申请人自述在用 llhhy-blog，通过后会进入前台「谁在用」">🛠 在用</span>{% endif %}
+          </td>
           <td data-label="链接"><a href="{{ a.url }}" target="_blank" rel="noopener">{{ a.url }}</a></td>
           <td data-label="描述">{{ a.description or '—' }}</td>
           <td data-label="申请人">{{ a.email or '—' }}<br><span class="muted">{{ a.applicant_ip or '' }}</span></td>

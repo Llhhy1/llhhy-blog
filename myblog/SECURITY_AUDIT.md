@@ -1954,3 +1954,81 @@ v4.7.1 把壁纸白字规则从 `nav a` 收窄为 `nav > a`（避免误染下拉
 - 全量 pytest 与 `ruff check .` 见 PR 正文；
 - 真机回路实测：本地起 HTTP 源，`open_public()` 取回正文成功、302 源返回
   `HTTPError 302`（不跟随），回环源在未放行时抛 `UnsafeURLError`。
+
+---
+
+## 133. v4.8.0 在线人数 +「谁在用 llhhy-blog」：口径与不做的事
+
+**范围**：`stats.py`、`api/stats.py`、`api/site.py`、`api/mobile.py`、`admin/_helpers.py`、
+`admin/friends.py`、`adopter_stats.py`（新）、迁移 `c9f2a6d18e40`、
+`templates/admin/links.html`、`templates/admin/link_applications.html`、
+`StatsView.vue`、`LinksView.vue`、`tests/test_online_and_adopters_v480.py`。
+
+### 133.1 这个需求本身有一半是**做不到的**，先写清楚
+
+「有多少人拿去部署」在服务端不可观测：开源部署跑在各自的服务器上，本站看不见。
+可选的三条路各有天花板：
+
+| 路子 | 能拿到什么 | 为什么不能当「部署数」 |
+|---|---|---|
+| 主动上报 / 遥测 | 未删上报代码的实例 | fork 会删；且要给开源程序埋遥测就得明示字段 + 提供关闭开关，口碑与合规成本都落在维护者身上 |
+| GitHub 指标 | star / fork / clone / Release 下载 | 量的是「被拿走」，且**本站自己的在线更新也在下载 Release 包**，数字被自己放大 |
+| 外部指纹搜索（FOFA/Shodan/dork） | 一份真实公开实例样本 | 一次性人工活，无法实时，也不能自动展示 |
+
+结论：**不做「在线实例数 N」这种看着精确、站不住的数字**。改为
+「使用者自愿登记 + 审核」的展示，外加一行标注口径的 GitHub 客观数。
+
+### 133.2 匿名接口的两条硬约束（本项目反复踩过的面）
+
+1. **`/api/adopters` 不出网**。GitHub 指标只在后台点「刷新 GitHub 指标」时取一次，
+   写进 `Setting.llhhy_repo_stats`；前台接口只读缓存。
+   反面教材是 v3.19.0 的 `/api/seo/shell-check`：匿名接口自带多次自请求 → 小 VPS
+   （4 worker × 2 线程 = 8 槽）上的放大入口。
+   出网那段（`adopter_stats.py`）走 `outbound.open_public()`，与 §132 同一条链路。
+2. **`/api/stats/online` 必须有缓存**。前台每个访客都会刷，服务端不加缓存就等于
+   「访客数 ≈ 聚合查询数」。实现是进程内 20 秒 TTL + 60 次/分钟限流；
+   多 worker 各持一份缓存，误差在这个口径下可接受。
+   响应只回聚合整数（`online` / `today_pv` / `today_uv`），**不含任何单条访客数据**，
+   并有测试专门断言响应体里搜不到 IP 字样。
+
+### 133.3 「在线」这个词的诚实程度
+
+`compute_online()`（§132 之前就存在，只是从没在前台暴露过）算的是
+「最近 10 分钟内出现过访问的非爬虫独立 IP 数」。SPA 没有会话心跳，
+关页面不会被立刻感知，所以：
+
+- 后端响应固定带 `approx: true` 与 `window_min`；
+- 前端写成「在线≈」并带 title 说明，而不是「当前在线 N 人」；
+- 取不到数据时整块隐藏 —— **显示一个假的 0 比不显示更糟**。
+
+要真做「此刻在线」需要前端心跳（`visibilitychange` + 30–60 秒 ping）或会话表，
+本版刻意没做：那是另一个量级的改动（新表 + 新埋点 + 新的放大面）。
+
+### 133.4 一个容易写错的细节：复选框「没提交」≠「取消勾选」
+
+HTML 复选框未勾选时**压根不出现在 form 里**。若 `save_friend_link_core` 照单取值，
+移动端那种「只传改动字段」的编辑会把已有的登记标记静默清成 `False`。
+做法：后台表单多带一个 `uses_llhhy_form` 隐藏位，服务端只在
+「带了 `uses_llhhy` 或带了 `uses_llhhy_form`」时才写字段。
+`test_save_core_keeps_flag_when_field_absent` 三条分支都有断言（未带=不动 / 明确取消=写假 / 明确勾选=写真）。
+
+同理，审核重复申请时**只补标记不撤销**标记（`test_approve_duplicate_does_not_unmark_existing`）。
+
+### 133.5 迁移的两个场景都实测过
+
+`ix_visit_log_created_at` 的名字**必须**与 SQLAlchemy `index=True` 自动生成的名字一致 ——
+第一版写成 `ix_visit_log_created`，幂等检查按名字判断，全新库就会留下两个同列索引。
+修正后实测：
+
+- **B2**：`create_all` 建好新列新索引 → `stamp b8e4f1a72c93` → `flask db upgrade`：
+  全部跳过、不报错，head 前进到 `c9f2a6d18e40`，`created_at` 上只有一个索引；
+- **B3**：手工删掉两列与索引模拟老库 → `upgrade`：补齐列、建索引，head 正确。
+
+`uses_llhhy` 用 `server_default=false` + `nullable=False`，存量友链不会被 NULL 行的
+布尔判断坑到，也不会凭空进入「谁在用」。
+
+### 133.6 权限面
+
+- 公开：`/api/stats/online`、`/api/adopters`（只读聚合）、`POST /api/link-apply`（限流 10 次/天/IP，沿用既有审核队列，前台不直写 `FriendLink`）。
+- 管理员：`/admin/links/adopter-stats/refresh`（唯一会出网拉 GitHub 的运营动作，`@admin_required` + CSRF + 写审计日志）。
+- 后台表单编辑与移动端管理接口共用 `save_friend_link_core`，标记字段两侧口径一致。

@@ -637,6 +637,12 @@ def save_friend_link_core(link, form):
     link.description = (form.get("description") or "").strip()[:200]
     link.sort = sort
     link.rss_url = rss
+    # v4.8.0「谁在用 llhhy-blog」标记。
+    # ⚠️ 只在表单**明确带了这个字段**时才写：HTML 复选框未勾选时压根不会提交，
+    # 若照单取值，移动端那种「只传改动字段」的编辑会把已有的登记标记清成 False。
+    # 后台表单因此多带一个 `uses_llhhy_form` 隐藏位（见 admin/links.html）。
+    if "uses_llhhy_form" in form or "uses_llhhy" in form:
+        link.uses_llhhy = str(form.get("uses_llhhy") or "").strip().lower() in ("1", "true", "on", "yes")
     db.session.commit()
     note = ""
     if rss:

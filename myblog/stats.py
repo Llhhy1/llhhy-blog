@@ -674,6 +674,44 @@ def compute_online(minutes=10):
         return 0
 
 
+# ---------- v4.8.0：给前台用的在线快照 ----------
+# 为什么不复用 `/api/stats/summary`：那个接口一次要跑十余个聚合
+# （referrers / online / period_compare / bot_breakdown…），让前台每 60 秒
+# 刷一次等于给小 VPS（4 worker × 2 线程 = 8 槽）一个高放大倍数的入口。
+# 本快照只跑 3 条轻查询，且**进程内缓存**，多 worker 各自一份、误差可接受。
+ONLINE_WINDOW_MIN = 10       # 「在线」定义：最近 N 分钟内有访问记录
+ONLINE_REFRESH_SEC = 20      # 快照重算间隔；前台再怎么刷也不会更密
+_ONLINE_SNAPSHOT = {"ts": 0.0, "data": None}
+
+
+def online_snapshot(force=False):
+    """在线快照（近似值）。只回聚合数字，**绝不**回单条访客/IP/路径。
+
+    `force=True` 跳过缓存 —— 给测试与后台自查用，前台接口不该传。
+    """
+    now = time.time()
+    data = _ONLINE_SNAPSHOT["data"]
+    if data is not None and not force and (now - _ONLINE_SNAPSHOT["ts"]) < ONLINE_REFRESH_SEC:
+        return dict(data)
+    today = today_str()
+    online = compute_online(minutes=ONLINE_WINDOW_MIN)
+    try:
+        today_pv = VisitLog.query.filter_by(date=today, is_bot=False).count()
+    except Exception:  # noqa: BLE001  (取不到就报 0，不该让整块快照失败)
+        today_pv = 0
+    try:
+        today_uv = (db.session.query(db.func.count(db.func.distinct(VisitLog.ip)))
+                    .filter(VisitLog.date == today, VisitLog.is_bot.is_(False)).scalar()) or 0
+    except Exception:  # noqa: BLE001
+        today_uv = 0
+    data = {"online": int(online), "window_min": ONLINE_WINDOW_MIN,
+            "today_pv": int(today_pv), "today_uv": int(today_uv),
+            "updated_at": fmt_bj(utcnow(), "%H:%M:%S")}
+    _ONLINE_SNAPSHOT["ts"] = now
+    _ONLINE_SNAPSHOT["data"] = dict(data)
+    return data
+
+
 def compute_period_compare(days=7):
     """本期 vs 上一期**环比**（PV / UV / 评论 / 订阅）。
 

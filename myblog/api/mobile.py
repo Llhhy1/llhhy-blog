@@ -235,6 +235,8 @@ def _link_application_json(a):
         "description": a.description or "", "email": a.email or "",
         "status": a.status or "pending", "reviewer": a.reviewer or "",
         "review_note": a.review_note or "",
+        # v4.8.0：申请人是否自述「在用 llhhy-blog」（通过时写入 FriendLink）
+        "uses_llhhy": bool(a.uses_llhhy),
         "created_at": _iso(a.created_at), "reviewed_at": _iso(a.reviewed_at),
     }
 
@@ -945,9 +947,14 @@ def mobile_link_approve(aid):
         return jsonify({"error": "申请不存在"}), 404
     if row.status == "approved":
         return jsonify({"ok": True, "message": "该申请已通过"})
-    if not FriendLink.query.filter_by(url=row.url).first():
+    existing = FriendLink.query.filter_by(url=row.url).first()
+    if not existing:
         db.session.add(FriendLink(name=row.name, url=row.url,
-                                  description=row.description or "", sort=99))
+                                  description=row.description or "", sort=99,
+                                  uses_llhhy=bool(row.uses_llhhy)))
+    elif row.uses_llhhy and not existing.uses_llhhy:
+        # 与后台审核同口径：带「在用」标记就补上，不撤销已有标记
+        existing.uses_llhhy = True
     row.status = "approved"
     row.reviewer = user.username
     row.reviewed_at = utcnow()
@@ -1661,6 +1668,8 @@ def _friend_link_json(f):
     return {
         "id": f.id, "name": f.name, "url": f.url, "description": f.description or "",
         "sort": f.sort or 0, "rss_url": f.rss_url or "",
+        # v4.8.0：移动端管理界面据此显示/切换「谁在用 llhhy-blog」登记标记
+        "uses_llhhy": bool(f.uses_llhhy),
     }
 
 

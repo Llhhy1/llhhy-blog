@@ -1,11 +1,13 @@
 """
 """
 
+import json
 import re as _re
 from flask import request, jsonify, current_app
 
 from .common import (api_bp, db, Post, Category, Tag, Comment, FriendLink, Setting, LinkApplication, Announcement, visible_posts_query, _settings_map, clean_html, render_markdown, rate_limit, client_key)
 from themes import current_theme
+from adopter_stats import REPO_STATS_KEY
 # v4.5.0 首页壁纸。单向依赖（theme 不引用 site），不构成包级循环。
 from .theme import _wallpaper
 import stats  # myblog/stats.py：client_ip（友链申请归属地）
@@ -150,6 +152,36 @@ def links():
     ])
 
 
+@api_bp.route("/adopters")
+def adopters():
+    """v4.8.0「谁在用 llhhy-blog」：自愿登记的使用者站点 + GitHub 客观指标。
+
+    ⚠️ 口径先说清，因为这个数字很容易被读错：本项目**无法**知道有多少人拿去
+    部署了。开源部署跑在别人服务器上，对本端完全不可见；也刻意**没有**做主动
+    上报/遥测（fork 会直接删掉，而且给开源项目埋遥测的口碑与合规成本都很大）。
+    所以这里只给两类**确实拿得到**的数据：
+      · `sites`：友链中被标记「在用 llhhy-blog」的站点 —— 使用者自己申请、
+        管理员审核后才出现，是「已知公开实例」的样本而非全集；
+      · `repo`：GitHub 的 stars / forks / Release 下载数。**仅在后台点「刷新」时
+        取一次并缓存进 Setting，本接口不出网** —— 匿名接口触发外呼等于给小 VPS
+        一个放大入口（v3.19.0 的 `/api/seo/shell-check` 就是这个教训）。
+    `self_reported=True` 让前端有稳定依据挂「自愿登记」标注，而不是显示成精确数。
+    """
+    if not rate_limit(client_key("api_adopters"), limit=30, window=60):
+        return jsonify({"error": "too_many_requests"}), 429
+    sites = [{"name": l.name, "url": l.url, "description": l.description or ""}
+             for l in FriendLink.query.filter_by(uses_llhhy=True)
+             .order_by(FriendLink.sort).all()]
+    repo = None
+    row = Setting.query.filter_by(key=REPO_STATS_KEY).first()
+    if row and row.value:
+        try:
+            repo = json.loads(row.value)
+        except ValueError:
+            current_app.logger.warning("llhhy_repo_stats 缓存不是合法 JSON，已忽略")
+    return jsonify({"sites": sites, "repo": repo, "self_reported": True})
+
+
 @api_bp.route("/link-apply", methods=["POST"])
 def link_apply():
     """友情链接自助申请（v3.0.0 功能6）。
@@ -175,8 +207,12 @@ def link_apply():
     if dup:
         return jsonify({"ok": True, "message": "该链接已在审核队列中，请耐心等待"}), 201
     ip = stats.client_ip()
+    # v4.8.0：申请时可选勾选「我也在用 llhhy-blog」→ 审核通过后进入前台「谁在用」列表。
+    # 只有自愿 + 经审核的登记，没有主动上报：拿不到真实部署数就不假装拿得到。
+    uses = str(data.get("uses_llhhy") or "").strip().lower() in ("1", "true", "on", "yes")
     app_row = LinkApplication(name=name[:100], url=url[:300], description=description[:200],
-                              email=email[:160], status="pending", applicant_ip=ip)
+                              email=email[:160], status="pending", applicant_ip=ip,
+                              uses_llhhy=uses)
     db.session.add(app_row)
     db.session.commit()
     return jsonify({"ok": True, "message": "申请已提交，管理员审核通过后会展示在友情链接"}), 201

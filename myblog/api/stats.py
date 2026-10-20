@@ -172,3 +172,27 @@ def stats_trend():
         days = 30
     return jsonify({"trend": stats.compute_trend(days)})
 
+
+@api_bp.route("/stats/online")
+def stats_online():
+    """v4.8.0：在线人数（**近似值**）+ 今日 PV/UV。公开只读。
+
+    为什么单独开一个轻接口、而不是让前台刷 `/api/stats/summary`：
+    后者一次要跑十余个聚合，匿名可调 + 前台定时刷 = 给 8 并发槽的小 VPS
+    一个放大倍数很高的入口。本接口只跑 3 条轻查询，另有进程内 20 秒缓存，
+    访客刷得再勤，落到库上的也是每 20 秒一次。
+
+    口径刻意写在响应里（`approx` / `window_min`）：SPA 没有心跳，关页面不会被
+    感知，所以这是「最近 10 分钟内活跃过的独立 IP 数」，不是「此刻在线」。
+    """
+    if not rate_limit(client_key("api_stats_online"), limit=60, window=60):
+        return jsonify({"error": "too_many_requests"}), 429
+    try:
+        d = dict(stats.online_snapshot())
+        d["approx"] = True          # 前台据此挂「近似」角标，别被读成精确在线数
+        return jsonify(d)
+    except Exception:
+        # 与 /stats/dashboard 同一处理：异常详情只进日志，对外给不透明错误码
+        current_app.logger.exception("stats online 失败")
+        return jsonify({"error": "online_failed"}), 500
+

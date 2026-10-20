@@ -3,6 +3,26 @@
 {% block content %}
   <h1 class="page-title">友情链接管理</h1>
   <p class="hint">顺序由「排序」列决定（越小越靠前），也可用 ↑↓ 直接调；改动会立刻保存。</p>
+
+  {# v4.8.0「谁在用 llhhy-blog」面板的数据源。指标只有点这个按钮才出网取一次，
+     前台 /api/adopters 只读这里的缓存 —— 匿名接口不该触发外呼。 #}
+  <div class="adopter-stats">
+    <form method="post" action="{{ url_for('admin.refresh_adopter_stats') }}" class="inline-form">
+          {{ csrf_input() }}
+      <button type="submit" class="btn small">刷新 GitHub 指标</button>
+    </form>
+    {% if repo_stats %}
+      <p class="hint">
+        star {{ repo_stats.stars }} · fork {{ repo_stats.forks }} ·
+        Release 下载 {{ repo_stats.release_downloads }} ·
+        更新于 {{ repo_stats.refreshed_at }}。
+        ⚠️ 这些是「被拿走」的量级，<b>不是</b>已部署站点数 —— 开源部署对本服务端不可见。
+      </p>
+    {% else %}
+      <p class="hint">尚未取过 GitHub 指标；前台「谁在用」只显示已登记的站点。</p>
+    {% endif %}
+  </div>
+
   <form method="post" action="{{ url_for('admin.links') }}" class="link-form">
         {{ csrf_input() }}
     <input aria-label="名称" type="text" name="name" placeholder="名称" required>
@@ -10,6 +30,10 @@
     <input aria-label="描述" type="text" name="description" placeholder="描述（可选）">
     <input aria-label="RSS 地址" type="text" name="rss_url" placeholder="RSS 地址（可选，用于博客圈聚合）">
     <input aria-label="排序" type="number" name="sort" value="0" title="排序，越小越靠前">
+    {# `uses_llhhy_form` 是必需的：HTML 复选框未勾选时压根不提交，
+       服务端靠这个隐藏位区分「用户明确取消」与「客户端根本没带这个字段」。 #}
+    <input type="hidden" name="uses_llhhy_form" value="1">
+    <label class="qc-label" for="link-new-uses"><input type="checkbox" id="link-new-uses" name="uses_llhhy" value="1"> 在用 llhhy-blog</label>
     <button type="submit" class="btn">添加</button>
   </form>
   {# v4.4.0：整行顺序提交给 `admin.reorder_links`，hidden 由下面的脚本按当前 DOM 顺序回填。 #}
@@ -22,7 +46,9 @@
     <tbody id="link-tbody">
       {% for l in links %}
         <tr class="link-row" data-id="{{ l.id }}">
-          <td data-label="名称">{{ l.name }}</td>
+          <td data-label="名称">{{ l.name }}
+            {%- if l.uses_llhhy %} <span class="tag" title="已登记在用 llhhy-blog，会出现在前台「谁在用」列表">🛠 在用</span>{% endif %}
+          </td>
           <td data-label="链接"><a href="{{ l.url }}" target="_blank" rel="noopener">{{ l.url }}</a></td>
           <td data-label="描述">{{ l.description }}</td>
           <td data-label="RSS 地址">{{ l.rss_url or '' }}</td>
@@ -54,6 +80,9 @@
               <input type="text" id="link-rss-{{ l.id }}" name="rss_url" value="{{ l.rss_url or '' }}" placeholder="https://.../feed.xml">
               <label class="qc-label" for="link-sort-{{ l.id }}">排序</label>
               <input type="number" id="link-sort-{{ l.id }}" name="sort" value="{{ l.sort or 0 }}" title="越小越靠前">
+              <input type="hidden" name="uses_llhhy_form" value="1">
+              <label class="qc-label" for="link-uses-{{ l.id }}"><input type="checkbox" id="link-uses-{{ l.id }}" name="uses_llhhy" value="1"
+                     {% if l.uses_llhhy %}checked{% endif %}> 在用 llhhy-blog（登记进前台「谁在用」）</label>
               <button type="submit" class="btn small">保存</button>
             </form>
           </td>

@@ -27,6 +27,12 @@
         <router-link class="ov-cell" to="/links">
           <span class="ov-k">友链</span><span class="ov-v">{{ overview.links }}</span>
         </router-link>
+        <!-- v4.8.0 在线人数。取不到就整块不显示 —— 显示一个假的 0 比不显示更糟。 -->
+        <div class="ov-cell" v-if="online">
+          <span class="ov-k">在线<sup class="ov-approx" title="近似值：最近 N 分钟内有访问过的独立访客数（排除爬虫）。本项目没有会话心跳，关掉页面不会被立刻感知，所以这不是「此刻在线」的精确数。">≈</sup></span>
+          <span class="ov-v">{{ fmt(online.online) }}</span>
+          <span class="ov-s">近 {{ online.window_min }} 分钟 · 今日访客 {{ fmt(online.today_uv) }}</span>
+        </div>
         <div class="ov-cell ov-since" v-if="overview.since">
           <span class="ov-k">开站</span><span class="ov-v">{{ overview.since }}</span>
           <span class="ov-s" v-if="runningDays">已运行 {{ humanSince(runningDays) }}（{{ fmt(runningDays) }} 天）</span>
@@ -262,7 +268,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import { apiGet } from "../lib/api.js";
 import { state } from "../store.js";
 
@@ -468,10 +474,37 @@ async function loadAnnual(year) {
 const maxMonth = computed(() => Math.max(1, ...((annual.value && annual.value.months) || [0])));
 const annualYears = computed(() => ((annual.value && annual.value.years) || []).slice().sort((a, b) => b - a));
 
+// ---------- v4.8.0 在线人数（近似值）----------
+// 口径由后端给出（`window_min` / `approx`），前端只负责照实标注：
+// 本项目没有会话心跳，「最近 N 分钟活跃过的独立访客」≠「此刻在线」。
+const online = ref(null);
+let onlineTimer = null;
+async function loadOnline() {
+  try {
+    online.value = await apiGet("/api/stats/online");
+  } catch (e) {
+    online.value = null;          // 失败就整块隐藏，不显示假的 0
+  }
+}
+function onVisibility() {
+  if (!document.hidden) loadOnline();
+}
+
 onMounted(() => {
   load();
   // v4.7.0：年度回顾与驾驶舱并发拉，互不阻塞
   loadAnnual(0);
+  // v4.8.0：在线人数（近似）。服务端已有 20 秒缓存，这里 60 秒一刷足够；
+  // 且**只在标签页可见时刷** —— 挂着不看的页面不该继续打接口。
+  loadOnline();
+  onlineTimer = setInterval(() => { if (!document.hidden) loadOnline(); }, 60000);
+  document.addEventListener("visibilitychange", onVisibility);
+});
+
+onBeforeUnmount(() => {
+  if (onlineTimer) clearInterval(onlineTimer);
+  onlineTimer = null;
+  document.removeEventListener("visibilitychange", onVisibility);
 });
 </script>
 

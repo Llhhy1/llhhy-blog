@@ -595,7 +595,24 @@ sha256sum /tmp/og.png /www/wwwroot/你的站点根/og-default.png
 1. **备份（最重要）**：到「文件」下载留底：
    - `/www/wwwroot/myblog/data/blog.db`（全部数据）
    - `/www/wwwroot/myblog/static/uploads/`（上传的图片）
-1.1. **升级要点**（其余步骤与通用流程一致；适用于 v4.0.0 → v4.7.3）：
+1.1. **升级要点**（其余步骤与通用流程一致；适用于 v4.0.0 → v4.8.0）：
+   - **v4.8.0（在线人数 + 「谁在用 llhhy-blog」自愿登记）**：
+     - ⚠️ **本版有迁移**：head 由 `b8e4f1a72c93` 变为 **`c9f2a6d18e40`**
+       （`visit_log.created_at` 索引 + `friend_link.uses_llhhy` /
+       `link_application.uses_llhhy` 两列）。迁移是**幂等**的：全新库 `create_all`
+       已建好时会被跳过，老库缺什么补什么；两种场景都已实测。
+       升级后用 `flask db current` 核对，**不要 `stamp head`**。
+     - **必须重新构建前端**（改了 `StatsView.vue` / `LinksView.vue`）；
+     - 新增两个公开只读接口：`/api/stats/online`（在线人数**近似值**，
+       进程内 20 秒缓存 + 60 次/分钟限流）与 `/api/adopters`
+       （已登记站点 + GitHub 指标缓存）。
+       ⚠️ `/api/adopters` **不出网**：仓库指标只在后台「友链管理 → 刷新 GitHub 指标」
+       时取一次并写进 `Setting.llhhy_repo_stats`。刚升级完该缓存为空，
+       前台只会少一行「仓库客观数据」，**不会**显示 0 之类的假数据；需要点一次刷新。
+     - 现象：统计页「站点概览」多一格「在线≈」；友链页多一块「谁在用 llhhy-blog」。
+     - 老数据兼容：`uses_llhhy` 默认 `False`（`server_default=false`），
+       存量友链不会凭空出现在「谁在用」里。
+
    - **v4.7.3（全量审计代码批次 · PR #24）**：
      - ⚠️ **本版有迁移**：head 由 `a7e3c92d5b18` 变为 **`b8e4f1a72c93`**
        （两个幂等索引：`ix_post_visibility_created` / `ix_comment_post_approved`）。
@@ -758,7 +775,7 @@ sha256sum /tmp/og.png /www/wwwroot/你的站点根/og-default.png
 5. **重启后端（关键）**：宝塔「网站 → Python项目」→ 该项目 → **先点「停止」，再点「启动」**。
    - ⚠️ 只点「重启」可能只是重载配置，gunicorn 旧进程没退出，页面还是旧版；
    - 可用 `ps -ef | grep gunicorn` 看进程启动时间，确认是新进程；
-   - 若需核对迁移基线：先执行 `flask db current`，再按上方第 4 步的分支处理（空版本 / 旧基线都直接 `flask db upgrade`）。**绝对不要 `flask db stamp head`** —— 它会把版本号直接写成当前 head，跳过待执行的列/索引变更，形成「版本号已升级、表结构没变」的假升级。当前 head 以 `flask db heads` 为准（v4.7.3 起为 `b8e4f1a72c93`）。
+   - 若需核对迁移基线：先执行 `flask db current`，再按上方第 4 步的分支处理（空版本 / 旧基线都直接 `flask db upgrade`）。**绝对不要 `flask db stamp head`** —— 它会把版本号直接写成当前 head，跳过待执行的列/索引变更，形成「版本号已升级、表结构没变」的假升级。当前 head 以 `flask db heads` 为准（v4.8.0 起为 `c9f2a6d18e40`）。
 6. **覆盖前端**：上传新版 `vue-frontend-dist.zip` 到 `/www/wwwroot/vue-frontend/` → 解压覆盖 `index.html` + `assets/`（**无需重启后端**）。
 7. **验证**：浏览器**无痕窗口**打开（避免缓存）：
    - 后台左下角显示 `vX.Y.Z`，与 [GitHub Releases](https://github.com/Llhhy1/llhhy-blog/releases) 最新标签一致 → 后端升级成功；

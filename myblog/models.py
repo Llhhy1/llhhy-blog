@@ -149,6 +149,9 @@ class FriendLink(db.Model):
     description = db.Column(db.String(200))
     sort = db.Column(db.Integer, default=0)  # 排序，越小越靠前
     rss_url = db.Column(db.String(300), default="")  # 该友链站点的 RSS 地址（留空则不参与「博客圈」聚合）
+    # v4.8.0：使用者**自愿登记**「本站由 llhhy-blog 搭建」，前台「谁在用」列表据此展示。
+    # 刻意不做主动上报/遥测：开源部署对你的服务端不可见，拿不到真实实例数就不假装拿得到。
+    uses_llhhy = db.Column(db.Boolean, default=False, nullable=False)
 
 
 class Setting(db.Model):
@@ -167,7 +170,8 @@ class VisitLog(db.Model):
     region = db.Column(db.String(64), default="")  # 属地（如 浙江·杭州），后台线程异步解析回填
     path = db.Column(db.String(255), default="")
     post_id = db.Column(db.Integer, default=None)  # 若访问的是文章页，记录文章 id
-    created_at = db.Column(db.DateTime, default=utcnow)
+    # v4.8.0：`/api/stats/online` 按 created_at 做「最近 N 分钟」窗口扫描，此前无索引 → 全表扫
+    created_at = db.Column(db.DateTime, default=utcnow, index=True)
     is_bot = db.Column(db.Boolean, default=False, index=True)   # 是否爬虫/Bot（v3.7.1）
     bot_name = db.Column(db.String(60), default="")             # 具体爬虫名（Googlebot 等，v3.7.1）
     bot_category = db.Column(db.String(20), default="")         # search/ai/tool/unknown（v3.7.1）
@@ -411,6 +415,8 @@ class LinkApplication(db.Model):
     url = db.Column(db.String(300), nullable=False)
     description = db.Column(db.String(200), default="")
     email = db.Column(db.String(160), default="")       # 申请人联系邮箱（可选）
+    # v4.8.0：申请时勾选「我也在用 llhhy-blog」；审核通过一并写入 FriendLink.uses_llhhy
+    uses_llhhy = db.Column(db.Boolean, default=False, nullable=False)
     status = db.Column(db.String(16), default="pending") # pending（待审）/ approved（通过）/ rejected（拒绝）
     applicant_ip = db.Column(db.String(64), default="")
     reviewer = db.Column(db.String(40), default="")      # 审核人用户名

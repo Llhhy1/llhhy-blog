@@ -5,6 +5,7 @@ from ._helpers import (_current_user_or_none, admin_required, log_audit, reorder
 from flask import flash, redirect, render_template, request, url_for
 from models import FriendLink, LinkApplication, db
 from _time import utcnow
+import adopter_stats
 
 @admin_bp.route("/links", methods=["GET", "POST"])
 @admin_required
@@ -22,7 +23,8 @@ def links():
                       user=_current_user_or_none())
         return redirect(url_for("admin.links"))
     links = FriendLink.query.order_by(FriendLink.sort).all()
-    return render_template("admin/links.html", links=links)
+    return render_template("admin/links.html", links=links,
+                           repo_stats=adopter_stats.cached_stats())
 
 @admin_bp.route("/link/<int:lid>/update", methods=["POST"])
 @admin_required
@@ -84,6 +86,21 @@ def delete_link(lid):
     flash("友链已删除")
     return redirect(url_for("admin.links"))
 
+@admin_bp.route("/links/adopter-stats/refresh", methods=["POST"])
+@admin_required
+def refresh_adopter_stats():
+    """刷新「谁在用」面板里的 GitHub 客观指标（stars / forks / Release 下载数）。
+
+    为什么是个手动按钮而不是自动定时：这是本仓库**唯一**会主动出网拉 GitHub 的
+    运营动作，放在管理员显式操作上，`/api/adopters` 才能只读缓存不出网
+    （匿名接口触发出站 = 放大入口，见 v3.19.0 的 shell-check 教训）。
+    """
+    ok, msg = adopter_stats.refresh()
+    flash(msg)
+    log_audit("refresh", "adopter_stats", None, msg, user=_current_user_or_none())
+    return redirect(url_for("admin.links"))
+
+
 @admin_bp.route("/link-applications")
 @admin_required
 def link_applications():
@@ -108,7 +125,11 @@ def approve_link_application(aid):
         if not existing:
             db.session.add(FriendLink(name=app_row.name, url=app_row.url,
                                       description=app_row.description or "",
-                                      sort=99))
+                                      sort=99, uses_llhhy=bool(app_row.uses_llhhy)))
+        elif app_row.uses_llhhy and not existing.uses_llhhy:
+            # 同 URL 早就在友链里：申请带了「在用」标记就补上。
+            # 反过来**不撤销**已有标记 —— 一次重复申请不该把登记抹掉。
+            existing.uses_llhhy = True
         app_row.status = "approved"
         app_row.reviewer = (_current_user_or_none().username if _current_user_or_none() else "")
         app_row.reviewed_at = utcnow()

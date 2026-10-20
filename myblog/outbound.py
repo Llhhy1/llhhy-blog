@@ -158,4 +158,7 @@ def open_public(url, timeout=10, headers=None, data=None):
         _PinnedHTTPHandler(pin_ip),
         _PinnedHTTPSHandler(pin_ip),
     )
-    return opener.open(req, timeout=timeout)
+    # 抑制说明（CodeQL 认不出这里的自定义净化器）：上一行 resolve_public() 已按
+    # 「http/https + 无凭据 + 全部解析结果均为公网」判定，并把**这次解析得到的 IP**
+    # 交给下面的连接类 —— 不存在第二次解析（重绑定窗口），3xx 不跟随、环境代理禁用。
+    return opener.open(req, timeout=timeout)  # codeql[py/full-ssrf] 地址已校验并固定到公网 IP

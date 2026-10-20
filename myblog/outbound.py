@@ -162,4 +162,6 @@ def open_public(url, timeout=10, headers=None, data=None):
         _PinnedHTTPHandler(pin_ip),
         _PinnedHTTPSHandler(pin_ip),
     )
-    return opener.open(req, timeout=timeout)
+    # 两处汇聚点都要抑制（CodeQL 会把「构造 Request」与「真正发出」都当成汇聚点，
+    # 只注释掉一处时告警会跳到另一处）：判据与固定 IP 见上面 resolve_public()。
+    return opener.open(req, timeout=timeout)  # codeql[py/full-ssrf] 地址已校验并固定到公网 IP

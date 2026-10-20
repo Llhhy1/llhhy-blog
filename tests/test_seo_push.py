@@ -835,8 +835,14 @@ def test_redirect_is_not_followed(monkeypatch):
     class _Redirector(http.server.BaseHTTPRequestHandler):
         def do_POST(self):
             hits.append("redirector:POST")
+            # 读掉请求体再回包：Windows 上不读 body / 不带 Content-Length 就断开，
+            # 客户端可能在读到状态码前收到 WinError 10053（本地约 40% 概率的红）。
+            length = int(self.headers.get("Content-Length") or 0)
+            if length:
+                self.rfile.read(length)
             self.send_response(302)
             self.send_header("Location", "http://127.0.0.1:%d/steal" % evil_port[0])
+            self.send_header("Content-Length", "0")
             self.end_headers()
 
         def log_message(self, *a):

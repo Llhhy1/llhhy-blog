@@ -101,14 +101,16 @@ def award(reader, reason, post_id=None, delta=None):
         reader_id=reader.id, reason=reason, post_id=post_id, day=day).first()
     if exists:
         return False
-    db.session.add(PointLog(reader_id=reader.id, reason=reason,
-                            post_id=post_id, delta=delta, day=day))
-    # 用 SQL 级 `points = points + :d`，不在 Python 侧读改写：4 worker × 2 线程下
-    # 两个并发事件会各自读到同一个旧值，后提交的把前一个覆盖掉（丢积分）。
-    db.session.execute(db.text(
-        "UPDATE reader SET points = COALESCE(points, 0) + :d, updated_at = :u "
-        "WHERE id = :r"), {"d": delta, "u": utcnow(), "r": reader.id})
     try:
+        db.session.add(PointLog(reader_id=reader.id, reason=reason,
+                                post_id=post_id, delta=delta, day=day))
+        # 用 SQL 级 `points = points + :d`，不在 Python 侧读改写：4 worker × 2 线程下
+        # 两个并发事件会各自读到同一个旧值，后提交的把前一个覆盖掉（丢积分）。
+        # ⚠️ 这条 execute 会 autoflush 上面待插入的 PointLog：IntegrityError 在
+        # **这里**就会抛出，所以 add/execute/commit 必须在同一个 try 内。
+        db.session.execute(db.text(
+            "UPDATE reader SET points = COALESCE(points, 0) + :d, updated_at = :u "
+            "WHERE id = :r"), {"d": delta, "u": utcnow(), "r": reader.id})
         db.session.commit()
     except IntegrityError:
         # 并发下另一 worker 先记了同一条 → 本次放弃即可，不算失败（与 seed_badges 同策略）。

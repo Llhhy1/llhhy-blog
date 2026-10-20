@@ -83,8 +83,7 @@ def _site_since(s):
            .first())
     if not row or not row[0]:
         return ""
-    d = row[0].strftime("%Y-%m-%d")
-    return d
+    return row[0].strftime("%Y-%m-%d")
 
 
 # ---------- 站点公共信息（导航 / 页脚 / 侧边栏用）----------

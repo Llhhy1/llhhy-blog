@@ -372,6 +372,36 @@ def test_发布与撤回沿用后台副作用链(app, client):
             _drop(pids=[pid] if pid else [], uids=[u.id])
 
 
+def test_普通作者只能撤回自己的文章(app, client):
+    """v4.7.3：撤回权限与桌面批量操作对齐 —— 普通作者可撤回自己的，不能碰别人的。
+
+    旧实现 `mobile_post_unpublish` 只允许管理员，而桌面 `bulk_posts` 允许作者
+    撤回自己的文章；同一账号在两个端上行为不一致。
+    """
+    with app.app_context():
+        owner = _mkuser(ROLE_USER)
+        other = _mkuser(ROLE_USER)
+        pid = None
+        try:
+            tok_owner = _auth(client, owner.id)
+            pid = _req(client, "post", "/api/mobile/post", tok=tok_owner,
+                       payload={"title": "撤回权限" + _uid(), "content": "x",
+                                "published": True}).get_json()["id"]
+            assert db.session.get(Post, pid).published is True
+
+            tok_other = _auth(client, other.id)
+            r = _req(client, "post", "/api/mobile/post/%d/unpublish" % pid, tok=tok_other)
+            assert r.status_code == 403, "不能撤回他人的文章"
+            assert db.session.get(Post, pid).published is True
+
+            tok_owner = _auth(client, owner.id)   # 切回作者会话（CSRF token 与会话绑定，必须取新的）
+            r2 = _req(client, "post", "/api/mobile/post/%d/unpublish" % pid, tok=tok_owner)
+            assert r2.status_code == 200, r2.get_json()
+            assert db.session.get(Post, pid).published is False
+        finally:
+            _drop(pids=[pid] if pid else [], uids=[owner.id, other.id])
+
+
 def test_置顶只许超管(app, client):
     with app.app_context():
         normal = _mkuser(ROLE_USER)
@@ -391,6 +421,12 @@ def test_置顶只许超管(app, client):
                       payload={"pinned": True})
             assert r2.status_code == 200, r2.get_json()
             assert db.session.get(Post, pid).is_pinned is True
+
+            # v4.7.3：缺 `pinned` 必须 400，不能静默当成 false 取消置顶
+            r_empty = _req(client, "post", "/api/mobile/post/%d/pin" % pid, tok=tok_super,
+                           payload={})
+            assert r_empty.status_code == 400, r_empty.get_json()
+            assert db.session.get(Post, pid).is_pinned is True, "缺键不得静默取消置顶"
 
             r3 = _req(client, "post", "/api/mobile/post/%d/pin" % pid, tok=tok_super,
                       payload={"pinned": False})
@@ -735,6 +771,36 @@ def test_上传拒绝伪装图片并接受真图片(app, client):
                 fp = os.path.join(current_app.config["UPLOAD_FOLDER"], name)
                 if os.path.isfile(fp):
                     saved.append(fp)
+        finally:
+            for fp in saved:
+                with contextlib.suppress(OSError):
+                    os.remove(fp)
+            _drop(uids=[u.id])
+
+
+def test_同名文件连续上传不会互相覆盖(app, client):
+    """v4.7.3：文件名不能再只带秒级时间戳。
+
+    同一秒内两次上传同名文件会得到同一路径，后一个直接覆盖前一个。
+    """
+    with app.app_context():
+        u = _mkuser()
+        tok = _auth(client, u.id)
+        png = b"\x89PNG\r\n\x1a\n" + b"\x00" * 64
+        names, saved = [], []
+        try:
+            for _ in range(2):
+                r = client.post("/api/mobile/upload",
+                                data={"file": (io.BytesIO(png), "same.png")},
+                                content_type="multipart/form-data",
+                                headers={"X-CSRF-Token": tok})
+                assert r.status_code in (200, 201), r.get_json()
+                body = r.get_json() or {}
+                names.append(body["name"])
+                from flask import current_app
+                saved.append(os.path.join(current_app.config["UPLOAD_FOLDER"], body["name"]))
+            assert names[0] != names[1], "同名文件在同一秒内被覆盖"
+            assert all(os.path.isfile(fp) for fp in saved)
         finally:
             for fp in saved:
                 with contextlib.suppress(OSError):

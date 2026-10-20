@@ -21,11 +21,10 @@ os.environ.setdefault("ADMIN_PASSWORD", "test-admin-password")
 # 所以长期"碰巧干净"掩盖了问题。
 # 注意：Config.SQLALCHEMY_DATABASE_URI 是**类属性，模块导入时即求值**，
 # 因此必须在 `import config`（即 import app）之前把 DATABASE_URL 设好。
-# 用固定目录（而非每次 mkdtemp）：Windows 下 sqlite 文件句柄未释放时删不掉目录，
-# 固定目录 + **下一轮开始时先清空**可保证不累积残留（最多存在一份）。
-_TEST_DB_DIR = os.path.join(tempfile.gettempdir(), "llhhy-blog-pytest")
-shutil.rmtree(_TEST_DB_DIR, ignore_errors=True)   # 清掉上一轮残留（此刻尚无连接，必成功）
-os.makedirs(_TEST_DB_DIR, exist_ok=True)
+# v4.7.3：每轮用 mkdtemp 生成**唯一**目录。原实现固定为
+# %TEMP%/llhhy-blog-pytest，两个 pytest 同时跑会互相清库/删库，
+# 制造 ObjectDeletedError / UNIQUE / 500 等假失败（本轮审计已实际踩到）。
+_TEST_DB_DIR = tempfile.mkdtemp(prefix="llhhy-blog-pytest-")
 os.environ["DATABASE_URL"] = "sqlite:///" + os.path.join(_TEST_DB_DIR, "test.db")
 
 import pytest  # noqa: E402

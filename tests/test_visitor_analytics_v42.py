@@ -291,6 +291,29 @@ def test_manual_block_effective_when_guard_disabled(app, client):
     assert r2.status_code == 200
 
 
+def test_manual_block_applies_to_api_paths(app, client):
+    """v4.7.3 回归：黑名单必须覆盖 `/api/`（尤其 `/api/stats/visit`）。
+
+    旧顺序先判 `_SKIP_PREFIXES` 再看黑名单，而 `/api/` 在 skip 里 →
+    被拉黑的 IP 在所有 API 上放行；生产 Nginx 又直接发 SPA 页面，
+    Flask 看不到页面请求，等于手动拉黑基本无效。
+    """
+    with app.app_context():
+        assert bot_guard.block_ip("203.0.113.77")[0]
+    r = client.post("/api/stats/visit", json={"path": "/post/x"},
+                    headers={"X-Forwarded-For": "203.0.113.77"})
+    assert r.status_code == 429, "被拉黑 IP 访问 /api/stats/visit 必须 429"
+    assert r.headers.get("Retry-After") == "60"
+
+
+def test_manual_block_does_not_lock_admin_out(app, client):
+    """管理员豁免：拉黑自己后仍要能进后台解封，否则永久锁死。"""
+    with app.app_context():
+        assert bot_guard.block_ip("203.0.113.78")[0]
+    r = client.get("/admin/login", headers={"X-Forwarded-For": "203.0.113.78"})
+    assert r.status_code != 429, "后台路径不应被手动黑名单拦截（需保留解封入口）"
+
+
 def test_unblock_restores_access(app, client):
     """解封后同一 IP 恢复访问。"""
     with app.app_context():

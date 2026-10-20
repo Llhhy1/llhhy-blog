@@ -35,6 +35,13 @@ _PERMANENT_UNTIL = datetime(9999, 12, 31)
 _SKIP_PREFIXES = ("/static/", "/robots.txt", "/sitemap.xml", "/feed.xml",
                   "/feed/comments", "/admin/", "/api/", "/mcp")
 
+# 连手动黑名单都不查的路径：纯静态 / 订阅抓取。放在黑名单查询之前，避免让每个
+# 静态资源请求都打一次库。
+_BLOCK_EXEMPT_PREFIXES = ("/static/", "/robots.txt", "/sitemap.xml",
+                          "/feed.xml", "/feed/comments")
+# 管理员豁免：拉黑自己的 IP 后仍要能进后台/MCP 解封，否则会把管理员锁在门外。
+_ADMIN_EXEMPT_PREFIXES = ("/admin/", "/mcp")
+
 
 def guard_enabled():
     return setting_bool("bot_guard_enabled", False)
@@ -52,7 +59,7 @@ def is_blocked(ip):
 def check_bot_guard():
     """在 before_request 调用。返回 None=放行；dict=应拦截（含 code/reason/category）。"""
     path = request.path or ""
-    if any(path.startswith(p) for p in _SKIP_PREFIXES):
+    if any(path.startswith(p) for p in _BLOCK_EXEMPT_PREFIXES):
         return None
 
     ip = client_ip()  # 真实公网 IP（与访问记录口径一致）
@@ -60,9 +67,17 @@ def check_bot_guard():
     # 安全语义：管理员在后台「访客日志」显式拉黑的 IP 必须无条件拦截。
     # 旧实现把整个函数放在 `if not guard_enabled(): return None` 之后，而该
     # 开关默认 false → 开关关着时「拉了黑却拦不住」，黑名单形同虚设。
+    #
+    # v4.7.3：黑名单检查必须在 `_SKIP_PREFIXES` **之前**（/api/ 就在 skip 里）。
+    # 前端访问上报走 POST /api/stats/visit，旧顺序会让被拉黑的 IP 在 API 上
+    # 全部放行；生产 Nginx 又直接发 SPA 页面，Flask 根本看不到页面请求。
+    # /admin/ 与 /mcp 例外：否则管理员拉黑自己后就无法进后台解封。
     blocked = is_blocked(ip)
-    if blocked:
+    if blocked and not any(path.startswith(p) for p in _ADMIN_EXEMPT_PREFIXES):
         return {"code": 429, "reason": "blocked", "category": blocked.bot_category}
+
+    if any(path.startswith(p) for p in _SKIP_PREFIXES):
+        return None
 
     if not guard_enabled():
         return None

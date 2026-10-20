@@ -558,6 +558,50 @@ apply_db_migrations() {
   fail_exit "数据库迁移失败：暂不重启，服务仍在运行旧代码。请按上方日志修复后重跑；或手动执行：cd $APP_DIR && BLOG_MIGRATE_ONLY=1 FLASK_APP=app:create_app $py -m flask db upgrade"
 }
 
+# ===== 可选：重建 FTS 索引（BLOG_REBUILD_FTS=1）=====
+# 默认不跑：全量重建会清空并回填 post_fts，文章多时有耗时/锁；但 FTS 写入闸门
+# 收紧后，历史库里的隐私/回收站正文行不会自己消失。故提供显式开关，在迁移成功、
+# 服务重启后执行；失败只告警，不把已经启动的站点回滚。
+rebuild_fts_index() {
+  local py=""
+  if [ -n "$GUNICORN_BIN" ]; then
+    case "$GUNICORN_BIN" in
+      *python*|*/bin/python*|python*)
+        py="${GUNICORN_BIN% -m gunicorn}"
+        [ -x "$py" ] || py=""
+        ;;
+      *)
+        py="${GUNICORN_BIN%/bin/gunicorn}/bin/python"
+        [ -x "$py" ] || py="${GUNICORN_BIN%/gunicorn}/python"
+        [ -x "$py" ] || py=""
+        ;;
+    esac
+  fi
+  if [ -z "$py" ]; then
+    py=$(command -v python3 2>/dev/null || true)
+  fi
+  if [ -z "$py" ] || [ ! -x "$py" ]; then
+    log "   ⚠️ 未找到可用的 python，跳过 FTS 重建"
+    return 1
+  fi
+  if [ ! -f "$APP_DIR/tools/rebuild_fts.py" ]; then
+    log "   ⚠️ 未找到 $APP_DIR/tools/rebuild_fts.py，跳过 FTS 重建"
+    return 1
+  fi
+  mkdir -p "$WORK" 2>/dev/null || true
+  local flog="$WORK/fts_rebuild_${TS:-$(date +%s)}.log"
+  if run_as env "HOME=${APP_DIR%/*}" "PYTHONPATH=$APP_DIR" \
+        timeout 600 "$py" "$APP_DIR/tools/rebuild_fts.py" >"$flog" 2>&1; then
+    log "   ✅ FTS 索引已重建："
+    tail -3 "$flog" 2>/dev/null | while read -r l; do log "     $l"; done
+    rm -f "$flog"; return 0
+  fi
+  log "   ⚠️ FTS 重建失败，输出最后 10 行："
+  tail -10 "$flog" 2>/dev/null | while read -r l; do log "     $l"; done
+  rm -f "$flog"
+  return 1
+}
+
 # ===== 校验（v3.1.6 双源互证 + HMAC 可选）=====
 verify_checksum() {  # verify_checksum <file> <expected_name>
   local f="$1" expect_name="$2" want got
@@ -795,6 +839,13 @@ apply_db_migrations
 # 6. 自动重启后端
 set_status "restarting" "正在重启后端服务"
 auto_restart
+
+# 6b. 可选：重建 FTS 索引（默认关闭；BLOG_REBUILD_FTS=1 时执行）
+if [ "${BLOG_REBUILD_FTS:-0}" = "1" ]; then
+  log "⑥b 重建 FTS 索引（BLOG_REBUILD_FTS=1）..."
+  set_status "rebuilding_fts" "正在重建全文索引"
+  rebuild_fts_index || log "   ⚠️ FTS 重建未完成；站点已启动，可稍后手动重跑 tools/rebuild_fts.py"
+fi
 
 set_status "done" "更新完成，请刷新页面"
 log "==============================================="

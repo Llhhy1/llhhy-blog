@@ -22,6 +22,7 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from models import db, Game
 import games_safety
+from outbound import NoRedirect, safe_public_url
 from utils import get_setting
 from backup_settings import encrypt_secret, decrypt_secret
 from ._helpers import (admin_bp, admin_required, log_audit, _current_user_or_none,
@@ -38,6 +39,22 @@ def _root():
 # （12153 字符）只送审 25% —— LLM 自己在结论里报「源码在末尾处被截断，无法完全
 # 确认后续代码」，但结论仍被记成 safe（v4.4.2 R124）。现改为总预算制。
 LLM_AUDIT_BUDGET = 120000
+# LLM 响应体上限：审计结论是 JSON，1MB 足够；不设上限等于让上游决定 worker 内存。
+LLM_RESPONSE_MAX_BYTES = 1024 * 1024
+
+
+def _normalize_llm_base(raw):
+    """归一化 OpenAI 兼容 Base：去掉末尾 `/`，兼容误填完整 `/chat/completions`。"""
+    base = (raw or "").strip().rstrip("/")
+    if base.endswith("/chat/completions"):
+        base = base[: -len("/chat/completions")].rstrip("/")
+    return base
+
+
+def _open_llm(req, timeout):
+    """发 LLM 请求：**禁跟随 3xx**，避免公网 Base 302 到内网（SSRF 绕过）。"""
+    opener = urllib.request.build_opener(NoRedirect)
+    return opener.open(req, timeout=timeout)
 
 # 单个文件即便总预算充裕也不无限送审（防止单文件把预算吃光，
 # 导致后面的入口 html 反而没审到 —— 入口文件才是攻击面最大的地方）。
@@ -214,10 +231,7 @@ def _run_llm_audit(g):
             # 未开启：不写库（保持结论不变），也不该算"审过"——
             # _latest_verdict 会把"没动过的旧结论"原样保留，这里刻意不覆盖。
             return False, "未开启"
-        base = (get_setting("games_llm_base", "") or "").rstrip("/")
-        # v3.17.8：兼容把完整端点填进 Base 的情况（如 .../v4/chat/completions），归一化为前缀
-        if base.endswith("/chat/completions"):
-            base = base[: -len("/chat/completions")]
+        base = _normalize_llm_base(get_setting("games_llm_base", ""))
         enc = get_setting("games_llm_key_enc", "") or ""
         key = decrypt_secret(enc) if enc else ""
         model = get_setting("games_llm_model", "gpt-4o-mini")
@@ -229,6 +243,12 @@ def _run_llm_audit(g):
                                 "（base / Key / model 三者缺一即无法审计）",
                                 "", {}, raw="")
             return False, "LLM 未配置完整"
+        # 出站前再校验一次：保存时校验会被 DNS 重绑定绕过，且历史配置可能存有
+        # 私网地址。发现不安全直接落库 unknown，**不发出任何请求**。
+        if not safe_public_url(base):
+            _write_audit_result(g, "unknown", "LLM Base URL 不合法或指向非公网地址",
+                                "", {}, raw="")
+            return False, "LLM Base URL 不安全"
         code, truncated = _sample_code(g.slug)
         if not code:
             _write_audit_result(g, "unknown", "游戏包内没有可送审的 HTML/JS 文本文件",
@@ -253,8 +273,11 @@ def _run_llm_audit(g):
             data=json.dumps(payload).encode("utf-8"),
             headers={"Authorization": "Bearer " + key, "Content-Type": "application/json"},
         )
-        with urllib.request.urlopen(req, timeout=120) as resp:
-            data = json.loads(resp.read().decode("utf-8"))
+        with _open_llm(req, timeout=120) as resp:
+            raw = resp.read(LLM_RESPONSE_MAX_BYTES + 1)
+        if len(raw) > LLM_RESPONSE_MAX_BYTES:
+            raise ValueError("LLM 响应体超过 %d 字节上限" % LLM_RESPONSE_MAX_BYTES)
+        data = json.loads(raw.decode("utf-8"))
         text = (data.get("choices") or [{}])[0].get("message", {}).get("content", "") or ""
         obj = _extract_json(text)
         if obj is None:
@@ -324,6 +347,9 @@ def _write_audit_result(g, verdict, summary, issues_txt, truncated, raw=""):
 @admin_required
 def games():
     if request.method == "POST":
+        # 全局 MAX_CONTENT_LENGTH=5MB 是给图片上传的；游戏包允许 20MB。
+        # Flask 3.1 支持 per-request 覆盖，否则 UI 写 20MB、实际 5MB 就 413。
+        request.max_content_length = games_safety.MAX_ZIP_BYTES + 1024 * 1024
         zf = request.files.get("game_zip")
         if not zf or not zf.filename:
             flash("请选择游戏 zip 文件")
@@ -464,8 +490,12 @@ def games_llm_config():
             db.session.add(Setting(key=k, value=v))
 
     if request.method == "POST":
+        base = _normalize_llm_base(request.form.get("base"))
+        if base and not safe_public_url(base):
+            flash("Base URL 必须是公网 http/https 地址（不允许内网/回环/保留地址）")
+            return redirect(url_for("admin.games_llm_config"))
         _set("games_llm_on", "1" if request.form.get("on") == "1" else "0")
-        _set("games_llm_base", (request.form.get("base") or "").strip())
+        _set("games_llm_base", base)
         _set("games_llm_model", (request.form.get("model") or "").strip())
         new_key = (request.form.get("key") or "").strip()
         if new_key:

@@ -4,6 +4,74 @@
 > v3.18.6 ~ v3.19.2 → `docs/archive/CHANGELOG_v3.18.6-v3.19.2.md`（v4.7.0 因体积守卫触发，按「新增轮次写进主文件、历史段落才归档」搬出）。
 > 本文件从 v3.20.0 起。**归档不是删除** —— 查旧版本变更细节时去上述文件。
 
+## v4.7.3（2026-10-20）
+
+全量审计的**代码批次**：发布阻塞、安全/健壮性、文档/测试一致性三批一次落地
+（PR #24，分支 `fix/v4.7.3-audit-batch`）。
+
+> **批次 1（生产升级操作）单独执行**：本版只交付代码与运维自动化文档。
+> 历史库的隐私/回收站正文不会因写入闸门收紧而自动消失，需要时显式跑
+> `BLOG_REBUILD_FTS=1 bash update.sh` 或 `tools/rebuild_fts.py`。
+
+### 发布阻塞
+
+- `gamify.award()`：`PointLog` 的 `add()` 移入 `try`。原实现中随后的 `UPDATE` 会
+  autoflush 待插入行，`IntegrityError` 在 `try` 之外抛出 —— 积分事件失败会冒泡成 500。
+- `api/site.py`：去掉 RET504 的中间变量，`ruff check .` 恢复 0。
+- 前端依赖：`vue` 3.5.13 → 3.5.44、`dompurify` 3.2.4 → 3.4.17，`package-lock.json` 同步。
+- 测试可移植性：`test_cert_watch` 改用 `cryptography` 生成证书（Ubuntu OpenSSL 3.0
+  不支持 `-not_before/-not_after`）；`test_seo_push` 的重定向桩补齐请求体读取与
+  `Content-Length`，消除 Windows `WinError 10053`。
+
+### 安全
+
+- **SSRF（管理员级）**：新增 `myblog/outbound.py`，统一「http/https + 公网解析 +
+  禁 URL 凭据 + 禁跟随 3xx」。游戏 LLM 审计在保存与出站前各校验一次，响应体限 1MB。
+  此前公网 Base 可 302 到内网，或直接配置回环地址。
+- **SSRF（匿名面）**：`feed_agg` 删除重复实现，复用 `outbound` 的同一判据。
+- **zip 炸弹**：`games_safety.unpack_zip_safely()` 在 `zf.read()` **之前**按中央目录的
+  `file_size` / `compress_size` 拒绝单文件超限与压缩比 > 200 的条目；游戏上传按请求
+  覆盖 `max_content_length`，使 20MB 上限真正生效。
+- **手动黑名单**：`check_bot_guard()` 把黑名单检查提到 `_SKIP_PREFIXES` 之前，并在
+  `api_bp` 注册钩子；被拉黑 IP 现在访问 `/api/stats/visit` 等接口也会 429。
+  `/admin/`、`/mcp` 保留豁免，避免管理员把自己锁死。
+
+### 性能与一致性
+
+- 新增幂等迁移 `b8e4f1a72c93`：`ix_post_visibility_created`
+  （published/in_trash/is_private/created_at）与 `ix_comment_post_approved`
+  （post_id/approved）。空库升级与「`create_all()` 已建索引」两种场景均验证不重复创建。
+- 移动端文章列表的 `comment_count` 改为当前页一次 `GROUP BY`，去掉逐行
+  `p.comments.count()` 的 N+1；详情接口保持原回退路径。
+- 移动端撤回权限由「仅管理员」改为 `_can_edit_post()`，普通作者可撤回自己的文章，
+  与桌面端批量操作一致。
+- 移动端置顶改为必须显式传 `pinned`；缺字段返回 400，不再静默取消置顶。
+- 移动端上传文件名改用 `time.time_ns()`，同秒多文件不再互相覆盖。
+
+### 运维与文档
+
+- `update.sh` 新增 `BLOG_REBUILD_FTS=1` 可选步骤：迁移成功、服务重启后重建 FTS；
+  失败只告警，不回滚已启动站点。**默认行为与旧版完全一致。**
+- `deploy_guide.md` 移除 `flask db stamp head` 建议（会跳过实际列/索引变更，形成
+  「版本号已升级、表结构没变」的假升级），改为 `flask db current` + `flask db upgrade`。
+- `tests/conftest.py` 的测试库改为每轮 `mkdtemp`，两个 pytest 并行不再互相清库。
+
+### 验证
+
+- 全量 **936 passed**（含新增 SSRF / zip / 黑名单 / 移动端权限用例）
+- `ruff check .` 全绿；`lint_debt.py` 473（基线 475，无新增）
+- `pip-audit` 无已知漏洞；`npm audit --audit-level=high` 0 vulnerabilities
+- Alembic 临时库双场景验证：空库 `upgrade` 到 `b8e4f1a72c93`；已 `create_all` 的库先
+  `stamp a7e3c92d5b18` 再 `upgrade`，两个索引均存在且未重复创建
+
+### 上线注意
+
+1. 新迁移 head 为 **`b8e4f1a72c93`**（原 `a7e3c92d5b18`）。部署执行 `flask db upgrade`，
+   **不要 `stamp head`**。
+2. `update.sh` 本版有改动（`BLOG_REBUILD_FTS`），**不在 `myblog-backend.zip` 内**，
+   需在服务器上单独覆盖。
+3. 前端依赖已变更，须先 `npm ci` 再重新 build 出包。
+
 ## v4.7.2（2026-10-19）
 
 修 v4.7.1 遗留的一处漏改：满屏壁纸下，顶栏「⋯ 更多」「🧰 工具箱」**深色按钮压在

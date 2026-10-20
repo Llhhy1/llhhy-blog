@@ -12,6 +12,8 @@ import shutil
 import uuid
 import zipfile
 
+import pytest
+
 from models import db, Game
 import games_safety as gs
 
@@ -20,9 +22,9 @@ def _tok():
     return uuid.uuid4().hex[:10]
 
 
-def _zip_bytes(files):
+def _zip_bytes(files, compression=zipfile.ZIP_STORED):
     bio = io.BytesIO()
-    with zipfile.ZipFile(bio, "w") as z:
+    with zipfile.ZipFile(bio, "w", compression) as z:
         for name, data in files.items():
             z.writestr(name, data)
     return bio.getvalue()
@@ -44,6 +46,34 @@ def test_unpack_rejects_abs_and_bad_ext():
             raise AssertionError("应拒绝：" + str(payload))
         except ValueError:
             pass
+
+
+def test_unpack_rejects_oversize_before_read(monkeypatch):
+    """单条 file_size 超限必须在 `zf.read()` **之前**拒绝。
+
+    先读进内存再判大小 = 让上传者决定 worker 的内存峰值（zip 炸弹）。
+    """
+    payload = _zip_bytes({"big.txt": b"\0" * (2 * 1024 * 1024)})
+
+    def _boom(self, info):
+        raise AssertionError("预检未生效：不应先读取条目内容")
+
+    monkeypatch.setattr(zipfile.ZipFile, "read", _boom)
+    with pytest.raises(ValueError, match="单文件"):
+        gs.unpack_zip_safely(payload, max_entry=1024 * 1024)
+
+
+def test_unpack_rejects_high_compression_ratio_before_read(monkeypatch):
+    """小压缩包 + 大 file_size（高压缩比）同样在读取前拒绝。"""
+    payload = _zip_bytes({"zeros.txt": b"\0" * (1024 * 1024)},
+                         compression=zipfile.ZIP_DEFLATED)
+
+    def _boom(self, info):
+        raise AssertionError("预检未生效：不应先读取条目内容")
+
+    monkeypatch.setattr(zipfile.ZipFile, "read", _boom)
+    with pytest.raises(ValueError, match="压缩比"):
+        gs.unpack_zip_safely(payload, max_entry=2 * 1024 * 1024, max_ratio=50)
 
 
 def test_unpack_ok_and_manifest():

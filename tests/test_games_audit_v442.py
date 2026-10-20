@@ -198,8 +198,8 @@ class _Resp:
     def __init__(self, payload):
         self._b = json.dumps(payload).encode("utf-8")
 
-    def read(self):
-        return self._b
+    def read(self, n=-1):
+        return self._b if n is None or n < 0 else self._b[:n]
 
     def __enter__(self):
         return self
@@ -209,7 +209,7 @@ class _Resp:
 
 
 def _fake_llm(app, gid, content=None, raise_exc=None):
-    """把 urlopen 换掉 + 配好 LLM 设置，跑一次审计并返回 (ok, note)。
+    """把出站 opener 换掉 + 配好 LLM 设置，跑一次审计并返回 (ok, note)。
 
     gid 而非 Game 对象：ORM 实例跨 app_context 会 detached，必须按 id 重取
     （这正是 admin/games.py 后台任务里那段注释讲的情形）。
@@ -235,12 +235,17 @@ def _fake_llm(app, gid, content=None, raise_exc=None):
     with app.app_context():
         _on()
         g = db.session.get(Game, gid)
-        orig = ag.urllib.request.urlopen
-        ag.urllib.request.urlopen = _fake_urlopen
+        orig_open = ag._open_llm
+        orig_check = ag.safe_public_url
+        ag._open_llm = _fake_urlopen
+        # 测试不依赖真实 DNS（x.example 可能解析失败）；生产路径由
+        # tests/test_outbound.py 与 test_llm_base_ssrf_is_rejected 覆盖。
+        ag.safe_public_url = lambda u: True
         try:
             return ag._run_llm_audit(g)
         finally:
-            ag.urllib.request.urlopen = orig
+            ag._open_llm = orig_open
+            ag.safe_public_url = orig_check
 
 
 def test_risk_verdict_parsed_and_lowers_score(app, app_ctx):
@@ -332,6 +337,35 @@ def test_missing_llm_config_also_overwrites_old_safe(app, app_ctx):
             v, has = ag._latest_verdict(g)
             assert (v, has) == ("unknown", True), "配置不完整未覆盖旧结论"
             assert "未配置完整" in g.audit_summary
+    finally:
+        _cleanup_dirs(slug)
+
+
+def test_llm_base_ssrf_is_rejected_without_request(app, app_ctx):
+    """Base 指向回环/内网时必须拒绝，且**不得发出请求**（管理员级 SSRF）。"""
+    slug = "audit-ssrf-" + _tok()
+    try:
+        gid = _mk_game(app, slug, summary="")
+        with app.app_context():
+            from backup_settings import encrypt_secret
+            Setting.query.delete()
+            db.session.add_all([
+                Setting(key="games_llm_on", value="1"),
+                Setting(key="games_llm_base", value="http://127.0.0.1:9/v1"),
+                Setting(key="games_llm_model", value="m"),
+                Setting(key="games_llm_key_enc", value=encrypt_secret("sk-test")),
+            ])
+            db.session.commit()
+            called = []
+            orig = ag._open_llm
+            ag._open_llm = lambda *a, **k: called.append(True)
+            try:
+                ok, note = ag._run_llm_audit(db.session.get(Game, gid))
+            finally:
+                ag._open_llm = orig
+            assert ok is False and "不安全" in note
+            assert called == [], "指向内网的 Base 不得发出任何请求"
+            assert "非公网" in db.session.get(Game, gid).audit_summary
     finally:
         _cleanup_dirs(slug)
 

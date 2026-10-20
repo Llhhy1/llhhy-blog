@@ -16,7 +16,6 @@
 import datetime
 import os
 import ssl
-import subprocess
 import threading
 
 import pytest
@@ -27,25 +26,39 @@ import cert_watch as cw
 # ---------- 真实 TLS 服务：三种证书状态 ----------
 
 def _make_cert(tmp_path, days_left):
-    """用 openssl 造一张自签证书，`days_left` 为负即已过期。"""
+    """用 cryptography 造一张自签证书，`days_left` 为负即已过期。
+
+    不用 `openssl req -not_before/-not_after`：Ubuntu runner 的 OpenSSL 3.0
+    不支持这两个参数，会让 6 条 TLS 测试在 CI 上必然失败。cryptography 是
+    项目已有依赖，跨平台行为一致。
+    """
+    from cryptography import x509
+    from cryptography.hazmat.primitives import hashes, serialization
+    from cryptography.hazmat.primitives.asymmetric import rsa
+    from cryptography.x509.oid import NameOID
+
     os.makedirs(str(tmp_path), exist_ok=True)      # 子目录可能还没建
-    key = tmp_path / "k.pem"
-    crt = tmp_path / "c.pem"
-    # -days 为负在 openssl 里不合法，用 -not_after 明确指定
-    if days_left < 0:
-        # 已过期：结束时间设为 1 天前
-        end = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(days=1)
-    else:
-        end = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(days=days_left)
-    fmt = "%y%m%d%H%M%SZ"
-    subprocess.run(
-        ["openssl", "req", "-x509", "-newkey", "rsa:2048", "-nodes",
-         "-keyout", str(key), "-out", str(crt), "-days", "3650",
-         "-subj", "/CN=cert-test.local",
-         "-not_before", (end - datetime.timedelta(days=2)).strftime(fmt),
-         "-not_after", end.strftime(fmt)],
-        capture_output=True, check=True, timeout=60)
-    return str(crt), str(key)
+    key_path = tmp_path / "k.pem"
+    crt_path = tmp_path / "c.pem"
+    now = datetime.datetime.now(datetime.timezone.utc)
+    end = now + datetime.timedelta(days=days_left)
+    start = now - datetime.timedelta(days=2)
+    key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "cert-test.local")])
+    cert = (x509.CertificateBuilder()
+            .subject_name(name)
+            .issuer_name(name)
+            .public_key(key.public_key())
+            .serial_number(x509.random_serial_number())
+            .not_valid_before(start)
+            .not_valid_after(end)
+            .sign(key, hashes.SHA256()))
+    key_path.write_bytes(key.private_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PrivateFormat.TraditionalOpenSSL,
+        encryption_algorithm=serialization.NoEncryption()))
+    crt_path.write_bytes(cert.public_bytes(serialization.Encoding.PEM))
+    return str(crt_path), str(key_path)
 
 
 def _serve_tls(tmp_path, days_left):

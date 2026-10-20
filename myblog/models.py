@@ -70,6 +70,13 @@ class Post(db.Model):
     ai_summary = db.Column(db.Text, nullable=True)
     ai_tags = db.Column(db.Text, nullable=True)
 
+    # 列表/搜索的热路径：visible_posts_query() 按三态过滤后按 created_at 排序。
+    # 等值列在前、排序列在后，SQLite 才能用同一个索引完成过滤 + 排序。
+    __table_args__ = (
+        db.Index("ix_post_visibility_created",
+                 "published", "in_trash", "is_private", "created_at"),
+    )
+
     @classmethod
     def in_group(cls, group):
         """返回同 translation_group 的全部文章（含各语言），用于 hreflang 生成。"""
@@ -127,6 +134,11 @@ class Comment(db.Model):
     # 且被 6 处 `Setting.query.all()` 全表加载一起拖出来。评论本来就有一行，
     # UGC 归到自己的行上即可，无需新表。
     reactions = db.Column(db.Text, nullable=True)
+
+    # 评论列表 / 计数 / 审核都按 post_id（+ approved）过滤；没有索引会全表扫。
+    __table_args__ = (
+        db.Index("ix_comment_post_approved", "post_id", "approved"),
+    )
 
 
 class FriendLink(db.Model):

@@ -22,7 +22,9 @@ RENDER_PY = os.path.join(
 # v3.25.x 基线：白名单 = 常用排版标签 + 表格系，属性集**不含 style、不含任何 on\***。
 EXPECTED_ALLOWLIST_SHA256 = \
     "8c47e46f63649a7ef41f0b2ac110866fce3cbd0f6867aeb30e6f8c02afa06db5"
-EXPECTED_RENDER_VERSION = "3"
+# v4.7.7：3 → 4。白名单本身没动（哈希不变），但 **markdown 库 3.8.1 → 3.11.1**
+# 同样是「渲染器变了」——已缓存的 content_html 必须失效重渲染，否则新旧渲染结果混着。
+EXPECTED_RENDER_VERSION = "4"
 
 
 def _load():

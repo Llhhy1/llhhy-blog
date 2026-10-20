@@ -105,7 +105,10 @@ def render_markdown(content):
 # 渲染版本号：若将来调整 Markdown 扩展或 clean_html 白名单，把 _RENDER_VERSION
 # +1 即可让全部历史缓存一次性失效，避免旧 HTML 与新的白名单不一致。
 # v3.18.5：2 → 3（白名单新增表格标签，必须让历史表格文章的旧缓存失效后重渲染）。
-_RENDER_VERSION = "3"
+# v4.7.7：3 → 4（markdown 3.8.1 → 3.11.1）。**升级 markdown 库也算「渲染器变了」** ——
+#   不 bump 的话，已缓存的 content_html 指纹依然匹配（指纹只认「版本|正文|HTML」），
+#   于是老文章继续吐旧库渲染的 HTML，新文章用新库渲染，两套结果静默混着且不会报错。
+_RENDER_VERSION = "4"
 
 
 def content_digest(content, html=""):

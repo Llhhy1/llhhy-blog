@@ -596,6 +596,15 @@ sha256sum /tmp/og.png /www/wwwroot/你的站点根/og-default.png
    - `/www/wwwroot/myblog/data/blog.db`（全部数据）
    - `/www/wwwroot/myblog/static/uploads/`（上传的图片）
 1.1. **升级要点**（其余步骤与通用流程一致；适用于 v4.0.0 → v4.7.3）：
+   - **v4.7.8（依赖升级 + 渲染缓存版本号 bump）**：
+     - **无迁移**，head 仍为 `c3d9e2f71a04`。
+     - 依赖升级：`@vitejs/plugin-vue` 6.0.10、`markdown` 3.11.1、`feedparser` 6.0.14、
+       `Flask-Migrate` 4.1.0、`segno` >=1.6.6、`redis` 8.1.0。
+       ⚠️ 服务器需 `pip install -r requirements.txt` 才会真正用上新版本（一键更新不装依赖）。
+     - ⚠️ **`_RENDER_VERSION` 3 → 4**：markdown 升级后全部文章缓存失效，
+       **升级后首次访问每篇文章会重新渲染**（一次性开销，长文首访略慢）。
+     - 前端 plugin-vue 升到 6 需重新 `npm install` + `vite build` 才生效。
+     - 未采纳 `vite` 8.3.4（PR #19）：CI build 失败。
    - **v4.7.7（修 v4.7.6 回归：测试 / CI 会往生产发真实心跳）**：
      - **无迁移**，head 仍为 `c3d9e2f71a04`。
      - ⚠️ v4.7.6 上线后站点注册表被注入 5 条假站点（`total` 从 1 变 6）：

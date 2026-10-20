@@ -1895,3 +1895,62 @@ v4.7.1 把壁纸白字规则从 `nav a` 收窄为 `nav > a`（避免误染下拉
 - 全量 **936 passed**；`ruff check .` 全绿；`npm audit --audit-level=high` 0 vulnerabilities。
 - 本地合并 PR 后重跑全量测试 + `npm ci` 重新 build + 重新打包（`package.py`），
   并在上传前断言「zip 内 APP_VERSION == tag」与三方哈希互证。
+## 132. v4.7.4 出站层收口：IP 固定（DNS 重绑定）与判据统一
+
+**范围**：`myblog/outbound.py`、`myblog/feed_agg.py`、`myblog/admin/games.py`、
+`tests/test_outbound.py`、`tests/test_audit_r114.py`。前端与表结构零改动。
+
+### 132.1 本轮修的是 §131.4 自己承认的残余风险
+
+§131.4 写了三条「口径未统一 + 一处残余风险」，本轮逐条对账：
+
+| §131.4 提的问题 | 本轮结论 |
+|---|---|
+| `feed_agg` 仍自己定义 `_NoRedirect` | **已删**，跳转拦截改由 `outbound.NoRedirect` 在 `open_public()` 内部完成 |
+| `feed_agg._safe_url_fail_reason()` 另写一套 `10.` / `172.16-31` 字符串前缀判断 | **已删**，改为直接取 `resolve_public()` 抛出的 `UnsafeURLError` 文本。拒绝原因与放行判据从此是同一份代码 |
+| ⚠️ DNS 重绑定未根治（校验解析一次、urllib 建连再解析一次） | **已根治**，见 132.2 |
+
+### 132.2 IP 固定怎么做的（以及为什么这样才算关掉）
+
+`outbound.resolve_public(url)` 解析**一次** DNS 并返回 `(host, port, ip)`；
+`outbound.open_public()` 用这个 `ip` 直接建连：
+
+- `_PinnedHTTPConnection.connect()` 把 `socket.create_connection` 的目标换成 `pin_ip`，
+  `self.host` 保持原域名 → `Host` 头不变，虚拟主机站不会因为固定 IP 而 404；
+- `_PinnedHTTPSConnection` 的 MRO 是「固定 IP 建 TCP → 用 `self.host` 做 SNI 与证书校验」，
+  所以**没有**退化成「拿 IP 当服务器名校验」那种把证书校验拆掉的做法；
+- 3xx 一律不跟随（`NoRedirect`）；环境代理显式禁用（`ProxyHandler({})`）——
+  否则「连到哪个 IP」会重新交回代理与二次解析手里，固定 IP 就失去意义；
+- 代理隧道（`_tunnel_host`）直接抛 `UnsafeURLError` 而不是静默走别的路径。
+
+### 132.3 接入面与**未**接入面（不要误读成「全仓库都安全了」）
+
+| 出站口 | 状态 |
+|---|---|
+| `feed_agg`（友链 RSS 抓取，匿名可触发聚合） | ✅ 走 `open_public()` |
+| `admin/games.py`（LLM 代码审计，管理员配置 Base） | ✅ 走 `open_public()`；保存配置时仍另做一次 `safe_public_url()` 前置校验 |
+| `seo_push.py`（推送搜索引擎）、`oauth.py`（三方登录换 token） | ❌ **本轮未迁**，仍是各自的 `_NoRedirect` |
+
+未迁的两处刻意留在这里说明，而不是悄悄漏掉：它们的地址是**管理员固定填写**的
+服务商域名（非用户可控 URL），威胁模型与「抓取管理员随时填的任意 RSS」不同；
+且两者都有各自的 localhost 桩测试，迁移需要同批改造测试基座。
+后续若统一，判据应以本节的 `open_public()` 为唯一入口。
+
+### 132.4 测试口径（一处值得记的取舍）
+
+`test_audit_r114` 的 RSS 源站只能跑在 `127.0.0.1`，而默认判据会拦回环。
+做法是加 `allow_loopback` fixture **临时只替换 `outbound.is_private_ip` 这一条判据**，
+让「固定 IP / 禁跳转 / 限大小」仍走真实代码；另加 `test_fetch_refuses_private_ip`
+反向守住「默认确实拦回环」。正反两条都有，才不会变成「永远放行」的假绿。
+
+`test_outbound` 用桩替换 `socket.getaddrinfo` 与 `socket.create_connection`：
+- 断言 **DNS 只被解析一次**、且建连目标 == 被校验过的那个公网 IP；
+- 桩按顺序先答公网、再答回环，用来证明「重绑定的第二个答案根本没机会被读到」；
+- 解析到 `169.254.169.254` 时断言 **建连次数为 0**（拒绝发生在 connect 之前）。
+
+### 132.5 验证
+
+- `tests/test_outbound.py` + `tests/test_audit_r114.py` 46 passed；
+- 全量 pytest 与 `ruff check .` 见 PR 正文；
+- 真机回路实测：本地起 HTTP 源，`open_public()` 取回正文成功、302 源返回
+  `HTTPError 302`（不跟随），回环源在未放行时抛 `UnsafeURLError`。

@@ -83,7 +83,29 @@ def feed_server():
     srv.server_close()
 
 
-def test_fetch_refuses_to_follow_redirect(feed_server):
+@pytest.fixture()
+def allow_loopback(monkeypatch):
+    """测试源站只能跑在 127.0.0.1，故临时放行回环。
+
+    只换掉「这个 IP 算不算内网」这一条判据，其余路径（固定 IP、禁跳转、限大小）
+    全部走真实代码。「回环地址本该被拒」由 `test_fetch_refuses_private_ip` 反向守住，
+    两个用例合起来才等价于「生产路径既拦得住内网、又确实禁跳转」。
+    """
+    import outbound
+    real = outbound.is_private_ip
+    monkeypatch.setattr(outbound, "is_private_ip",
+                        lambda ip: False if ip == "127.0.0.1" else real(ip))
+
+
+def test_fetch_refuses_private_ip(feed_server):
+    """不加 `allow_loopback`：默认判据下，回环 RSS 源在建连前就被拒。"""
+    import outbound
+    from feed_agg import _fetch_feed_bytes
+    with pytest.raises(outbound.UnsafeURLError):
+        _fetch_feed_bytes(feed_server + "/ok", timeout=5)
+
+
+def test_fetch_refuses_to_follow_redirect(feed_server, allow_loopback):
     """302 必须被拒绝，而不是默默跟到内网目标。"""
     import urllib.error
     from feed_agg import _fetch_feed_bytes
@@ -92,7 +114,7 @@ def test_fetch_refuses_to_follow_redirect(feed_server):
     assert ei.value.code in (301, 302, 303, 307, 308)
 
 
-def test_fetch_returns_body_for_normal_feed(feed_server):
+def test_fetch_returns_body_for_normal_feed(feed_server, allow_loopback):
     from feed_agg import _fetch_feed_bytes
     data = _fetch_feed_bytes(feed_server + "/ok", timeout=5)
     assert b"<rss" in data

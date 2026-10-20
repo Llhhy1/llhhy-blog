@@ -22,7 +22,7 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from models import db, Game
 import games_safety
-from outbound import NoRedirect, safe_public_url
+from outbound import open_public, safe_public_url
 from utils import get_setting
 from backup_settings import encrypt_secret, decrypt_secret
 from ._helpers import (admin_bp, admin_required, log_audit, _current_user_or_none,
@@ -52,9 +52,13 @@ def _normalize_llm_base(raw):
 
 
 def _open_llm(req, timeout):
-    """发 LLM 请求：**禁跟随 3xx**，避免公网 Base 302 到内网（SSRF 绕过）。"""
-    opener = urllib.request.build_opener(NoRedirect)
-    return opener.open(req, timeout=timeout)
+    """发 LLM 请求：统一走出站层（公网校验 + 固定 IP + 禁跟随 3xx）。
+
+    v4.7.4：不再自己 `build_opener(NoRedirect)`。公网 Base 302 到内网、
+    以及「校验时解析到公网、建连时重绑定到内网」这两条绕过都由
+    `outbound.open_public()` 一并关掉（校验与建连共用同一次解析）。
+    """
+    return open_public(req, timeout=timeout)
 
 # 单个文件即便总预算充裕也不无限送审（防止单文件把预算吃光，
 # 导致后面的入口 html 反而没审到 —— 入口文件才是攻击面最大的地方）。

@@ -6,6 +6,9 @@
   会自建 urllib 会话重新解析 DNS **并自动跟随 3xx跳转** —— 于是「首查公网 IP 放行 →
   302 跳内网 / DNS 重绑定」两条绕过都成立。现改为**我们自己用禁重定向的opener 抓取**，
   跳转一律不跟随（重定向响应视为失败），再把字节喂给 feedparser 解析。
+- **v4.7.4 再收一层**：抓取统一走 `outbound.open_public()` —— 校验与建连共用
+  **同一次** DNS 解析结果（拿到哪个 IP 就连哪个 IP），预检查与连接之间
+  不再有可被重绑定的第二次解析。
 - 条目链接协议白名单：**R114 审计** —— RSS 条目的 `<link>` 此前只判空，
   `javascript:...` 会原样进前端 `:href`（存储型 XSS）。现只放行 http/https。
 - 外部内容清洗：摘要 HTML 经 bleach 白名单清理，避免 XSS。
@@ -14,13 +17,11 @@
 import io
 import time
 import urllib.parse
-import urllib.request
-import urllib.error
 import datetime
 
 from models import FriendLink
 from utils import clean_html, fmt_bj
-from outbound import is_private_ip as _is_private_ip, safe_public_url as _safe_url
+from outbound import (UnsafeURLError, open_public as _open_public, resolve_public as _resolve_public)
 import logging
 
 # v3.23.0：print → logger（格式/级别见 logging_setup）
@@ -51,39 +52,27 @@ def get_last_diag():
     return dict(_LAST_DIAG)
 
 
-# `_safe_url` / `_is_private_ip` 的实现已抽到 `outbound.py`（上面的 import 保留同名
-# 模块属性，不破坏既有调用方与测试）；SSRF 判据只有一份，避免多处口径漂移。
+# SSRF 判据只有 `outbound.py` 一份：校验用 `resolve_public()`，抓取用 `open_public()`。
+# 本模块不再自己写任何私网/协议判断（v4.7.4 删掉了这里残留的第二套字符串前缀判断）。
 
-# ---------- R114 审计：禁重定向抓取器（堵 SSRF 绕过）----------
+# ---------- R114 审计：抓取器（禁重定向 + 固定 IP）----------
 # 为什么不能直接 `feedparser.parse(url)`：它自建 urllib 会话，会**重新解析 DNS**
-# （`_safe_url()` 的预检查结果因此失效 → DNS 重绑定）**并自动跟随 3xx**
-# （攻击者用公网 302 跳 `http://100.100.100.200/` 元数据或内网服务，
-#   跳转变量从不被复检）。所以抓取必须由我们自己发起、且**不跟随任何跳转**。
+# （预检查因此失效 → DNS 重绑定）**并自动跟随 3xx**（攻击者用公网 302 跳
+# `http://100.100.100.200/` 元数据或内网服务，跳转变量从不被复检）。
+# v4.7.4 起这两件事一起交给 `outbound.open_public()`：校验与建连共用**同一次**
+# 解析结果（重绑定窗口由此关掉），且跳转一律不跟随。
 _FEED_MAX_BYTES = 5 * 1024 * 1024  # 单个 RSS 上限 5MB，防内存打爆
 
 
-class _NoRedirect(urllib.request.HTTPRedirectHandler):
-    """任何 3xx 都**不跟随**（返回 None 使 urllib 抛 HTTPError）。
-
-    与 `seo_push.py` / `oauth.py` 用的是同一套手法——本仓库已有标准答案。
-    """
-
-    def redirect_request(self, req, fp, code, msg, headers, newurl):  # noqa: ARG002 —— 接口强制签名
-        return None
-
-
 def _fetch_feed_bytes(url, timeout):
-    """抓取 RSS 字节：禁重定向 + 限大小。失败抛异常，由调用方按「跳过该源」处理。
+    """抓取 RSS 字节：公网校验 + 固定 IP 直连 + 禁重定向 + 限大小。
 
-    调用方**必须**先过 `_safe_url()`；这里不再重复解析 DNS（正是重复解析给了
-    重绑定窗口）。禁重定向已把「跳转绕过」彻底关掉。
+    失败抛异常（`UnsafeURLError` / `HTTPError` / `ValueError`），由调用方按「跳过该源」处理。
     """
-    opener = urllib.request.build_opener(_NoRedirect)
-    req = urllib.request.Request(url, headers={
+    with _open_public(url, timeout=timeout, headers={
         "User-Agent": "llhhy-blog-feed-aggregator/1.0",
         "Accept": "application/rss+xml, application/atom+xml, application/xml, text/xml, */*",
-    })
-    with opener.open(req, timeout=timeout) as resp:
+    }) as resp:
         # 只读 Content-Length 声明的长度做上限控制（不信任，仅用于提前拒绝）
         try:
             declared = int(resp.headers.get("Content-Length") or 0)
@@ -114,40 +103,25 @@ def _safe_item_url(href):
     return href
 
 
+def _reject_reason(url):
+    """安全校验通过返回空串，否则返回可直接展示的原因。
+
+    判据不在此处重写一遍 —— 直接取 `outbound.resolve_public()` 抛出的原因，
+    与真正发起抓取时用的是同一份逻辑（此前这里另写了一套 `10.` / `172.16-31`
+    字符串前缀判断，与纯 IP 判据并存即为漂移空间）。
+    """
+    if not url:
+        return "RSS 地址为空"
+    try:
+        _resolve_public(url)
+    except UnsafeURLError as e:
+        return str(e) or "URL 未通过安全校验"
+    return ""
+
+
 def _safe_url_fail_reason(url):
-    """返回 _safe_url 拒绝的原因（仅供日志排查用，与 _safe_url 判定逻辑一一对应）。"""
-    try:
-        p = urllib.parse.urlparse(url)
-    except Exception:
-        return "URL 无法解析"
-    if p.scheme not in ("http", "https"):
-        return f"协议 {p.scheme!r} 非 http/https"
-    host = (p.hostname or "").lower()
-    if not host:
-        return "缺少主机名"
-    if host in ("localhost", "127.0.0.1", "::1", "0.0.0.0"):
-        return "主机为回环地址"
-    if host.startswith("10.") or host.startswith("192.168.") or host.startswith("169.254."):
-        return "主机为内网地址"
-    if host.startswith("172."):
-        try:
-            second = int(host.split(".")[1])
-            if 16 <= second <= 31:
-                return "主机为内网地址"
-        except (ValueError, IndexError):
-            pass
-    import socket
-    try:
-        infos = socket.getaddrinfo(host, None, type=socket.SOCK_STREAM)
-        ips = {info[4][0] for info in infos}
-        for ip in ips:
-            if _is_private_ip(ip):
-                return f"域名解析到内网/保留 IP（{ip}）"
-        if not ips:
-            return "域名解析结果为空"
-    except OSError as e:
-        return f"DNS 解析失败（{e}）——检查服务器出网/DNS"
-    return "未知原因"
+    """返回 _safe_url 拒绝的原因（日志/后台诊断用；放行时给明确说明）。"""
+    return _reject_reason(url) or "已通过安全校验"
 
 
 def validate_feed_url(url, timeout=8):
@@ -156,10 +130,9 @@ def validate_feed_url(url, timeout=8):
     用途：后台保存友链 RSS 时做软校验（非阻塞，保存照常），提前暴露
     类似「/feed/ 被当首页返回 HTML」「域名不可达/被墙」这类问题。
     """
-    if not url:
-        return False, "RSS 地址为空"
-    if not _safe_url(url):
-        return False, _safe_url_fail_reason(url)
+    reason = _reject_reason(url)
+    if reason:
+        return False, reason
     import socket as _sock
     _old = _sock.getdefaulttimeout()
     _sock.setdefaulttimeout(timeout)
@@ -217,8 +190,8 @@ def get_circle_feed(force=False):
         for link in links:
             rec = {"name": link.name, "url": link.url, "rss_url": link.rss_url,
                    "safe": None, "entries": 0, "status": "", "reason": ""}
-            if not _safe_url(link.rss_url):
-                reason = _safe_url_fail_reason(link.rss_url)
+            reason = _reject_reason(link.rss_url)
+            if reason:
                 logger.warning("[FEED AGG] 跳过友链「%s」：RSS 地址未通过安全校验（%s）", link.name, reason)
                 diag["skipped"] += 1
                 diag["notes"].append(f"跳过友链「{link.name}」：RSS 地址未过安全校验（{reason}）")

@@ -132,6 +132,17 @@ def delete_media_core(name):
     safe = os.path.basename((name or "").strip())
     if not safe or safe in (".", ".."):
         return False, "文件名不合法"
+    # v4.7.4：壁纸可以直接引用媒体库里的已有图片，于是产生了引用关系 ——
+    # 删掉正在当壁纸用的那张，首屏 background-image 会直接 404。
+    # 这里拦一道，提示先去主题中心换掉壁纸。
+    # ⚠️ 这里**故意 fail-open**：检查挂了不该让管理员完全删不了文件；
+    #   误放行的后果只是壁纸裂图（首页退化成纯色底），不是安全问题。
+    try:
+        from api.theme import wallpaper_uses
+        if wallpaper_uses(safe):
+            return False, "该图片正被首屏壁纸引用，请先到「主题中心」更换或清除壁纸再删除"
+    except Exception as e:  # noqa: BLE001 （检查挂了不该让管理员完全删不了文件）
+        current_app.logger.warning("[media] 壁纸引用检查失败，放行删除：%s", str(e)[:120])
     folder = current_app.config["UPLOAD_FOLDER"]
     fp = os.path.join(folder, safe)
     if not os.path.abspath(fp).startswith(os.path.abspath(folder) + os.sep) or not os.path.isfile(fp):
@@ -151,7 +162,12 @@ def media_lib():
     按文件名里的时间戳前缀倒序（后上传在前）。每张图标注文件大小、归属类型与
     「疑似引用它的文章」，删除前有明确提醒，避免误删正在使用的封面/插图。
     """
-    return render_template("admin/media_lib.html", items=collect_media())
+    # v4.7.4：「设为壁纸」是**超管**操作（写壁纸走 /api/theme，那边要求 is_super），
+    # 而本页是管理员可进 —— 权限不同，所以按钮只对超管显示，
+    # 否则普通管理员点了只会拿到一个 403 白板。
+    u = _current_user_or_none()
+    return render_template("admin/media_lib.html", items=collect_media(),
+                           is_super=bool(u and getattr(u, "is_super", False)))
 
 
 @admin_bp.route("/media/delete", methods=["POST"])

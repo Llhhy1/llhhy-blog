@@ -2,7 +2,7 @@
 
 llhhy-blog 的后端：Flask + SQLite，服务端渲染前台 + `/api/*` JSON 接口 + Jinja2 管理后台。
 
-- 当前版本：**v4.7.3**
+- 当前版本：**v4.7.5**
 - **版本历史一律记在 [CHANGELOG.md](../CHANGELOG.md)，本文件不重复记录。**
 - 根目录总览见 [README.md](../README.md)
 - 时区：展示统一北京时间（UTC+8），存储仍为 UTC；配置见 `config.TIME_ZONE`
@@ -152,7 +152,7 @@ python app.py            # http://127.0.0.1:5000
   `BLOG_MIGRATE_ONLY=1 FLASK_APP=app:create_app <venv>/bin/python -m flask db upgrade`，
   否则迁移里的索引/列不会落到生产（用一键更新脚本 `update.sh` 的无需手动做）。
   `BLOG_MIGRATE_ONLY=1` 让迁移跳过全部启动副作用，因此**无需提供 `SECRET_KEY`/`ADMIN_PASSWORD`**。
-  可用 `flask db heads` 确认当前应为 `a7e3c92d5b18 (head)`。
+  可用 `flask db heads` 确认当前应为 `c3d9e2f71a04 (head)`。
 - **RSS/sitemap 是 localhost**：设 `SITE_URL=https://你的域名` 并重启。
 - **写接口 403（CSRF）**：先 GET `/api/csrf` 取 token，再带 `X-CSRF-Token` 头提交。
 - **搜索降级 LIKE**：服务器 SQLite 无 FTS5，功能正常但较慢。

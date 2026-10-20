@@ -14,6 +14,33 @@ from _time import utcnow
 import contextlib
 
 # ---------- 访问统计（埋点 + 汇总）----------
+@api_bp.route("/stats/online")
+def stats_online():
+    """**当前在线访客数**（公开端点，供前台展示）。
+
+    v4.7.5：数据本来就存在（`stats.compute_online()` —— 近 10 分钟内的独立 IP 数），
+    只是前台一直没露出来。这里开一个**独立**的轻量端点，而不是把它塞进
+    `/api/stats/dashboard`：
+      · dashboard 成本高（referrers / trend / N+1 聚合），不该被首页高频轮询；
+      · dashboard 需要登录，而「当前在线」是**要公开给访客看**的。
+
+    ⚠️ **它是近似值，不是精确在线人数**：本项目没有会话表，只能按 VisitLog 的
+    独立 IP 推算 —— NAT / 换网络会重复计数，短时无请求会被漏掉。
+    前台展示时应当如实标注（例：「近 10 分钟访客」），不要写成「在线人数」。
+
+    限流：公开端点必须限流，否则会被脚本刷（每次都算一次 count）。
+    """
+    if not rate_limit(client_key("stats_online"), limit=30, window=60):
+        # 超限不报错，**回一个保守值**（0）—— 前台只是展示，超限时显示 0 比报错更友好
+        return jsonify({"online": 0, "approx": True})
+    try:
+        n = stats.compute_online()
+    except Exception as e:  # noqa: BLE001 （统计失败不该拖垮前台）
+        current_app.logger.warning("[stats/online] 在线数计算失败：%s", str(e)[:120])
+        n = 0
+    return jsonify({"online": int(n or 0), "approx": True})
+
+
 @api_bp.route("/stats/visit", methods=["POST"])
 def stats_visit():
     """前端每次路由变化时上报一次访问（fire-and-forget）。

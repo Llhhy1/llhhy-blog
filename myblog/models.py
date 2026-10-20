@@ -652,3 +652,32 @@ class UserTwoFactor(db.Model):
     last_counter = db.Column(db.Integer, default=0, nullable=False)  # 防重放：已消费的最后一个时间窗
     created_at = db.Column(db.DateTime, default=utcnow)
     confirmed_at = db.Column(db.DateTime, nullable=True)
+
+
+class EcosystemSite(db.Model):
+    """v4.7.5「生态统计」：使用本系统部署的站点注册表（**中心端**才有数据）。
+
+    ⚠️ **为什么要有这张表**：想知道「有多少人在用我的系统部署上线」，只有一条路 ——
+    **由部署实例主动上报**。GitHub 侧只能看到 fork 派生关系，而绝大多数使用者
+    是 `git clone` 完自己改的，GitHub 完全看不见。
+
+    ⚠️ **上报内容严格受限**：只有「站点 URL + 版本号 + 随机安装 ID + 时间戳」。
+    **绝不包含任何访客数据、文章内容、账号信息** —— 这是这个功能能成立的前提。
+
+    ⚠️ **谁会往这张表里写**：只有「收到别人心跳」的实例 —— 也就是被指定为
+    中心端的那台（通常是作者自己的站点）。别的部署实例收不到心跳，表是空的。
+
+    - `site_key`：客户端首次安装时生成的随机 ID（**不绑 IP、不绑账号**），
+      中心端用它去重 —— 同一站点多次心跳只更新一行，不重复计数。
+    - `listed`：该站点是否**愿意公开展示**。作者可拒绝被列出来（只计数不展示）。
+    - `last_seen`：最后一次心跳时间 —— 「24 小时活跃站点数」由此得出。
+    """
+    __tablename__ = "ecosystem_site"
+
+    id = db.Column(db.Integer, primary_key=True)
+    site_key = db.Column(db.String(64), unique=True, nullable=False, index=True)
+    url = db.Column(db.String(300), nullable=False, default="")
+    version = db.Column(db.String(32), default="")
+    listed = db.Column(db.Boolean, default=True, nullable=False)
+    first_seen = db.Column(db.DateTime, default=utcnow)
+    last_seen = db.Column(db.DateTime, default=utcnow, index=True)

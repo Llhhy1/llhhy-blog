@@ -83,16 +83,23 @@ def feed_server():
     srv.server_close()
 
 
-def test_fetch_refuses_to_follow_redirect(feed_server):
+def test_fetch_refuses_to_follow_redirect(feed_server, monkeypatch):
     """302 必须被拒绝，而不是默默跟到内网目标。"""
     import urllib.error
+    import outbound
+    # v4.7.4：抓取改走统一出站层后**多了一层私网校验**（本测试的 server 在
+    # 127.0.0.1 上）。这里只放行本地地址，**断言的意图一字未改** ——
+    # 仍是在验「302 被拒绝，而不是默默跟到内网目标」。
+    monkeypatch.setattr(outbound, "is_private_ip", lambda ip: False)
     from feed_agg import _fetch_feed_bytes
     with pytest.raises(urllib.error.HTTPError) as ei:
         _fetch_feed_bytes(feed_server + "/redirect", timeout=5)
     assert ei.value.code in (301, 302, 303, 307, 308)
 
 
-def test_fetch_returns_body_for_normal_feed(feed_server):
+def test_fetch_returns_body_for_normal_feed(feed_server, monkeypatch):
+    import outbound
+    monkeypatch.setattr(outbound, "is_private_ip", lambda ip: False)
     from feed_agg import _fetch_feed_bytes
     data = _fetch_feed_bytes(feed_server + "/ok", timeout=5)
     assert b"<rss" in data

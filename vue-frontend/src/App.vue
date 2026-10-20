@@ -163,6 +163,12 @@
     </div>
 
     <footer class="site-footer">
+      <!-- v4.7.5：当前在线访客（近 10 分钟独立 IP）—— 放页脚而不是首页：
+           页脚是全站统一的浅色背景区，明暗主题都自适应；首页首屏是壁纸层，
+           文字颜色要单独适配，放页脚省事也更稳。 -->
+      <p v-if="onlineCount > 0" class="site-footer-online">
+        <span class="sfo-dot" aria-hidden="true"></span>{{ onlineCount }} 人正在浏览
+      </p>
       <p>{{ state.site.footer_text }}</p>
       <p v-if="state.site.beian_code">
         <a href="https://beian.miit.gov.cn" target="_blank" rel="noopener">{{ state.site.beian_code }}</a>
@@ -207,6 +213,29 @@ const announcements = ref([]);
 const pluginFooter = ref([]);  // v3.9.0 插件页脚卡片
 const pluginNav = ref([]);     // v3.9.0 M2 插件导航入口
 const pluginSidebar = ref([]); // v3.9.0 M2 插件侧栏入口
+
+// ---------- v4.7.5 当前在线访客（页脚徽标） ----------
+// 数据来自 `/api/stats/online`（近 10 分钟独立 IP 数，**近似值**）。
+// 每 60 秒拉一次；页面隐藏时跳过（省流量，也省得在后台标签页一直打接口）。
+const onlineCount = ref(0);
+let _onlineTimer = null;
+async function refreshOnline() {
+  try {
+    const d = await apiGet("/api/stats/online");
+    onlineCount.value = Number(d && d.online) || 0;
+  } catch (e) { /* 静默：在线数只是个锦上添花的小徽标，取不到就不显示 */ }
+}
+function startOnlineTimer() {
+  stopOnlineTimer();
+  refreshOnline();
+  _onlineTimer = setInterval(() => {
+    if (typeof document !== "undefined" && document.hidden) return;
+    refreshOnline();
+  }, 60000);
+}
+function stopOnlineTimer() {
+  if (_onlineTimer) { clearInterval(_onlineTimer); _onlineTimer = null; }
+}
 const pluginHtml = ref([]);    // v3.9.0 M3 插件富文本（已消毒渲染）
 // v4.1.0：多条自定义外链入口，**统一收进「🧰 工具箱」下拉**。
 // 为什么不逐条平铺：导航栏是 `flex-wrap: nowrap`（global.css），条目多了会横向撑破
@@ -306,6 +335,7 @@ router.afterEach((to) => trackVisit(to));
 // 实际上活到整页结束、并非真实泄漏；但既然这里已有 onBeforeUnmount，
 // 顺手收口更不容易被后人误认为「遗漏」。
 onBeforeUnmount(() => {
+  stopOnlineTimer();
   uninstallGestures();
   uninstallEasterEgg();
   window.removeEventListener("scroll", onScroll);
@@ -428,6 +458,7 @@ function onScroll() {
 }
 
 onMounted(async () => {
+  startOnlineTimer();
   installGestures();
   installEasterEgg();
   await initSite();

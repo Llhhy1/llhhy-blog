@@ -32,6 +32,9 @@
           </div>
           <div class="media-actions">
             <button type="button" class="link-btn copy-url">复制 URL</button>
+            {% if is_super %}
+            <button type="button" class="link-btn set-wallpaper" data-url="{{ it.url }}" data-name="{{ it.name }}">设为壁纸</button>
+            {% endif %}
             <form method="post" action="{{ url_for('admin.delete_media') }}" class="inline-form del-media" style="display:inline;">
                   {{ csrf_input() }}
               <input type="hidden" name="name" value="{{ it.name }}">
@@ -46,6 +49,41 @@
     {% endif %}
   </div>
 
+  <script>
+  (function () {
+    // v4.7.4：把媒体库里的图直接设为首屏壁纸，不必再传一遍文件。
+    // 写壁纸走 /api/theme（要求超管），所以按钮只对超管渲染（见 media_lib 路由）。
+    function csrfTok() {
+      return (document.querySelector('input[name="csrf_token"]') || {}).value || '{{ csrf_token }}' || "";
+    }
+    Array.prototype.forEach.call(document.querySelectorAll('.set-wallpaper'), function (b) {
+      b.addEventListener('click', function () {
+        var url = b.getAttribute('data-url');
+        var name = b.getAttribute('data-name');
+        if (!confirm('把「' + name + '」设为亮色模式壁纸？\n会同时启用壁纸；暗色壁纸保持不变。')) return;
+        var tok = csrfTok();
+        fetch('/api/theme').then(function (r) { return r.json(); }).then(function (d) {
+          var wp = (d && d.wallpaper) || {};
+          return fetch('/api/theme', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': tok },
+            body: JSON.stringify({ wallpaper: {
+              enabled: true,
+              light: url,
+              dark: wp.dark || '',
+              overlay: (typeof wp.overlay === 'number') ? wp.overlay : 0.35
+            }})
+          });
+        }).then(function (r) {
+          return r.json().then(function (d) { return { ok: r.ok, d: d }; });
+        }).then(function (res) {
+          if (res.ok) alert('已设为亮色壁纸：' + name);
+          else alert('设置失败：' + ((res.d && res.d.error) || '未知错误'));
+        }).catch(function () { alert('设置失败：网络错误'); });
+      });
+    });
+  })();
+  </script>
   <script>
   (function () {
     var btn = document.getElementById("media-upload-btn");

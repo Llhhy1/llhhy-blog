@@ -42,6 +42,8 @@ import threading
 import urllib.error
 import urllib.parse
 import urllib.request
+
+from outbound import build_opener
 import logging
 
 logger = logging.getLogger(__name__)
@@ -88,29 +90,7 @@ def _is_allowed_url(url):
     return False
 
 
-class _NoRedirect(urllib.request.HTTPRedirectHandler):
-    """**拒绝跟随重定向**的出站 opener（v3.19.1）。
-
-    为什么必须有它：`_is_allowed_url()` 只在**发起前**校验一次，而默认 opener
-    会自动跟随 3xx，且 urllib 会把 POST **降级成 GET**。于是「白名单 host 返回
-    一个 302」就等于把出站目标决策权交给了对端 —— 变成一次**任意 host 的 GET**，
-    响应体还会被当作推送结果入库并回显到收录页（半盲 SSRF + 内容回显）。
-
-    触发条件并不苛刻：百度端点本身就是明文 HTTP，链路上任一环（DNS 污染、
-    同宿主机、被劫持的路由）能改响应即可。本地实测复现：白名单 host 返回
-    `302 → 127.0.0.1:<other>`，`_http_post` 确实对白名单外主机发出了 GET。
-
-    这里选择「抛 HTTPError」而不是「静默忽略」：让调用方看到真实的 3xx 状态码，
-    落 fail 并显示原因，便于排查（302 通常意味着链路被劫持或端点已迁移）。
-    """
-
-    def redirect_request(self, req, fp, code, msg, headers, newurl):
-        raise urllib.error.HTTPError(
-            req.full_url, code,
-            "重定向被拒绝（出站白名单不允许跟随跳转）", headers, fp)
-
-
-_OPENER = urllib.request.build_opener(_NoRedirect)
+_OPENER = build_opener(pinned=False)
 
 
 def _http_post(url, body, headers=None, timeout=TIMEOUT):

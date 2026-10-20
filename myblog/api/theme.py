@@ -74,6 +74,31 @@ def _wallpaper():
     }
 
 
+def wallpaper_uses(filename):
+    """该文件是否正被首屏壁纸引用（v4.7.4）。
+
+    v4.7.4 起壁纸**可以直接引用媒体库里已有的图片**（不必每次重新上传），
+    于是「媒体库文件」与「首屏壁纸」之间产生了**引用关系** ——
+    把正在用的那张删掉，首屏的 `background-image` 就会直接 404。
+
+    媒体库删除文件前需要问一句，所以这个判定放在**壁纸的 owner 模块**里
+    （单一真相源），由 `admin/media.py` 调用。
+
+    只认 `/static/uploads/<name>` 形态 —— 与 `_safe_wp_url` 的白名单一致，
+    不接受任何站外 URL（站外壁纸不是媒体库的文件，删媒体库删不到它）。
+    """
+    name = (filename or "").strip()
+    if not name:
+        return False
+    wp = _wallpaper()
+    prefix = "/static/uploads/"
+    for slot in ("light", "dark"):
+        v = wp.get(slot) or ""
+        if v.startswith(prefix) and v[len(prefix):] == name:
+            return True
+    return False
+
+
 @api_bp.route("/theme", methods=["GET"])
 def theme_get():
     return jsonify({

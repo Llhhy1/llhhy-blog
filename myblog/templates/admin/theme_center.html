@@ -35,6 +35,7 @@
         <img class="wp-prev" id="wpPrevLight" alt="">
         <div class="wp-btns">
           <button type="button" class="btn" data-wppick="light">选择图片</button>
+          <button type="button" class="btn ghost" data-wplib="light">📁 从媒体库选</button>
           <button type="button" class="btn ghost" data-wpclear="light">清除</button>
         </div>
         <input type="file" id="wpFileLight" accept="image/png,image/jpeg,image/webp,image/gif" hidden>
@@ -44,6 +45,7 @@
         <img class="wp-prev" id="wpPrevDark" alt="">
         <div class="wp-btns">
           <button type="button" class="btn" data-wppick="dark">选择图片</button>
+          <button type="button" class="btn ghost" data-wplib="dark">📁 从媒体库选</button>
           <button type="button" class="btn ghost" data-wpclear="dark">清除</button>
         </div>
         <input type="file" id="wpFileDark" accept="image/png,image/jpeg,image/webp,image/gif" hidden>
@@ -57,6 +59,28 @@
       </label>
       <button type="button" class="btn" id="wpSaveBtn">保存壁纸设置</button>
       <span id="wpMsg" class="tc-msg"></span>
+    </div>
+
+    <!-- v4.7.4：媒体库选择面板。壁纸原本只能靠本地文件上传，每次换图都要把
+         同一张图再传一遍；这里直接引用媒体库里已有的文件（同一个
+         /static/uploads/ 命名空间，后端 _safe_wp_url 直接接受）。
+         清单由后端 collect_media() 渲染，与媒体库页同一实现。 -->
+    <div class="wp-lib" id="wpLib" hidden>
+      <div class="wp-lib-head">
+        <span id="wpLibTitle">从媒体库选择</span>
+        <button type="button" class="btn ghost" id="wpLibClose">关闭</button>
+      </div>
+      {% if media %}
+      <div class="wp-lib-grid">
+        {% for it in media %}
+        <button type="button" class="wp-lib-item" data-url="{{ it.url }}" data-name="{{ it.name }}" title="{{ it.name }}">
+          <img src="{{ it.url }}" alt="{{ it.name }}" loading="lazy">
+        </button>
+        {% endfor %}
+      </div>
+      {% else %}
+      <p class="muted">媒体库还没有图片。先到「🖼️ 媒体库」上传一张，或用上面的「选择图片」。</p>
+      {% endif %}
     </div>
   </div>
 
@@ -144,6 +168,11 @@
     var wpOverlay = document.getElementById('wpOverlay');
     var wpOverlayVal = document.getElementById('wpOverlayVal');
     var wpMsg = document.getElementById('wpMsg');
+    // v4.7.4：媒体库选择面板
+    var wpLib = document.getElementById('wpLib');
+    var wpLibClose = document.getElementById('wpLibClose');
+    var wpLibTitle = document.getElementById('wpLibTitle');
+    var wpLibTarget = 'light';
 
     function renderWp() {
       ['light', 'dark'].forEach(function (k) {
@@ -189,6 +218,26 @@
       btn.addEventListener('click', function () {
         wp[btn.getAttribute('data-wpclear')] = '';
         renderWp();
+      });
+    });
+    // v4.7.4：从媒体库选（不再重新上传同一张图）
+    Array.prototype.forEach.call(document.querySelectorAll('[data-wplib]'), function (btn) {
+      btn.addEventListener('click', function () {
+        wpLibTarget = btn.getAttribute('data-wplib');
+        wpLibTitle.textContent = '从媒体库选择（' +
+          (wpLibTarget === 'dark' ? '暗色模式' : '亮色模式') + '壁纸）';
+        wpLib.hidden = false;
+      });
+    });
+    if (wpLibClose) {
+      wpLibClose.addEventListener('click', function () { wpLib.hidden = true; });
+    }
+    Array.prototype.forEach.call(document.querySelectorAll('.wp-lib-item'), function (it) {
+      it.addEventListener('click', function () {
+        wp[wpLibTarget] = it.getAttribute('data-url');
+        renderWp();
+        wpLib.hidden = true;
+        showWpMsg('已从媒体库选择，记得点「保存壁纸设置」', true);
       });
     });
     ['light', 'dark'].forEach(function (kind) {
@@ -315,6 +364,18 @@
       color:var(--text-muted,#9aa0a6); font-size:13px; }
     .wp-prev:not(.has)::after { content:'尚未设置'; }
     .wp-btns { display:flex; gap:8px; flex-wrap:wrap; }
+    /* v4.7.4：媒体库选择面板 */
+    .wp-lib { margin-top:12px; padding:12px; border:1px solid var(--border,#ececec);
+      border-radius:12px; background:var(--bg,#f7f8fa); }
+    .wp-lib[hidden] { display:none; }
+    .wp-lib-head { display:flex; align-items:center; justify-content:space-between;
+      margin-bottom:10px; font-size:13px; color:var(--text-muted,#6b7280); }
+    .wp-lib-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(110px,1fr)); gap:8px;
+      max-height:320px; overflow-y:auto; }
+    .wp-lib-item { padding:0; border:1px solid var(--border,#ececec); border-radius:8px;
+      overflow:hidden; cursor:pointer; background:#fff; line-height:0; }
+    .wp-lib-item:hover { border-color:var(--accent,#1a73e8); }
+    .wp-lib-item img { width:100%; aspect-ratio:16/10; object-fit:cover; display:block; }
     .wp-ctl { display:flex; align-items:center; gap:16px; flex-wrap:wrap; margin-top:16px; }
     .wp-check, .wp-range { display:flex; align-items:center; gap:6px; font-size:13px;
       color:var(--text-muted,#6b7280); }

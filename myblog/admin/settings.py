@@ -93,7 +93,9 @@ def settings():
                   "slug_mode", "slug_template",
                   # v3.8.0 反爬限流保护配置
                   "bot_guard_threshold", "bot_guard_window", "bot_guard_tool_limit",
-                  "bot_guard_block_hits", "bot_guard_block_minutes", "seo_block_bots"]
+                  "bot_guard_block_hits", "bot_guard_block_minutes", "seo_block_bots",
+                  # v4.7.5 生态统计：心跳上报的中心地址（留空 = 不上报）
+                  "ecosystem_center"]
         # 注：v4.1.0 起「外部入口」迁到独立管理页 `admin/nav_entries`（支持多条、排序），
         # 不再由本表单承担 —— 在一张整体提交的大表单里做「删除第 3 条」语义是拧的。
         # v3.25.2：**改动之前**拍快照（必须在这里，否则快照记的是新值，
@@ -101,7 +103,8 @@ def settings():
         _cfg_snapshot = None
         try:
             import config_rollback as _cr
-            _snap_keys = list(fields) + ["comment_require_approval", "comment_email_required"]
+            _snap_keys = (list(fields) + ["comment_require_approval", "comment_email_required",
+                                          "ecosystem_opt_in", "ecosystem_listed"])
             _cfg_snapshot = _cr.snapshot_settings(_snap_keys, reason="设置页保存")
         except Exception:
             _cfg_snapshot = None
@@ -124,6 +127,21 @@ def settings():
                     flash("开站时间格式不对，应为 YYYY-MM-DD，已保留原值。", "error")
                     continue
                 val = raw
+            elif f == "ecosystem_center":
+                # v4.7.5：生态中心地址必须过 SSRF 白名单 —— 否则这个设置会变成
+                # 「让服务器去请求任意地址」的后门（内网探测）。
+                from outbound import safe_public_url
+                raw = (request.form.get(f, "") or "").strip().rstrip("/")
+                if not raw:
+                    val = ""            # 留空 = 不上报，合法
+                elif not raw.lower().startswith(("http://", "https://")):
+                    flash("生态中心地址必须以 http:// 或 https:// 开头，已保留原值。", "error")
+                    continue
+                elif not safe_public_url(raw):
+                    flash("生态中心地址必须是公网地址（不能是本机或内网），已保留原值。", "error")
+                    continue
+                else:
+                    val = raw
             else:
                 val = request.form.get(f, "")
             row = Setting.query.filter_by(key=f).first()
@@ -145,6 +163,14 @@ def settings():
             cer.value = cer_val
         else:
             db.session.add(Setting(key="comment_email_required", value=cer_val))
+        # v4.7.5 生态统计：参与开关（**默认关闭**）+ 是否公开展示我的站点
+        for cb, dv in (("ecosystem_opt_in", "false"), ("ecosystem_listed", "true")):
+            row = Setting.query.filter_by(key=cb).first()
+            val = "true" if request.form.get(cb) else dv
+            if row:
+                row.value = val
+            else:
+                db.session.add(Setting(key=cb, value=val))
         # v3.8.0：反爬限流两个开关（checkbox：勾选=true，不勾选=空）
         for cb in ("bot_guard_enabled", "bot_guard_search_whitelist"):
             row = Setting.query.filter_by(key=cb).first()

@@ -596,6 +596,23 @@ sha256sum /tmp/og.png /www/wwwroot/你的站点根/og-default.png
    - `/www/wwwroot/myblog/data/blog.db`（全部数据）
    - `/www/wwwroot/myblog/static/uploads/`（上传的图片）
 1.1. **升级要点**（其余步骤与通用流程一致；适用于 v4.0.0 → v4.7.3）：
+   - **v4.7.5（生态统计 + 公开在线数）**：
+     - ⚠️ **本版有迁移**：head 由 `b8e4f1a72c93` 变为 **`c3d9e2f71a04`**
+       （新增表 `ecosystem_site`，7 列）。部署走 `flask db upgrade`，
+       **绝对不要 `stamp head`**。
+     - ⚠️ **本版新增一张表** —— 这是少有的加表决定：需要「每站点一行 + 最后心跳时间
+       + 按时间范围查活跃数」，`log_audit` 是追加写的日志表，去重与聚合都做不了。
+     - 新增两个**公开**端点：`GET /api/stats/online`（当前在线访客，近 10 分钟独立 IP，
+       近似值）、`GET /api/ecosystem/stats`（站点注册表统计）。
+       两者都限流，只返回计数，不返回任何访客标识。
+     - 新增 `POST /api/ecosystem/heartbeat`（部署实例心跳上报）—— **豁免 CSRF**
+       （上报方是后台定时任务，没有会话也就没有 token）；防滥用靠限流 + 随机
+       `site_key` + 字段白名单。
+     - ⚠️ **生态统计默认关闭**：上线后需到「设置 → 🌐 生态统计」手动开启并填中心地址。
+       开启后本机会**每小时**向中心发一次心跳，内容仅含站点 URL / 版本号 /
+       随机安装 ID / 时间戳，**不含任何访客数据**。站点可选择不被公开展示。
+     - 现象：页脚出现「👥 N 人正在浏览」；「关于」页出现「🌐 生态」区块
+       （站点数为 0 时该区块不显示）。
    - **v4.7.3（全量审计代码批次 · PR #24）**：
      - ⚠️ **本版有迁移**：head 由 `a7e3c92d5b18` 变为 **`b8e4f1a72c93`**
        （两个幂等索引：`ix_post_visibility_created` / `ix_comment_post_approved`）。

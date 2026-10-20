@@ -434,6 +434,13 @@ def _register_request_hooks(app):
         #   未来子路径一并放行；"/mcp-write" 单独列出，两端都不含通配。
         exempt = ("/api/webhook/deploy", "/api/captcha", "/api/captcha/verify",
                   "/api/stats/read", "/api/stats/visit", "/api/stats/search",
+                  # v4.7.5 生态统计心跳：上报方是**部署实例的后台定时任务**，
+                  # 它没有用户会话、也就没有 CSRF token —— 不豁免就永远发不出去。
+                  # 这里的防滥用靠三件事，不靠 CSRF：
+                  #   ① rate_limit 每 IP 每分钟 30 次；
+                  #   ② site_key 必须是 16~64 位十六进制（随机串，猜不到）；
+                  #   ③ payload 只认 4 个白名单字段，不接受任何访客数据。
+                  "/api/ecosystem/heartbeat",
                   "/mcp", "/mcp-write")
         path = request.path
         if any(path.startswith(e) for e in exempt):
@@ -759,6 +766,7 @@ def _start_scheduler(app):
     _last_prune_day = [None]   # 闭包内记录上次执行保留策略的日期（每日一次）
     _last_verify_day = [None]  # v3.25.2：备份自动巡检同上（每日一次，刻意分开记日期）
     _last_cert_day = [None]    # v3.25.3：证书到期检查同上
+    _last_eco_hour = [None]    # v4.7.5：生态统计心跳（每小时一次，用小时数做节流）
 
     def _scheduler_loop():
         import time as _time
@@ -767,6 +775,19 @@ def _start_scheduler(app):
             try:
                 with app.app_context():
                     now = utcnow()
+                    # ---------- v4.7.5 生态统计心跳（每小时一次）----------
+                    # 部署实例向「生态中心」报告自己还活着 —— 这是统计
+                    # 「有多少个站点在用本系统」的唯一可靠来源（GitHub 只看得到 fork）。
+                    # ⚠️ **默认关闭**（设置项 ecosystem_opt_in），未开启时 report_heartbeat
+                    # 直接返回 False，什么都不发。失败一律静默，绝不影响发布主流程。
+                    _h = now.hour
+                    if _last_eco_hour[0] != _h:
+                        _last_eco_hour[0] = _h
+                        try:
+                            import ecosystem as _eco
+                            _eco.report_heartbeat()
+                        except Exception:  # noqa: BLE001, S110
+                            pass
                     due = Post.query.filter(
                         Post.scheduled_at.isnot(None),
                         Post.scheduled_at <= now,

@@ -14,6 +14,8 @@
 import json
 import urllib.request
 
+from outbound import build_opener
+
 from flask import request, jsonify, session
 
 from .common import api_bp
@@ -42,6 +44,20 @@ def _normalize_llm_base(base):
     return b
 
 
+def _llm_opener():
+    """v4.7.4：统一出站 opener（**禁跟随 3xx**）。
+
+    ⚠️ 这里**刻意不套私网过滤**：LLM base 由管理员自己配置，很多人会指向
+    本机自建（Ollama / vLLM 跑在 127.0.0.1）。统一层的私网过滤是给
+    「URL 不可信」的场景用的；管理员主动配置的地址属于**可信意图**，
+    套上过滤会把「本地自建 LLM」这种正当用法打死。
+    （`games.py` 的 LLM 审计本来就要求公网 base，那边的口径保持不变。）
+
+    禁跟随 3xx 仍然必要：base 若被 302 到别处，响应内容会来自不可控的地址。
+    """
+    return build_opener(pinned=True)
+
+
 def _llm_chat(system, user, timeout=90):
     """OpenAI 兼容 /chat/completions。返回 (text, err)。"""
     if get_setting("games_llm_on", "0") != "1":
@@ -67,7 +83,7 @@ def _llm_chat(system, user, timeout=90):
             data=json.dumps(payload).encode("utf-8"),
             headers={"Authorization": "Bearer " + key, "Content-Type": "application/json"},
         )
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
+        with _llm_opener().open(req, timeout=timeout) as resp:
             data = json.loads(resp.read().decode("utf-8"))
         text = (data.get("choices") or [{}])[0].get("message", {}).get("content", "") or ""
         return text.strip(), ""

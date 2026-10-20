@@ -2,7 +2,7 @@
 
 前后端分离的个人博客：**Flask** 后端（JSON API + 管理后台）+ **Vue3** 前台（SPA）。单仓库托管前后端代码、部署文档与安全报告。
 
-- 当前版本：**v4.7.3**
+- 当前版本：**v4.7.5**
 - **版本历史一律记在 [CHANGELOG.md](CHANGELOG.md)，README 不重复记录。**
 
 ## 功能一览
@@ -58,6 +58,32 @@ npm run dev              # http://localhost:5173
 - **确认版本**：登录后台，左下角显示当前版本号
 
 部署包（后端 `myblog-backend.zip`、前端 `vue-frontend-dist.zip`）随 [Releases](https://github.com/Llhhy1/llhhy-blog/releases) 发布。
+
+## 生态与使用案例
+
+**官方站点**：[https://www.llhhy.cn](https://www.llhhy.cn)（本项目就是它自己的后端）。
+
+v4.7.5 起内置**生态统计**（默认关闭）：部署实例可在「设置 → 🌐 生态统计」里自愿开启，开启后**每小时**向中心站点发一次心跳，上报内容仅为：
+
+| 字段 | 说明 |
+|---|---|
+| `site_key` | 首次安装生成的随机 ID（不含域名、IP、路径） |
+| `url` | 站点对外地址（可设为不公开列出） |
+| `version` | 版本号 |
+| `listed` | 是否允许被公开列出 |
+
+**不会收集任何访客数据**：不上传 IP、UA、文章、评论、在线人数。所有字段走白名单，非 http/https 的地址直接拒绝。
+
+配套的公开接口：
+
+- `GET /api/stats/online` —— 本站在读人数（近 10 分钟独立 IP，**只返回计数**）
+- `GET /api/ecosystem/stats` —— 生态维度：注册站点数 / 近 24 小时活跃站点数
+
+**你的站点在用这套系统？** 欢迎开 issue 或 PR 把地址加到下面这份清单，让更多人看到：
+
+| 站点 | 说明 |
+|---|---|
+| [www.llhhy.cn](https://www.llhhy.cn) | 项目官方站点（作者本人运营） |
 
 ## 安全
 

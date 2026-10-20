@@ -129,6 +129,13 @@ body {
 }
 [data-theme="dark"] .site-frame-inner {
  /* 暗色下内容区透明，由外框统一底色 */ }
+/* v4.7.5 页脚「当前在线访客」徽标 */
+.site-footer-online { display:flex; align-items:center; gap:6px; margin:0 0 6px;
+  color:#8a8f98; font-size:12px; }
+.site-footer-online .sfo-dot { width:7px; height:7px; border-radius:50%;
+  background:#39b54a; display:inline-block; }
+[data-theme="dark"] .site-footer-online { color:#7d848f; }
+
 [data-theme="dark"] .site-footer {
 
   background: transparent;

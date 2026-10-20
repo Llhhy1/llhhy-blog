@@ -20,7 +20,11 @@ import datetime
 
 from models import FriendLink
 from utils import clean_html, fmt_bj
-from outbound import is_private_ip as _is_private_ip, safe_public_url as _safe_url
+# v4.7.4：SSRF 判据与出站机制**全部**收敛到 outbound。
+# 此前本模块还自带一份 `_NoRedirect` 和一份私网判断（字符串前缀 + 自己的
+# getaddrinfo）—— 与 `games.py` 的实现各说各话，改一处就漂移。
+from outbound import (check_public_url, open_url, read_limited,
+                      resolve_public_ex, safe_public_url as _safe_url)
 import logging
 
 # v3.23.0：print → logger（格式/级别见 logging_setup）
@@ -62,28 +66,25 @@ def get_last_diag():
 _FEED_MAX_BYTES = 5 * 1024 * 1024  # 单个 RSS 上限 5MB，防内存打爆
 
 
-class _NoRedirect(urllib.request.HTTPRedirectHandler):
-    """任何 3xx 都**不跟随**（返回 None 使 urllib 抛 HTTPError）。
+def _fetch_feed_bytes(url, timeout, pinned_ips=None):
+    """抓取 RSS 字节：禁重定向 + **固定已校验的 IP** + 限大小。
 
-    与 `seo_push.py` / `oauth.py` 用的是同一套手法——本仓库已有标准答案。
+    失败抛异常，由调用方按「跳过该源」处理。
+
+    v4.7.4：改走 `outbound.open_url()` —— 一次完成
+    「校验 → **把已校验过的 IP 固定在连接上** → 禁跟随 3xx」。
+
+    ⚠️ 关键在**固定 IP**：旧实现是「先 `_safe_url()` 校验一次，再把 URL 交给
+    urllib 去连」，而 urllib 会**重新解析一次 DNS** —— 两次解析之间 DNS 可被
+    改指内网（DNS rebinding），重复校验消除不了这个窗口。
+    `open_url` 之后不再解析，DNS 再怎么变都无所谓。
     """
-
-    def redirect_request(self, req, fp, code, msg, headers, newurl):  # noqa: ARG002 —— 接口强制签名
-        return None
-
-
-def _fetch_feed_bytes(url, timeout):
-    """抓取 RSS 字节：禁重定向 + 限大小。失败抛异常，由调用方按「跳过该源」处理。
-
-    调用方**必须**先过 `_safe_url()`；这里不再重复解析 DNS（正是重复解析给了
-    重绑定窗口）。禁重定向已把「跳转绕过」彻底关掉。
-    """
-    opener = urllib.request.build_opener(_NoRedirect)
-    req = urllib.request.Request(url, headers={
+    req_headers = {
         "User-Agent": "llhhy-blog-feed-aggregator/1.0",
         "Accept": "application/rss+xml, application/atom+xml, application/xml, text/xml, */*",
-    })
-    with opener.open(req, timeout=timeout) as resp:
+    }
+    with open_url(url, timeout=timeout, headers=req_headers,
+                  pinned_ips=pinned_ips) as resp:
         # 只读 Content-Length 声明的长度做上限控制（不信任，仅用于提前拒绝）
         try:
             declared = int(resp.headers.get("Content-Length") or 0)
@@ -91,7 +92,8 @@ def _fetch_feed_bytes(url, timeout):
             declared = 0
         if declared > _FEED_MAX_BYTES:
             raise ValueError("RSS 响应体超过 %d 字节上限" % _FEED_MAX_BYTES)
-        return resp.read(_FEED_MAX_BYTES + 1)[:_FEED_MAX_BYTES]
+        data, _truncated = read_limited(resp, _FEED_MAX_BYTES)
+        return data
 
 
 def _safe_item_url(href):
@@ -115,39 +117,17 @@ def _safe_item_url(href):
 
 
 def _safe_url_fail_reason(url):
-    """返回 _safe_url 拒绝的原因（仅供日志排查用，与 _safe_url 判定逻辑一一对应）。"""
-    try:
-        p = urllib.parse.urlparse(url)
-    except Exception:
-        return "URL 无法解析"
-    if p.scheme not in ("http", "https"):
-        return f"协议 {p.scheme!r} 非 http/https"
-    host = (p.hostname or "").lower()
-    if not host:
-        return "缺少主机名"
-    if host in ("localhost", "127.0.0.1", "::1", "0.0.0.0"):
-        return "主机为回环地址"
-    if host.startswith("10.") or host.startswith("192.168.") or host.startswith("169.254."):
-        return "主机为内网地址"
-    if host.startswith("172."):
-        try:
-            second = int(host.split(".")[1])
-            if 16 <= second <= 31:
-                return "主机为内网地址"
-        except (ValueError, IndexError):
-            pass
-    import socket
-    try:
-        infos = socket.getaddrinfo(host, None, type=socket.SOCK_STREAM)
-        ips = {info[4][0] for info in infos}
-        for ip in ips:
-            if _is_private_ip(ip):
-                return f"域名解析到内网/保留 IP（{ip}）"
-        if not ips:
-            return "域名解析结果为空"
-    except OSError as e:
-        return f"DNS 解析失败（{e}）——检查服务器出网/DNS"
-    return "未知原因"
+    """为什么没通过安全校验 —— **只做解释，不参与放行决策**。
+
+    v4.7.4：本函数原先**自己实现了一遍**私网判断（字符串前缀 `10.` / `192.168.` /
+    `169.254.` / `172.16-31` + 自己的 `getaddrinfo`），与 `outbound` 的
+    「纯 IP global 判据」是两套逻辑 —— 会出现「放行是一套标准、提示语是另一套」。
+    现在直接问统一层要原因，判据只有一份。
+
+    ⚠️ 注意它**不再**是「放行判据」：真正的放行由 `_safe_url()`（→ `outbound`）决定。
+    """
+    _ok, reason = check_public_url(url)
+    return reason or "未知原因"
 
 
 def validate_feed_url(url, timeout=8):
@@ -217,8 +197,13 @@ def get_circle_feed(force=False):
         for link in links:
             rec = {"name": link.name, "url": link.url, "rss_url": link.rss_url,
                    "safe": None, "entries": 0, "status": "", "reason": ""}
-            if not _safe_url(link.rss_url):
-                reason = _safe_url_fail_reason(link.rss_url)
+            # v4.7.4：**一次解析**同时拿到「能不能放行」和「用哪个 IP」。
+            # 之前是「先 `_safe_url()` 校验一次，再由 urllib 重新解析一次 DNS 去连」——
+            # 两次解析之间 DNS 可被改指内网（DNS rebinding），而固定连接必须用
+            # **被校验过的那一批 IP**，否则固定的可能是根本没检查过的内网地址。
+            _ok, reason, _h, _p, _ips = resolve_public_ex(link.rss_url)
+            if not _ok:
+                reason = reason or _safe_url_fail_reason(link.rss_url)
                 logger.warning("[FEED AGG] 跳过友链「%s」：RSS 地址未通过安全校验（%s）", link.name, reason)
                 diag["skipped"] += 1
                 diag["notes"].append(f"跳过友链「{link.name}」：RSS 地址未过安全校验（{reason}）")
@@ -245,7 +230,8 @@ def get_circle_feed(force=False):
                     # R114 审计：**自己抓**（禁重定向 + 限大小），再把字节喂给 feedparser。
                     # 不再 `feedparser.parse(url)`——那会让它自建会话重新解析 DNS 并跟随 302，
                     # 把上面 `_safe_url()` 的私网过滤整条绕开。
-                    _raw = _fetch_feed_bytes(link.rss_url, timeout=12)
+                    _raw = _fetch_feed_bytes(link.rss_url, timeout=12,
+                                            pinned_ips=_ips)
                     parsed = feedparser.parse(io.BytesIO(_raw))
                 finally:
                     _sock_agg.setdefaulttimeout(_old_to_src)

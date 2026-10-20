@@ -22,7 +22,7 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from models import db, Game
 import games_safety
-from outbound import NoRedirect, safe_public_url
+from outbound import open_url, safe_public_url
 from utils import get_setting
 from backup_settings import encrypt_secret, decrypt_secret
 from ._helpers import (admin_bp, admin_required, log_audit, _current_user_or_none,
@@ -52,9 +52,17 @@ def _normalize_llm_base(raw):
 
 
 def _open_llm(req, timeout):
-    """发 LLM 请求：**禁跟随 3xx**，避免公网 Base 302 到内网（SSRF 绕过）。"""
-    opener = urllib.request.build_opener(NoRedirect)
-    return opener.open(req, timeout=timeout)
+    """发 LLM 请求：统一出站层 —— 禁跟随 3xx + **固定已校验的 IP**。
+
+    v4.7.4：改走 `outbound.open_url()`。旧实现是「先 `safe_public_url()` 校验，
+    再把 URL 交给 urllib 去连」—— urllib 会**重新解析一次 DNS**，两次解析之间
+    DNS 可被改指内网（DNS rebinding），重复校验消除不了这个窗口。
+
+    ⚠️ 这里的 base 本来就要求**公网**（保存时已校验），所以套私网过滤不会
+    改变既有可用性。
+    """
+    return open_url(req.full_url, timeout=timeout, data=req.data,
+                    headers=dict(req.headers), method=req.get_method())
 
 # 单个文件即便总预算充裕也不无限送审（防止单文件把预算吃光，
 # 导致后面的入口 html 反而没审到 —— 入口文件才是攻击面最大的地方）。

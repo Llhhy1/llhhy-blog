@@ -595,7 +595,36 @@ sha256sum /tmp/og.png /www/wwwroot/你的站点根/og-default.png
 1. **备份（最重要）**：到「文件」下载留底：
    - `/www/wwwroot/myblog/data/blog.db`（全部数据）
    - `/www/wwwroot/myblog/static/uploads/`（上传的图片）
-1.1. **升级要点**（其余步骤与通用流程一致；适用于 v4.0.0 → v4.7.0）：
+1.1. **升级要点**（其余步骤与通用流程一致；适用于 v4.0.0 → v4.7.3）：
+   - **v4.7.3（全量审计代码批次 · PR #24）**：
+     - ⚠️ **本版有迁移**：head 由 `a7e3c92d5b18` 变为 **`b8e4f1a72c93`**
+       （两个幂等索引：`ix_post_visibility_created` / `ix_comment_post_approved`）。
+       部署走 `flask db upgrade`，**绝对不要 `flask db stamp head`** ——
+       stamp 会把版本号直接写成 head、跳过待执行的索引变更，形成
+       「版本号已升级、表结构没变」的假升级。升级后用 `flask db current` 核对。
+     - ⚠️ **`update.sh` 本版有改动**（新增 `BLOG_REBUILD_FTS=1` 可选步骤）：
+       **它不在 `myblog-backend.zip` 里**，一键更新送不到。
+       必须单独覆盖服务器上的 `update.sh`（拉 tag 的 raw + 与本地 sha256 对账 +
+       `bash -n` + `cp` 覆盖）。
+     - ⚠️ **前端依赖已变更**（`vue` 3.5.13→3.5.44、`dompurify` 3.2.4→3.4.17）：
+       构建产物**必须重新 build**，不能沿用旧产物。
+     - 可选：升级后仍建议跑一次 `tools/rebuild_fts.py`（历史库的隐私/回收站正文
+       不会因写入闸门收紧而自动消失），或用 `BLOG_REBUILD_FTS=1 bash update.sh`。
+       失败只告警、不回滚站点。
+     - 现象：黑名单 IP 现在访问 `/api/stats/visit` 等接口也返回 429
+       （`/admin/`、`/mcp` 保留豁免，避免管理员把自己锁死）。
+   - **v4.7.2（修：壁纸模式下顶栏「更多/工具箱」深色难辨）**：
+     - **必须重新构建前端**（只改了 `global.css`）；
+     - ⚠️ **本版无 Alembic 迁移、无表结构变更、无后端代码改动**，纯 CSS；
+     - 现象：满屏壁纸下顶栏「⋯ 更多」「🧰 工具箱」是深色按钮压在亮色壁纸上看不清
+       （v4.7.1 收窄选择器时按元素类型漏改了这两个 `<button>`），现改为白色 + 暗投影。
+   - **v4.7.1（修：「⋯ 更多」下拉点开一碰就关）**：
+     - **必须重新构建前端**（改了 `App.vue` / `global.css`）；
+     - ⚠️ **本版无 Alembic 迁移、无表结构变更、无后端代码改动**，纯前端；
+     - 现象：下拉菜单用 `margin-top` 撑出的间隙不属于容器，鼠标穿过即触发
+       `mouseleave` 关闭，且 `mouseleave` 不可逆（移回不再触发 `mouseenter`）→
+       菜单永久关掉、点不到。现改为 `margin: 0` 让几何连续，开关语义收敛为
+       幂等的「确保打开」，并补 `@keydown.esc` 关闭。
    - **v4.7.0（首页瘦身 + 开站时间 + 顶栏瘦身 + 后台表格换行）**：
      - **必须重新构建前端**（改了 `App.vue` / `HomeView.vue` / `StatsView.vue` /
        `store.js` / `global.css`）；

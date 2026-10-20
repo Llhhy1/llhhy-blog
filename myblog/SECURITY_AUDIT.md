@@ -1838,3 +1838,60 @@ v4.7.1 把壁纸白字规则从 `nav a` 收窄为 `nav > a`（避免误染下拉
   滚过首屏 `.is-solid` 后 `rgb(85,85,85)` 恢复本色；logo 同为白色（视觉一致）。
 - 同时确认下拉浮层内链接仍为深色，未回退。
 - 全量测试通过。
+
+## 131. v4.7.3 全量审计代码批次（PR #24）
+
+### 131.1 本轮性质
+
+本轮**不新增功能**，是审计清单的代码落地：发布阻塞 + 安全/健壮性 + 文档/测试一致性。
+合并 PR #24（`fix/v4.7.3-audit-batch` → `main`），并在其上收口版本号与 CHANGELOG。
+
+### 131.2 逐项审计
+
+| 维度 | 结论 |
+|---|---|
+| SSRF | **新增统一出站层 `myblog/outbound.py`**：http/https + 域名解析到公网 IP + 禁 URL 凭据 + `NoRedirect` 禁跟随 3xx。管理员级（游戏 LLM Base）与匿名面（`feed_agg`）两处均接入。⚠️ 残余风险见 131.4 |
+| zip 炸弹 | `unpack_zip_safely()` 在 `zf.read()` 之前按中央目录 `file_size`/`compress_size` 拒绝超限与压缩比 > 200 —— **先判后读**，避免先解到内存再判 |
+| 黑名单 | `check_bot_guard()` 把黑名单提到 `_SKIP_PREFIXES` 之前并注册 `api_bp` 钩子；`/admin/`、`/mcp` 保留豁免（防管理员自锁） |
+| 越权 | 移动端撤回改用 `_can_edit_post()`，与桌面端一致（此前仅管理员） |
+| 静默失败 | 移动端置顶缺 `pinned` 字段改为返回 400，不再静默取消置顶 |
+| 文件覆盖 | 移动端上传文件名改 `time.time_ns()`，消除同秒多文件互相覆盖 |
+| N+1 | 移动端列表 `comment_count` 改当前页一次 `GROUP BY` |
+| 数据一致性 | 积分事件 `IntegrityError` 冒泡成 500 → `add()` 移入 `try`（autoflush 在 try 外抛出的经典坑） |
+| 表结构 | 新增**幂等**迁移 `b8e4f1a72c93`（两个索引），空库与已 `create_all` 库双场景验证不重复创建。部署只走 `flask db upgrade`，**禁 `stamp head`** |
+| 依赖 | `vue` 3.5.13→3.5.44、`dompurify` 3.2.4→3.4.17；`npm audit --audit-level=high` 0 vulnerabilities |
+
+### 131.3 一处架构变化（值得记）
+
+**本项目首次有了统一的出站请求安全层**（`myblog/outbound.py`）。此前 `utils/net.py` 只有限流与客户端 IP，
+每个出口各自实现（`seo_push.py` / `oauth.py` / `feed_agg.py` 各写一套），口径必然漂移。
+本轮把 `feed_agg` 的重复实现删掉（-55 行）并改用 `outbound`，`games.py` 用 `from outbound import ...`。
+方向正确 —— 但**统一只做了一半**（见 131.4）。
+
+### 131.4 两处口径未统一 + 一处残余风险（我逐行核对，非照抄 PR 描述）
+
+1. **`feed_agg.py` 仍自己定义 `_NoRedirect`（L65-72）**，未用 `outbound.NoRedirect`。
+   `games.py` 已改用统一版，`feed_agg` 未改 —— 两处各留一份，后续改一处就漂移。
+2. **`feed_agg._safe_url_fail_reason()`（L128-150）自己又写了一套私网判断**
+   （`10.` / `192.168.` / `169.254.` / `172.16-31` 字符串前缀 + `getaddrinfo`），
+   与 `outbound` 的「纯 IP global 判据」是两套逻辑（结果近似，但存在漂移空间）。
+3. ⚠️ **DNS rebinding 未根治**：`safe_public_url()` 解析 DNS 后只返回 `bool`，调用方 `opener.open(url)`
+   时 **urllib 会再解析一次 DNS** —— 两次独立解析之间攻击者可改 DNS 指向内网。
+   `feed_agg.py` L58-59 的注释称「不再重复解析 DNS（正是重复解析给了重绑定窗口）」，
+   但它消除的是**第三方库那次，urllib 自己那次仍在**。彻底解法是 **IP pinning**
+   （预检查解析出 IP，之后直连该 IP，Host 头仍用原域名）。
+   威胁模型有限（需先控制 RSS 源域名），本轮不阻塞发版，作为后续收口项。
+
+### 131.5 上线注意事项（本次发版实测）
+
+- `update.sh` 改了 51 行（`BLOG_REBUILD_FTS=1`）→ **不在 `myblog-backend.zip` 内**，
+  必须按「脚本类改动必须单独发」在服务器上单独覆盖并对账 sha256。
+- 前端 `package.json` / `package-lock.json` 变更 → **必须 `npm ci` 后重新 build**，
+  不能沿用旧产物。
+- 迁移 head 变更 → 部署后用 `flask db current` 核对为 `b8e4f1a72c93`。
+
+### 131.6 验证
+
+- 全量 **936 passed**；`ruff check .` 全绿；`npm audit --audit-level=high` 0 vulnerabilities。
+- 本地合并 PR 后重跑全量测试 + `npm ci` 重新 build + 重新打包（`package.py`），
+  并在上传前断言「zip 内 APP_VERSION == tag」与三方哈希互证。

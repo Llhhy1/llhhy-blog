@@ -16,6 +16,8 @@ import zipfile
 
 MAX_ZIP_BYTES = 20 * 1024 * 1024      # 上传 zip 上限 20MB
 MAX_TOTAL_BYTES = 60 * 1024 * 1024    # 解压后总字节上限 60MB
+MAX_ENTRY_BYTES = 20 * 1024 * 1024    # 单个条目解压后上限 20MB
+MAX_COMPRESSION_RATIO = 200           # 单条目 file_size / compress_size 上限
 MAX_FILES = 200                       # 文件数上限
 
 # 允许的素材/代码扩展名（一律白名单；可执行文件/服务器脚本一律拒绝）
@@ -47,10 +49,15 @@ def _norm_member(path):
 
 
 def unpack_zip_safely(zip_bytes, max_zip=MAX_ZIP_BYTES, max_total=MAX_TOTAL_BYTES,
-                      max_files=MAX_FILES):
+                      max_files=MAX_FILES, max_entry=MAX_ENTRY_BYTES,
+                      max_ratio=MAX_COMPRESSION_RATIO):
     """校验并解包 zip → [{name, data}]。任一越界抛 ValueError。
 
     通过检查才会进入磁盘/入库；调用方不直接 trust zip。
+
+    ⚠️ **必须先按中央目录里的 `file_size` 预检，再 `zf.read()`**：zip 可以把
+    GB 级全零内容压到几十 KB，先读进内存再判总量等于让上传者决定 worker 的内存
+    峰值（实测 100MB 零内容 → 102KB 压缩包，约 1028 倍）。
     """
     if not zip_bytes or len(zip_bytes) > max_zip:
         raise ValueError("游戏包为空或超过大小上限")
@@ -71,6 +78,12 @@ def unpack_zip_safely(zip_bytes, max_zip=MAX_ZIP_BYTES, max_total=MAX_TOTAL_BYTE
         ext = os.path.splitext(rel)[1].lower()
         if ext not in ALLOWED_EXT:
             raise ValueError(f"含不允许的文件类型：{rel}")
+        if info.file_size > max_entry:
+            raise ValueError(f"单文件解压后超过上限：{rel}")
+        if total + info.file_size > max_total:
+            raise ValueError("解压后总大小超过上限")
+        if info.file_size > max(info.compress_size, 1) * max_ratio:
+            raise ValueError(f"压缩比异常（疑似 zip 炸弹）：{rel}")
         data = zf.read(info)
         total += len(data)
         if total > max_total:

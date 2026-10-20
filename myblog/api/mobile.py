@@ -54,6 +54,7 @@ JSON 输出，客户端可以用列表 / 卡片 / 滑动操作原生生成，排
 import contextlib
 
 from flask import current_app, jsonify, request, url_for
+from sqlalchemy import func
 
 from models import (Announcement, BotBlock, Category, Comment, FriendLink, Guestbook,
                     LinkApplication, Moment, Notification, Post, PostHistory, RecycleBin,
@@ -155,6 +156,30 @@ def _paged(query, page, per_page, serializer):
     })
 
 
+def _comment_counts(posts):
+    """一次 GROUP BY 取当前页所有文章的评论数，返回 {post_id: count}。"""
+    ids = [p.id for p in posts]
+    if not ids:
+        return {}
+    rows = (db.session.query(Comment.post_id, func.count(Comment.id))
+            .filter(Comment.post_id.in_(ids))
+            .group_by(Comment.post_id)
+            .all())
+    return dict(rows)
+
+
+def _paged_posts(query, page, per_page):
+    """文章列表分页：评论数批量回填，避免每行 `p.comments.count()` 的 N+1。"""
+    pagination = query.paginate(page=page, per_page=per_page, error_out=False)
+    counts = _comment_counts(pagination.items)
+    return jsonify({
+        "items": [_post_admin(p, counts.get(p.id, 0)) for p in pagination.items],
+        "total": pagination.total,
+        "page": pagination.page,
+        "pages": pagination.pages,
+    })
+
+
 def _iso(dt):
     return fmt_bj(dt, "%Y-%m-%d %H:%M") if dt else ""
 
@@ -168,11 +193,14 @@ def _like(raw):
 # ---------------------------------------------------------------- 序列化
 
 
-def _post_admin(p):
+def _post_admin(p, comment_count=None):
     """管理视角文章摘要：公开 `_post_summary` 之外补上「只有后台需要」的状态位。
 
     ⚠️ 不带 `content` —— 列表只需标题与状态，正文留给详情接口，
     避免一次列表拖回几百 KB 正文（手机网络下最明显）。
+
+    `comment_count` 由列表批量传入（`_comment_counts`）；单篇详情不传时回退到
+    逐条 count。
     """
     d = _post_summary(p)
     d.update({
@@ -182,7 +210,7 @@ def _post_admin(p):
         "pin_requested": bool(p.pin_requested),
         "scheduled_at": _iso(p.scheduled_at),
         "updated_at": _iso(p.updated_at),
-        "comment_count": p.comments.count(),
+        "comment_count": p.comments.count() if comment_count is None else comment_count,
         "category_id": p.category_id,
         "series_id": p.series_id,
     })
@@ -339,7 +367,7 @@ def mobile_posts():
     direction = col.asc() if order == "asc" else col.desc()
     # title 排序不再叠加置顶（否则置顶永远挤在最前，A→Z 就失效）——与后台同处理
     q = q.order_by(col) if sort == "title" else q.order_by(Post.is_pinned.desc(), direction)
-    return _paged(q, page, per_page, _post_admin)
+    return _paged_posts(q, page, per_page)
 
 
 @api_bp.route("/mobile/post/<int:post_id>")
@@ -480,12 +508,15 @@ def mobile_post_publish(post_id):
 @api_bp.route("/mobile/post/<int:post_id>/unpublish", methods=["POST"])
 def mobile_post_unpublish(post_id):
     """撤回为草稿（同时清空定时，否则到点会被后台线程再次翻回已发布）。"""
-    user, deny = _role(admin=True)
+    user, deny = _role()
     if deny:
         return deny
     post = db.session.get(Post, post_id)
     if not post:
         return jsonify({"error": "文章不存在"}), 404
+    from admin._helpers import _can_edit_post
+    if not _can_edit_post(user, post):
+        return jsonify({"error": "只能操作自己发表的文章"}), 403
     if not post.published and post.scheduled_at is None:
         return jsonify({"ok": True, "published": False, "message": "已是草稿"})
     post.published = False
@@ -507,7 +538,9 @@ def mobile_post_pin(post_id):
     post = db.session.get(Post, post_id)
     if not post:
         return jsonify({"error": "文章不存在"}), 404
-    want = _flag(_body(), "pinned")
+    want = _need_flag(_body(), "pinned")
+    if want is None:
+        return jsonify({"error": "请带上 pinned（true/false）"}), 400
     post.is_pinned = want
     if want:
         post.pin_requested = False
@@ -975,7 +1008,7 @@ def mobile_upload():
     f.stream.seek(0)
     if not _detect_image_magic(header, f.filename.rsplit(".", 1)[1].lower()):
         return jsonify({"error": "文件内容与图片格式不符，已拒绝（仅允许真实图片）"}), 400
-    filename = f"{int(time.time())}-{secure_filename(f.filename)}"
+    filename = f"{time.time_ns()}-{secure_filename(f.filename)}"
     save_dir = current_app.config["UPLOAD_FOLDER"]
     os.makedirs(save_dir, exist_ok=True)
     save_path = os.path.join(save_dir, filename)

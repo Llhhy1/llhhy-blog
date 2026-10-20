@@ -729,7 +729,7 @@ sha256sum /tmp/og.png /www/wwwroot/你的站点根/og-default.png
 5. **重启后端（关键）**：宝塔「网站 → Python项目」→ 该项目 → **先点「停止」，再点「启动」**。
    - ⚠️ 只点「重启」可能只是重载配置，gunicorn 旧进程没退出，页面还是旧版；
    - 可用 `ps -ef | grep gunicorn` 看进程启动时间，确认是新进程；
-   - 若需对齐迁移基线，可在站点目录执行一次 `flask db stamp head`（幂等无害、不改变任何表结构；`flask db heads` 应显示基线 `f8f1f29b6ddf`）。
+   - 若需核对迁移基线：先执行 `flask db current`，再按上方第 4 步的分支处理（空版本 / 旧基线都直接 `flask db upgrade`）。**绝对不要 `flask db stamp head`** —— 它会把版本号直接写成当前 head，跳过待执行的列/索引变更，形成「版本号已升级、表结构没变」的假升级。当前 head 以 `flask db heads` 为准（v4.7.3 起为 `b8e4f1a72c93`）。
 6. **覆盖前端**：上传新版 `vue-frontend-dist.zip` 到 `/www/wwwroot/vue-frontend/` → 解压覆盖 `index.html` + `assets/`（**无需重启后端**）。
 7. **验证**：浏览器**无痕窗口**打开（避免缓存）：
    - 后台左下角显示 `vX.Y.Z`，与 [GitHub Releases](https://github.com/Llhhy1/llhhy-blog/releases) 最新标签一致 → 后端升级成功；
@@ -737,6 +737,12 @@ sha256sum /tmp/og.png /www/wwwroot/你的站点根/og-default.png
 8. **环境变量**：只覆盖文件 + 重启，环境变量原样保留，无需重填；**若误删 Python 项目重建，必须重填 `SECRET_KEY` / `ADMIN_PASSWORD`**（缺失拒绝启动）。改 `SECRET_KEY` 会让已登录用户需要重新登录，属正常现象。
 
 > ⚠️ **服务器上的 `update.sh` / `deploy.sh` 也务必与最新 Release 同版**：脚本经历过「假成功不覆盖 / 校验误报 / 无法自动重启」多轮加固，升级前先从最新 Release 覆盖一次脚本，再跑一键更新。
+
+> **FTS 索引重建（v4.7.3 起可选自动化）**：升级后仍建议跑一次 `tools/rebuild_fts.py`（隐私/回收站的历史正文不会因为改了写入闸门而自动消失）。一键更新可用显式开关在**迁移成功且服务重启后**执行：
+> ```bash
+> BLOG_REBUILD_FTS=1 bash update.sh
+> ```
+> 重建失败只告警、不回滚站点（搜索可能暂时不含新索引），可稍后手动重跑。不设该变量时 `update.sh` 行为与旧版完全一致。
 
 > **v3.25.16（4.0 前全量安全审计修复 · 审计轮 R114+R115）升级要点**：
 >
@@ -1032,7 +1038,7 @@ sha256sum /tmp/og.png /www/wwwroot/你的站点根/og-default.png
 > 3. **功能改动**：① `point_log` 加 DB 级去重唯一索引 `uq_pointlog_dedup`、`reader.points` 加索引 `ix_reader_points`；② 新增保留策略（`gamify.prune_retention()`，调度线程每日一次）：**reader 永久 / point_log 2 年 / reader_badge 随 reader**；③ 定时发布改为**原子认领**（`app.claim_scheduled_post()`），多个 worker 的调度线程不再把同一篇文章重复发布、也不会重复推送/重复发订阅邮件；④ **Setting KV 治理**（见下条）；⑤ `create_app()` 拆分（510 行 → 35 行，纯重构无行为变化）。
 > 4. **Setting KV 治理**：评论表情回应改存 `comment.reactions`、AI 摘要/标签改存 `post.ai_summary` / `post.ai_tags`，**不再占用 setting 表**。原因：setting 有 6 处 `Setting.query.all()` 全表加载（后台每次渲染、天气默认坐标等），UGC 混在里面会随评论/文章数无限增长并被每次全表捞出。对外接口与页面行为**完全不变**。
 > 4. **新增环境变量 `BLOG_MIGRATE_ONLY`**：仅供迁移命令使用，让 `create_app()` 跳过建表/超管兜底/设置播种等副作用。**无需手工配置**（部署脚本自动带上）。
-> 5. **升级后验证**：`flask db current` 应为 `d4a7f08c2e91`；库中应能查到 `uq_pointlog_dedup` 与 `ix_reader_points` 两个索引；启动日志不再出现「已迁移 … 表」字样（`_migrate_*` 已退役），但**仍会有**「默认勋章播种」相关日志（已拆成独立步骤保留）。
+> 5. **升级后验证**：`flask db current` 应为 `d4a7f08c2e91`（**历史版本**；当前 head 以 `flask db heads` 为准，见上方 v4.5.0 / v4.7.3 段落）；库中应能查到 `uq_pointlog_dedup` 与 `ix_reader_points` 两个索引；启动日志不再出现「已迁移 … 表」字样（`_migrate_*` 已退役），但**仍会有**「默认勋章播种」相关日志（已拆成独立步骤保留）。
 
 > **v3.23.0（可观测性 + 后台任务 + OAuth 自助解绑 + CI 门禁）升级要点**：**纯后端改动，只需覆盖后端包**（`vue-frontend/` 未动）。
 > - **新增运行期目录 `data/tasks/`**（后台任务状态 + 同名任务锁文件，`tasks.py` 自动创建，**无需手动迁移**；`update.sh` 不触碰 `data/`）。

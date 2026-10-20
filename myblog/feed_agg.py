@@ -20,6 +20,7 @@ import datetime
 
 from models import FriendLink
 from utils import clean_html, fmt_bj
+from outbound import is_private_ip as _is_private_ip, safe_public_url as _safe_url
 import logging
 
 # v3.23.0：print → logger（格式/级别见 logging_setup）
@@ -50,61 +51,8 @@ def get_last_diag():
     return dict(_LAST_DIAG)
 
 
-def _is_private_ip(ip):
-    """判断 IP 是否为内网/回环/保留地址。用于 DNS 重绑定缓解的最终裁决。"""
-    import ipaddress
-    try:
-        ip_obj = ipaddress.ip_address(ip)
-    except ValueError:
-        # 非合法 IP（域名本身）不在此函数判定，由调用方解析后再调
-        return True
-    return bool(
-        ip_obj.is_private or ip_obj.is_loopback or ip_obj.is_link_local
-        or ip_obj.is_reserved or ip_obj.is_multicast or ip_obj.is_unspecified
-    )
-
-
-def _safe_url(url):
-    """SSRF 防护（v3.1.6 增强 DNS 重绑定缓解）：
-    1. 仅放行公网 http/https；
-    2. 主机名黑名单拦截常见内网词；
-    3. 解析域名到 IP，若解析出的 IP 是内网/回环/保留地址则拒绝——
-       「首查公网 IP 放行、重绑定时再次解析到内网」的攻击会被第二道防线拦住。
-    """
-    import socket
-    try:
-        p = urllib.parse.urlparse(url)
-    except Exception:
-        return False
-    if p.scheme not in ("http", "https"):
-        return False
-    host = (p.hostname or "").lower()
-    if not host:
-        return False
-    if host in ("localhost", "127.0.0.1", "::1", "0.0.0.0"):
-        return False
-    if host.startswith("10.") or host.startswith("192.168.") or host.startswith("169.254."):
-        return False
-    if host.startswith("172."):
-        try:
-            second = int(host.split(".")[1])
-            if 16 <= second <= 31:
-                return False
-        except (ValueError, IndexError):
-            pass
-    # DNS 重绑定缓解：解析并校验解析结果非内网（关键增强）
-    try:
-        infos = socket.getaddrinfo(host, None, type=socket.SOCK_STREAM)
-        ips = {info[4][0] for info in infos}
-        for ip in ips:
-            if _is_private_ip(ip):
-                return False
-        if not ips:
-            return False
-    except OSError:
-        return False
-    return True
-
+# `_safe_url` / `_is_private_ip` 的实现已抽到 `outbound.py`（上面的 import 保留同名
+# 模块属性，不破坏既有调用方与测试）；SSRF 判据只有一份，避免多处口径漂移。
 
 # ---------- R114 审计：禁重定向抓取器（堵 SSRF 绕过）----------
 # 为什么不能直接 `feedparser.parse(url)`：它自建 urllib 会话，会**重新解析 DNS**

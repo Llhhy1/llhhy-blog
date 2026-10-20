@@ -21,6 +21,29 @@ from markupsafe import escape
 # app.py 的 `from api import api_bp` 保持兼容，url_prefix="/api" 不变。
 api_bp = Blueprint("api", __name__, url_prefix="/api")
 
+
+@api_bp.before_request
+def _bot_guard_before():
+    """API 侧的手动黑名单闸门（v4.7.3）。
+
+    `check_bot_guard()` 原先只挂在 `main_bp`，而生产环境页面由 Nginx 直接交给
+    SPA、Flask 看不到页面请求 —— 访客能碰到的就只剩 `/api/*`。此钩子补齐这条
+    链路：手动拉黑在 API 上同样 429；自动限流仍由 `_SKIP_PREFIXES` 跳过，
+    避免与各接口自带的 rate_limit 重复计数。
+    """
+    try:
+        from bot_guard import check_bot_guard
+        res = check_bot_guard()
+    except Exception:
+        return None
+    if res:
+        resp = jsonify({"error": "Too Many Requests"})
+        resp.status_code = 429
+        resp.headers["Retry-After"] = "60"
+        return resp
+    return None
+
+
 # 在线更新防重入：进程内锁（消除「两请求同时读到 idle 各自 Popen」的 TOCTOU）。
 # 锁不跨 worker，但 update.sh 还会写 data/update_status.json 文件锁，双保险；
 # 同一 worker 内并发触发必然只有一个能拿到锁。

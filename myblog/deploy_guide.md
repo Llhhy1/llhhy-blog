@@ -595,7 +595,17 @@ sha256sum /tmp/og.png /www/wwwroot/你的站点根/og-default.png
 1. **备份（最重要）**：到「文件」下载留底：
    - `/www/wwwroot/myblog/data/blog.db`（全部数据）
    - `/www/wwwroot/myblog/static/uploads/`（上传的图片）
-1.1. **升级要点**（其余步骤与通用流程一致；适用于 v4.0.0 → v4.8.1）：
+1.1. **升级要点**（其余步骤与通用流程一致；适用于 v4.0.0 → v4.8.2）：
+   - **v4.8.2（文章管理批量操作修复 + 中英文适配）**：
+     - **无迁移、无表结构变更**（head 仍为 `c3d9e2f71a04`），无需手动装依赖。
+     - 修复文章管理页「批量管理」完全失效：复选框原本在 `<form>` 外（表格里还有每篇的
+       内联表单，不能包进来），改用 HTML5 `form="bulk-form"` 属性关联。
+     - 修复「移入分区」永远报错：两个下拉同名 `value`，后端只取第一个。现分别命名
+       `category_value` / `series_value`。
+     - 中英文适配：新增界面语言键 `toolbox`；导航入口新增可选**英文名** `label_en`
+       （在后台「导航入口」页填写，英文界面优先显示）。这是既有 Setting JSON 里加键，
+       **没有新增表或列**。
+     - 前端已改动（`vue-frontend/src`），zip 内含重新构建的产物；升级后建议**硬刷新**一次。
    - **v4.8.1（内容迁移插件支持 Typecho SQLite + 修标识符注入）**：
      - **无迁移、无表结构变更**（head 仍为 `c3d9e2f71a04`），无需手动装依赖。
      - `content_migrate` 插件新增支持 **Typecho 的 SQLite 数据库文件**（`.db`/`.sqlite`）：

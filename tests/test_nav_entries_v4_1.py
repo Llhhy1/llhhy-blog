@@ -293,3 +293,136 @@ def test_front_renders_entries_as_toolbox_dropdown():
         assert 'rel="noopener"' in ln, f"外域链接必须带 noopener：{ln.strip()}"
         assert 'target="_blank"' in ln
         assert ":href" in ln
+
+
+# ---------- 6. 中英文适配（v4.8.1） ----------
+
+def _src(rel):
+    import os
+    here = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    with open(os.path.join(here, rel), "r", encoding="utf-8") as f:
+        return f.read()
+
+
+def test_load_keeps_and_clamps_label_en(app):
+    """英文名要在读取侧保留并截断 —— 与前台 maxlength 互为兜底。"""
+    _set(app, "nav_entries", json.dumps([
+        {"id": "a", "url": "https://ok.example.com", "label": "百宝箱",
+         "label_en": "Toolbox", "enabled": True},
+    ]))
+    it = _load(app)[0]
+    assert it["label_en"] == "Toolbox"
+    _set(app, "nav_entries", json.dumps([
+        {"id": "b", "url": "https://ok.example.com", "label": "百宝箱",
+         "label_en": "E" * 100, "enabled": True},
+    ]))
+    assert len(_load(app)[0]["label_en"]) <= 40
+
+
+def test_load_defaults_label_en_to_empty(app):
+    """老数据没有 label_en → 补空串（前台据此回退中文名，不会渲染成 undefined）。"""
+    _set(app, "nav_entries", json.dumps([
+        {"id": "c", "url": "https://ok.example.com", "label": "百宝箱", "enabled": True},
+    ]))
+    assert _load(app)[0]["label_en"] == ""
+
+
+def test_api_site_emits_label_en(client, app):
+    _set(app, "nav_entries", json.dumps([
+        {"id": "d", "url": "https://ok.example.com", "label": "百宝箱",
+         "label_en": "Toolbox", "enabled": True},
+    ]))
+    entries = client.get("/api/site").get_json()["entries"]
+    assert entries[0]["label"] == "百宝箱"
+    assert entries[0]["label_en"] == "Toolbox"
+
+
+def test_admin_add_and_edit_save_label_en(super_client, app):
+    _add(super_client, label="百宝箱", label_en="Toolbox", url="https://box.example.com")
+    items = _load(app)
+    assert items and items[0]["label_en"] == "Toolbox"
+    _post(super_client, "/admin/nav-entries/%s/edit" % items[0]["id"],
+          label="百宝箱", label_en="Tools", url="https://box.example.com")
+    assert _load(app)[0]["label_en"] == "Tools"
+
+
+def test_front_toolbox_button_uses_i18n_not_hardcoded_chinese():
+    """「工具箱」按钮必须走 i18n —— 之前是硬编码中文，切英文界面纹丝不动。
+
+    变异验证：把 `{{ t('toolbox') }}` 改回字面量「工具箱」，此题应变红。
+    """
+    src = _src(APP_VUE)
+    toggles = [ln for ln in src.splitlines() if "site-toolbox-toggle" in ln and "🧰" in ln]
+    assert len(toggles) >= 2, "桌面导航与抽屉都应该有工具箱按钮：%d" % len(toggles)
+    for ln in toggles:
+        assert "t('toolbox')" in ln, f"工具箱按钮硬编码了中文（切英文不会变）：{ln.strip()}"
+        assert ">工具箱" not in ln
+
+
+def test_i18n_dict_has_toolbox_in_both_languages():
+    """字典缺键时 t() 会退回中文 —— 那英文界面就又露中文了。"""
+    src = _src("vue-frontend/src/store.js")
+    assert '"toolbox": "工具箱"' in src
+    assert '"toolbox": "Toolbox"' in src
+
+
+def test_i18n_zh_en_keys_are_paired():
+    """zh/en 必须键键齐平 —— 缺的那个会让英文界面退回中文（t() 的回退链）。"""
+    src = _src("vue-frontend/src/store.js")
+    zh = _dict_keys(src, "zh")
+    en = _dict_keys(src, "en")
+    assert zh, "没解析到 zh 词典"
+    missing_en = sorted(zh - en)
+    missing_zh = sorted(en - zh)
+    assert not missing_en, "en 缺这些键（切英文会退回中文）：%s" % missing_en
+    assert not missing_zh, "zh 缺这些键：%s" % missing_zh
+
+
+def _dict_keys(src, lang):
+    """从一个语言块里抠出所有键名。块以 `lang: {` 起、下一个 `\n  },` 止。"""
+    import re as _re
+    i = src.find(lang + ": {")
+    if i == -1:
+        return set()
+    j = src.find("\n  },", i)
+    if j == -1:
+        j = len(src)
+    return set(_re.findall(r'"([^"]+)"\s*:', src[i:j]))
+
+
+def test_t_supports_placeholder_vars():
+    """`t('stats_line', {p,c})` 这类带参文案必须能替换 —— 否则前台会露出 "{p} 篇"。"""
+    src = _src("vue-frontend/src/store.js")
+    assert "for (const k in vars)" in src, "t() 没有实现变量替换"
+    assert 's.split("{" + k + "}")' in src
+
+
+def test_global_components_have_no_hardcoded_ui_chinese():
+    """侧栏 / 天气 / App 壳这些每页可见的组件，不能再出现硬编码中文 UI 文案。
+
+    变异验证：把 Sidebar 里某个 t('...') 改回字面量中文，此题应变红。
+    ⚠️ 要剥掉行内 `//` 注释再判 —— 注释是给开发者看的，不随语言切换，不算缺陷。
+    """
+    for rel in ("vue-frontend/src/components/Sidebar.vue",
+                "vue-frontend/src/components/WeatherWidget.vue"):
+        src = _src(rel)
+        for i, ln in enumerate(src.splitlines(), 1):
+            s = ln.strip()
+            code = s.split("//", 1)[0].strip()   # 剥掉行内注释
+            if code.startswith("/*") or code.startswith("*") or code.startswith("<!--"):
+                continue
+            if not code:
+                continue
+            if _has_cjk(code) and "t(" not in code:
+                raise AssertionError("%s:%d 还有硬编码中文（切英文不会变）：%s" % (rel, i, s[:100]))
+
+
+def _has_cjk(s):
+    return any(chr(0x4e00) <= c <= chr(0x9fff) for c in s)
+
+
+def test_front_entry_label_prefers_english_when_lang_is_en():
+    """英文界面优先取 label_en，没配则回退中文名（既有配置不会突然变空）。"""
+    src = _src(APP_VUE)
+    assert 'state.lang === "en" && e.label_en' in src, \
+        "siteEntries 没有按语言挑选条目名"

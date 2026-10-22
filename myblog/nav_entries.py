@@ -27,6 +27,7 @@ KEY = "nav_entries"
 MAX_ITEMS = 12
 
 _LABEL_MAX = 20
+_LABEL_EN_MAX = 40      # 英文名通常比中文长，单独给上限
 _ICON_MAX = 8
 _URL_MAX = 300
 
@@ -59,6 +60,9 @@ def load():
         out.append({
             "id": str(item.get("id") or new_id()),
             "label": str(item.get("label") or "")[:_LABEL_MAX],
+            # v4.8.1：可选的英文名。切到英文界面时优先显示它，为空则回退中文名。
+            # 只在既有 JSON 里加一个键 —— 不动表结构（本项目纪律：能不改表就不改）。
+            "label_en": str(item.get("label_en") or "")[:_LABEL_EN_MAX],
             "url": str(item.get("url") or "")[:_URL_MAX],
             "icon": str(item.get("icon") or "")[:_ICON_MAX],
             "enabled": bool(item.get("enabled", True)),

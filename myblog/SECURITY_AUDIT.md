@@ -2184,3 +2184,51 @@ SQLite 把表名解析成 `x`，抛 `sqlite3.OperationalError`，该测试**变�
   64MB 上传的解析峰值内存约百 MB 级。
 - SQLite 解析用 `SELECT ... FROM <表>` 后 `fetchall()` —— 超大 `contents` 表会先把
   全部行读进内存再按 `MAX_ITEMS` 截断。在 64MB 上传上限下可接受，若将来放开上限需改成分页读取。
+
+## 第一百三十八轮（R138）· v4.8.2 文章管理批量操作修复 + 中英文适配
+
+### 138.1 审计范围
+
+本轮改动集中在后台文章管理页与前台全局组件：
+
+- `myblog/admin/post_manage.py`：`bulk_posts()` 的 `value` 取值改为按 action 取
+  `category_value` / `series_value`。
+- `myblog/templates/admin/my_posts.html`：行复选框加 `form="bulk-form"` 属性；
+  两个下拉改名 + 初始 `disabled`；JS 查询根从 `form` 改为 `document`。
+- `myblog/nav_entries.py` / `myblog/api/site.py` / `myblog/admin/nav_entries.py` /
+  `templates/admin/nav_entries.html`：新增可选 `label_en` 字段。
+- `vue-frontend/src/{App.vue, store.js, components/Sidebar.vue, components/WeatherWidget.vue}`：
+  界面 i18n 化 + `t()` 支持占位变量。
+
+### 138.2 逐维结论（均通过）
+
+- **XSS（重点审）**：`label_en` 是**管理员可控文本**，全链路核查后无注入面 ——
+  ① 写入侧 `.strip()[:40]` 截断；② 后台模板回显全部走 `{{ }}` 插值，
+  `nav_entries.html` 内**无 `|safe`**；③ 前台经 `/api/site` 输出后在 `App.vue`
+  以 `{{ e.label }}` 渲染（Vue 自动转义），**未使用 `v-html`**。
+- **SQL 注入**：`bulk_posts` 仍是 `int()` + `isdigit()` 校验，无字符串拼接；
+  改动仅涉及取值键名。
+- **越权**：`bulk_posts` 的权限模型（管理员全站 / 普通用户仅自己）未改动；
+  `nav-entries` 全部路由仍带 `@admin_required`。
+- **SSRF**：无新增外部 URL 请求。
+- **CSRF**：后台表单均被全局 `_csrf_protect` 覆盖，`label_en` 是普通表单字段。
+- **密钥泄露**：无新增凭据。
+- **资源泄漏**：无新增文件句柄 / 连接。
+
+### 138.3 本轮没有新增安全问题，但有两条**质量结论**
+
+1. **「复选框在表单外」是一类结构性缺陷**，本仓库曾在 `my_posts.html` 出现
+   （其余页面 `comments.html` / `moments.html` / `config_rollback.html` 经逐一核查均正确）。
+   规律已写入 `MEMORY.md`：行复选框常用 HTML5 `form` 属性关联，且 JS 必须从 `document` 查。
+2. **「同表单多个同名控件」会导致后端 `get()` 取错值**（CWE-1284 类的输入校验缺陷）。
+   本轮即此类。修法是分别命名 + 按 action 取，并把未启用的控件 `disabled`
+   （`disabled` 的控件不随表单提交）。
+
+### 138.4 残留风险（如实记录）
+
+- 全站界面 i18n 尚未完成：扫描 `vue-frontend/src` 仍有约 **742 处**硬编码中文
+  （含 `DocsView.vue` 227 处文档内容）。本版只覆盖全局壳（Sidebar / WeatherWidget / App）。
+  这些是**可用性缺陷而非安全缺陷**，不影响英文访客的账户与数据安全。
+- 文章内嵌「目录」在部分旧文章里被渲染成一大段连续链接（作者 markdown 写法所致），
+  非渲染器缺陷；改动渲染器会波及全站文章，需单独评估。
+

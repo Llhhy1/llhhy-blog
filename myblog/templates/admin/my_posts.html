@@ -67,10 +67,10 @@
         <option value="delete">移入回收站</option>
       </select>
       <span class="bulk-value" id="bulk-category" style="display:none;">
-        <select name="value"><option value="">选择分类</option>{% for c in cats %}<option value="{{ c.id }}">{{ c.name }}</option>{% endfor %}</select>
+        <select name="category_value" disabled><option value="">选择分类</option>{% for c in cats %}<option value="{{ c.id }}">{{ c.name }}</option>{% endfor %}</select>
       </span>
       <span class="bulk-value" id="bulk-series" style="display:none;">
-        <select name="value"><option value="">选择分区</option>{% for s in series %}<option value="{{ s.id }}">{{ s.name }}</option>{% endfor %}</select>
+        <select name="series_value" disabled><option value="">选择分区</option>{% for s in series %}<option value="{{ s.id }}">{{ s.name }}</option>{% endfor %}</select>
       </span>
       <button type="submit" class="btn" id="bulk-go">执行</button>
       <span class="bulk-count" id="bulk-count"></span>
@@ -92,7 +92,7 @@
       <tbody>
         {% for p in posts %}
           <tr>
-            <td><input type="checkbox" name="ids" value="{{ p.id }}" class="row-check"></td>
+            <td><input type="checkbox" name="ids" value="{{ p.id }}" class="row-check" form="bulk-form"></td>
             <td data-label="标题 / 分类">
               <a href="{{ url_for('admin.edit_post', post_id=p.id) }}">{{ p.title }}</a>
               {% if p.category %}<span class="post-tag">{{ p.category.name }}</span>{% endif %}
@@ -173,37 +173,56 @@
     var count = document.getElementById('bulk-count');
     if (!form) return;
 
+    // ⚠️ 行复选框在 <table> 里、不在本 <form> 内 —— 表格中每篇还有「发布 / 申请置顶 /
+    // 删除」等内联表单，把表格包进批量表单会造成**表单嵌套**（HTML 非法，浏览器会
+    // 丢弃内层）。复选框改用 HTML5 的 form="bulk-form" 属性与本表单关联，
+    // 因此这里**必须从 document 查**：用 form.querySelectorAll('.row-check')
+    // 会永远拿到空集合 —— 这正是「点执行没反应 / 全选失效 / 已选计数永远空」的根因。
+    function rowChecks() { return document.querySelectorAll('.row-check'); }
+    function checkedRows() { return document.querySelectorAll('.row-check:checked'); }
+
     function refresh() {
-      var checks = form.querySelectorAll('.row-check:checked');
-      if (count) count.textContent = checks.length ? '已选 ' + checks.length + ' 篇' : '';
+      var n = checkedRows().length;
+      if (count) count.textContent = n ? '已选 ' + n + ' 篇' : '';
+      // 没启用的下拉要 disabled：否则它照样随表单提交，后端可能取到另一个的（空）值
       ['bulk-category', 'bulk-series'].forEach(function (id) {
         var el = document.getElementById(id);
-        if (el) el.style.display = 'none';
+        if (!el) return;
+        el.style.display = 'none';
+        var s = el.querySelector('select');
+        if (s) s.disabled = true;
       });
-      if (act.value === 'category') document.getElementById('bulk-category').style.display = '';
-      if (act.value === 'series') document.getElementById('bulk-series').style.display = '';
+      var show = (act && (act.value === 'category' || act.value === 'series'))
+        ? document.getElementById('bulk-' + act.value) : null;
+      if (show) {
+        show.style.display = '';
+        var sel = show.querySelector('select');
+        if (sel) sel.disabled = false;
+      }
     }
     if (all) all.addEventListener('change', function () {
-      form.querySelectorAll('.row-check').forEach(function (c) { c.checked = all.checked; });
+      rowChecks().forEach(function (c) { c.checked = all.checked; });
       refresh();
     });
-    form.querySelectorAll('.row-check').forEach(function (c) {
+    rowChecks().forEach(function (c) {
       c.addEventListener('change', function () {
-        if (all) all.checked = form.querySelectorAll('.row-check:checked').length === form.querySelectorAll('.row-check').length;
+        var total = rowChecks().length;
+        if (all) all.checked = total > 0 && checkedRows().length === total;
         refresh();
       });
     });
     if (act) act.addEventListener('change', refresh);
     form.addEventListener('submit', function (e) {
-      var n = form.querySelectorAll('.row-check:checked').length;
+      var n = checkedRows().length;
       if (!n) { e.preventDefault(); alert('请先勾选要操作的文章'); return; }
       if (!act.value) { e.preventDefault(); alert('请选择批量操作'); return; }
       if (act.value === 'category' || act.value === 'series') {
-        var v = form.querySelector('#bulk-' + act.value + ' select');
+        var v = document.querySelector('#bulk-' + act.value + ' select');
         if (!v || !v.value) { e.preventDefault(); alert('请选择目标分类/分区'); return; }
       }
       if (act.value === 'delete' && !confirm('确定把选中的 ' + n + ' 篇移入回收站？可随时还原。')) { e.preventDefault(); return; }
     });
+    refresh();
   })();
   </script>
 {% endblock %}

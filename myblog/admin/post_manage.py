@@ -190,7 +190,11 @@ def bulk_posts():
             fts.sync_post_quiet(p)
         flash(f"已批量转为草稿 {len(posts)} 篇")
     elif action in ("category", "series"):
-        val = (request.form.get("value") or "").strip()
+        # 两个下拉原本都叫 name="value"，`get()` 只取第一个 —— 「移入分区」会拿到
+        # 排前面的「分类」值（通常为空）而永远报「请选择目标」。现在分别命名、按
+        # action 取；保留 `value` 兜底，兼容旧模板 / 直接表单提交。
+        key = "category_value" if action == "category" else "series_value"
+        val = (request.form.get(key) or request.form.get("value") or "").strip()
         if not str(val).isdigit():
             flash("请选择要移入的分类/系列")
             return redirect(url_for("admin.my_posts"))

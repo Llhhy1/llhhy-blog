@@ -30,10 +30,45 @@ const I18N = {
     "blog": "博客", "back_to_top": "回到顶部",
     "skip_to_content": "跳到正文",
     "open_menu": "打开菜单", "close_menu": "关闭菜单", "nav_menu": "导航菜单",
+    "toolbox": "工具箱",
     "toggle_theme": "切换亮暗主题", "switch_lang": "切换语言",
     "install_app": "安装应用",
     "login_github": "用 GitHub 登录", "login_google": "用 Google 登录",
     "oauth_being_redirected": "正在跳转到授权页…",
+    /* v4.8.1 全局组件（侧栏 / 天气 / App 壳）—— 这些每页都可见，英文界面必须跟着切 */
+    "site_search": "站内搜索", "search": "搜索", "search_go": "搜索",
+    "email_subscribe": "📬 邮件订阅",
+    "sub_tip": "新文章发布第一时间邮件通知你",
+    "email_placeholder": "输入邮箱地址",
+    "subscribe": "订阅", "sub_busy": "提交中…", "sub_done": "已订阅 ✓",
+    "email_required": "请输入邮箱地址",
+    "subscribe_ok": "订阅成功", "subscribe_fail": "订阅失败，请稍后再试",
+    "categories": "分类", "no_categories": "暂无分类",
+    "tags": "标签", "no_tags": "暂无标签",
+    "recent_posts": "最新文章", "no_posts": "暂无文章",
+    "hot_posts": "🔥 热门文章", "no_data": "暂无数据", "reads": "读",
+    "site_stats": "站点统计",
+    "stats_line": "文章 {p} 篇 · 评论 {c} 条",
+    "friend_links": "友情链接",
+    "weather": "天气", "loading": "加载中…",
+    "weather_city_ph": "输入城市，如 上海",
+    "query": "查询", "use_my_location": "使用我的位置", "locate": "📍 定位",
+    "net_error": "网络错误，请稍后再试",
+    "city_required": "请输入城市名",
+    "locate_unsupported": "当前环境不支持定位，已显示默认城市",
+    "locating": "正在获取位置…",
+    "locate_failed": "定位失败，已显示默认城市",
+    "unknown": "未知",
+    "online_count": "{n} 人正在浏览",
+    "plugin_sidebar": "插件",
+    "close": "关闭", "close_note": "关闭便签",
+    "w_0": "晴", "w_1": "晴间多云", "w_2": "多云", "w_3": "阴",
+    "w_45": "雾", "w_48": "雾凇",
+    "w_51": "毛毛雨", "w_53": "小雨", "w_55": "中雨",
+    "w_61": "小雨", "w_63": "中雨", "w_65": "大雨",
+    "w_71": "小雪", "w_73": "雪", "w_75": "大雪",
+    "w_80": "阵雨", "w_81": "阵雨", "w_82": "强阵雨",
+    "w_95": "雷阵雨", "w_96": "雷阵雨伴冰雹", "w_99": "强雷暴",
   },
   en: {
     "home": "Home", "archive": "Archive", "stats": "Stats", "about": "About", "docs": "Docs",
@@ -46,17 +81,57 @@ const I18N = {
     "blog": "Blog", "back_to_top": "Back to top",
     "skip_to_content": "Skip to content",
     "open_menu": "Open menu", "close_menu": "Close menu", "nav_menu": "Navigation",
+    "toolbox": "Toolbox",
     "toggle_theme": "Toggle dark mode", "switch_lang": "Switch language",
     "install_app": "Install app",
     "login_github": "Sign in with GitHub", "login_google": "Sign in with Google",
     "oauth_being_redirected": "Redirecting to authorization…",
+    /* v4.8.1 全局组件（与 zh 键一一对应；缺键时 t() 会退回中文，所以这里必须齐平） */
+    "site_search": "Site Search", "search": "Search", "search_go": "Search",
+    "email_subscribe": "📬 Email Updates",
+    "sub_tip": "Get new posts by email the moment they publish",
+    "email_placeholder": "Your email address",
+    "subscribe": "Subscribe", "sub_busy": "Submitting…", "sub_done": "Subscribed ✓",
+    "email_required": "Please enter your email",
+    "subscribe_ok": "Subscribed", "subscribe_fail": "Subscription failed, please retry",
+    "categories": "Categories", "no_categories": "No categories",
+    "tags": "Tags", "no_tags": "No tags",
+    "recent_posts": "Recent Posts", "no_posts": "No posts",
+    "hot_posts": "🔥 Popular", "no_data": "No data yet", "reads": "reads",
+    "site_stats": "Site Stats",
+    "stats_line": "{p} posts · {c} comments",    "friend_links": "Links",
+    "weather": "Weather", "loading": "Loading…",
+    "weather_city_ph": "City, e.g. Shanghai",
+    "query": "Search", "use_my_location": "Use my location", "locate": "📍 Locate",
+    "net_error": "Network error, please retry",
+    "city_required": "Please enter a city",
+    "locate_unsupported": "Location unavailable; showing default city",
+    "locating": "Getting location…",
+    "locate_failed": "Location failed; showing default city",
+    "unknown": "Unknown",
+    "online_count": "{n} online",
+    "plugin_sidebar": "Plugins",
+    "close": "Close", "close_note": "Dismiss note",
+    "w_0": "Clear", "w_1": "Partly Cloudy", "w_2": "Cloudy", "w_3": "Overcast",
+    "w_45": "Fog", "w_48": "Rime",
+    "w_51": "Light Drizzle", "w_53": "Light Rain", "w_55": "Moderate Rain",
+    "w_61": "Light Rain", "w_63": "Moderate Rain", "w_65": "Heavy Rain",
+    "w_71": "Light Snow", "w_73": "Snow", "w_75": "Heavy Snow",
+    "w_80": "Showers", "w_81": "Showers", "w_82": "Strong Showers",
+    "w_95": "Thunderstorm", "w_96": "Thunderstorm w/ Hail", "w_99": "Severe Storm",
   },
 };
 
-// 取翻译（缺省回退中文，再回退原 key）
-export function t(key) {
+// 取翻译（缺省回退中文，再回退原 key）。vars 可选：`t('stats_line', {p: 8, c: 12})`
+export function t(key, vars) {
   const dict = I18N[state.lang] || I18N.zh;
-  return dict[key] || I18N.zh[key] || key;
+  let s = dict[key] || I18N.zh[key] || key;
+  if (vars) {
+    for (const k in vars) {
+      s = s.split("{" + k + "}").join(String(vars[k]));
+    }
+  }
+  return s;
 }
 
 // 切换语言并持久化（v3.0.0 功能11）

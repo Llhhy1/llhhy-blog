@@ -24,6 +24,7 @@ from utils import is_http_url
 from ._helpers import admin_bp, admin_required, log_audit
 
 _LABEL_MAX = 20
+_LABEL_EN_MAX = 40      # 英文名通常更长，单独给上限
 _ICON_MAX = 8
 
 
@@ -47,6 +48,7 @@ def nav_entries():
 @admin_required
 def nav_entry_add():
     label = (request.form.get("label") or "").strip()[:_LABEL_MAX]
+    label_en = (request.form.get("label_en") or "").strip()[:_LABEL_EN_MAX]
     url = (request.form.get("url") or "").strip()
     icon = (request.form.get("icon") or "").strip()[:_ICON_MAX]
 
@@ -67,7 +69,7 @@ def nav_entry_add():
         return redirect(url_for("admin.nav_entries"))
 
     _snapshot("新增外部入口")
-    items.append({"id": ne.new_id(), "label": label, "url": url,
+    items.append({"id": ne.new_id(), "label": label, "label_en": label_en, "url": url,
                   "icon": icon, "enabled": True})
     ne.save(items)
     log_audit("add", "nav_entry", None, "新增外部入口：%s → %s" % (label, url))
@@ -85,6 +87,7 @@ def nav_entry_edit(item_id):
         return redirect(url_for("admin.nav_entries"))
 
     label = (request.form.get("label") or "").strip()[:_LABEL_MAX]
+    label_en = (request.form.get("label_en") or "").strip()[:_LABEL_EN_MAX]
     icon = (request.form.get("icon") or "").strip()[:_ICON_MAX]
     raw_url = (request.form.get("url") or "").strip()
 
@@ -97,6 +100,7 @@ def nav_entry_edit(item_id):
 
     _snapshot("编辑外部入口")
     hit["label"] = label
+    hit["label_en"] = label_en
     hit["icon"] = icon
     if not url_bad:
         hit["url"] = raw_url

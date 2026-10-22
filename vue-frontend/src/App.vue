@@ -27,7 +27,7 @@
       <router-link to="/guestbook" @click="drawerOpen = false"><span class="nav-emoji">📝</span>{{ t('guestbook') }}</router-link>
       <!-- v4.1.0：多条外部入口收进「🧰 工具箱」下拉（避免平铺撑破 nowrap 导航） -->
       <div v-if="siteEntries.length" class="nav-toolbox nav-toolbox--drawer">
-        <button type="button" class="site-toolbox-toggle" aria-haspopup="true" :aria-expanded="toolboxOpen" @click="openToolbox"><span class="nav-emoji">🧰</span>工具箱 <span class="toolbox-caret">▾</span></button>
+        <button type="button" class="site-toolbox-toggle" aria-haspopup="true" :aria-expanded="toolboxOpen" @click="openToolbox"><span class="nav-emoji">🧰</span>{{ t('toolbox') }} <span class="toolbox-caret">▾</span></button>
         <div v-if="toolboxOpen" class="toolbox-menu">
           <a v-for="e in siteEntries" :key="'drawer-' + e.url" class="site-entry-link" :href="e.url" target="_blank" rel="noopener" @click="drawerOpen = false"><span class="nav-emoji">{{ e.icon }}</span>{{ e.label }}</a>
         </div>
@@ -69,7 +69,7 @@
              这里的条目是外部域名，必须带 target=_blank + rel=noopener，
              因此类名固定为 .site-entry-link（tests/test_nav_entries_v4_1.py 守着这条）。 -->
         <div v-if="siteEntries.length" class="nav-toolbox" @mouseenter="openToolbox" @mouseleave="closeToolbox" @keydown.esc="closeToolbox">
-          <button type="button" class="site-toolbox-toggle" aria-haspopup="true" :aria-expanded="toolboxOpen" @click="openToolbox"><span class="nav-emoji">🧰</span>工具箱 <span class="toolbox-caret">▾</span></button>
+          <button type="button" class="site-toolbox-toggle" aria-haspopup="true" :aria-expanded="toolboxOpen" @click="openToolbox"><span class="nav-emoji">🧰</span>{{ t('toolbox') }} <span class="toolbox-caret">▾</span></button>
           <div v-if="toolboxOpen" class="toolbox-menu">
             <a v-for="e in siteEntries" :key="'desk-' + e.url" class="site-entry-link" :href="e.url" target="_blank" rel="noopener" @click="closeToolbox"><span class="nav-emoji">{{ e.icon }}</span>{{ e.label }}</a>
           </div>
@@ -130,14 +130,14 @@
   <div v-if="announcements.length" class="ann-wrap">
     <div v-for="a in announcements" :key="a.id" class="ann-bar" :class="'ann-' + a.level">
       <span v-html="a.content"></span>
-      <button v-if="a.dismissible" class="ann-close" type="button" aria-label="关闭" @click="dismissAnn(a.id)">✕</button>
+      <button v-if="a.dismissible" class="ann-close" type="button" :aria-label="t('close')" @click="dismissAnn(a.id)">✕</button>
     </div>
   </div>
 
   <!-- 浏览器便签：后台可编辑，点 × 关闭（本次会话不再显示） -->
   <div v-if="state.site.site_note && !noteClosed" class="site-note">
     <span class="site-note-text">{{ state.site.site_note }}</span>
-    <button class="site-note-close" type="button" aria-label="关闭便签" @click="noteClosed = true">✕</button>
+    <button class="site-note-close" type="button" :aria-label="t('close_note')" @click="noteClosed = true">✕</button>
   </div>
 
   <!-- 大框架：统一框住公告/便签/正文/页脚（v3.1.0，视觉与后台 .section-box 一致） -->
@@ -156,7 +156,7 @@
       </main>
       <!-- v3.9.0 M2：插件侧栏槽位（结构化 <a>，不用 v-html） -->
       <aside class="plugin-sidebar" v-if="pluginSidebar.length && $route.name !== 'docs'">
-        <p class="plugin-sidebar-title">插件</p>
+        <p class="plugin-sidebar-title">{{ t('plugin_sidebar') }}</p>
         <a v-for="si in pluginSidebar" :key="si.label" class="plugin-sidebar-link"
            :href="si.href || si.to" target="_blank" rel="noopener">{{ si.icon ? si.icon + ' ' : '' }}{{ si.label }}</a>
       </aside>
@@ -167,7 +167,7 @@
            页脚是全站统一的浅色背景区，明暗主题都自适应；首页首屏是壁纸层，
            文字颜色要单独适配，放页脚省事也更稳。 -->
       <p v-if="onlineCount > 0" class="site-footer-online">
-        <span class="sfo-dot" aria-hidden="true"></span>{{ onlineCount }} 人正在浏览
+        <span class="sfo-dot" aria-hidden="true"></span>{{ t('online_count', { n: onlineCount }) }}
       </p>
       <p>{{ state.site.footer_text }}</p>
       <p v-if="state.site.beian_code">
@@ -252,7 +252,9 @@ const siteEntries = computed(() => {
     .filter((e) => e && e.url)
     .map((e) => ({
       url: e.url,
-      label: e.label || "工具",
+      // v4.8.1：英文界面优先用条目自己配的英文名（后台「导航入口」可填），
+      // 没配就回退中文名 —— 这样既有配置不会突然变空。
+      label: (state.lang === "en" && e.label_en) ? e.label_en : (e.label || t("toolbox")),
       icon: e.icon || "🧰",
     }));
 });

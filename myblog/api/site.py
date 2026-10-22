@@ -30,6 +30,8 @@ def _nav_entry_items():
             continue
         out.append({
             "label": (e.get("label") or "").strip()[:20],
+            # v4.8.1：英文界面下条目名也跟着切（如「百宝箱」→ 后台填的英文名）
+            "label_en": (e.get("label_en") or "").strip()[:40],
             "url": url,
             "icon": (e.get("icon") or "").strip()[:8],
         })

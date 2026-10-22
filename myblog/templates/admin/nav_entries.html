@@ -46,6 +46,7 @@
                 <form method="post" action="{{ url_for('admin.nav_entry_edit', item_id=it.id) }}" class="entry-edit-form">
                   {{ csrf_input() }}
                   <input aria-label="名称" type="text" name="label" value="{{ it.label }}" maxlength="20" required>
+                  <input aria-label="英文名" type="text" name="label_en" value="{{ it.label_en or '' }}" maxlength="40" placeholder="英文界面显示名（可选，如 Toolbox）">
                   <input aria-label="地址" type="url" name="url" value="{{ it.url }}" placeholder="https://..." required>
                   <input aria-label="图标" type="text" name="icon" value="{{ it.icon or '' }}" maxlength="8" placeholder="图标（emoji）">
                   <button type="submit" class="btn">保存</button>
@@ -74,6 +75,7 @@
     <form method="post" action="{{ url_for('admin.nav_entry_add') }}" class="entry-edit-form">
       {{ csrf_input() }}
       <input aria-label="名称" type="text" name="label" placeholder="名称（如 百宝箱）" maxlength="20" required>
+      <input aria-label="英文名" type="text" name="label_en" placeholder="英文界面显示名（可选，如 Toolbox）" maxlength="40">
       <input aria-label="地址" type="url" name="url" placeholder="https://example.com" required>
       <input aria-label="图标" type="text" name="icon" placeholder="图标 emoji（可选）" maxlength="8">
       <button type="submit" class="btn">添加</button>

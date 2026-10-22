@@ -306,3 +306,60 @@ def test_import_route_runs_task_and_creates_posts(mig_client, app, monkeypatch):
     assert body["poll"].endswith("/admin/migrate/task/tid-test")
     with app.app_context():
         assert Post.query.filter_by(slug="mig-test-1").count() == 1
+
+
+# ---------- 回归：选项从 query string 取（v4.8.0 修） ----------
+
+def test_import_route_reads_publish_option_from_query_string(mig_client, app, monkeypatch):
+    """**非默认值**才能钉死这个回归。
+
+    之前路由从 `request.form` 读选项，而前台用原始字节流提交文件 → 选项在
+    query string 里 → `publish` / `download_images` / `source_base` 三个选项
+    **静默失效**（发布状态永远沿用原站、图片永远不下载、旧站相对路径永远补不出来）。
+    原路由测试传的参数恰好等于默认值，所以一直是假绿。
+    """
+    from plugins.content_migrate import routes as mig_routes
+
+    def fake_submit(name, fn, *a, **kw):
+        fn(*a, **kw)
+        return "tid-test", None
+
+    monkeypatch.setattr(mig_routes.tasks, "submit", fake_submit)
+    csrf = _login_super(mig_client, app)
+    r = mig_client.post("/admin/migrate/import", data=WXR.encode(),
+                        content_type="application/octet-stream",
+                        query_string={"name": "export.xml", "publish": "draft"},
+                        headers=csrf)
+    assert r.status_code == 200, r.get_data(as_text=True)
+    with app.app_context():
+        p = Post.query.filter_by(slug="mig-test-1").first()
+        assert p is not None, "文章没导入"
+        assert p.published is False, "publish=draft 必须生效（原站状态是 publish）"
+
+
+def test_import_route_reads_download_images_option_from_query_string(
+        mig_client, app, monkeypatch, tmp_path):
+    """勾选「下载正文图片」必须真的下载 —— 之前这个勾选是死的。"""
+    import outbound
+    from plugins.content_migrate import routes as mig_routes
+
+    def fake_submit(name, fn, *a, **kw):
+        fn(*a, **kw)
+        return "tid-test", None
+
+    monkeypatch.setattr(mig_routes.tasks, "submit", fake_submit)
+    monkeypatch.setitem(app.config, "UPLOAD_FOLDER", str(tmp_path))
+    monkeypatch.setattr(outbound, "open_url", lambda url, **_kw: _Resp(PNG))
+    csrf = _login_super(mig_client, app)
+    r = mig_client.post("/admin/migrate/import", data=IMG_WXR.encode(),
+                        content_type="application/octet-stream",
+                        query_string={"name": "export.xml", "download_images": "1",
+                                      "source_base": "https://old.example.com"},
+                        headers=csrf)
+    assert r.status_code == 200, r.get_data(as_text=True)
+    with app.app_context():
+        p = Post.query.filter_by(slug="mig-img-1").first()
+        assert p is not None, "文章没导入"
+        assert "/static/uploads/mig-" in p.content, \
+            "download_images=1 必须真的本地化图片，实际正文：%s" % p.content[:200]
+        assert list(tmp_path.glob("mig-*.png")), "图片没有落盘"

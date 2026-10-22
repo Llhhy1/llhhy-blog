@@ -17,6 +17,30 @@ bp = Blueprint("content_migrate", __name__, url_prefix="/admin/migrate",
                template_folder="templates")
 
 
+def _opt(name, default=""):
+    """取一个导入选项。
+
+    ⚠️ **选项在 query string 里，不在 form 里** —— 前台用原始字节流提交文件
+    （见 `_read_upload()` 的说明），body 已经被文件占满，表单字段无处可放，
+    所以前台把 `publish` / `preserve_slug` / `download_images` / `source_base`
+    全部拼在 URL 的查询串上。
+
+    之前这里读的是 `request.form`，于是三个选项**静默失效**：
+    `publish` 永远取默认值、`download_images` 永远为假（旧站图片一张都不下载）、
+    `source_base` 永远为空（旧站的相对路径补不出完整地址 → 图片下载必然失败）。
+    而且原来的路由测试传的参数**恰好等于默认值**，所以一直是假绿。
+
+    这里 query string 优先，form 作为兜底（万一将来改回 multipart 提交也能用）。
+    `request.form_content_type` 为空时**不碰** `request.form`：
+    非表单类型的请求里访问 `request.form` 没有意义，还可能触发不必要的解析。
+    """
+    v = request.args.get(name)
+    if v is None and request.mimetype in ("application/x-www-form-urlencoded",
+                                          "multipart/form-data"):
+        v = request.form.get(name)
+    return default if v is None else v
+
+
 def _read_upload():
     """读上传的原始字节流并强制大小上限。返回 (bytes, filename)。
 
@@ -66,15 +90,15 @@ def do_import():
         result = parse_any(*_read_upload())
     except ParseError as e:
         return jsonify({"error": str(e)}), 400
-    mode = request.form.get("publish", "source")
+    mode = _opt("publish", "source")
     publish = {"source": None, "publish": True, "draft": False}.get(mode)
     user = _current_user_or_none()
     tid, err = tasks.submit(
         "content_migrate", import_items, result,
         publish=publish,
-        preserve_slug=request.form.get("preserve_slug", "1") in ("1", "on", "true"),
-        download_images=request.form.get("download_images", "") in ("1", "on", "true"),
-        source_base=(request.form.get("source_base") or "").strip()[:500],
+        preserve_slug=_opt("preserve_slug", "1") in ("1", "on", "true"),
+        download_images=_opt("download_images", "") in ("1", "on", "true"),
+        source_base=_opt("source_base", "").strip()[:500],
         author_id=user.id if user else None,
     )
     if err:

@@ -248,3 +248,17 @@ def test_reload_after_first_request_does_not_crash(client, app):
     # 极端：重复 load_plugins 也应安全，系统蓝图仍在
     load_plugins(app, app.config)
     assert "plugins_sys" in app.blueprints
+
+
+def test_admin_url_只允许站内相对路径(app):
+    """`admin_url` 会被渲染成 `href` —— `javascript:` 与协议相对 URL 必须被挡掉。
+
+    插件包常常是用户没读过的第三方代码，manifest 里的地址不该直接变成可点的链接。
+    （`admin.misc` 里有模块级 `current_app` 访问，import 必须放在 app 上下文里。）
+    """
+    with app.app_context():
+        from admin.misc import _safe_admin_url
+        assert _safe_admin_url("/admin/migrate/") == "/admin/migrate/"
+        for bad in ("javascript:alert(1)", "//evil.example.com/x", "https://evil.example.com",
+                    "admin/migrate/", "", None):
+            assert _safe_admin_url(bad) == "", "应被挡掉：%r" % (bad,)

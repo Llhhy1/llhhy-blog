@@ -596,6 +596,16 @@ sha256sum /tmp/og.png /www/wwwroot/你的站点根/og-default.png
    - `/www/wwwroot/myblog/data/blog.db`（全部数据）
    - `/www/wwwroot/myblog/static/uploads/`（上传的图片）
 1.1. **升级要点**（其余步骤与通用流程一致；适用于 v4.0.0 → v4.7.3）：
+   - **v4.8.0（内容迁移插件 + 两个依赖高危修复）**：
+     - **无迁移、无表结构变更**。
+     - 新增插件 `content_migrate`（WordPress WXR / Typecho SQL → 文章、分类、标签、
+       可选下载图片）。**默认不启用**，要用需设 `ENABLED_PLUGINS=content_migrate`
+       并重启 gunicorn（装卸 = 发版 + 重启，是项目红线）。
+       入口：后台「插件管理 → 内容迁移 → 打开」或 `/admin/migrate/`。
+     - ⚠️ 依赖升级由一键更新自动完成（`pip install -r requirements.txt`）：
+       `Pillow` 升到 13.0.0、`vite` 升到 ^6.4.5。
+       Pillow 13 本地已实测：`Image.LANCZOS` 仍在，resize + WebP 编码 + 绘图均正常。
+     - 审查时修掉一个真 bug：导入选项原本全部失效（「下载正文图片」是死的）。
    - **v4.7.8（依赖升级 + 渲染缓存版本号 bump）**：
      - **无迁移**，head 仍为 `c3d9e2f71a04`。
      - 依赖升级：`@vitejs/plugin-vue` 6.0.10、`markdown` 3.11.1、`feedparser` 6.0.14、

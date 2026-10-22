@@ -1,0 +1,181 @@
+{% extends "admin/base.html" %}
+{% block title %}内容迁移{% endblock %}
+{% block content %}
+<div class="section-box">
+  <h2>📦 内容迁移（WordPress / Typecho → 本站）</h2>
+  <p class="muted">
+    支持两种输入：<b>WordPress 的 WXR 导出</b>（后台「工具 → 导出」）和
+    <b>Typecho 的 SQL 备份</b>（phpMyAdmin / 面板导出）。文件只在本次请求里解析，
+    不会留在服务器上；写入数据库的操作在后台任务中执行。
+  </p>
+
+  <form id="mig-form" enctype="multipart/form-data">
+    {{ csrf_input() }}
+    <p>
+      <label for="mig-file">备份文件（.xml / .sql，≤ {{ max_mb }}MB）</label><br>
+      <input type="file" id="mig-file" name="file" accept=".xml,.sql,.txt" required>
+    </p>
+    <p>
+      <label for="mig-base">原站地址（可选，用于补全相对图片地址）</label><br>
+      <input type="url" id="mig-base" name="source_base" placeholder="https://old.example.com" style="width:360px">
+    </p>
+    <p>
+      <label for="mig-publish">导入后状态</label><br>
+      <select id="mig-publish" name="publish">
+        <option value="source" selected>沿用原站状态（推荐）</option>
+        <option value="publish">全部发布</option>
+        <option value="draft">全部存草稿</option>
+      </select>
+    </p>
+    <p>
+      <label><input type="checkbox" name="preserve_slug" value="1" checked>
+        保留原站 slug（推荐：旧链接不会断，重复导入也能去重）</label><br>
+      <label><input type="checkbox" name="download_images" value="1">
+        下载图片到本站（单张 ≤ 5MB、每次最多 200 张，失败保留原地址）</label>
+    </p>
+    <p>
+      <button type="button" id="preview-btn" class="btn">先预览</button>
+      <button type="submit" id="import-btn" class="btn btn-danger">开始导入</button>
+    </p>
+  </form>
+
+  <div id="mig-msg" class="flash" style="display:none"></div>
+  <div id="mig-preview"></div>
+  <div id="mig-task"></div>
+
+  <h3>导入范围</h3>
+  <ul class="muted">
+    <li>会导入：文章标题、正文、摘要、发布时间、分类（一篇文章只保留第一个分类）、标签、特色图。</li>
+    <li>不会导入：页面（Page）、评论、用户与密码、附件库、主题/插件设置。评论建议在原站另行留档。</li>
+    <li>WordPress 正文是 HTML，Typecho 的 Markdown 按原样保存；前台渲染仍会经过本站的清洗链路。</li>
+    <li>重复导入不会翻倍：保留 slug 时按 slug 去重；不保留时按「标题 + 创建时间」去重。</li>
+    <li>导入期间<b>不会</b>触发「新文章」通知/SEO 推送/订阅邮件 —— 否则订阅者会被迁移文章刷屏。</li>
+  </ul>
+</div>
+
+<script>
+(function () {
+  var form = document.getElementById('mig-form');
+  var msg = document.getElementById('mig-msg');
+  var previewBox = document.getElementById('mig-preview');
+  var taskBox = document.getElementById('mig-task');
+  var previewBtn = document.getElementById('preview-btn');
+  var importBtn = document.getElementById('import-btn');
+  var CSRF = "{{ csrf_token }}";
+
+  function show(text, ok) {
+    msg.textContent = text;
+    msg.className = 'flash ' + (ok ? 'ok' : 'err');
+    msg.style.display = 'block';
+  }
+  function el(tag, text, cls) {
+    var n = document.createElement(tag);
+    if (text !== undefined && text !== null) n.textContent = String(text);
+    if (cls) n.className = cls;
+    return n;
+  }
+  function renderPreview(d) {
+    previewBox.textContent = '';
+    var box = el('div', null, 'section-box');
+    box.appendChild(el('h3', '预览：' + (d.format === 'wordpress' ? 'WordPress WXR' : 'Typecho SQL')));
+    box.appendChild(el('p', '共 ' + d.total + ' 篇文章（发布 ' + d.published + ' / 草稿 ' + d.draft + '）'));
+    if (d.skipped && Object.keys(d.skipped).length) {
+      var parts = [];
+      Object.keys(d.skipped).forEach(function (k) { parts.push(k + ' ' + d.skipped[k]); });
+      box.appendChild(el('p', '跳过：' + parts.join('，'), 'muted'));
+    }
+    if (d.samples && d.samples.length) {
+      var ul = el('ul', null, 'muted');
+      d.samples.forEach(function (s) {
+        ul.appendChild(el('li', s.title + (s.published ? '' : '（草稿）')));
+      });
+      box.appendChild(ul);
+    }
+    if (d.warnings && d.warnings.length) {
+      var w = el('ul', null, 'muted');
+      d.warnings.forEach(function (x) { w.appendChild(el('li', x)); });
+      box.appendChild(w);
+    }
+    previewBox.appendChild(box);
+  }
+
+  function collect() {
+    // 原始字节流提交：见 routes._read_upload() 的说明（multipart 会先被 5MB 全局上限截住）
+    var p = new URLSearchParams();
+    p.set('publish', form.publish.value);
+    if (form.preserve_slug.checked) p.set('preserve_slug', '1');
+    if (form.download_images.checked) p.set('download_images', '1');
+    p.set('source_base', form.source_base.value || '');
+    p.set('name', (form.file.files[0] || {}).name || '');
+    return p.toString();
+  }
+
+  function send(url) {
+    return fetch(url + '?' + collect(), {
+      method: 'POST',
+      body: form.file.files[0],
+      headers: { 'Content-Type': 'application/octet-stream', 'X-CSRF-Token': CSRF }
+    });
+  }
+
+  previewBtn.addEventListener('click', function () {
+    if (!form.file.files.length) { show('请先选择文件', false); return; }
+    previewBtn.disabled = true;
+    show('正在解析…', true);
+    send('/admin/migrate/preview')
+      .then(function (r) { return r.json().then(function (d) { return { ok: r.ok, d: d }; }); })
+      .then(function (x) {
+        if (!x.ok) { show(x.d.error || '解析失败', false); return; }
+        show('解析成功，可以开始导入', true);
+        renderPreview(x.d);
+      })
+      .catch(function () { show('网络错误', false); })
+      .finally(function () { previewBtn.disabled = false; });
+  });
+
+  form.addEventListener('submit', function (ev) {
+    ev.preventDefault();
+    if (!form.file.files.length) { show('请先选择文件', false); return; }
+    if (!confirm('导入会新建文章（不删除现有内容）。确定开始？')) return;
+    importBtn.disabled = true;
+    taskBox.textContent = '';
+    show('已提交，正在导入…', true);
+    send('/admin/migrate/import')
+      .then(function (r) { return r.json().then(function (d) { return { ok: r.ok, d: d }; }); })
+      .then(function (x) {
+        if (!x.ok) { show(x.d.error || '提交失败', false); importBtn.disabled = false; return; }
+        poll(x.d.poll);
+      })
+      .catch(function () { show('网络错误', false); importBtn.disabled = false; });
+  });
+
+  function poll(url) {
+    fetch(url, { headers: { 'X-CSRF-Token': CSRF } })
+      .then(function (r) { return r.json(); })
+      .then(function (st) {
+        taskBox.textContent = '';
+        taskBox.appendChild(el('p', '任务状态：' + (st.state || '?') + ' — ' + (st.message || ''), 'muted'));
+        if (st.state === 'done' || st.state === 'error') {
+          importBtn.disabled = false;
+          if (st.state === 'error') { show('导入失败：' + (st.error || ''), false); return; }
+          show('导入完成', true);
+          var res = st.result || {};
+          var box = el('div', null, 'section-box');
+          box.appendChild(el('h3', '导入结果'));
+          box.appendChild(el('p', '新建 ' + (res.created || 0) + ' 篇，跳过 ' + (res.skipped || 0) +
+                                ' 篇，失败 ' + (res.failed || 0) + ' 篇，本地化图片 ' + (res.images || 0) + ' 张'));
+          if (res.warnings && res.warnings.length) {
+            var ul = el('ul', null, 'muted');
+            res.warnings.forEach(function (w) { ul.appendChild(el('li', w)); });
+            box.appendChild(ul);
+          }
+          taskBox.appendChild(box);
+          return;
+        }
+        setTimeout(function () { poll(url); }, 1500);
+      })
+      .catch(function () { importBtn.disabled = false; show('轮询任务状态失败', false); });
+  }
+})();
+</script>
+{% endblock %}

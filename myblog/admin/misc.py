@@ -235,6 +235,19 @@ def feed_diag():
     result = diagnostics.run_all()
     return render_template("admin/feed_diag.html", result=result)
 
+def _safe_admin_url(value):
+    """插件声明的后台入口地址：**只允许站内相对路径**。
+
+    非 "/" 开头的（`javascript:…`、协议相对 `//host/…`、外链）一律丢掉 ——
+    这个值会被渲染成 `href`，放任它就等于允许第三方插件包在管理员上下文里
+    挂一个「点一下就跑脚本」的链接。
+    """
+    u = str(value or "").strip()
+    if not u.startswith("/") or u.startswith("//"):
+        return ""
+    return u
+
+
 @admin_bp.route("/plugins")
 @admin_required
 def plugins():
@@ -259,6 +272,12 @@ def plugins():
             "slots": m.get("slots", []) or [],
             "loaded": slug in PLUGIN_REGISTRY,
             "disabled": bool(disabled),
+            # v4.8.x：带后台页面的插件可声明 admin_url，插件管理页据此给一个「打开」入口
+            # ⚠️ 只允许**站内相对路径**（以 "/" 开头）：admin_url 会被渲染成 href，
+            # 放任 javascript: / 协议相对 URL（//evil.com）就等于给插件一个
+            # 「点一下就在管理员上下文里执行脚本」的口子。插件本身已有代码执行权，
+            # 但 manifest 常常是用户没读过的第三方包 —— 这里多挡一道是一道。
+            "admin_url": _safe_admin_url(m.get("admin_url", "")),
         })
     return render_template("admin/plugins.html", plugins=items, app_version=APP_VERSION)
 

@@ -595,7 +595,30 @@ sha256sum /tmp/og.png /www/wwwroot/你的站点根/og-default.png
 1. **备份（最重要）**：到「文件」下载留底：
    - `/www/wwwroot/myblog/data/blog.db`（全部数据）
    - `/www/wwwroot/myblog/static/uploads/`（上传的图片）
-1.1. **升级要点**（其余步骤与通用流程一致；适用于 v4.0.0 → v4.8.2）：
+1.1. **升级要点**（其余步骤与通用流程一致；适用于 v4.0.0 → v4.8.3）：
+   - **v4.8.3（`update.sh` 部署前三查加固，应用代码无变更）**：
+     - **无迁移、无表结构变更**；应用代码与 v4.8.2 相同，仅部署脚本变更。
+     - ⚠️ **本版要特殊对待**：`update.sh` **不在发布 zip 里**，所以「跑一次 update.sh」
+       并不会把新脚本带上线。需先把新脚本单独推上去（见下），再跑更新。
+     - 新脚本自带「⓪ 部署前三查」：① 自动清理残留更新进程（孤儿+`do_wait` 才自动杀，
+       有活父进程判为并发→终止，`wchan` 异常的孤儿→不猜、报清后终止）；
+       ② 打印当前线上版本；③ 与同 tag 的 GitHub raw 对账并**自更新**（备份+`bash -n`+重跑）。
+     - 🔑 **精确判据**：`pgrep -f "update[.]sh"` 只做粗筛，第二步必须读
+       `/proc/<pid>/cmdline`，**argv 里 basename 恰为 `update.sh`** 才算在执行脚本 ——
+       否则 MCP 的 `sh -c` 包装层等「只是提到 update.sh」的进程会被误判成并发更新。
+     - ⚠️ **自更新依赖 `GH_MIRROR`**：实测该服务器**直连 `raw.githubusercontent.com` 被重置**，
+       设 `GH_MIRROR`（gh-proxy）才能自更新；取不到只打日志、不阻断更新。
+       可用 `SELF_UPDATE=0` 关闭；`FORCE_CLEAN_STALE=1` 可强制清理异常孤儿。
+     - **本版脚本的单独部署方式**（v4.8.3 起脚本会自更新，但首次仍需手工推一次）：
+       ```bash
+       cd /www/wwwroot/myblog
+       curl -fsSL -o /tmp/update_new.sh \
+         "https://gh-proxy.com/https://raw.githubusercontent.com/Llhhy1/llhhy-blog/v4.8.3/update.sh"
+       sha256sum /tmp/update_new.sh   # 与本地仓库 update.sh 的 sha256 对账
+       bash -n /tmp/update_new.sh     # 语法检查
+       cp -p update.sh "update.sh.bak_$(date +%Y%m%d_%H%M%S)"   # 先备份
+       cat /tmp/update_new.sh > update.sh && chmod +x update.sh
+       ```
    - **v4.8.2（文章管理批量操作修复 + 中英文适配）**：
      - **无迁移、无表结构变更**（head 仍为 `c3d9e2f71a04`），无需手动装依赖。
      - 修复文章管理页「批量管理」完全失效：复选框原本在 `<form>` 外（表格里还有每篇的

@@ -340,6 +340,135 @@ have_gunicorn_proc() {
   return 1
 }
 
+# ===== 部署前三查之一：清理残留的 update.sh（v4.8.2 实测踩坑后固化）=====
+# 背景：v4.8.2 部署前撞上一个**跑了 6 小时的僵尸 update.sh**（ppid=1 孤儿，
+#   上次部署留下的）。它停在前台等 gunicorn（wchan=do_wait），fd 里只有
+#   /dev/null 和 gunicorn.log，**没有下载中的文件**，且是 gunicorn master 的父进程。
+#   人工核对后才敢 kill -9 —— 现在让脚本自己判断、自己处理。
+#
+# 判据（安全优先，宁可拦住也不误杀）：
+#   A. 有**活着的父进程**且不是本进程的祖先 → 这是**真正的并发更新**
+#      → 直接终止本次（两个更新抢同一个 $WORK/$APP_DIR 必出事）
+#   B. ppid=1（孤儿，父进程已死，没人收场）+ wchan=do_wait → 只是在等 gunicorn，
+#      不持有下载文件、不写 $APP_DIR → **自动清理**（杀父不杀子，gunicorn 被 init 接管）
+#   C. 孤儿但 wchan 不是 do_wait（可能在下载/解压/覆盖中段）→ **不猜**，报清pid与wchan
+#      后终止；确需清理请显式 FORCE_CLEAN_STALE=1
+cleanup_stale_updates() {
+  local me=$$ ancestors="" p ppid wchan st hold dl killed=0 blocked=0 arg base
+  # 收集本进程的全部祖先（含 bwrap/sh -c 包装层）——它们的命令行里也可能提到 update.sh，
+  # 但它们是**本次调用的活链**，绝不能杀。
+  p=$$
+  while [ -n "$p" ] && [ "$p" != "1" ]; do
+    ancestors="$ancestors $p"
+    p=$(ps -o ppid= -p "$p" 2>/dev/null | tr -d '[:space:]' || true)
+  done
+  local pids
+  # 第一步用 pgrep 做粗筛（便宜）；**第二步必须精确到 argv**——否则任何命令行里
+  # 提到 "update.sh" 的进程都会被误判（实测：MCP 的 sh -c 包装层、含该字样的测试
+  # 脚本都会中招，导致合法更新被无谓拦截）。update[.]sh 用字符类避免反斜杠转义。
+  pids=$(pgrep -f "update[.]sh" 2>/dev/null || true)
+  if [ -z "$pids" ]; then
+    log "   ✅ 无残留 update.sh 进程"
+    return 0
+  fi
+  for p in $pids; do
+    case "$ancestors" in *" $p "*) continue ;; esac   # 自己的祖先链，跳过
+    [ "$p" = "$me" ] && continue
+    # 精确判据：只有 argv 里存在 basename 恰为 update.sh 的参数，才算「在执行更新脚本」
+    local is_update=0
+    while IFS= read -r -d '' arg; do
+      base=$(basename "$arg" 2>/dev/null || true)
+      if [ "$base" = "update.sh" ]; then is_update=1; break; fi
+    done < "/proc/$p/cmdline" 2>/dev/null || true
+    [ "$is_update" = "1" ] || continue
+    ppid=$(ps -o ppid= -p "$p" 2>/dev/null | tr -d '[:space:]' || true)
+    st=$(ps -o state= -p "$p" 2>/dev/null | tr -d '[:space:]' || true)
+    wchan=$(cat "/proc/$p/wchan" 2>/dev/null || true)
+    # 持有 $WORK / $APP_DIR 文件数：只说清判断依据，便于人工核对
+    hold=$(ls -l "/proc/$p/fd" 2>/dev/null | grep -c "${WORK:-/tmp/llhhy_update}" || true)
+    dl=$(ls -l "/proc/$p/fd" 2>/dev/null | grep -c "$APP_DIR" || true)
+    if [ "$st" = "Z" ]; then
+      log "   ℹ️ 跳过已退出的僵尸描述符 pid=$p（state=Z，等 init 回收，无害）"
+      continue
+    fi
+    if [ -n "$ppid" ] && [ "$ppid" != "1" ]; then
+      log "   ⛔ 发现**正在运行**的更新进程 pid=$p（ppid=$ppid 存活）——判定为并发更新"
+      blocked=1
+    elif [ "$wchan" = "do_wait" ]; then
+      log "   🧹 清理残留更新进程 pid=$p（孤儿 ppid=1，wchan=do_wait 在等 gunicorn，"
+      log "      持有 $WORK 文件 ${hold:-0} 个 / $APP_DIR 文件 ${dl:-0} 个 → 不抢文件，安全）"
+      kill -9 "$p" 2>/dev/null || true
+      killed=$((killed + 1))
+    elif [ "${FORCE_CLEAN_STALE:-0}" = "1" ]; then
+      log "   🧹 FORCE_CLEAN_STALE=1：强制清理残留进程 pid=$p（孤儿，wchan=${wchan:-未知}）"
+      kill -9 "$p" 2>/dev/null || true
+      killed=$((killed + 1))
+    else
+      log "   ⛔ 发现残留更新进程 pid=$p（孤儿 ppid=1，但 wchan=${wchan:-未知}，"
+      log "      持有 $WORK 文件 ${hold:-0} 个 / $APP_DIR 文件 ${dl:-0} 个）——可能停在下载/覆盖中段，"
+      log "      为避免误伤**不自动杀**。请人工核对：ls -l /proc/$p/fd；确认无害后"
+      log "      设 FORCE_CLEAN_STALE=1 重跑，或执行 kill -9 $p 后重跑。"
+      blocked=1
+    fi
+  done
+  if [ "$blocked" = "1" ]; then
+    fail_exit "检测到其他 update.sh 进程，已终止本次更新以防两个更新抢同一目录。请按上方提示处理后再重试。"
+  fi
+  [ "$killed" -gt 0 ] && sleep 2
+  return 0
+}
+
+# ===== 部署前三查之三：脚本自身哈希对账 + 自更新（v4.8.3）=====
+# 背景：update.sh **不在发布 zip 里**（脚本类改动单独发），线上脚本容易滞后 ——
+#   过去每次部署都要人工比对「本地 update.sh sha256 == 线上」。现在脚本自己做。
+# 信任边界未扩大：远端源是 **GitHub 同 tag 的 raw 文件**，与已信任的 Release 资产同源；
+#   替换前必须过 bash -n，且旧版先备份，失败即回滚。
+self_update_check() {
+  [ "${SELF_UPDATE:-1}" = "1" ] || { log "   ℹ️ SELF_UPDATE=0，跳过脚本自更新检查"; return 0; }
+  [ "${SELF_UPDATE_DONE:-0}" = "1" ] && return 0      # 防重入环
+  [ -n "${TAG:-}" ] || return 0
+  local canon="$APP_DIR/update.sh" self_path cur_hash new_hash
+  self_path=$(readlink -f "$0" 2>/dev/null || echo "$0")
+  [ -f "$canon" ] || { log "   ℹ️ 未找到 $canon，跳过脚本自更新检查"; return 0; }
+  cur_hash=$(sha256sum "$canon" 2>/dev/null | awk '{print $1}')
+  log "   脚本自检：本地 update.sh sha256=${cur_hash:0:16}…"
+  if ! gh_fetch "https://raw.githubusercontent.com/$REPO/$TAG/update.sh" "$WORK/update_new.sh" 2>/dev/null; then
+    log "   ℹ️ 未取到 $TAG 的 update.sh，跳过自更新。"
+    log "      （常见原因：服务器直连 raw.githubusercontent.com 不通 —— 实测该域名在此环境被重置；"
+    log "        设 GH_MIRROR 后会走镜像，即可正常自更新。不影响本次更新本身。）"
+    return 0
+  fi
+  [ -s "$WORK/update_new.sh" ] || { log "   ℹ️ 远端 update.sh 为空，跳过自更新"; rm -f "$WORK/update_new.sh"; return 0; }
+  new_hash=$(sha256sum "$WORK/update_new.sh" 2>/dev/null | awk '{print $1}')
+  if [ "$cur_hash" = "$new_hash" ]; then
+    log "   ✅ 脚本已是最新（与 $TAG 一致）。"
+    rm -f "$WORK/update_new.sh"
+    return 0
+  fi
+  log "   ⚠️ 线上脚本与 $TAG 不一致（远端 ${new_hash:0:16}…）。脚本不在发布 zip 里，需单独更新。"
+  if [ "$self_path" != "$(readlink -f "$canon" 2>/dev/null || echo "$canon")" ]; then
+    log "   ℹ️ 当前运行的不是 $canon（而是 $self_path），不自动替换；请手动更新该文件。"
+    return 0
+  fi
+  if ! bash -n "$WORK/update_new.sh" 2>/dev/null; then
+    log "   ❌ 远端脚本 bash -n 语法检查未过，放弃自更新（继续用当前脚本）。"
+    rm -f "$WORK/update_new.sh"
+    return 0
+  fi
+  cp -p "$canon" "$canon.bak_$TS" 2>/dev/null || true
+  if ! cat "$WORK/update_new.sh" > "$canon" 2>/dev/null; then
+    log "   ❌ 写入 $canon 失败，放弃自更新并还原备份。"
+    [ -f "$canon.bak_$TS" ] && cp -p "$canon.bak_$TS" "$canon" 2>/dev/null || true
+    rm -f "$WORK/update_new.sh"
+    return 0
+  fi
+  chmod +x "$canon" 2>/dev/null || true
+  rm -f "$WORK/update_new.sh"
+  log "   ✅ 脚本已自更新到 $TAG（旧版备份：$canon.bak_$TS），重新执行…"
+  export SELF_UPDATE_DONE=1
+  exec bash "$canon"
+}
+
 # ===== 停止后端（真停止：杀主进程+所有 worker，确认进程与端口都释放）=====
 stop_backend() {
   local pid="" pidfile="$APP_DIR/gunicorn.pid"
@@ -705,6 +834,12 @@ log "==============================================="
 set_status "started" "开始更新"
 detect_runtime
 
+# ⓪ 部署前三查之一：清理残留 update.sh + 报告当前版本（v4.8.2 踩坑后固化）
+log "⓪ 部署前三查（残留进程 / 当前版本 / 脚本哈希）..."
+cleanup_stale_updates
+LOCAL_VER=$(grep -o 'APP_VERSION *= *"[^"]*"' "$APP_DIR/config.py" 2>/dev/null | sed 's/.*"\([^"]*\)".*/\1/' | head -1)
+log "   当前线上版本：v${LOCAL_VER:-未知}（$APP_DIR/config.py）"
+
 # 1. 查询最新 Release 的下载地址
 log "① 查询 GitHub 最新版本..."
 set_status "downloading" "正在查询最新版本"
@@ -724,7 +859,7 @@ log "   最新版本：$TAG"
 
 # 1b. 版本单调性（v3.18.7）：默认拒绝用更旧的版本覆盖现有站点（报告 §2 建议）。
 #     同版本 → 直接收工；远端更低 → 需显式 ALLOW_DOWNGRADE=1 才继续。
-LOCAL_VER=$(grep -o 'APP_VERSION *= *"[^"]*"' "$APP_DIR/config.py" 2>/dev/null | sed 's/.*"\([^"]*\)".*/\1/' | head -1)
+self_update_check
 if [ -n "$LOCAL_VER" ]; then
   _local_no_v="${LOCAL_VER#v}"
   _remote_no_v="${TAG#v}"

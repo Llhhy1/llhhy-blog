@@ -354,7 +354,7 @@ have_gunicorn_proc() {
 #   C. 孤儿但 wchan 不是 do_wait（可能在下载/解压/覆盖中段）→ **不猜**，报清pid与wchan
 #      后终止；确需清理请显式 FORCE_CLEAN_STALE=1
 cleanup_stale_updates() {
-  local me=$$ ancestors="" p ppid wchan st hold dl killed=0 blocked=0 arg base
+  local me=$$ ancestors="" p ppid wchan st hold dl killed=0 blocked=0 scanned=0 arg base
   # 收集本进程的全部祖先（含 bwrap/sh -c 包装层）——它们的命令行里也可能提到 update.sh，
   # 但它们是**本次调用的活链**，绝不能杀。
   p=$$
@@ -375,12 +375,16 @@ cleanup_stale_updates() {
     case "$ancestors" in *" $p "*) continue ;; esac   # 自己的祖先链，跳过
     [ "$p" = "$me" ] && continue
     # 精确判据：只有 argv 里存在 basename 恰为 update.sh 的参数，才算「在执行更新脚本」
+    # ⚠️ 重定向顺序：必须把 2>/dev/null 放在输入重定向**之前**。写成
+    #    `done < file 2>/dev/null` 时，bash 先尝试打开 file，打开失败的错误会先于
+    #    2>/dev/null 生效而被打到 stderr（实测：瞬时进程消失时刷一行
+    #    "No such file or directory"，吓人但无害）。
     local is_update=0
     while IFS= read -r -d '' arg; do
       base=$(basename "$arg" 2>/dev/null || true)
       if [ "$base" = "update.sh" ]; then is_update=1; break; fi
-    done < "/proc/$p/cmdline" 2>/dev/null || true
-    [ "$is_update" = "1" ] || continue
+    done 2>/dev/null < "/proc/$p/cmdline" || true
+    [ "$is_update" = "1" ] || { scanned=$((scanned + 1)); continue; }
     ppid=$(ps -o ppid= -p "$p" 2>/dev/null | tr -d '[:space:]' || true)
     st=$(ps -o state= -p "$p" 2>/dev/null | tr -d '[:space:]' || true)
     wchan=$(cat "/proc/$p/wchan" 2>/dev/null || true)
@@ -414,7 +418,14 @@ cleanup_stale_updates() {
   if [ "$blocked" = "1" ]; then
     fail_exit "检测到其他 update.sh 进程，已终止本次更新以防两个更新抢同一目录。请按上方提示处理后再重试。"
   fi
-  [ "$killed" -gt 0 ] && sleep 2
+  if [ "$killed" -gt 0 ]; then
+    sleep 2
+  elif [ "$scanned" -gt 0 ]; then
+    log "   ✅ 无残留 update.sh 进程（pgrep 命中 $((scanned + killed)) 个，"
+    log "      均为祖先链 / 包装层等非执行者，已按 argv 精确判据排除）"
+  else
+    log "   ✅ 无残留 update.sh 进程"
+  fi
   return 0
 }
 

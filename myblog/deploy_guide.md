@@ -595,7 +595,7 @@ sha256sum /tmp/og.png /www/wwwroot/你的站点根/og-default.png
 1. **备份（最重要）**：到「文件」下载留底：
    - `/www/wwwroot/myblog/data/blog.db`（全部数据）
    - `/www/wwwroot/myblog/static/uploads/`（上传的图片）
-1.1. **升级要点**（其余步骤与通用流程一致；适用于 v4.0.0 → v4.8.3）：
+1.1. **升级要点**（其余步骤与通用流程一致；适用于 v4.0.0 → v4.8.4）：
    - **v4.8.3（`update.sh` 部署前三查加固，应用代码无变更）**：
      - **无迁移、无表结构变更**；应用代码与 v4.8.2 相同，仅部署脚本变更。
      - ⚠️ **本版要特殊对待**：`update.sh` **不在发布 zip 里**，所以「跑一次 update.sh」

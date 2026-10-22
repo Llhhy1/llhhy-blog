@@ -363,3 +363,127 @@ def test_import_route_reads_download_images_option_from_query_string(
         assert "/static/uploads/mig-" in p.content, \
             "download_images=1 必须真的本地化图片，实际正文：%s" % p.content[:200]
         assert list(tmp_path.glob("mig-*.png")), "图片没有落盘"
+
+
+# ---------- Typecho SQLite（.db 库文件）----------
+
+def _make_typecho_sqlite_bytes():
+    """造一份 Typecho + SQLite 数据库字节，结构对齐朋友发来的 .db（contents/metas/relationships）。"""
+    import sqlite3
+    import tempfile
+    import os
+    fd, path = tempfile.mkstemp(suffix=".db", prefix="tcmig_")
+    os.close(fd)
+    con = sqlite3.connect(path)
+    cur = con.cursor()
+    cur.execute("CREATE TABLE typecho_contents ("
+                "cid INTEGER PRIMARY KEY, title VARCHAR(200), slug VARCHAR(200), created INT, "
+                "modified INT, text TEXT, `order` INT, authorId INT, template VARCHAR(32), "
+                "type VARCHAR(16), status VARCHAR(16), password VARCHAR(32), commentsNum INT, "
+                "allowComment CHAR(1), allowPing CHAR(1), allowFeed CHAR(1), parent INT)")
+    cur.execute("CREATE TABLE typecho_metas ("
+                "mid INTEGER PRIMARY KEY, name VARCHAR(200), slug VARCHAR(200), type VARCHAR(32), "
+                "count INT, `order` INT, parent INT, description VARCHAR(200))")
+    cur.execute("CREATE TABLE typecho_relationships (cid INT, mid INT)")
+    cur.execute("INSERT INTO typecho_contents VALUES "
+                "(1,'第一篇','first-post',1600000000,1600000100,"
+                "'<!--markdown--># 标题\n\n正文','0',1,NULL,'post','publish',NULL,0,'1','1','1',0)")
+    cur.execute("INSERT INTO typecho_contents VALUES "
+                "(2,'草稿','draft-post',1600000200,1600000200,"
+                "'<p>HTML 草稿</p>','0',1,NULL,'post_draft','publish',NULL,0,'1','1','1',0)")
+    cur.execute("INSERT INTO typecho_contents VALUES "
+                "(3,'关于页面','about',1600000300,1600000300,"
+                "'x','0',1,NULL,'page','publish',NULL,0,'1','1','1',0)")
+    cur.execute("INSERT INTO typecho_metas VALUES (1,'技术','tech','category',1,0,0,'')")
+    cur.execute("INSERT INTO typecho_metas VALUES (2,'Python','python','tag',1,0,0,'')")
+    cur.execute("INSERT INTO typecho_relationships VALUES (1,1),(1,2)")
+    con.commit()
+    con.close()
+    with open(path, "rb") as fh:
+        data = fh.read()
+    os.remove(path)
+    return data
+
+
+def test_parse_typecho_sqlite_reads_posts_and_skips_page():
+    from plugins.content_migrate.parsers import parse_typecho_sqlite
+    data = _make_typecho_sqlite_bytes()
+    assert data[:16] == b"SQLite format 3\x00"
+    r = parse_typecho_sqlite(data)
+    assert r.format == "typecho"
+    assert len(r.items) == 2
+    assert r.skipped.get("page") == 1
+    a, b = r.items
+    assert a.slug == "first-post"
+    assert a.published is True and b.published is False
+    assert a.content.startswith("# 标题")
+    assert "<!--markdown-->" not in a.content
+    assert a.categories == ["技术"] and a.tags == ["Python"]
+    assert a.created_at.isoformat() == "2020-09-13T12:26:40"
+
+
+def test_parse_typecho_sqlite_strips_markdown_prefix_mutation():
+    """变异验证：底层构造器必须真的剥掉 `<!--markdown-->` 前缀，否则此题（与正文解析）必红。"""
+    from plugins.content_migrate.parsers import parse_typecho_sqlite, _typecho_build_post
+    r = parse_typecho_sqlite(_make_typecho_sqlite_bytes())
+    assert "<!--markdown-->" not in r.items[0].content
+    item, _ = _typecho_build_post("T", "t", "<!--markdown-->正文", 0, 0,
+                                  "publish", "post", "", [], [], "1")
+    assert item.content == "正文", "markdown 前缀必须被剥离"
+
+
+def test_parse_typecho_sqlite_rejects_non_sqlite():
+    from plugins.content_migrate.parsers import ParseError, parse_typecho_sqlite
+    with pytest.raises(ParseError):
+        parse_typecho_sqlite(b"this is clearly not a sqlite database file")
+
+
+def test_parse_typecho_sqlite_rejects_malicious_table_name():
+    """表名来自上传文件，绝不能拼进 SQL —— 必须被白名单拦下（而不是抛 500）。
+
+    变异验证：把 `_safe_ident` 的校验去掉（直接 `return name`），此题应变红。
+    """
+    import sqlite3
+    import tempfile
+    import os
+    from plugins.content_migrate.parsers import ParseError, parse_typecho_sqlite
+
+    # 必须以 `_contents` 结尾才会被 LIKE 命中前缀探测，同时带引号去改写 SQL
+    evil = 'x" ; DROP TABLE post; --_contents'
+    fd, path = tempfile.mkstemp(suffix=".db", prefix="tcmigevil_")
+    os.close(fd)
+    con = sqlite3.connect(path)
+    # 双写的引号在 SQLite 里是合法标识符转义
+    con.execute('CREATE TABLE "%s" (cid INTEGER, title VARCHAR(9), slug VARCHAR(9), '
+                'created INT, modified INT, text TEXT, type VARCHAR(9), '
+                'status VARCHAR(9), password VARCHAR(9))' % evil.replace('"', '""'))
+    con.execute('INSERT INTO "%s" VALUES (1,"x","x",0,0,"x","post","publish","")'
+                % evil.replace('"', '""'))
+    con.commit()
+    con.close()
+    with open(path, "rb") as fh:
+        data = fh.read()
+    os.remove(path)
+
+    with pytest.raises(ParseError, match="表名不合法"):
+        parse_typecho_sqlite(data)
+
+
+def test_parse_any_sniffs_sqlite_by_magic_and_by_name():
+    from plugins.content_migrate.parsers import parse_any
+    data = _make_typecho_sqlite_bytes()
+    assert parse_any(data, "friend.db").format == "typecho"
+    # 魔数优先：即使文件名不提示 .db，也能识别
+    assert parse_any(data, "weird-export").format == "typecho"
+
+
+def test_preview_returns_summary_for_sqlite_db(mig_client, app):
+    data = _make_typecho_sqlite_bytes()
+    csrf = _login_super(mig_client, app)
+    r = mig_client.post("/admin/migrate/preview", data=data,
+                        content_type="application/octet-stream",
+                        query_string={"name": "friend.db"}, headers=csrf)
+    assert r.status_code == 200, r.get_data(as_text=True)
+    d = r.get_json()
+    assert d["format"] == "typecho" and d["total"] == 2
+    assert d["samples"][0]["title"] == "第一篇"

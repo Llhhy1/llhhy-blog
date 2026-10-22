@@ -4,16 +4,17 @@
 <div class="section-box">
   <h2>📦 内容迁移（WordPress / Typecho → 本站）</h2>
   <p class="muted">
-    支持两种输入：<b>WordPress 的 WXR 导出</b>（后台「工具 → 导出」）和
-    <b>Typecho 的 SQL 备份</b>（phpMyAdmin / 面板导出）。文件只在本次请求里解析，
-    不会留在服务器上；写入数据库的操作在后台任务中执行。
+    支持三种输入：<b>WordPress 的 WXR 导出</b>（后台「工具 → 导出」）、
+    <b>Typecho 的 SQL 备份</b>（phpMyAdmin / 面板导出），以及
+    <b>Typecho 的 SQLite 数据库文件</b>（Typecho 用 SQLite 引擎时直接导出的 `.db`）。
+    文件只在本次请求里解析，不会留在服务器上；写入数据库的操作在后台任务中执行。
   </p>
 
   <form id="mig-form" enctype="multipart/form-data">
     {{ csrf_input() }}
     <p>
-      <label for="mig-file">备份文件（.xml / .sql，≤ {{ max_mb }}MB）</label><br>
-      <input type="file" id="mig-file" name="file" accept=".xml,.sql,.txt" required>
+      <label for="mig-file">备份文件（.xml / .sql / .db，≤ {{ max_mb }}MB）</label><br>
+      <input type="file" id="mig-file" name="file" accept=".xml,.sql,.db,.sqlite,.sqlite3,.txt" required>
     </p>
     <p>
       <label for="mig-base">原站地址（可选，用于补全相对图片地址）</label><br>
@@ -77,7 +78,7 @@
   function renderPreview(d) {
     previewBox.textContent = '';
     var box = el('div', null, 'section-box');
-    box.appendChild(el('h3', '预览：' + (d.format === 'wordpress' ? 'WordPress WXR' : 'Typecho SQL')));
+    box.appendChild(el('h3', '预览：' + (d.format === 'wordpress' ? 'WordPress WXR' : 'Typecho（SQL 备份 / SQLite）')));
     box.appendChild(el('p', '共 ' + d.total + ' 篇文章（发布 ' + d.published + ' / 草稿 ' + d.draft + '）'));
     if (d.skipped && Object.keys(d.skipped).length) {
       var parts = [];

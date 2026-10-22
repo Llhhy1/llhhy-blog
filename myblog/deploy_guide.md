@@ -595,7 +595,15 @@ sha256sum /tmp/og.png /www/wwwroot/你的站点根/og-default.png
 1. **备份（最重要）**：到「文件」下载留底：
    - `/www/wwwroot/myblog/data/blog.db`（全部数据）
    - `/www/wwwroot/myblog/static/uploads/`（上传的图片）
-1.1. **升级要点**（其余步骤与通用流程一致；适用于 v4.0.0 → v4.7.3）：
+1.1. **升级要点**（其余步骤与通用流程一致；适用于 v4.0.0 → v4.8.1）：
+   - **v4.8.1（内容迁移插件支持 Typecho SQLite + 修标识符注入）**：
+     - **无迁移、无表结构变更**（head 仍为 `c3d9e2f71a04`），无需手动装依赖。
+     - `content_migrate` 插件新增支持 **Typecho 的 SQLite 数据库文件**（`.db`/`.sqlite`）：
+       Typecho 用 SQLite 引擎时导出的是库文件本身，此前只能上传 `.sql` 文本备份。
+       只读打开、绝不写回原文件；表前缀自动识别。
+     - 安全审计 R137：修掉**标识符注入** —— 初版把上传文件里读出的表名直接拼进 SQL，
+       恶意表名可让引号突破（会 500）。现 `_safe_ident()` 只放行 `[A-Za-z0-9_]`。
+     - 评论仍不迁移（与 v4.8.0 一致）。
    - **v4.8.0（内容迁移插件 + 两个依赖高危修复）**：
      - **无迁移、无表结构变更**。
      - 新增插件 `content_migrate`（WordPress WXR / Typecho SQL → 文章、分类、标签、

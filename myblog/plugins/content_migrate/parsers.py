@@ -15,8 +15,13 @@
 """
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+import contextlib
 import html
+import os
+import pathlib
 import re
+import sqlite3
+import tempfile
 import urllib.parse
 import xml.etree.ElementTree as ET
 
@@ -70,13 +75,19 @@ def parse_any(raw, filename=""):
     """按内容嗅探格式并解析。`raw` 为 bytes。"""
     if not raw:
         raise ParseError("文件是空的")
+    if raw[:16] == b"SQLite format 3\x00":
+        return parse_typecho_sqlite(raw)
     head = raw[:4096].decode("utf-8", "ignore").lstrip("\ufeff \t\r\n")
     if head.startswith("<?xml") or head.startswith("<rss") or "<channel" in head:
         return parse_wxr(raw)
     if "INSERT INTO" in head.upper() or "CREATE TABLE" in head.upper():
         return parse_typecho_sql(raw)
-    raise ParseError("无法识别格式%s：请上传 WordPress 的 WXR(.xml) 或 Typecho 的 SQL 备份(.sql)"
-                        % ("（%s）" % filename[:60] if filename else ""))
+    ext = (filename or "").lower()
+    if ext.endswith((".db", ".sqlite", ".sqlite3")):
+        raise ParseError("这个 .db 文件不是 SQLite 3 格式，无法解析")
+    raise ParseError("无法识别格式%s：请上传 WordPress 的 WXR(.xml)、Typecho 的 SQL 备份(.sql) "
+                     "或 Typecho 的 SQLite 数据库(.db)"
+                     % ("（%s）" % filename[:60] if filename else ""))
 
 
 # ---------------------------------------------------------------- WordPress WXR
@@ -343,6 +354,45 @@ def _typecho_prefix(sql):
     return m.group(1) if m else ""
 
 
+def _typecho_build_post(title, slug, text, created, modified, status, ctype, password, cats, tags, cid):
+    """由已确认为 post 的 Typecho 内容字段构造 PostItem（SQL 与 SQLite 共用）。
+
+    `title` 由调用方先做 unescape + 非空校验。正文里的 `<!--markdown-->` 标记前缀与
+    `<!--more-->` 都会被去掉，其余按原样保存；密码保护文章判为草稿（导入器不支持密码）。
+    返回 (PostItem, [warnings])。
+    """
+    raw = str(text or "")
+    if raw.startswith("<!--markdown-->"):
+        # Typecho 用这个标记表示正文是 Markdown；标记本身不能进正文
+        raw = raw[len("<!--markdown-->"):]
+    raw = re.sub(r"<!--\s*more\s*-->", "", raw, flags=re.I).strip()
+    status = (status or "publish").strip().lower()
+    ctype = (ctype or "post").strip().lower()
+    password = str(password or "").strip()
+    item = PostItem(
+        title=title[:200],
+        slug=urllib.parse.unquote(str(slug or "").strip())[:200],
+        content=raw,
+        created_at=_ts(created),
+        updated_at=_ts(modified) or _ts(created),
+        published=(status == "publish" and not password and ctype == "post"),
+        kind="post",
+        categories=cats[:1],
+        tags=tags[:50],
+        source_id=str(cid or ""),
+    )
+    warns = []
+    if password:
+        item.note = "原站是密码保护文章，已导入为草稿（导入器不支持密码）"
+        warns.append("《%s》：%s" % (title[:40], item.note))
+    if len(cats) > 1:
+        warns.append("《%s》：原站有 %d 个分类，只保留第一个「%s」"
+                     % (title[:40], len(cats), cats[0]))
+    if not raw:
+        warns.append("《%s》：正文为空，仍会导入（可在后台补写）" % title[:40])
+    return item, warns
+
+
 def parse_typecho_sql(raw):
     """解析 Typecho 的 SQL 备份（phpMyAdmin / 面板导出均可）。"""
     if isinstance(raw, bytes):
@@ -387,40 +437,122 @@ def parse_typecho_sql(raw):
         if not title:
             result.skipped["empty_title"] = result.skipped.get("empty_title", 0) + 1
             continue
-        text = str(row.get("text") or "")
-        if text.startswith("<!--markdown-->"):
-            # Typecho 用这个标记表示正文是 Markdown；标记本身不能进正文
-            text = text[len("<!--markdown-->"):]
-        text = re.sub(r"<!--\s*more\s*-->", "", text, flags=re.I).strip()
-        status = (row.get("status") or "publish").strip().lower()
         cats, tags = [], []
         for mtype, name in rel.get(row.get("cid"), []):
             (cats if mtype == "category" else tags).append(name)
-        password = str(row.get("password") or "").strip()
-        item = PostItem(
-            title=title[:200],
-            slug=urllib.parse.unquote(str(row.get("slug") or "").strip())[:200],
-            content=text,
-            created_at=_ts(row.get("created")),
-            updated_at=_ts(row.get("modified")) or _ts(row.get("created")),
-            published=(status == "publish" and not password and ctype == "post"),
-            kind="post",
-            categories=cats[:1],
-            tags=tags[:50],
-            source_id=str(row.get("cid") or ""),
+        item, warns = _typecho_build_post(
+            title, row.get("slug"), row.get("text"), row.get("created"),
+            row.get("modified"), row.get("status"), row.get("type"),
+            row.get("password"), cats, tags, row.get("cid"),
         )
-        if password:
-            item.note = "原站是密码保护文章，已导入为草稿（导入器不支持密码）"
-            result.warnings.append("《%s》：%s" % (title[:40], item.note))
-        if len(cats) > 1:
-            result.warnings.append("《%s》：原站有 %d 个分类，只保留第一个「%s」"
-                                   % (title[:40], len(cats), cats[0]))
-        if not text:
-            result.warnings.append("《%s》：正文为空，仍会导入（可在后台补写）" % title[:40])
+        result.warnings.extend(warns)
         result.items.append(item)
         if len(result.items) >= MAX_ITEMS:
             result.warnings.append("条目超过 %d 条，只导入前 %d 条" % (MAX_ITEMS, MAX_ITEMS))
             break
     if not result.items:
         raise ParseError("SQL 里没有可导入的文章（可能只有页面/附件）")
+    return result
+
+
+# ---------------------------------------------------------------- Typecho SQLite
+
+_IDENT_RE = re.compile(r"[A-Za-z0-9_]+")
+
+
+def _safe_ident(name):
+    """SQLite 标识符白名单。
+
+    ⚠️ 表名是从**上传文件**里读出来的，完全不可信。之前直接 `"%s" % tbl` 拼进 SQL，
+    一个名为 `x_contents" ; DROP TABLE post; --` 的表就能改写查询语义。虽然
+    `mode=ro` + sqlite3 单语句执行把危害压到很小，但正确做法是**先校验再拼**：
+    只放行 `[A-Za-z0-9_]`，其余一律拒绝（给出清晰报错，而不是抛 500）。
+    """
+    if not name or not _IDENT_RE.fullmatch(name):
+        raise ParseError("数据库里的表名不合法：%s" % str(name or "")[:40])
+    return name
+
+
+def parse_typecho_sqlite(raw):
+    """解析 Typecho 的 SQLite 数据库文件（Typecho 支持 SQLite 存储引擎）。
+
+    把上传字节落到一个临时文件，再以 `file:...?mode=ro` **只读**打开，绝不写回原文件，
+    也不执行任何写操作。表前缀自动识别 `*_contents`。与 `parse_typecho_sql` 共用同一套
+    正文 / 状态 / 密码判定逻辑（见 `_typecho_build_post`），保证两种 Typecho 导出一致。
+    """
+    if not raw or raw[:16] != b"SQLite format 3\x00":
+        raise ParseError("这不是 SQLite 3 数据库文件")
+    tmp = None
+    result = None
+    try:
+        fd, tmp = tempfile.mkstemp(suffix=".db", prefix="mig_")
+        with os.fdopen(fd, "wb") as fh:
+            fh.write(raw)
+        con = sqlite3.connect(pathlib.Path(tmp).as_uri() + "?mode=ro", uri=True)
+        try:
+            cur = con.cursor()
+            cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name LIKE '%_contents'")
+            found = cur.fetchall()
+            if not found:
+                raise ParseError("没有找到 *_contents 表：这不像 Typecho 的 SQLite 数据库")
+            # 取名字最短的（通常唯一；避免误匹配无关表）；表名来自上传文件，先过白名单
+            contents_tbl = _safe_ident(min(found, key=lambda r: len(r[0]))[0])
+            prefix = _safe_ident(contents_tbl[:-len("_contents")])
+            metas_tbl = prefix + "_metas"
+            rel_tbl = prefix + "_relationships"
+            result = ParseResult(format="typecho")
+
+            # 分类/标签：mid → (type, name)
+            meta = {}
+            try:
+                cur.execute('SELECT mid, name, type FROM "%s"' % metas_tbl)
+                for mid, name, mtype in cur.fetchall():
+                    mtype = (mtype or "").strip().lower()
+                    name = html.unescape(str(name or "").strip())
+                    if name and mtype in ("category", "tag"):
+                        meta[mid] = (mtype, name)
+            except sqlite3.Error:
+                pass
+
+            # 文章 → 分类/标签 关联
+            rel = {}
+            try:
+                cur.execute('SELECT cid, mid FROM "%s"' % rel_tbl)
+                for cid, mid in cur.fetchall():
+                    if mid in meta:
+                        rel.setdefault(cid, []).append(meta[mid])
+            except sqlite3.Error:
+                pass
+
+            cur.execute('SELECT cid, title, slug, text, created, modified, type, status, password '
+                        'FROM "%s"' % contents_tbl)
+            for cid, title, slug, text, created, modified, ctype, status, password in cur.fetchall():
+                ctype = (ctype or "post").strip().lower()
+                if ctype in ("page", "page_draft", "attachment", "revision"):
+                    result.skipped[ctype] = result.skipped.get(ctype, 0) + 1
+                    continue
+                if ctype not in ("post", "post_draft"):
+                    continue
+                title = html.unescape(str(title or "").strip())
+                if not title:
+                    result.skipped["empty_title"] = result.skipped.get("empty_title", 0) + 1
+                    continue
+                cats, tags = [], []
+                for mtype, name in rel.get(cid, []):
+                    (cats if mtype == "category" else tags).append(name)
+                item, warns = _typecho_build_post(
+                    title, slug, text, created, modified, status, ctype, password, cats, tags, cid)
+                result.warnings.extend(warns)
+                result.items.append(item)
+                if len(result.items) >= MAX_ITEMS:
+                    result.warnings.append("条目超过 %d 条，只导入前 %d 条" % (MAX_ITEMS, MAX_ITEMS))
+                    break
+        finally:
+            con.close()
+    finally:
+        if tmp:
+            with contextlib.suppress(OSError):
+                os.remove(tmp)
+    if result is None or not result.items:
+        raise ParseError("数据库里没有可导入的文章（可能只有页面/附件）")
     return result

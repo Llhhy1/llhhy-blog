@@ -28,10 +28,15 @@ ENABLED_PLUGINS=content_migrate
 - 特色图（`_thumbnail_id` 对应的附件地址）；
 - `post_date_gmt` / `post_modified_gmt`（按 naive UTC 存储，与全站一致）。
 
-### Typecho：SQL 备份
+### Typecho：SQL 备份 / SQLite 库
 
-Typecho 没有官方 XML 导出，使用 phpMyAdmin / 面板导出整库 `.sql` 即可
-（表前缀任意，插件自动识别 `*_contents`）。会读取：
+Typecho 导出有两种常见形态，插件都支持（表前缀任意，自动识别 `*_contents`）：
+
+- **SQL 备份**：phpMyAdmin / 面板导出的整库 `.sql`；
+- **SQLite 库**：Typecho 用 SQLite 存储引擎时，直接拿到手的 `.db` / `.sqlite` 文件
+  （插件只读打开、绝不写回原文件）。
+
+两者都会读取：
 
 - `*_contents`：`post` / `post_draft`（`page` / `attachment` / `revision` 跳过）；
 - `*_metas` + `*_relationships`：分类与标签；
@@ -58,7 +63,8 @@ Typecho 没有官方 XML 导出，使用 phpMyAdmin / 面板导出整库 `.sql` 
 ## 安全与限制
 
 - 仅管理员可访问；POST 走全局 CSRF 校验；上传上限 **64MB**（建议按年份拆分导出）。
-- XML 拒绝 `DOCTYPE` / `ENTITY`（防实体膨胀）；SQL 只做文本解析，不执行。
+- XML 拒绝 `DOCTYPE` / `ENTITY`（防实体膨胀）；SQL 只做文本解析，不执行；
+  Typecho 的 SQLite 库以 `file:...?mode=ro` **只读**打开，临时落盘后用完即删，绝不写回原文件。
 - 图片下载走 `outbound.open_url()`：公网校验 + 固定 IP + 禁 3xx + 禁环境代理，
   不接受 `data:` 与 SVG；单张/数量双上限。
 - **导入不会触发**「新文章」通知、SEO 推送、订阅邮件 —— 迁移 200 篇不该给订阅者发 200 封信。

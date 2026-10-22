@@ -2133,3 +2133,54 @@ v4.7.6 上线后 `GET /api/ecosystem/stats` 的 `total` 由 1 变成 6，且出�
 ⚠️ 解析在**请求内**完成（几十 MB 的 WXR 约 1~3 秒），4 worker × 2 线程 = 8 槽
 的场景下，**并发几个大文件上传**会短暂占满并发槽（导入本身已放后台任务，
 但解析没有）。上传 64MB + 解析峰值内存约百 MB 级 —— 小内存机器需留意。
+
+## 第一百三十七轮（R137）· v4.8.1 内容迁移插件支持 Typecho SQLite（CWE-89 标识符注入）
+
+### 137.1 审计范围
+
+本轮改动集中在 `myblog/plugins/content_migrate/`：
+
+- `parsers.py`：新增 `parse_typecho_sqlite()`、`_safe_ident()`，抽出 `_typecho_build_post()`，
+  `parse_any()` 增加 SQLite 魔数嗅探。
+- 其余为模板（`accept`）、插件元信息、README、测试。
+
+**新增暴露面**：接受用户上传的 **SQLite 二进制库文件**并以 `sqlite3` 打开解析 ——
+这是一条全新的「解析不可信二进制」路径，重点审它。
+
+### 137.2 发现并修复
+
+| 编号 | 级别 | 问题 | 状态 |
+|---|---|---|---|
+| 137-A | 🟡 中 | **SQL 标识符注入（CWE-89）**：初版把从 `sqlite_master` 读出的表名直接 `"%s" % tbl` 拼进 `SELECT ... FROM "%s"`。表名来自**上传文件**，完全不可信；形如 `x" ; DROP TABLE post; --_contents` 的表名会让双引号提前闭合、改写查询语义 | **已修** |
+
+**为什么危害被压住了但仍要修**：该连接以 `mode=ro` 打开（不可能写入），且 Python
+`sqlite3.execute()` 只允许单条语句（挡住 `; DROP` 这类多语句），所以实际影响是
+「语法被改写 → 未捕获 `sqlite3.OperationalError` → 请求 500」。但正确做法是**先校验再拼**，
+而不是依赖下游巧合。
+
+**修法**：新增 `_safe_ident()`，标识符只放行 `[A-Za-z0-9_]`，其余抛 `ParseError`
+（前台得到 400 + 清晰文案，而不是 500）。
+
+**变异验证**（证明守卫真的有效）：把 `_safe_ident` 的校验改回 `return name` →
+SQLite 把表名解析成 `x`，抛 `sqlite3.OperationalError`，该测试**变红**；
+恢复校验后测试回绿。测试：
+`test_parse_typecho_sqlite_rejects_malicious_table_name`。
+
+### 137.3 逐维结论（均通过）
+
+- **XSS**：从库里读出的 `title` / `name` 沿用既有 `html.unescape` 处理，与 `.sql` 路径一致；
+  正文入库后仍经前端渲染清洗链路。无新增暴露面。
+- **越权**：解析器无路由；`/admin/migrate/*` 仍带 `@admin_required`，POST 走全局 CSRF。
+- **SSRF**：解析器内**零网络请求**；图片下载仍在 `importer` 里走 `outbound.open_url()`
+  （公网校验 + 固定 IP + 禁 3xx），未改动。
+- **密钥泄露**：无新增环境变量/凭据。
+- **资源泄漏**：临时文件在 `finally` 里 `os.remove`，连接 `con.close()` 在 `finally`；
+  `mkstemp` 的 fd 用 `with os.fdopen(...)` 关闭。三条路径都收口。
+- **限流 / DoS**：`MAX_ITEMS=5000` 与路由的 64MB 上传上限仍生效（沿用 v4.8.0 口径）。
+
+### 137.4 残留风险（如实记录）
+
+- 沿用 R136 的既有项：解析仍在**请求内**完成，并发大文件上传会占并发槽；
+  64MB 上传的解析峰值内存约百 MB 级。
+- SQLite 解析用 `SELECT ... FROM <表>` 后 `fetchall()` —— 超大 `contents` 表会先把
+  全部行读进内存再按 `MAX_ITEMS` 截断。在 64MB 上传上限下可接受，若将来放开上限需改成分页读取。

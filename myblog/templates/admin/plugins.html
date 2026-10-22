@@ -14,6 +14,9 @@
       <tr>
         <td>
           <strong>{{ p.name }}</strong>
+          {% if p.admin_url and p.loaded and not p.disabled %}
+            <a class="btn" href="{{ p.admin_url }}" style="margin-left:8px">打开</a>
+          {% endif %}
           <br><small class="muted">{{ p.slug }} · {{ p.author }} · {{ p.description }}</small>
         </td>
         <td>{{ p.version }}</td>

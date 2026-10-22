@@ -538,3 +538,34 @@ M2 的全局 `sidebar` 槽位对**所有非 `/docs` 路由**都渲染（见 `App
 - `tests/test_plugin_page_translate.py`（14 例）：加载与同源声明、widget 文件守卫、`/config`、CSRF 403、参数校验（目标/空/非数组/超长）、未配置 LLM 503、成功路径、```json 围栏解析、条数不匹配 502。
 - `tests/test_plugin_system.py` 同步：把「默认无插件」断言改为「默认含 `page_translate`」，并保留「显式置空 → 空列表」用例。
 
+
+---
+
+## 18. 内置插件：content_migrate（内容迁移）
+
+> 代码：`myblog/plugins/content_migrate/`；文档：[README](myblog/plugins/content_migrate/README.md)。
+
+用于把 WordPress / Typecho 的文章迁到本站。**默认不启用**，需要时在环境变量里加
+`ENABLED_PLUGINS=content_migrate` 并重启（符合「装卸 = 发版 + 重启」的架构红线）。
+
+- **输入**：WordPress WXR（`.xml`）、Typecho SQL 备份（`.sql`，自动识别表前缀）。
+- **导入**：文章、分类、标签、发布时间、特色图；一篇文章只保留第一个分类。
+- **不导入**：页面、评论、用户/密码、附件库、主题/插件设置（README 有完整清单）。
+- **图片**：可选下载正文与特色图到 `static/uploads/`，走 `outbound.open_url()`
+  （SSRF 安全），单张 5MB、每次 200 张上限。
+- **安全**：仅管理员；CSRF；上传 64MB 上限；XML 拒绝 `DOCTYPE/ENTITY`；SQL 纯文本解析。
+- **不触发发布副作用**：迁移时先以草稿落库，最后直接改 `published` 并补 FTS，
+  避免给订阅者发几百封「新文章」通知。
+
+### 18.1 新增的通用 manifest 字段：`admin_url`
+
+插件若有自己的后台页面，可在 `register()` 返回值（或 `manifest.json`）里声明
+`admin_url`。插件管理页会给一个「打开」入口，不必让用户记 URL。
+本插件声明为 `/admin/migrate/`；核心改动只在 `admin/misc.py` 与
+`templates/admin/plugins.html`（各几行，无表结构变更）。
+
+### 18.2 为什么不做「评论迁移」
+
+本项目的 `Comment` 模型没有「原站用户 / 邮箱验证 / 层级」的对应字段，
+硬导会把原站评论变成一堆无法追责的匿名文本，还可能与本站反垃圾策略冲突。
+需要保留评论时，建议原站留档，或后续单独设计「评论导入（只读归档）」功能。

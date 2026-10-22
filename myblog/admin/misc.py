@@ -259,6 +259,8 @@ def plugins():
             "slots": m.get("slots", []) or [],
             "loaded": slug in PLUGIN_REGISTRY,
             "disabled": bool(disabled),
+            # v4.8.x：带后台页面的插件可声明 admin_url，插件管理页据此给一个「打开」入口
+            "admin_url": m.get("admin_url", ""),
         })
     return render_template("admin/plugins.html", plugins=items, app_version=APP_VERSION)
 

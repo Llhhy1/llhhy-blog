@@ -4,7 +4,8 @@
 
 from flask import request, jsonify, session
 
-from .common import (api_bp, db, Guestbook, User, _current_user, _gb, rate_limit, client_key)
+from .common import (api_bp, db, Guestbook, User, _current_user, _gb, rate_limit, client_key,
+                     find_spam_hit)
 import stats  # myblog/stats.py：client_ip / cached_region（留言归属地）
 
 # ---------- 留言墙（C1）----------
@@ -38,6 +39,11 @@ def post_guestbook():
         return jsonify({"error": "昵称和留言内容不能为空"}), 400
     if len(content) > 500:
         return jsonify({"error": "留言最多 500 字"}), 400
+    # v4.9.0：留言墙补上敏感词过滤。此前只有评论侧有（`comment_spam_keywords`），
+    # 而留言墙同样匿名可提交、且直接公开展示，暴露面比评论更大 —— 这是规则漂移。
+    # 现与评论共用 common.find_spam_hit，词表也共用一份。
+    if find_spam_hit(content):
+        return jsonify({"error": "留言包含不被允许的词汇，已被过滤"}), 400
     from utils import parse_device
     ip = stats.client_ip()
     g = Guestbook(author=author[:80], content=content, user_id=u.id if u else None,

@@ -320,6 +320,31 @@ def _mcomment(c):
     }
 
 
+def find_spam_hit(content):
+    """检查内容是否命中垃圾 / 敏感词，返回命中的词（小写）或 None。
+
+    词表来自站点设置 `comment_spam_keywords`（逗号分隔，中英文逗号均可）。
+
+    **为什么抽成公共函数（v4.9.0）**：这段过滤原先只写在评论提交里，
+    留言墙**完全没有** —— 而留言墙同样是匿名可提交、且直接公开展示，
+    暴露面比评论更大。抽到这里后评论与留言共用**同一份词表与同一套匹配
+    语义**，避免「改了评论忘了留言」的规则漂移。
+
+    大小写不敏感；词表为空则直接放行（默认关闭，不打扰站长）。
+    """
+    if not content:
+        return None
+    row = Setting.query.filter_by(key="comment_spam_keywords").first()
+    if not row or not row.value:
+        return None
+    low = content.lower()
+    for kw in row.value.replace("，", ",").split(","):
+        kw = kw.strip().lower()
+        if kw and kw in low:
+            return kw
+    return None
+
+
 def _gb(g):
     return {
         "id": g.id, "author": g.author, "content": g.content,

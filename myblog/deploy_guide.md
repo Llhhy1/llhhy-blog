@@ -595,7 +595,21 @@ sha256sum /tmp/og.png /www/wwwroot/你的站点根/og-default.png
 1. **备份（最重要）**：到「文件」下载留底：
    - `/www/wwwroot/myblog/data/blog.db`（全部数据）
    - `/www/wwwroot/myblog/static/uploads/`（上传的图片）
-1.1. **升级要点**（其余步骤与通用流程一致；适用于 v4.0.0 → v4.8.5）：
+1.1. **升级要点**（其余步骤与通用流程一致；适用于 v4.0.0 → v4.9.0）：
+   - **v4.9.0（升级地图落地：设备分布 / 推送重试 / 留言过滤 / 搜索历史 / 内容日历 / 分享卡模板）**：
+     - ⚠️ **本版有迁移**：head 由 `c3d9e2f71a04` 变为 **`d9f1a4c7b2e8`**
+       （`visit_log` 表新增 `device` / `browser` 两列，`NOT NULL DEFAULT ''`）。
+       部署走 `flask db upgrade`，**绝对不要 `flask db stamp head`**。历史行自动填空串，
+       **不影响既有数据**；两列只存解析后的粗分类（如「手机」「Chrome」），**不落原始 UA**。
+     - 新增后台页 **`/admin/content-calendar`**（内容日历，月历聚合草稿 / 定时 / 已发布）。
+       权限口径与 `admin.my_posts` 对齐：**非管理员只能看到自己 `author_id` 的文章**。
+     - 新增站点设置 **`og_template`**（分享卡片模板，4 套，含**微信方图 800×800** 防裁切）。
+       ⚠️ 模板已进 OG 图缓存 key —— 换模板会生成新图，**不会命中旧尺寸的缓存**。
+       未自定义主色时模板自带色生效；已自定义 `accent_color` 则仍以站点主色为准（线上表现零变化）。
+     - 留言墙接上敏感词过滤（与评论共用 `comment_spam_keywords` 词表，经 `find_spam_hit()`）。
+     - 新文推送失败改为**指数退避重试 3 次**（1/2/4s），全失败才记 warning（此前失败完全静默）。
+     - 前端已改动（`vue-frontend/src`：搜索历史 localStorage），zip 内含重新构建的产物；
+       升级后建议**硬刷新**一次。
    - **v4.8.3（`update.sh` 部署前三查加固，应用代码无变更）**：
      - **无迁移、无表结构变更**；应用代码与 v4.8.2 相同，仅部署脚本变更。
      - ⚠️ **本版要特殊对待**：`update.sh` **不在发布 zip 里**，所以「跑一次 update.sh」
@@ -853,7 +867,7 @@ sha256sum /tmp/og.png /www/wwwroot/你的站点根/og-default.png
 5. **重启后端（关键）**：宝塔「网站 → Python项目」→ 该项目 → **先点「停止」，再点「启动」**。
    - ⚠️ 只点「重启」可能只是重载配置，gunicorn 旧进程没退出，页面还是旧版；
    - 可用 `ps -ef | grep gunicorn` 看进程启动时间，确认是新进程；
-   - 若需核对迁移基线：先执行 `flask db current`，再按上方第 4 步的分支处理（空版本 / 旧基线都直接 `flask db upgrade`）。**绝对不要 `flask db stamp head`** —— 它会把版本号直接写成当前 head，跳过待执行的列/索引变更，形成「版本号已升级、表结构没变」的假升级。当前 head 以 `flask db heads` 为准（v4.7.3 起为 `b8e4f1a72c93`）。
+   - 若需核对迁移基线：先执行 `flask db current`，再按上方第 4 步的分支处理（空版本 / 旧基线都直接 `flask db upgrade`）。**绝对不要 `flask db stamp head`** —— 它会把版本号直接写成当前 head，跳过待执行的列/索引变更，形成「版本号已升级、表结构没变」的假升级。当前 head 以 `flask db heads` 为准（v4.9.0 起为 **`d9f1a4c7b2e8`**）。
 6. **覆盖前端**：上传新版 `vue-frontend-dist.zip` 到 `/www/wwwroot/vue-frontend/` → 解压覆盖 `index.html` + `assets/`（**无需重启后端**）。
 7. **验证**：浏览器**无痕窗口**打开（避免缓存）：
    - 后台左下角显示 `vX.Y.Z`，与 [GitHub Releases](https://github.com/Llhhy1/llhhy-blog/releases) 最新标签一致 → 后端升级成功；

@@ -1,0 +1,85 @@
+{% extends "admin/base.html" %}
+{% block title %}内容日历{% endblock %}
+{% block content %}
+
+{# ⚠️ Jinja 子模板里 block 之外的内容**不会渲染**（v4.2.0 踩过：三张卡静默消失了
+   两个大版本）。本页所有内容——包括下面的 <style>——都必须待在 content 块内。 #}
+
+<style>
+.cal-wrap{overflow-x:auto;}
+table.cal{border-collapse:collapse;width:100%;min-width:720px;table-layout:fixed;}
+table.cal th{padding:6px 0;font-size:12px;color:var(--muted,#8a93a0);font-weight:600;text-align:center;border-bottom:2px solid var(--border,#ececec);}
+table.cal td{border:1px solid var(--border,#ececec);vertical-align:top;padding:5px 6px;height:104px;}
+table.cal td.cal-empty{background:var(--surface-2,#fafbfc);}
+.cal-day{font-size:12px;color:var(--muted,#8a93a0);font-weight:600;margin-bottom:4px;}
+.cal-item{display:block;font-size:12px;line-height:1.5;margin-bottom:3px;padding:2px 5px;border-radius:5px;
+  background:var(--surface-2,#f4f5f7);color:var(--text,#333);text-decoration:none;overflow:hidden;
+  text-overflow:ellipsis;white-space:nowrap;}
+.cal-item:hover{background:var(--accent-soft,#e8f0fe);}
+.cal-more{font-size:11px;color:var(--muted,#8a93a0);}
+.cal-tip{display:inline-block;margin-right:10px;}
+.dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:4px;vertical-align:middle;}
+.dot-published{background:#48bb78;}
+.dot-draft{background:#a0aec0;}
+.dot-scheduled{background:#4299e1;}
+</style>
+
+<h1 class="page-title">📅 内容日历（{{ year }} 年 {{ month }} 月）</h1>
+
+<div class="admin-actions">
+  <a class="btn ghost" href="{{ url_for('admin.content_calendar', year=prev_year, month=prev_month) }}">← 上月</a>
+  <a class="btn ghost" href="{{ url_for('admin.content_calendar') }}">回到本月</a>
+  <a class="btn ghost" href="{{ url_for('admin.content_calendar', year=next_year, month=next_month) }}">下月 →</a>
+  <a class="btn" href="{{ url_for('admin.new_post') }}">✏️ 写新文章</a>
+</div>
+
+<div class="panel">
+  <p class="stats-tip">
+    本月共 <b>{{ total }}</b> 篇：
+    <span class="cal-tip"><span class="dot dot-published"></span>已发布 <b>{{ counts.published }}</b></span>
+    <span class="cal-tip"><span class="dot dot-draft"></span>草稿 <b>{{ counts.draft }}</b></span>
+    <span class="cal-tip"><span class="dot dot-scheduled"></span>待发布 <b>{{ counts.scheduled }}</b></span>
+  </p>
+  <p class="stats-tip">归属日期：有定时时间的按定时时间，否则按创建时间（均显示为北京时间）。点击标题进编辑页改期 / 发布。</p>
+
+  <div class="cal-wrap">
+    {# `data-table` = 横滚兜底标记类（tests/test_admin_table_data_label.py 的纳管口径）：
+        本表外层 .cal-wrap 已 overflow-x:auto，不走卡片化，故不需要 data-label。 #}
+    <table class="cal data-table">
+      <thead>
+        <tr>
+          {% for w in weekday_names %}<th>{{ w }}</th>{% endfor %}
+        </tr>
+      </thead>
+      <tbody>
+        {% for week in weeks %}
+        <tr>
+          {% for day in week %}
+            {% if day %}
+            <td>
+              <div class="cal-day">{{ day }}</div>
+              {% set items = day_map.get(day, []) %}
+              {% for it in items[:max_per_day] %}
+                <a class="cal-item" href="{{ url_for('admin.edit_post', post_id=it.id) }}"
+                   title="{{ it.status }} · {{ it.time }} · {{ it.title }}">{{ it.title }}</a>
+              {% endfor %}
+              {% if items|length > max_per_day %}
+                <span class="cal-more">还有 {{ items|length - max_per_day }} 篇…</span>
+              {% endif %}
+            </td>
+            {% else %}
+            <td class="cal-empty"></td>
+            {% endif %}
+          {% endfor %}
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  {% if total == 0 %}
+  <p class="stats-empty">本月还没有任何文章（草稿 / 定时 / 已发布都不算有）。</p>
+  {% endif %}
+</div>
+
+{% endblock %}

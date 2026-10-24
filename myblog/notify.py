@@ -50,6 +50,7 @@ import json
 import logging
 import os
 import threading
+import time
 import urllib.request
 
 logger = logging.getLogger(__name__)
@@ -93,6 +94,44 @@ def _build_text(snap):
     return "📝 新文章：%s\n%s\n%s" % (snap["title"], snap["summary"], snap["link"])
 
 
+# v4.9.0（ROADMAP §3.1「推送编排」）：失败重试参数。
+# 3 次 + 1s 起步的指数退避 → 间隔 1s / 2s / 4s，单渠道最坏多耗 7s。
+# 之所以敢给到 7s：deliver() 跑在**后台线程**里（v3.20.0 起），不在请求路径上。
+RETRY_TIMES = 3
+RETRY_BASE_DELAY = 1.0
+
+
+def _send_with_retry(send_fn, label, retries=RETRY_TIMES,
+                     base_delay=RETRY_BASE_DELAY, sleep=time.sleep):
+    """带指数退避地执行一个外发动作，返回 True / False。
+
+    **为什么要重试**：此前渠道失败是**完全静默**的 —— 只记一条 warning，
+    运营侧没人知道「新文章根本没推到群里」。而瞬时抖动 / 429 限流这种
+    最常见的失败，重试一次通常就成了。
+
+    **为什么是退避而不是立刻重发**：连续无间隔重试会把对方的限流窗口撞得
+    更死；失败若源于「对方短暂不可用」，间隔越短越可能继续失败。
+
+    **只在最后一次失败时才记日志**：中间那几次的堆栈是噪声 —— 重试机制
+    存在的意义就是容忍它们。ROADMAP 的原话是「全失败才记日志」。
+
+    `sleep` 刻意做成可注入参数：测试里换成不真睡的探针，
+    否则一个单测要干等 7 秒。
+    """
+    last_exc = None
+    for attempt in range(max(1, retries)):
+        try:
+            send_fn()
+            return True
+        except Exception as exc:  # noqa: BLE001  (渠道外发，逐次吞掉中间失败)
+            last_exc = exc
+            if attempt < retries - 1:
+                sleep(base_delay * (2 ** attempt))
+    logger.warning("%s 新文章推送失败（已重试 %d 次仍失败）",
+                   label, retries, exc_info=last_exc)
+    return False
+
+
 def deliver(payload):
     """真正执行外发（纯数据入参，可安全地在任意线程调用）。返回 (ok, failed) 计数。"""
     text = _build_text(payload)
@@ -102,23 +141,18 @@ def deliver(payload):
     token = os.environ.get("TELEGRAM_BOT_TOKEN")
     chat = os.environ.get("TELEGRAM_CHAT_ID")
     if token and chat:
-        try:
-            _tg_send(token, chat, text)
+        if _send_with_retry(lambda: _tg_send(token, chat, text), "Telegram"):
             ok += 1
-        except Exception:
+        else:
             failed += 1
-            # 不再用 print：升级为结构化日志（含堆栈），便于排障
-            logger.warning("Telegram 新文章推送失败", exc_info=True)
 
     # 企业微信 / 微信「群机器人」
     wecom = os.environ.get("WECOM_WEBHOOK_URL")
     if wecom:
-        try:
-            _wecom_send(wecom, text)
+        if _send_with_retry(lambda: _wecom_send(wecom, text), "企业微信"):
             ok += 1
-        except Exception:
+        else:
             failed += 1
-            logger.warning("企业微信新文章推送失败", exc_info=True)
 
     return ok, failed
 

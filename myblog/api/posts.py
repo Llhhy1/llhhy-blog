@@ -10,7 +10,9 @@ from markupsafe import escape
 
 logger = logging.getLogger(__name__)
 
-from .common import (api_bp, db, Post, PostTag, Category, Tag, Comment, ReadLog, Setting, User, visible_posts_query, _current_user_or_none, _post_summary, _comment, _render_html, rate_limit, client_key, lang_dedup, paged_posts, _DISPLAY_ORDER)
+# 注：`Setting` 已于 v4.9.0 移出本文件的导入 —— 敏感词过滤改用 common.find_spam_hit()
+# 后它是唯一使用点，留着会变成 F401 新增债务（棘轮门禁不允许）。
+from .common import (api_bp, db, Post, PostTag, Category, Tag, Comment, ReadLog, User, visible_posts_query, _current_user_or_none, _post_summary, _comment, _render_html, rate_limit, client_key, lang_dedup, paged_posts, _DISPLAY_ORDER, find_spam_hit)
 from models import hreflang_alternates
 import stats  # myblog/stats.py：client_ip / cached_region（浏览量去重与评论归属地）
 from utils import fmt_bj, to_beijing, BEIJING_TZ, site_base
@@ -356,14 +358,10 @@ def comment(slug):
     elif email_required:
         return jsonify({"error": "请填写有效的电子邮箱"}), 400
     # v3.0.0 功能2：垃圾评论关键词过滤（站点设置 comment_spam_keywords 逗号分隔）。
-    # 命中任一关键词直接拒绝提交，避免垃圾评论进入审核队列。关键词大小写不敏感。
-    spam_kw = (Setting.query.filter_by(key="comment_spam_keywords").first())
-    if spam_kw and spam_kw.value:
-        kw_list = [k.strip().lower() for k in spam_kw.value.replace("，", ",").split(",") if k.strip()]
-        low = content.lower()
-        hit = next((k for k in kw_list if k and k in low), None)
-        if hit:
-            return jsonify({"error": "评论包含不被允许的词汇，已被过滤"}), 400
+    # v4.9.0：匹配逻辑抽到 common.find_spam_hit，评论与留言共用同一份词表与
+    # 同一套匹配语义（此前留言墙完全没有过滤，属规则漂移）。
+    if find_spam_hit(content):
+        return jsonify({"error": "评论包含不被允许的词汇，已被过滤"}), 400
     # 嵌套回复：parent_id 必须属于同一篇文章，reply_to 默认取父评论作者
     parent_id = data.get("parent_id") or 0
     reply_to = (data.get("reply_to") or "").strip()

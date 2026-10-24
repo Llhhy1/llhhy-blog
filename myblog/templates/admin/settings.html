@@ -64,6 +64,16 @@
     <label for="accent_color">站点主题色（导航高亮、按钮、链接、时间线圆点等都会跟随这个颜色）</label>
     <input id="accent_color" type="color" name="accent_color" value="{{ settings.accent_color or '#1a73e8' }}" style="width:60px;height:38px;padding:2px;cursor:pointer;">
 
+    {# v4.9.0 分享卡片模板库：微信会把 og:image 裁成正方形，横图贴边内容会被切掉，
+       所以单独提供方图模板。这里只选模板，主色仍以「站点主题色」为准（留空才用模板色）。 #}
+    <label for="og_template">分享卡片模板（文章分享到微信 / X / Telegram 时显示的那张图）</label>
+    <select id="og_template" name="og_template">
+      {% for key, name in og_templates %}
+      <option value="{{ key }}" {{ 'selected' if (settings.og_template or 'classic') == key }}>{{ name }}</option>
+      {% endfor %}
+    </select>
+    <p class="hint">微信会把分享图裁成<b>正方形</b>，横图两侧会被切掉 —— 主要在微信传播就选「微信方图」。主色以上方「站点主题色」为准，清空主题色才会用模板自带配色。</p>
+
     <label for="weather_city">天气默认城市名（天气组件在没有访客定位时显示的名字，如「北京」）</label>
     <input id="weather_city" type="text" name="weather_city" value="{{ settings.weather_city }}">
 

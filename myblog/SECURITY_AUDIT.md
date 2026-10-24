@@ -4,6 +4,63 @@
 
 ---
 
+## R128 · v4.9.0 发版安全审查（升级地图 6 项落地 · 越权 / 隐私 / 重试幂等）
+
+**范围**：按 `ROADMAP.md` §3.1 落地 6 项 —— 设备/浏览器分布（新增 `visit_log.device` / `browser`
+两列 + Alembic 迁移 `d9f1a4c7b2e8`）、推送指数退避重试（`notify.py`）、留言墙敏感词过滤
+（`api/common.py::find_spam_hit`）、搜索历史（纯前端 localStorage）、内容日历（新增
+`GET /admin/content-calendar`）、分享卡片模板库（`og_image.py` + 设置项 `og_template`）。
+另含 3 处 ROADMAP 过时描述修正与 lint 棘轮收紧（475→472）。
+
+### 128.1 八维核对
+
+| 维度 | 结论 |
+|---|---|
+| **认证** | 内容日历 `@login_required`，匿名访问返回非 200（`test_未登录不能看日历`）✅ |
+| **授权（越权）** | ⚠️ **本轮唯一实质性风险，已修**：日历会把**草稿标题**铺在格子上，初版沿用 `@login_required` 而未做归属过滤 → 普通作者可看到他人未发布草稿。已对齐 `admin.my_posts` 口径（`if not user.is_admin_role: 按 author_id 过滤`），并配 `test_普通用户看不到他人文章标题` 专项守卫 ✅ |
+| **CSRF** | 本轮无新增写路由；`og_template` 走既有后台设置页（`POST /admin/settings`，`@super_required` + 全局 CSRF 钩子）✅ |
+| **注入** | `device` / `browser` 经 ORM 落库；日历 `year` / `month` 用 `request.args.get(..., type=int)` 强转；`find_spam_hit` 只读 Setting 不拼 SQL。SQLi 面为零 ✅ |
+| **XSS** | `device` / `browser` 源自 User-Agent（**攻击者可控**），但后台经 Jinja `{{ }}` 自动转义；搜索历史经 Vue `{{ }}` 转义。无 `\|safe`、无 `v-html` ✅ |
+| **隐私** | 🔒 只存解析后的粗分类（`手机` / `Chrome`），**不落原始 UA**。原始 UA 含设备型号与系统小版本、可指纹化。配反向断言：型号串 `SM-S918B`、`Android 13`、`Mozilla` 均不得出现在落库字段中（`test_手机UA解析为粗分类且不含可指纹片段`）✅ |
+| **SSRF** | 无新增外发出口。模板库不改 URL；推送重试只向**管理员自配的** webhook 重发，不引入新目标 ✅ |
+| **越权（水平）** | 见「授权」行；另留言/评论过滤为**拒绝提交**（400），不改写他人内容 ✅ |
+
+### 128.2 已知取舍（ consciously accepted，非缺陷 ）
+
+**推送重试会放大对外请求量，且可能导致重复通知。**
+
+- 现状：Telegram / 企业微信 webhook 均无幂等键，退避重试 3 次最坏把同一条消息推 3 遍。
+- 取舍理由：**漏推（运营侧完全无感）比重复（肉眼可见、无副作用）更糟**。
+  且重试只在既有后台线程内进行，不影响请求路径。
+- 边界：单渠道最坏多耗 7s（`1+2+4`），两渠道共 14s，均在后台线程。
+
+### 128.3 遗留预警（未在本轮扩大，但需记档）
+
+`notify.py::_post_json` 对目标 URL **无 scheme / 私网 / 重定向限制**。当前 webhook 只来自环境变量
+（管理员自配），故不构成漏洞；但 ROADMAP §3.1 仍留有「`TELEGRAM_BOT_TOKEN` / `WECOM_WEBHOOK_URL`
+进后台」待办 —— **该待办落地时，本函数会变成无防护 SSRF 出口，必须先补
+scheme 白名单 + 私网过滤 + 禁跟随 3xx**（与 2026-10-07 全量审计报告第 7 条同源）。
+
+### 128.4 测试证据
+
+新增 5 个测试文件共 **27 用例**：`test_device_stats.py`（4）、`test_notify_retry.py`（6）、
+`test_guestbook_spam.py`（5，含变异验证：摘掉留言过滤必须变红）、
+`test_content_calendar.py`（4，含越权守卫与 block 渲染守卫）、`test_og_templates.py`（9）。
+lint 棘轮：本轮一度引入 +3（SIM102 / F401 未用 `pytest` / `Setting` 失去唯一使用点），
+已**逐条真修**而非抬基线，债务 475 → **472**。
+
+---
+
+## R127 · v4.8.7 发版安全审查（访客统计页数据表 CSS 打磨 · 无安全面）
+
+**范围**：`templates/admin/stats.html` 数据表 CSS 与暗色主题适配，**仅 CSS 选择器 / 颜色**。
+
+结论：无 HTML 属性、用户输入或 DOM 结构变更；样式全部限定 `.stats-page` 作用域
+（`admin.css` 中诊断页的 `.stats-table` 不受影响）。无注入 / XSS / SSRF / 越权面。
+模板渲染用例 5 passed。
+
+---
+
 ## R126 · v4.8.6 发版安全审查（后台「常搜词汇」重置按钮 · CWE-284 / CWE-352）
 
 **范围**：新增 `POST /admin/stats/reset-searches` 路由（`myblog/admin/stats.py`）、

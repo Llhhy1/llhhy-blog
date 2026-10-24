@@ -172,6 +172,11 @@ class VisitLog(db.Model):
     bot_name = db.Column(db.String(60), default="")             # 具体爬虫名（Googlebot 等，v3.7.1）
     bot_category = db.Column(db.String(20), default="")         # search/ai/tool/unknown（v3.7.1）
     referrer = db.Column(db.String(300), default="")            # v3.17.3：访问来源（仅存 origin，防 query 泄漏隐私）
+    # v4.9.0：设备类型（手机 / 平板 / 电脑 / 爬虫）与浏览器（Chrome / Safari / 微信…）。
+    # 只存 parse_device() 解析后的粗分类，**不落原始 UA**——原始 UA 含型号与插件指纹，
+    # 可指纹化，个人博客无留存必要（与 referrer 只存 origin 同一条隐私收口原则）。
+    device = db.Column(db.String(40), default="")
+    browser = db.Column(db.String(40), default="")
 
 
 class ReadLog(db.Model):

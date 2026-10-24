@@ -37,4 +37,5 @@ from . import oauth_settings  # v3.25.7：第三方登录凭据配置（此前�
 from . import system_settings  # v3.25.8：运营开关集中配置（此前 2FA 等只能改服务器 + 重启）
 from . import nav_entries  # noqa: F401  v4.1.0：外部入口管理（多条 / 排序 / 启停）
 from . import visit_logs  # noqa: F401  v4.2.0：访客日志（分页筛选 + 按 IP 拉黑/解封）
+from . import content_calendar  # noqa: F401  v4.9.0：内容日历（草稿/定时/已发布月历视图）
 

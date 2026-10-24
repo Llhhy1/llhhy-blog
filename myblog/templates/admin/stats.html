@@ -407,6 +407,48 @@
   </div>
 
   <div class="stats-card">
+    <h3>📱 设备分布 TOP（最近 30 天）</h3>
+    {% if summary.devices %}
+    <table class="stats-table">
+      <thead><tr><th>设备类型</th><th>次数</th><th>占比</th></tr></thead>
+      <tbody>
+        {% set total_dev = summary.devices | sum(attribute="count") %}
+        {% for d in summary.devices %}
+        <tr>
+          <td class="rank-title">{{ d.name }}</td>
+          <td class="rank-count">{{ d.count }}</td>
+          <td>{{ (d.count * 100 / total_dev)|round(1) if total_dev else 0 }}%</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <p class="stats-empty">暂无设备数据（v4.9.0 起才采集，仅统计升级后的新访问；且只存粗分类不存原始 UA）</p>
+    {% endif %}
+  </div>
+
+  <div class="stats-card">
+    <h3>🌐 浏览器分布 TOP（最近 30 天）</h3>
+    {% if summary.browsers %}
+    <table class="stats-table">
+      <thead><tr><th>浏览器</th><th>次数</th><th>占比</th></tr></thead>
+      <tbody>
+        {% set total_br = summary.browsers | sum(attribute="count") %}
+        {% for b in summary.browsers %}
+        <tr>
+          <td class="rank-title">{{ b.name }}</td>
+          <td class="rank-count">{{ b.count }}</td>
+          <td>{{ (b.count * 100 / total_br)|round(1) if total_br else 0 }}%</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <p class="stats-empty">暂无浏览器数据（v4.9.0 起才采集，仅统计升级后的新访问）</p>
+    {% endif %}
+  </div>
+
+  <div class="stats-card">
     <h3>⬇️ 导出访问明细</h3>
     <p class="stats-tip">导出 CSV（含 UTF-8 BOM，Excel 直接打开不乱码）。已做 <b>CSV 公式注入防护</b>：以 <code>= + - @</code> 开头的单元格会被加前缀单引号中和。</p>
     <p>

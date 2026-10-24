@@ -72,6 +72,7 @@
         <p class="side-group">内容管理</p>
         <a href="{{ url_for('admin.dashboard') }}" class="{{ 'active' if ep == 'admin.dashboard' }}"><span class="nav-emoji">📊</span>仪表盘</a>
         <a href="{{ url_for('admin.my_posts') }}" class="{{ 'active' if ep == 'admin.my_posts' }}"><span class="nav-emoji">📄</span>文章管理</a>
+        <a href="{{ url_for('admin.content_calendar') }}" class="{{ 'active' if ep == 'admin.content_calendar' }}"><span class="nav-emoji">📅</span>内容日历</a>
         <a href="{{ url_for('admin.new_post') }}" class="{{ 'active' if ep in ('admin.new_post', 'admin.edit_post') }}"><span class="nav-emoji">✏️</span>写新文章</a>
         <a href="{{ url_for('admin.categories') }}" class="{{ 'active' if ep == 'admin.categories' }}"><span class="nav-emoji">🗂️</span>分类管理</a>
         <a href="{{ url_for('admin.tags') }}" class="{{ 'active' if ep == 'admin.tags' }}"><span class="nav-emoji">🏷️</span>标签管理</a>
@@ -121,6 +122,7 @@
         <p class="side-group">我的创作</p>
         <a href="{{ url_for('admin.new_post') }}" class="{{ 'active' if ep in ('admin.new_post', 'admin.edit_post') }}"><span class="nav-emoji">✏️</span>写新文章</a>
         <a href="{{ url_for('admin.my_posts') }}" class="{{ 'active' if ep == 'admin.my_posts' }}"><span class="nav-emoji">📄</span>我的文章</a>
+        <a href="{{ url_for('admin.content_calendar') }}" class="{{ 'active' if ep == 'admin.content_calendar' }}"><span class="nav-emoji">📅</span>内容日历</a>
         {% endif %}
         {# v3.21.0 两步验证：账号安全项，管理员与普通用户均可见（绑定只作用于当前登录账号） #}
         <a href="{{ url_for('admin.twofa') }}" class="{{ 'active' if ep == 'admin.twofa' }}"><span class="nav-emoji">🔐</span>两步验证</a>

@@ -121,7 +121,10 @@ def og_post_image(slug):
     if not post:
         return _og_default_response()
     site_name = get_setting("site_name", "") or get_setting("site_title", "我的博客")
-    accent = get_setting("accent_color", "#1a73e8") or "#1a73e8"
+    # v4.9.0 模板库：留空表示「未自定义主色」→ 由模板决定配色；
+    # 站长一旦在后台自定义了主题色，仍然以它为准（品牌色优先于模板）。
+    accent = get_setting("accent_color", "") or ""
+    template = get_setting("og_template", "") or ""
     desc = (post.seo_description or post.summary or "").strip()[:120]
     category = post.category.name if getattr(post, "category", None) else ""
     stamp = str(post.updated_at or post.created_at or "")
@@ -131,7 +134,7 @@ def og_post_image(slug):
         desc=desc, site_name=site_name[:24], accent=accent,
         date_str=fmt_bj(post.created_at, "%Y-%m-%d") if post.created_at else "",
         read_min=max(1, round((post.word_count or 0) / 400.0)),
-        category=category, cover=post.cover,
+        category=category, cover=post.cover, template=template,
     )
     if not data:
         return _og_default_response()

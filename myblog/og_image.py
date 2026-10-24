@@ -39,6 +39,43 @@ COVER_W = 380          # 右侧封面宽度（无封面时为 0）
 MAX_TITLE_LINES = 3
 MAX_DESC_LINES = 2
 
+# ---------------- 分享卡片模板库（v4.9.0 · ROADMAP §3.1）----------------
+#
+# 为什么需要多套而不是一套：各平台对 og:image 的**裁剪规则不同**，一张横图
+# 通吃的结果是「在某个平台显示不全」。
+#
+#   · 微信：分享卡缩略图会被裁成**正方形**。1200×630 的横图两侧会被切掉，
+#     标题若贴边就只剩半截 —— 所以单独给一套方图模板，内容落在中央安全区。
+#     （ROADMAP 原文点名：「微信缩略图规则不同，最值得单做」。）
+#   · Twitter/X、Telegram、多数博客聚合器：按 1200×630 横图原样展示。
+#
+# 模板只管**尺寸 + 默认主色**；渲染时仍可由调用方传 accent 覆盖
+# （站点主题色优先于模板默认色），所以加模板不会让站长丢掉品牌色。
+# 配色优先级：**站点自定义主色 > 模板默认色**（见 render_og_image）。
+# classic 的默认色刻意沿用站点历史默认 #1a73e8，保证升级前后默认表现一致。
+TEMPLATES = {
+    "classic": {"name": "经典渐变（1200×630）", "accent": "#1a73e8", "w": 1200, "h": 630},
+    "wechat_square": {"name": "微信方图（800×800，防裁切）", "accent": "#1a73e8", "w": 800, "h": 800},
+    "dark_minimal": {"name": "深色极简（1200×630）", "accent": "#1f2937", "w": 1200, "h": 630},
+    "warm_paper": {"name": "暖色纸感（1200×630）", "accent": "#c2410c", "w": 1200, "h": 630},
+}
+DEFAULT_TEMPLATE = "classic"
+
+
+def resolve_template(key):
+    """按 key 取模板；未命中 / 空值一律退回默认模板（不抛错）。
+
+    之所以不抛错：模板名来自站点设置，可能被手改成无效值。分享卡是锦上
+    添花的东西，不该因为设置写错就让文章页 500。
+    """
+    return TEMPLATES.get(key or "") or TEMPLATES[DEFAULT_TEMPLATE]
+
+
+def list_templates():
+    """后台下拉框用：[(key, 显示名), ...]，默认模板排在最前。"""
+    keys = [DEFAULT_TEMPLATE] + [k for k in TEMPLATES if k != DEFAULT_TEMPLATE]
+    return [(k, TEMPLATES[k]["name"]) for k in keys]
+
 _HERE = os.path.dirname(os.path.abspath(__file__))
 _FONT_DIR = os.path.join(_HERE, "static", "fonts")
 _CACHE_DIR = os.path.join(_HERE, "data", "og_cache")
@@ -122,15 +159,21 @@ def _darken(rgb, k=0.28):
     return tuple(max(0, int(c * k)) for c in rgb)
 
 
-def _gradient_bg(c1, c2):
-    """垂直渐变背景（逐行绘制，630 行开销可忽略）。"""
-    img = Image.new("RGB", (W, H), c1)
+def _gradient_bg(c1, c2, w=None, h=None):
+    """垂直渐变背景（逐行绘制，几百行开销可忽略）。
+
+    `w` / `h` 缺省时退回模块级 W/H —— v4.9.0 模板库引入方图后才需要传，
+    老调用方不受影响。
+    """
+    w = w or W
+    h = h or H
+    img = Image.new("RGB", (w, h), c1)
     d = ImageDraw.Draw(img)
     r1, g1, b1 = c1
     r2, g2, b2 = c2
-    for y in range(H):
-        t = y / (H - 1)
-        d.line([(0, y), (W, y)], fill=(
+    for y in range(h):
+        t = y / (h - 1)
+        d.line([(0, y), (w, y)], fill=(
             int(r1 + (r2 - r1) * t),
             int(g1 + (g2 - g1) * t),
             int(b1 + (b2 - b1) * t),
@@ -276,8 +319,15 @@ def _local_cover_path(cover):
 
 
 # ---------------- 缓存 ----------------
-def _cache_key(slug, stamp, accent):
-    raw = f"{slug}|{stamp}|{accent}"
+def _cache_key(slug, stamp, accent, template=""):
+    """v4.9.0：**template 必须进 key**。
+
+    模板会同时改变尺寸与默认主色。若 key 只含 accent，那么「换模板但主色
+    相同」（例如 classic → wechat_square 都用 #4f7cff）会命中旧缓存，
+    吐回一张 1200×630 的横图 —— 表现是「明明选了微信方图，分享出去还是
+    被裁」。这类 bug 很难发现，因为缓存命中时没有任何日志。
+    """
+    raw = f"{slug}|{stamp}|{accent}|{template}"
     return hashlib.md5(raw.encode("utf-8")).hexdigest()
 
 
@@ -312,11 +362,19 @@ def _cache_trim():
 
 
 # ---------------- 主入口 ----------------
-def render_og_image(*, title, desc="", site_name="", accent="#4f7cff",
-                    date_str="", read_min=0, category="", cover=None):
-    """绘制分享卡，返回 PIL.Image；字体缺失或异常时返回 None（降级信号）。"""
+def render_og_image(*, title, desc="", site_name="", accent="",
+                    date_str="", read_min=0, category="", cover=None,
+                    template=None):
+    """绘制分享卡，返回 PIL.Image；字体缺失或异常时返回 None（降级信号）。
+
+    v4.9.0 模板库：`template` 决定**尺寸**与**默认主色**；若调用方显式传了
+    `accent`（站点品牌色），则覆盖模板默认色 —— 保证加模板不会丢品牌色。
+    """
     if not _PIL_OK:
         return None
+    tpl = resolve_template(template)
+    w, h = tpl["w"], tpl["h"]
+    accent = accent or tpl["accent"]
     f_title = _find_font(64, bold=True) or _find_font(64)
     if f_title is None:
         # 降级信号。这条日志是 v3.18.9 之后补的——之前这里静默 return None，
@@ -331,15 +389,15 @@ def render_og_image(*, title, desc="", site_name="", accent="#4f7cff",
     f_meta = _find_font(26) or f_title
 
     c1 = _hex_to_rgb(accent)
-    img = _gradient_bg(c1, _darken(c1))
+    img = _gradient_bg(c1, _darken(c1), w=w, h=h)
     d = ImageDraw.Draw(img)
 
     # 右上角装饰圆（半透明感：用同色系亮色低透明叠加）
     try:
-        deco = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+        deco = Image.new("RGBA", (w, h), (0, 0, 0, 0))
         dd = ImageDraw.Draw(deco)
-        dd.ellipse([W - 320, -160, W + 120, 280], fill=tuple(list(c1) + [40]))
-        dd.ellipse([W - 520, H - 260, W - 60, H + 200], fill=(255, 255, 255, 16))
+        dd.ellipse([w - 320, -160, w + 120, 280], fill=tuple(list(c1) + [40]))
+        dd.ellipse([w - 520, h - 260, w - 60, h + 200], fill=(255, 255, 255, 16))
         img = Image.alpha_composite(img.convert("RGBA"), deco).convert("RGB")
         d = ImageDraw.Draw(img)
     except Exception:
@@ -350,7 +408,7 @@ def render_og_image(*, title, desc="", site_name="", accent="#4f7cff",
     if cp:
         cover_im = _round_cover(cp, COVER_W)
 
-    text_w = W - PAD * 2 - (COVER_W + 56 if cover_im else 0)
+    text_w = w - PAD * 2 - (COVER_W + 56 if cover_im else 0)
     x = PAD
     y = PAD + 8
 
@@ -382,12 +440,12 @@ def render_og_image(*, title, desc="", site_name="", accent="#4f7cff",
     # 底部元信息
     bits = [b for b in (category, date_str, (f"约 {read_min} 分钟" if read_min else "")) if b]
     if bits:
-        d.text((x, H - PAD - 34), "  ·  ".join(bits), font=f_meta, fill=(255, 255, 255, 190))
+        d.text((x, h - PAD - 34), "  ·  ".join(bits), font=f_meta, fill=(255, 255, 255, 190))
 
     # 封面（右侧居中的圆角方块）
     if cover_im:
-        cx = W - PAD - COVER_W
-        cy = (H - COVER_W) // 2
+        cx = w - PAD - COVER_W
+        cy = (h - COVER_W) // 2
         mask = Image.new("L", (COVER_W * 4, COVER_W * 4), 0)
         ImageDraw.Draw(mask).rounded_rectangle([0, 0, COVER_W * 4 - 1, COVER_W * 4 - 1], radius=120, fill=255)
         mask = mask.resize((COVER_W, COVER_W), Image.LANCZOS)
@@ -402,7 +460,7 @@ def og_png_bytes(*, slug, stamp="", **kw):
     """带缓存的对外入口：返回 (png_bytes, 是否命中缓存)；降级时返回 (None, False)。"""
     if not _PIL_OK:
         return None, False
-    key = _cache_key(slug, stamp, kw.get("accent", ""))
+    key = _cache_key(slug, stamp, kw.get("accent", ""), kw.get("template", ""))
     hit = _cache_get(key)
     if hit:
         try:

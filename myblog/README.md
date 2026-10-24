@@ -2,7 +2,7 @@
 
 llhhy-blog 的后端：Flask + SQLite，服务端渲染前台 + `/api/*` JSON 接口 + Jinja2 管理后台。
 
-- 当前版本：**v4.8.7**
+- 当前版本：**v4.9.0**
 - **版本历史一律记在 [CHANGELOG.md](../CHANGELOG.md)，本文件不重复记录。**
 - 根目录总览见 [README.md](../README.md)
 - 时区：展示统一北京时间（UTC+8），存储仍为 UTC；配置见 `config.TIME_ZONE`
@@ -29,6 +29,8 @@ myblog/
 │                   #   ai_summary.py = AI 摘要管理（v3.17.7）；seo.py = 收录控制台（v3.19.0）
 │                   #   twofa.py = 两步验证绑定页（v3.21.0，与 /api/auth/2fa/* 共用 twofa 服务层）
 │                   #   oauth_bindings.py = 第三方账号绑定/解绑（v3.23.0，账号安全项）
+│                   #   content_calendar.py = 内容日历（v4.9.0，月历聚合草稿/定时/已发布，
+│                   #     非管理员按 author_id 过滤，与 admin.my_posts 同口径）
 ├── seo_push.py     # 主动推送引擎（v3.19.0）：百度主动推送 + Bing/IndexNow，异步、host 白名单
 ├── oauth.py        # v3.21.0 OAuth 第三方登录（GitHub/Google，config-gated，禁跟随重定向）
 ├── twofa.py        # v3.21.0 双因素认证：TOTP（标准库实现 RFC 6238）+ 业务操作层（API/后台共用）
@@ -42,7 +44,8 @@ myblog/
 ├── tasks.py        # 后台长任务（v3.23.0）：状态落盘 data/tasks/、同名任务锁文件互斥、
 │                   #   立即备份 / 游戏 LLM 审计走它，不再占死 gunicorn 并发槽
 ├── logging_setup.py  # 结构化日志（v3.23.0）：request_id 中间件 + rid= 日志格式 + LOG_LEVEL
-├── stats.py        # 访问统计与 IP 属地解析
+├── stats.py        # 访问统计与 IP 属地解析、设备/浏览器分布（v4.9.0）
+├── og_image.py     # OG 分享卡片绘制（v4.9.0 起支持多模板，含微信方图 800×800；模板进缓存 key）
 ├── backup.py       # 数据备份与异地容灾（本地/OSS/SCP/WebDAV）
 ├── bot_guard.py    # 反爬限流（默认关闭）
 ├── security.py     # 安全响应头 / 图形验证码 / CSRF

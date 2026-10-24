@@ -84,6 +84,8 @@ def settings():
         fields = ["site_url", "site_title", "site_name", "site_note", "site_description", "about_content", "footer_text",
                   "beian_code", "weather_lat", "weather_lon", "weather_city",
                   "accent_color",
+                  # v4.9.0 分享卡片模板（留空 = 经典渐变 1200×630）
+                  "og_template",
                   "theme_mode", "theme_radius", "theme_font", "nav_style", "custom_css",
                   # v3.0.0 功能2：垃圾评论关键词（逗号分隔）；功能11：前台默认语言
                   "comment_spam_keywords", "site_lang", "reward_qr_default",
@@ -191,8 +193,15 @@ def settings():
     # site_base_now：**实际生效**的对外地址（DB site_url → 环境变量 SITE_URL → 空），
     # 让页面能直接显示"当前是什么"，而不是只回显输入框里那个值。
     import ecosystem
+    # v4.9.0：分享卡模板下拉选项（模板定义在 og_image.TEMPLATES，单一真相源）
+    try:
+        from og_image import list_templates
+        og_templates = list_templates()
+    except Exception:  # noqa: BLE001  (模板列表取不到不该让设置页打不开)
+        og_templates = []
     return render_template("admin/settings.html", settings=settings,
                            site_base_now=site_base(),
+                           og_templates=og_templates,
                            default_center=ecosystem.DEFAULT_CENTER)
 
 @admin_bp.route("/api/slug-preview", methods=["GET"])

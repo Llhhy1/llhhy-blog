@@ -15,7 +15,7 @@ import urllib.request
 
 from models import db, Post, VisitLog, ReadLog, SearchLog, IpRegion, Comment, Subscriber, visible_posts_query
 from flask import request
-from utils import detect_bot, fmt_bj, to_beijing, BEIJING_TZ
+from utils import detect_bot, fmt_bj, to_beijing, BEIJING_TZ, parse_device
 from _time import utcnow
 import logging
 
@@ -313,6 +313,19 @@ def cached_region(ip):
     return ""
 
 
+def _split_device(ua):
+    """把 UA 解析成 (设备类型, 浏览器) 两个粗分类，**不返回原始 UA**。
+
+    parse_device() 固定返回「设备 · 系统 · 浏览器」三段，取首尾两段。
+    系统（OS）刻意不落库：它与设备类型高度相关（Android→手机、Windows /
+    macOS→电脑），单独成列对分布统计没有增量信息。
+    """
+    parts = (parse_device(ua) or "").split(" · ")
+    device = parts[0].strip()[:40] if parts else ""
+    browser = parts[2].strip()[:40] if len(parts) > 2 else ""
+    return device, browser
+
+
 def record_visit(path, post_id=None, referrer=""):
     """记录一次访问；属地解析异步回填。任何异常都不影响页面本身。"""
     try:
@@ -329,11 +342,14 @@ def record_visit(path, post_id=None, referrer=""):
                 origin = ((pr.scheme or "https") + "://" + pr.netloc)[:300] if pr.netloc else ""
             except Exception:
                 origin = ""
+        # v4.9.0：只落解析后的设备类型与浏览器，**不存原始 UA**（可指纹化）。
+        # parse_device 固定返回「设备 · 系统 · 浏览器」三段，切片取首尾即可。
+        device, browser = _split_device(ua)
         db.session.add(VisitLog(
             date=today_str(), hour=datetime.datetime.now().hour,
             ip=ip, region="", path=(path or "")[:255], post_id=post_id,
             is_bot=is_bot, bot_name=bot_name, bot_category=bot_category,
-            referrer=origin,
+            referrer=origin, device=device, browser=browser,
         ))
         db.session.commit()
         _resolve_region_async(ip)
@@ -606,6 +622,9 @@ def compute_summary():
         "bot_breakdown": _bot_breakdown(),
         # v3.20.0：统计深度（ROADMAP §5.2）—— 全部复用既有字段，**零表结构变更**
         "referrers": _top_referrers(),
+        # v4.9.0：设备 / 浏览器分布（ROADMAP §3.1）—— 只加两列，无新表
+        "devices": _top_devices(),
+        "browsers": _top_browsers(),
         "online": compute_online(),
         "compare": compute_period_compare(),
         "updated_at": fmt_bj(utcnow(), "%Y-%m-%d %H:%M:%S"),
@@ -655,6 +674,35 @@ def _top_referrers(limit=10, days=30):
         return [{"source": _label_referrer(r[0]), "count": r[1]} for r in rows]
     except Exception:  # noqa: BLE001  (来源聚合失败不应拖垮统计页)
         return []
+
+
+def _top_field(field, limit=10, days=30):
+    """按 VisitLog 的某个分类列做 TOP N 聚合（设备 / 浏览器共用同一套逻辑）。
+
+    **空串不参与聚合**：空串表示「v4.9.0 之前的老访问没采集」，若计入会
+    聚成一大坨「未知」档，把升级后的真实分布压扁。宁可样本少也要分布准。
+    """
+    try:
+        end = datetime.date.today()
+        start = (end - datetime.timedelta(days=days - 1)).isoformat()
+        rows = (db.session.query(field, db.func.count(VisitLog.id).label("c"))
+                .filter(field != "",
+                        VisitLog.date >= start, VisitLog.date <= end.isoformat())
+                .group_by(field)
+                .order_by(db.desc("c")).limit(limit).all())
+        return [{"name": r[0], "count": r[1]} for r in rows]
+    except Exception:  # noqa: BLE001  (分布聚合失败不应拖垮统计页)
+        return []
+
+
+def _top_devices(limit=10, days=30):
+    """设备类型 TOP N（手机 / 平板 / 电脑 / 爬虫）。"""
+    return _top_field(VisitLog.device, limit=limit, days=days)
+
+
+def _top_browsers(limit=10, days=30):
+    """浏览器 TOP N（Chrome / Safari / 微信…）。"""
+    return _top_field(VisitLog.browser, limit=limit, days=days)
 
 
 def compute_online(minutes=10):

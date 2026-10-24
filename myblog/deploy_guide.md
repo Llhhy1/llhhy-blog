@@ -610,7 +610,12 @@ sha256sum /tmp/og.png /www/wwwroot/你的站点根/og-default.png
 1. **备份（最重要）**：到「文件」下载留底：
    - `/www/wwwroot/myblog/data/blog.db`（全部数据）
    - `/www/wwwroot/myblog/static/uploads/`（上传的图片）
-1.1. **升级要点**（其余步骤与通用流程一致；适用于 v4.0.0 → v4.10.0）：
+1.1. **升级要点**（其余步骤与通用流程一致；适用于 v4.0.0 → v4.10.1）：
+   - **v4.10.1（热修：壳页禁止被缓存层缓存）**：
+     - **无迁移、无表结构变更**，只改一个响应头（`_shell_headers` 的 `Cache-Control` → `no-store`）。
+     - ⚠️ 若你的站点前面有 CDN：升级后 CDN 上**已缓存**的旧壳页要等 `max-age=300` 自然过期，
+       或去 CDN 控制台手动刷 `/archive`、`/about` 这类路径。判据是响应头
+       `cache-control: no-store` 且 `eo-cache-status`（或对应厂商字段）不是 HIT。
    - **v4.10.0（推送配置后台化 / 列表页 SEO 壳页 / 移动端第二批 / 版本号解析加固 / lint 债务减半）**：
      - **无迁移、无表结构变更**（head 仍为 `d9f1a4c7b2e8`），升级只需覆盖代码 + 重启。
      - 新增后台页 **`/admin/push-settings`**（推送设置，**仅超管**）：`TELEGRAM_BOT_TOKEN` /

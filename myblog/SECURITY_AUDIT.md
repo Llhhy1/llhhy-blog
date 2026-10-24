@@ -97,6 +97,20 @@ PII 收口：用户列表邮箱**遮敏**（超管也给 `ab***@ex***.com`）；
 ③ 把 `visible_posts_query()` 换成 `Post.query` → 4 条可见性测试同时变红；
 ④ 把设置端点 `super_only=True` 改成 `admin=True` → 「管理员进不了超管专属端点」变红。
 
+### 129.7 v4.10.1 热修：壳页被 CDN 缓存导致真人看到壳页（可用性事故，非安全面）
+
+**这不是漏洞，但属于「同 URL 两种内容 + 允许缓存」的经典错配**，记在安全文档里是因为
+它同样源于「缓存层的信任假设不成立」，与缓存投毒（cache poisoning）是一类问题。
+
+- 现象：v4.10.0 上线后 `/archive` 对真人返回无样式壳页；直连源站一切正常。
+- 证据：`eo-cache-status: HIT`、`age: 151`、`cache-control: public, max-age=300`。
+- 根因：壳页与 SPA 共用 URL，仅靠 `Vary: User-Agent` 区分，而 **EdgeOne 不按 Vary 分桶**。
+- 处置：`_shell_headers` 改 `Cache-Control: no-store`（文章页与列表页统一）。
+- 判据：测试同时断言「必须含 no-store」**且**「不得含 public / max-age」——
+  只查前者会让 `public, max-age=300, no-store` 这种矛盾写法假绿。
+- ⚠️ 遗留：修复只对**新响应**生效；CDN 上已缓存的旧壳页要等 `max-age=300` 自然过期
+  （或在 EdgeOne 控制台手动清 `/archive`、`/about`）。部署后需实测确认 `eo-cache-status` 已不为 HIT 携带壳页。
+
 ---
 
 ## R128 · v4.9.0 发版安全审查（升级地图 6 项落地 · 越权 / 隐私 / 重试幂等）

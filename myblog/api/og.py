@@ -213,10 +213,23 @@ def _shell_headers(extra_noindex=False):
     v3.18.9 之前此处恒下发 ``noindex,nofollow``——一旦 nginx 把真实搜索引擎
     导到这里，这行等于**明确拒绝收录自己的文章**，接通通道反而杀死收录。
     现在只有「不可见」与「非通道直敲」两种情形才 noindex，正式出口给 index,follow。
+
+    ## 为什么 Cache-Control 必须是 `no-store`（v4.10.1 线上事故）
+
+    壳页和真人看到的 SPA **是同一个 URL 的两种表示**，只靠 `Vary: User-Agent` 区分。
+    此前这里写的是 `public, max-age=300` —— 理论没问题，**实测不行**：
+    v4.10.0 上线后 EdgeOne CDN 明显不按 `Vary: User-Agent` 分桶，
+    爬虫先抓一次 `/archive`，接下来 5 分钟内**所有真人访客都拿到那张无样式壳页**
+    （实测 `eo-cache-status: HIT`、`age: 151`，响应里没有 SPA 的 `<div id="app">`）。
+
+    这是「同一个 URL 有两种内容，却允许中间层缓存」的经典错配：`Vary` 只是建议，
+    CDN / 反向代理 / 公司网关都可能忽略。改成 `no-store` 让**任何**中间层都不缓存，
+    代价是爬虫每次回源 —— 这个代价很小（列表页本地 5~52ms，正文有 content_html 缓存），
+    而真人看到壳页是不可接受的事故。
     """
     h = _varied({
         "Content-Type": "text/html; charset=utf-8",
-        "Cache-Control": "public, max-age=300",
+        "Cache-Control": "no-store",
     })
     h["X-Robots-Tag"] = "noindex,nofollow" if extra_noindex else "index,follow"
     return h

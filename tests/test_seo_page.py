@@ -239,3 +239,23 @@ def test_列表页有jsonld结构化数据(app, client, post):
     body = _get(client, "archive").get_data(as_text=True)
     assert "application/ld+json" in body
     assert "CollectionPage" in body, "列表页应声明为 CollectionPage 而非 BlogPosting"
+
+
+def test_壳页禁止中间层缓存(app, client, post):
+    """v4.10.1 线上事故回归：壳页**绝不能**允许缓存层缓存。
+
+    壳页与真人 SPA 是**同一个 URL 的两种表示**，只靠 `Vary: User-Agent` 区分 —— 而
+    `Vary` 只是建议，CDN 可以不理。v4.10.0 上线后实测：EdgeOne 明显不按 Vary 分桶，
+    爬虫抓一次 `/archive` 后，**所有真人访客在 5 分钟里拿到的都是无样式壳页**
+    （`eo-cache-status: HIT`、`age: 151`、响应里没有 `<div id="app">`）。
+
+    判据：既要求 `no-store`，也要求**不出现** `public` / `max-age` —— 只查前者的话，
+    将来有人写回 `public, max-age=300, no-store`（互相矛盾但含 no-store）会假绿。
+    """
+    r = _get(client, "archive")
+    cc = (r.headers.get("Cache-Control") or "").lower()
+    assert "no-store" in cc, "壳页必须 no-store，实得 %r" % cc
+    assert "public" not in cc, "壳页不得声明 public（允许共享缓存）：%r" % cc
+    assert "max-age" not in cc, "壳页不得声明 max-age：%r" % cc
+    # Vary 仍要保留（对遵守规范的缓存层是双保险）
+    assert "user-agent" in (r.headers.get("Vary") or "").lower(), "Vary 丢了 User-Agent"

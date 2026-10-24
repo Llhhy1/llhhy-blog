@@ -478,3 +478,23 @@ def test_shell_has_no_script_and_escapes_title(app, client):
     finally:
         with app.app_context():
             _cleanup([slug])
+
+
+def test_壳页禁止中间层缓存(app, client):
+    """v4.10.1：文章页壳页同样不得允许缓存层缓存。
+
+    与列表页同一条理（见 `test_seo_page.py::test_壳页禁止中间层缓存`）：
+    壳页与 SPA 共用 URL，`Vary: User-Agent` 挡不住不守规范的 CDN。
+    文章页目前没被缓存是因为真人流量反复刷新了它，不是因为它免疫。
+    """
+    with app.app_context():
+        p = _mkpost()
+        slug = p.slug
+    try:
+        r = _get(client, slug, UA_BAIDU)
+        cc = (r.headers.get("Cache-Control") or "").lower()
+        assert "no-store" in cc, "文章壳页必须 no-store，实得 %r" % cc
+        assert "public" not in cc and "max-age" not in cc, "不得允许共享缓存：%r" % cc
+    finally:
+        with app.app_context():
+            _cleanup([slug])

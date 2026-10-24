@@ -41,7 +41,7 @@ def upload():
         new_path = maybe_convert_webp(save_path)
         if new_path != save_path:
             filename = os.path.basename(new_path)
-    except Exception:
+    except Exception:  # noqa: S110  可选依赖/可选模块，缺了就跳过这条增强路径
         pass
     url = url_for("static", filename=f"uploads/{filename}")
     return jsonify({"url": url})

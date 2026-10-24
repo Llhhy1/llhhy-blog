@@ -115,6 +115,25 @@ def test_gh_mirror_is_tried_first_when_configured():
     assert 'try_urls=("$url")' in s, "缺少 GH_MIRROR_FIRST=0 时的直连优先分支"
 
 
+def test_版本号解析不再强绑字面格式():
+    """v4.10.0：把散落两处的 grep 正则收进 `read_app_version()`。
+
+    旧写法 `grep -oE 'APP_VERSION[[:space:]]*=[[:space:]]*"[0-9.]+"'` 强绑
+    **字面格式** —— 改成单引号、版本号带 `-rc1` 后缀、或加行尾注释都会**静默失配**。
+    而它用在「覆盖后校验」这一步：失配的表现是 `fail_exit`「版本号校验失败」，
+    让人一路去查「zip 是不是没覆盖成功」，实际是**量具坏了**（典型的东西没坏、尺子坏了）。
+    """
+    s = _read(UPDATE_SH)
+    assert "read_app_version()" in s, "update.sh 缺少 read_app_version()"
+    for old in ('APP_VERSION *= *"[^"]*"',
+                'APP_VERSION[[:space:]]*=[[:space:]]*"[0-9.]+"'):
+        assert old not in s, "update.sh 仍残留强绑字面格式的版本号正则：%s" % old
+    # 「解析不到版本号」必须与「版本号不符」分开报错：两者排障方向相反
+    assert "读不到版本号" in s, "缺少「解析不到 ≠ 版本不符」的明确区分"
+    # 调用点必须都换成了函数（否则加固等于没生效）
+    assert s.count("$(read_app_version)") >= 2, "版本号读取调用点没全部换成 read_app_version()"
+
+
 def test_scripts_are_lf_only():
     """服务器上 CRLF 的 bash 脚本会直接语法报错（历史事故）。"""
     for p in (UPDATE_SH, DEPLOY_SH):

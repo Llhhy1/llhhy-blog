@@ -58,7 +58,7 @@ def purge_recycle_core(rb, user=None):
                 SeoSubmission.query.filter_by(post_id=post.id).delete(
                     synchronize_session=False)
                 _db.session.flush()
-            except Exception:  # noqa: BLE001 —— 与 v4.2.0 原实现一致：清收录记录失败不该阻断删除
+            except Exception:  # noqa: BLE001, S110  与 v4.2.0 原实现一致：清收录记录失败不该阻断删除
                 pass
             db.session.delete(post)
     db.session.delete(rb)

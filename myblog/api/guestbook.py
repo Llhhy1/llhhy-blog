@@ -2,9 +2,9 @@
 """
 
 
-from flask import request, jsonify, session
+from flask import request, jsonify
 
-from .common import (api_bp, db, Guestbook, User, _current_user, _gb, rate_limit, client_key,
+from .common import (api_bp, db, Guestbook, _current_user, _gb, rate_limit, client_key,
                      find_spam_hit)
 import stats  # myblog/stats.py：client_ip / cached_region（留言归属地）
 

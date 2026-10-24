@@ -24,7 +24,6 @@
 """
 import os
 import sys
-import io
 import json
 import shutil
 import zipfile
@@ -185,7 +184,7 @@ def drop_wal_sidecars(db_path):
             try:
                 os.remove(p)
                 removed.append(suffix)
-            except Exception:
+            except Exception:  # noqa: S110  清理动作，失败无副作用（文件本就可能已不存在）
                 pass
     return removed
 
@@ -218,7 +217,7 @@ def cleanup_db_snapshot(path):
         parent = os.path.dirname(path)
         if os.path.isdir(parent) and not os.listdir(parent):
             os.rmdir(parent)
-    except Exception:
+    except Exception:  # noqa: S110  清理动作，失败无副作用（文件本就可能已不存在）
         pass
 
 
@@ -533,7 +532,7 @@ def prune_local():
                 man = os.path.join(BACKUP_ROOT, "manifest_%s.json" % stem)
                 if os.path.exists(man):
                     os.remove(man)
-        except Exception:
+        except Exception:  # noqa: S110  清理动作，失败无副作用（文件本就可能已不存在）
             pass
 
 
@@ -613,7 +612,8 @@ def list_backups():
         man = os.path.join(BACKUP_ROOT, "manifest_%s.json" % stem)
         if os.path.exists(man):
             try:
-                m = json.load(open(man, encoding="utf-8"))
+                with open(man, encoding="utf-8") as _mf:
+                    m = json.load(_mf)
                 info["created_at"] = m.get("created_at")
                 info["file_count"] = m.get("file_count")
                 info["app_version"] = m.get("app_version")
@@ -902,20 +902,20 @@ def main(argv=None):
 
     if args.cmd == "run" or args.cmd is None:
         arc, man, sync = create_backup()
-        print("备份完成: %s" % arc)
-        print("  文件数: %d  整包SHA256: %s" % (
+        print("备份完成: %s" % arc)  # noqa: T201  命令行脚本：print 就是它对外输出的方式
+        print("  文件数: %d  整包SHA256: %s" % (  # noqa: T201  命令行脚本：print 就是它对外输出的方式
             man["file_count"], man.get("archive_sha256", "")[:16]))
         for name, ok, msg in sync:
-            print("  远程[%s]: %s %s" % (name, "✅" if ok else "⚠️", msg))
+            print("  远程[%s]: %s %s" % (name, "✅" if ok else "⚠️", msg))  # noqa: T201  命令行脚本：print 就是它对外输出的方式
     elif args.cmd == "list":
         for b in list_backups():
-            print(b)
+            print(b)  # noqa: T201  命令行脚本：print 就是它对外输出的方式
     elif args.cmd == "verify":
         ok, m = verify(args.path)
-        print("OK" if ok else "FAIL", m)
+        print("OK" if ok else "FAIL", m)  # noqa: T201  命令行脚本：print 就是它对外输出的方式
     elif args.cmd == "restore":
         r = restore(args.path, yes=args.yes, tag=args.tag)
-        print("恢复完成: %s (快照 %s)" % (r["restored_from"], r["snapshot"]))
+        print("恢复完成: %s (快照 %s)" % (r["restored_from"], r["snapshot"]))  # noqa: T201  命令行脚本：print 就是它对外输出的方式
 
 
 if __name__ == "__main__":

@@ -15,7 +15,7 @@ import urllib.request
 
 from models import db, Post, VisitLog, ReadLog, SearchLog, IpRegion, Comment, Subscriber, visible_posts_query
 from flask import request
-from utils import detect_bot, fmt_bj, to_beijing, BEIJING_TZ, parse_device
+from utils import detect_bot, fmt_bj, parse_device
 from _time import utcnow
 import logging
 
@@ -296,7 +296,7 @@ def _resolve_region_async(ip):
                     db.session.commit()
                 except Exception:
                     db.session.rollback()
-        except Exception:
+        except Exception:  # noqa: S110  旁路/兜底路径，失败按降级处理，不影响主流程
             pass
     if ip and ip not in _LOCAL_IPS:
         threading.Thread(target=_work, daemon=True).start()

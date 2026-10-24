@@ -13,9 +13,9 @@
 """
 import os
 
-from flask import jsonify, request, current_app, send_file
+from flask import jsonify, send_file
 
-from .common import api_bp, db
+from .common import api_bp
 from models import Game
 from utils import fmt_bj
 

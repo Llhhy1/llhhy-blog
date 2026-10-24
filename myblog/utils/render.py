@@ -1,11 +1,9 @@
 # -*- coding: utf-8 -*-
 """Markdown 渲染与 HTML 白名单清洗（含正文渲染缓存与指纹）。（utils 子模块，v3.18.1 由 utils.py 拆出）。"""
 import re
-import hashlib
 import bleach
 import contextlib
 from markdown import markdown
-import os
 
 # ---------- HTML 清理（防 XSS）----------
 # 文章/关于页的 Markdown 渲染结果会直接 innerHTML/v-html 进页面，
@@ -160,6 +158,6 @@ def render_post_html(post):
                 with contextlib.suppress(Exception):
                     conn.execute(_sql_text("PRAGMA busy_timeout=5000"))  # 归还连接池前复原
                 conn.close()
-    except Exception:
+    except Exception:  # noqa: S110  旁路/兜底路径，失败按降级处理，不影响主流程
         pass
     return html

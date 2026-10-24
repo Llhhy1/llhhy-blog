@@ -110,7 +110,6 @@ def test_pytest_里绝不发出真实心跳(app, monkeypatch):
 
 def test_护栏本身是唯一拦路者(app, monkeypatch):
     """变异验证：摘掉护栏后必须**真的会发** —— 否则上一条是假绿。"""
-    import outbound
     sent = _capture(monkeypatch)
     with app.app_context():
         _wipe()

@@ -119,7 +119,7 @@ def tool_health_overview(args):
     }
 
 
-def tool_db_status(args):
+def tool_db_status(args):  # noqa: ARG001  签名由调用方/接口约定决定，不能删改
     """数据库状态：WAL 是否生效、库体积、渲染缓存命中率。"""
     from models import db, Post, Comment, User
     from sqlalchemy import text
@@ -158,7 +158,7 @@ def tool_db_status(args):
     return out
 
 
-def tool_version_info(args):
+def tool_version_info(args):  # noqa: ARG001  签名由调用方/接口约定决定，不能删改
     """版本与迁移一致性：代码版本、缓存列是否已迁移、插件启用情况。"""
     import config as cfg_mod
     from models import db
@@ -168,7 +168,7 @@ def tool_version_info(args):
     try:
         import flask
         out["flask"] = flask.__version__
-    except Exception:
+    except Exception:  # noqa: S110  旁路/兜底路径，失败按降级处理，不影响主流程
         pass
 
     # 迁移一致性：检查 v3.9.1 的渲染缓存列是否已补上
@@ -184,7 +184,7 @@ def tool_version_info(args):
         out["enabled_plugins"] = (current_app.config.get("ENABLED_PLUGINS") or "").strip()
         out["disabled_plugins"] = (current_app.config.get("DISABLED_PLUGINS") or "").strip()
         out["mcp_enabled"] = bool(current_app.config.get("MCP_AUTH_TOKEN"))
-    except Exception:
+    except Exception:  # noqa: S110  配置读取失败按默认值处理，不影响端点可用性
         pass
     return out
 
@@ -231,9 +231,9 @@ def tool_recent_errors(args):
             "note": "内容已自动打码密钥/口令/Token。"}
 
 
-def tool_content_stats(args):
+def tool_content_stats(args):  # noqa: ARG001  签名由调用方/接口约定决定，不能删改
     """内容统计：文章分布、待审核评论、未读留言等运营侧数字。"""
-    from models import (db, Post, Comment, Guestbook, Subscriber,
+    from models import (Post, Comment, Guestbook, Subscriber,
                         LinkApplication, Notification)
     try:
         return {
@@ -311,7 +311,7 @@ def mcp_endpoint():
         from utils import get_setting
         if (get_setting("mcp_diag_disabled") or "").strip().lower() == "true":
             return jsonify({"error": "not found"}), 404
-    except Exception:
+    except Exception:  # noqa: S110  可选依赖/可选模块，缺了就跳过这条增强路径
         pass  # 开关读取失败按未设置处理（默认开启），不影响端点自身可用性
     # ① Origin 校验（MCP 规范强制，防 DNS 重绑定）
     if not _origin_ok():
@@ -324,7 +324,7 @@ def mcp_endpoint():
         from utils import rate_limit, client_key
         if not rate_limit(client_key("mcp"), limit=60, window=60):
             return jsonify({"error": "请求过于频繁，请稍后再试"}), 429
-    except Exception:
+    except Exception:  # noqa: S110  可选依赖/可选模块，缺了就跳过这条增强路径
         pass
 
     body = request.get_json(silent=True)

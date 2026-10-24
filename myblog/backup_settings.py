@@ -15,9 +15,7 @@ Fernet 密钥」加密后存 Setting 表——**绝不落明文**，页面只回
     直连 data/blog.db 读 Setting 表——保持 backup.py 纯标准库可独立运行。
 """
 import os
-import json
 import base64
-import secrets
 import hashlib
 
 # 加密前缀标记，解密时用于识别「已加密值」vs 明文（抵御历史明文）
@@ -67,7 +65,7 @@ def _db_path():
         uri = current_app.config.get("SQLALCHEMY_DATABASE_URI", "")
         if uri and uri.startswith("sqlite:///"):
             return uri[len("sqlite:///"):]
-    except Exception:
+    except Exception:  # noqa: S110  可选依赖/可选模块，缺了就跳过这条增强路径
         pass
     return os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "blog.db")
 
@@ -84,7 +82,7 @@ def _fernet_key():
         from flask import current_app
         if not key:
             key = current_app.config.get("SECRET_KEY", "")
-    except Exception:
+    except Exception:  # noqa: S110  可选依赖/可选模块，缺了就跳过这条增强路径
         pass
     if not key:
         raise RuntimeError("SECRET_KEY 未配置，无法加密备份密钥（应用启动要求必须配置）")
@@ -121,7 +119,7 @@ def read_setting_db(key):
         from models import Setting
         s = Setting.query.filter_by(key=key).first()
         return s.value if s and s.value is not None else None
-    except Exception:
+    except Exception:  # noqa: S110  可选依赖/可选模块，缺了就跳过这条增强路径
         pass
     import sqlite3
     try:
@@ -146,7 +144,7 @@ def write_setting_db(key, value):
             db.session.add(Setting(key=key, value=value))
         db.session.commit()
         return True
-    except Exception:
+    except Exception:  # noqa: S110  可选依赖/可选模块，缺了就跳过这条增强路径
         pass
     import sqlite3
     try:

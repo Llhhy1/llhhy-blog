@@ -134,10 +134,7 @@ def my_posts():
                "created": Post.created_at}
     col = col_map.get(sort, Post.created_at)
     direction = col.asc() if order == "asc" else col.desc()
-    if sort == "title":
-        query = base.order_by(direction)
-    else:
-        query = base.order_by(Post.is_pinned.desc(), direction)
+    query = base.order_by(direction) if sort == "title" else base.order_by(Post.is_pinned.desc(), direction)
     pagination = query.paginate(page=page, per_page=per_page, error_out=False)
     cats = Category.query.order_by(Category.id).all()
     series = Series.query.order_by(Series.sort, Series.created_at.desc()).all()

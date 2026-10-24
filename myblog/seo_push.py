@@ -207,7 +207,7 @@ def _set_setting(key, value):
         try:
             from models import db
             db.session.rollback()
-        except Exception:
+        except Exception:  # noqa: S110  可选依赖/可选模块，缺了就跳过这条增强路径
             pass
 
 
@@ -385,7 +385,7 @@ def _record(post_id, engine, status, response):
         try:
             from models import db
             db.session.rollback()
-        except Exception:
+        except Exception:  # noqa: S110  可选依赖/可选模块，缺了就跳过这条增强路径
             pass
 
 
@@ -479,7 +479,7 @@ def _write_audit(actor_name, actor_ip, engine, ids, summary, fail):
         try:
             from flask import current_app
             current_app.logger.warning("seo_push 审计写入失败", exc_info=True)
-        except Exception:
+        except Exception:  # noqa: S110  可选依赖/可选模块，缺了就跳过这条增强路径
             pass
 
 
@@ -547,7 +547,7 @@ def enqueue(post_ids, engine, actor=None):
         try:
             from models import db
             db.session.rollback()
-        except Exception:
+        except Exception:  # noqa: S110  可选依赖/可选模块，缺了就跳过这条增强路径
             pass
     actor_name = ""
     with contextlib.suppress(Exception):

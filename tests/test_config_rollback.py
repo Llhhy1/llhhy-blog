@@ -84,9 +84,8 @@ def test_snapshot_records_none_for_missing_key(app):
 
 
 def test_snapshot_rejects_too_many_keys(app):
-    with app.app_context():
-        with pytest.raises(ValueError):
-            cr.snapshot_settings(["k%d" % i for i in range(300)])
+    with app.app_context(), pytest.raises(ValueError):
+        cr.snapshot_settings(["k%d" % i for i in range(300)])
 
 
 # ---------- 安全不变量 ----------

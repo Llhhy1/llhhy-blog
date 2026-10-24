@@ -516,6 +516,29 @@ myblog/
 | `POST /api/mobile/post/<id>/history/<hid>/rollback` | 可编辑者 | 回滚到指定历史版本（v4.4.0，走 `rollback_post_core`）：**只写回 `title`/`summary`/`content`**，不动 slug/封面/分类/标签/系列/发布态/SEO；回滚前自动备份当前版，所以这一步本身还能撤销 |
 | `POST /api/mobile/media/delete` | 管理员 | 删除上传文件：`{"name": "文件名", "force": true}`。**被文章引用时先 409 + 引用清单**，必须再发一次带 `force` 才真删（不进回收站，文章里的图会当场裂）；本模块唯一用 409 表达「请先确认」的接口。路径防护见 `delete_media_core`（`basename` + 必须落在 uploads 层内 + 必须是普通文件） |
 
+### 第二批：数据与设置（v4.10.0 · `myblog/api/mobile_ops.py`）
+
+权限**逐条对齐后台页面装饰器**（不沿用「管理员可读」）：除统计报表对齐 `admin.stats` 的
+`@admin_required` 外，其余六组全部**超管专属**。
+
+| 接口 | 鉴权 | 说明 |
+|------|------|------|
+| `GET /api/mobile/stats/report` | 管理员 | 多维报表：`?range=`（同后台九档）+ `summary`（PV/UV 分真人·爬虫、区间新增评论）+ `trend`（逐日 PV / 真人 PV）+ `top_paths` / `top_regions` / `top_referrers` + `devices_30d` / `browsers_30d`（**固定 30 天窗口，字段名里写明，不跟 range 走**） |
+| `GET /api/mobile/audit-logs` | **超管** | 审计日志分页：`action` / `success=1\|0` / `page` / `per_page`。**不返回 `payload`**（配置变更前快照可能含历史密钥值） |
+| `GET /api/mobile/backups` | **超管** | 备份文件列表（`file` / `size` / `size_h` / `stamp`）+ `remote`（各目的地同步状态）。**只读** —— 触发/恢复详见下方「刻意不做」 |
+| `GET /api/mobile/settings` | **超管** | 站点设置**白名单只读**（11 个非敏感键）+ `push_channels`（Telegram / 企业微信是否已配置，**只给布尔不给值**）。凭据类键（SMTP 密码 / OSS Secret / 推送 token / `unsub_token`）在响应全文里都不出现 |
+| `GET /api/mobile/seo/summary` | **超管** | 收录概览：`by_engine`（各引擎 × 状态条数）+ `recent`（最近 20 条）。只读 —— 主动推送有日配额，不能给客户端一键打空 |
+| `GET /api/mobile/cert` | **超管** | 证书看护状态（读 `cert_watch` 持久化结果，**不做实时探测**，否则下拉刷新每次等 6 秒）+ `level` + `warn_days` |
+| `GET /api/mobile/users` | **超管** | 用户列表分页：`role` / `q` / `page` / `per_page`。邮箱**遮敏**（`ab***@ex***.com`），不返回更多 PII |
+| `POST /api/mobile/user/<id>/role` | **超管** | `{"role": "user\|admin\|super"}`。三条硬约束：**不能改自己**（避免把自己锁在后台外）、角色名白名单（`strip()` 后校验，故 `"admin "` 合法、`"Super"`/`"ADMIN"` 非法）、改后 `session_version+1`（否则目标用户已登录会话仍带旧权限） |
+
+**刻意不做的两个写操作**（不是漏了）：
+
+- **备份触发 / 恢复**：`create_backup()` 内含 scp/curl 远程同步（`_run(timeout=300)`），
+  同步跑会长期占住一个 gunicorn 并发槽（gthread 只有 8 个）；后台页早已改成「后台任务 + 轮询」，
+  而移动端没有任务轮询通道 —— 硬做只会做出一个必超时的接口。
+- **站点设置写入**：30+ 个键各有校验规则，漏一条就是配置损坏。网页端已有完整表单。
+
 ### 用 curl 走通一遍（联调起点）
 
 ```bash

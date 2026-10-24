@@ -16,10 +16,10 @@ import urllib.request
 
 from outbound import build_opener
 
-from flask import request, jsonify, session
+from flask import jsonify, session
 
 from .common import api_bp
-from models import db, Post, User, visible_posts_query
+from models import db, User, visible_posts_query
 from utils import get_setting, rate_limit
 from backup_settings import decrypt_secret
 

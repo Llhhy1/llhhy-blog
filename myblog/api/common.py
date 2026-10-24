@@ -8,13 +8,13 @@
 设计意图：功能模块只 `from .common import ...` 按需取用，
 不互相 import，避免循环依赖；本模块不 import 任何 api 子模块。
 """
-import json
-import os
-import datetime
 import threading
 
-from flask import Blueprint, request, jsonify, current_app, session, Response
-from markupsafe import escape
+# v4.10.0 lint 清理：原先这里堆着 `json / os / datetime / request / current_app /
+# Response / escape` 一批**本文件从不使用**的导入（历史遗留的「复制顶层导入」）。
+# 已逐个核实下游 `from .common import X` 的引用数为 0 后删除 —— 不是删掉再导出，
+# 是删掉真正的死代码。
+from flask import Blueprint, jsonify, session
 
 # API 蓝图的唯一事实来源（原 myblog/api.py 第 27 行）。
 # 所有功能模块 `from .common import api_bp` 取用；__init__.py 聚合后，
@@ -52,19 +52,21 @@ _UPDATE_LOCK = threading.Lock()
 # 版本自检缓存（v2.5.0 起）：进程内缓存 GitHub 最新版本（10 分钟）
 _VER_CHECK_CACHE = {"ts": 0, "latest": ""}
 
-from models import db, Post, Category, Tag, Comment, FriendLink, Setting, User, ROLE_USER, \
-    Moment, MomentComment, SocialAccount, Series, Announcement, Guestbook, Subscriber, Notification, \
-    ReadLog, visible_posts_query, LinkApplication, AuditLog, PostHistory, RecycleBin, PostTag
-from utils import (render_markdown, clean_html, render_post_html,
-                   rate_limit, client_key, fmt_bj, to_beijing, BEIJING_TZ)
+from models import (  # noqa: F401  见上方「刻意保留的再导出」说明
+    db, Post, Category, Tag, Comment, FriendLink, Setting, User, ROLE_USER,
+    Moment, MomentComment, SocialAccount, Series, Announcement, Guestbook, Subscriber, Notification,
+    ReadLog, visible_posts_query, LinkApplication, AuditLog, PostHistory, RecycleBin, PostTag)
+from utils import (  # noqa: F401
+    render_markdown, clean_html, render_post_html,
+    rate_limit, client_key, fmt_bj, to_beijing, BEIJING_TZ)
 # 刻意保留的**再导出**：本模块按 docstring 的约定集中存放顶层导入，供各功能模块
 # `from .common import ...` 取用（避免循环依赖）。故这些导入在本文件内「未使用」
 # 是设计使然，不是死代码 —— 删掉会破坏下游的 `from .common import X`。
 import stats  # noqa: F401
 # v3.1.0：记录登录审计。v3.25.0 起实现位于顶层 `audit.py` —— 原先从 `admin` 取，
 # 与 `admin.ai_summary → api` 一起把 admin 与 api 拉进同一个 21 模块强连通分量。
-from audit import log_login_attempt
-from _time import utcnow
+from audit import log_login_attempt  # noqa: F401  再导出：api/auth.py 从这里取
+from _time import utcnow  # noqa: F401  再导出：下游模块从这里取（避免各自 import 顶层模块）
 
 
 def _current_user_or_none():
@@ -110,7 +112,7 @@ def _login_delay():
         delay = flag_num("login_delay_seconds", "LOGIN_DELAY_SECONDS", 1.0, float)
         if delay > 0:
             _t.sleep(delay)
-    except Exception:
+    except Exception:  # noqa: S110  可选依赖/可选模块，缺了就跳过这条增强路径
         pass
 
 

@@ -24,7 +24,6 @@ import importlib
 import os
 import glob
 import time
-import datetime
 import contextlib
 
 from flask import current_app
@@ -32,8 +31,7 @@ from sqlalchemy import text
 
 from models import (db, Post, Comment, User, FriendLink, Guestbook,
                     LinkApplication, Subscriber, Notification)
-from utils import (get_setting, setting_bool, flag_bool, flag_num, fmt_bj, to_beijing,
-                   BEIJING_TZ, site_base)
+from utils import (get_setting, setting_bool, flag_bool, fmt_bj, site_base)
 from _time import utcnow
 
 
@@ -119,7 +117,7 @@ def check_database():
                              "检查数据库文件所在目录是否可写。")
             bt = db.session.execute(text("PRAGMA busy_timeout")).scalar()
             items.append({"label": "写锁等待 busy_timeout", "value": f"{bt} ms", "level": "ok" if bt else "warn"})
-        except Exception:
+        except Exception:  # noqa: S110  旁路/兜底路径，失败按降级处理，不影响主流程
             pass
 
         # 核心表行数

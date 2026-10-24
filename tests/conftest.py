@@ -46,7 +46,7 @@ def pytest_sessionfinish(session, exitstatus):
                 db.session.remove()
                 for engine in list(db.engines.values()):
                     engine.dispose()
-    except Exception:
+    except Exception:  # noqa: S110  可选依赖/可选模块，缺了就跳过这条增强路径
         pass
     shutil.rmtree(_TEST_DB_DIR, ignore_errors=True)
 

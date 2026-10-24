@@ -420,7 +420,22 @@ map $http_user_agent $seo_shell {
         if ($seo_shell) { rewrite ^/post/([^/?#]+)/?$ /api/og/post/$1?seo=1 last; }
         try_files $uri $uri/ /index.html;
     }
+
+    # v4.10.0：列表类路径也要走服务端壳页。
+    # 不加这段的话，/archive、/category/<slug>、/tag/<slug> 对爬虫全是
+    # index.html 里那套**站点级默认 meta** —— 所有列表页共用同一个标题、
+    # 同一段描述，且没有任何实质内容（重复内容 + 空壳，搜索引擎不会好好收录）。
+    # 后端出口 /api/og/page/<path> 会渲染带真实文章列表的壳页；
+    # 不认识的路径一律 404 + noindex（绝不兜底成通用页）。
+    location ~ ^/(archive|about|links|(category|tag|series)/[^/]+)/?$ {
+        if ($seo_shell) { rewrite ^/(.*[^/])/?$ /api/og/page/$1?seo=1 last; }
+        try_files $uri $uri/ /index.html;
+    }
 ```
+
+> ⚠️ 上面这段是**正则 location**，优先级高于普通前缀 `location /`，所以能抢在 SPA 兜底之前生效；
+> 但它**不会**压过已有的 `location ^~ /api/og/`（`^~` 一旦命中即停止正则匹配），
+> 因此 rewrite 之后能正常反代到 Flask。二者顺序无所谓，靠的是 `^~` 的优先级规则。
 
 **③ 在 `server { }` 块内、图片正则 `location ~ .*\.(gif|jpg|jpeg|png|bmp|swf)$` 之前**加这段
 （**v3.18.9 补充，漏了它分享卡永远是兜底图**）：
@@ -595,7 +610,24 @@ sha256sum /tmp/og.png /www/wwwroot/你的站点根/og-default.png
 1. **备份（最重要）**：到「文件」下载留底：
    - `/www/wwwroot/myblog/data/blog.db`（全部数据）
    - `/www/wwwroot/myblog/static/uploads/`（上传的图片）
-1.1. **升级要点**（其余步骤与通用流程一致；适用于 v4.0.0 → v4.9.0）：
+1.1. **升级要点**（其余步骤与通用流程一致；适用于 v4.0.0 → v4.10.0）：
+   - **v4.10.0（推送配置后台化 / 列表页 SEO 壳页 / 移动端第二批 / 版本号解析加固 / lint 债务减半）**：
+     - **无迁移、无表结构变更**（head 仍为 `d9f1a4c7b2e8`），升级只需覆盖代码 + 重启。
+     - 新增后台页 **`/admin/push-settings`**（推送设置，**仅超管**）：`TELEGRAM_BOT_TOKEN` /
+       `TELEGRAM_CHAT_ID` / `WECOM_WEBHOOK_URL` 现在后台可改，凭据 Fernet 加密落库、只回显掩码。
+       ⚠️ **密钥字段仍是「环境变量优先」** —— 如果服务器 `.env` 里已经配了这几个变量，
+       后台改的值**不会生效**（页面会给出橙色提示）。要改用后台管理，先把 `.env` 里对应行删掉再重启。
+       「保存并发送测试推送」会真的发一条消息，能验出 token / chat id 写错。
+     - ⚠️ **出站加固与本版绑定**：`notify._post_json` 现在只允许 **https** 且**拒绝内网/回环地址**
+       （公网解析 + IP pinning + 禁跟随 3xx）。若你此前把 webhook 指向内网自建服务，
+       本版起会**推送失败并在日志里报「被出站安全策略拒绝」** —— 这是预期行为，不是 bug。
+     - ⚠️ **列表页 SEO 通道需要改 Nginx**（否则不生效，但不影响任何现有功能）：
+       见上文第 4b 步 ② 新增的 `location ~ ^/(archive|about|links|(category|tag|series)/[^/]+)/?$` 段。
+       不加这段时，这些页面给爬虫的仍是 SPA 空壳（与升级前一致）。
+     - 移动端新增 7 组 `/api/mobile/*` 端点（统计报表 / 审计 / 备份 / 设置 / 收录 / 证书 / 用户角色），
+       **除统计报表外全部超管专属**。客户端需按 `401/403 + JSON` 处理。
+     - **`update.sh` 本次也有改动（不在 zip 里）**：按 v4.8.3 的方式**先单独推脚本再跑更新**，
+       否则用旧脚本也能正常升级（它只是版本号解析更宽松，不推不影响功能）。
    - **v4.9.0（升级地图落地：设备分布 / 推送重试 / 留言过滤 / 搜索历史 / 内容日历 / 分享卡模板）**：
      - ⚠️ **本版有迁移**：head 由 `c3d9e2f71a04` 变为 **`d9f1a4c7b2e8`**
        （`visit_log` 表新增 `device` / `browser` 两列，`NOT NULL DEFAULT ''`）。

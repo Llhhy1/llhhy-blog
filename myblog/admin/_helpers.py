@@ -8,7 +8,7 @@ from flask import (Blueprint, request, redirect, url_for,
 from models import (db, Post, Tag, Comment, User, Guestbook, AuditLog, PostHistory, RecycleBin,
                     Announcement, FriendLink)
 from utils import (make_slug, count_words, validate_password, apply_slug_template,
-                   BEIJING_TZ, get_client_ip, safe_redirect)
+                   BEIJING_TZ, safe_redirect)
 from config import APP_VERSION
 import audit as _audit
 import fts
@@ -96,7 +96,7 @@ def super_required(view):
 def _weak_password(raw):
     """v3.1.6 中优：弱密码统一校验（黑名单 + 复杂度）。返回错误文案；通过返回空字符串。"""
     try:
-        from utils import flag_bool, flag_num
+        from utils import flag_bool
         ok, err = validate_password(
             raw or "", min_len=8,
             # v3.25.8：强密码策略改由「系统设置」可配（DB → env → 默认）。
@@ -203,16 +203,14 @@ _MAGIC_PATTERNS = {
     b"RIFF": ("webp", "webp"),
 }
 
-def _detect_image_magic(header, ext):
+def _detect_image_magic(header, ext):  # noqa: ARG001  签名由调用方/接口约定决定，不能删改
     """根据文件头魔数 + 期望后缀判断是否匹配。返回 False 拒绝，True 通过。
     对 webp 追加 RIFF 后的 'WEBP' 四个字节精验；其余按魔数前缀匹配。
     """
     for magic, (mtype, _) in _MAGIC_PATTERNS.items():
         if header.startswith(magic):
             if mtype == "webp":
-                if len(header) >= 12 and header[8:12] == b"WEBP":
-                    return True
-                return False
+                return len(header) >= 12 and header[8:12] == b"WEBP"
             return True
     return False
 
@@ -253,7 +251,7 @@ def cleanup_orphan_tags():
             try:
                 db.session.delete(t)
                 removed += 1
-            except Exception:
+            except Exception:  # noqa: S110  清理动作，失败无副作用（文件本就可能已不存在）
                 pass
     if removed:
         try:
@@ -308,7 +306,7 @@ def _save_post_history(post, author=""):
         if len(old) > 20:
             for h in old[:len(old) - 20]:
                 db.session.delete(h)
-    except Exception:
+    except Exception:  # noqa: S110  旁路/兜底路径，失败按降级处理，不影响主流程
         pass
 
 

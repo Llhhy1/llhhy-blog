@@ -95,7 +95,7 @@ def _target_host():
         if base:
             host = base.split("://", 1)[-1].split("/", 1)[0]
             return host.split(":", 1)[0]      # 去端口
-    except Exception:
+    except Exception:  # noqa: S110  可选依赖/可选模块，缺了就跳过这条增强路径
         pass
     return ""
 
@@ -110,9 +110,9 @@ def _fetch_cert_der(host, port=443, timeout=6):
     ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
     ctx.check_hostname = False
     ctx.verify_mode = ssl.CERT_NONE
-    with socket.create_connection((host, port), timeout=timeout) as sock:
-        with ctx.wrap_socket(sock, server_hostname=host) as ssock:
-            return ssock.getpeercert(binary_form=True)
+    with (socket.create_connection((host, port), timeout=timeout) as sock,
+          ctx.wrap_socket(sock, server_hostname=host) as ssock):
+        return ssock.getpeercert(binary_form=True)
 
 
 def _parse_der(der):
@@ -123,7 +123,6 @@ def _parse_der(der):
     """
     try:
         from cryptography import x509
-        from cryptography.hazmat.primitives import hashes
         c = x509.load_der_x509_certificate(der)
 
         def _name(n):
@@ -137,7 +136,7 @@ def _parse_der(der):
             "issuer": _name(c.issuer),
             "parser": "cryptography",
         }
-    except Exception:
+    except Exception:  # noqa: S110  旁路/兜底路径，失败按降级处理，不影响主流程
         pass
     # 回退：openssl 命令行（实测生产有 /usr/bin/openssl 3.5.6）
     import subprocess
@@ -160,7 +159,7 @@ def _parse_der(der):
                 out["subject"] = line.split("=", 1)[1].strip()
             elif line.startswith("issuer="):
                 out["issuer"] = line.split("=", 1)[1].strip()
-    except Exception:
+    except Exception:  # noqa: S110  旁路/兜底路径，失败按降级处理，不影响主流程
         pass
     finally:
         with contextlib.suppress(OSError):

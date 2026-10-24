@@ -2,14 +2,7 @@
 """
 
 import os
-import json as _json
-import time
-import threading
 from flask import request, jsonify, current_app, session
-import hmac
-import urllib.request
-import subprocess
-from config import Config as _Config
 
 from .common import (api_bp, db, User, _UPDATE_LOCK, _VER_CHECK_CACHE, rate_limit, client_key)
 
@@ -128,7 +121,7 @@ def _do_version_update():
                     stale = False
                 if not stale:
                     return jsonify({"error": "更新正在进行中，请稍候"}), 409
-    except Exception:
+    except Exception:  # noqa: S110  旁路/兜底路径，失败按降级处理，不影响主流程
         pass
     # 异步执行（nohup 风格：脱离父进程，输出重定向到日志，不阻塞请求）
     try:
@@ -184,7 +177,7 @@ def version_status():
         if os.path.exists(status_file):
             with open(status_file, "r", encoding="utf-8") as f:
                 return jsonify(_json.load(f))
-    except Exception:
+    except Exception:  # noqa: S110  读缓存/状态文件失败则当没有缓存
         pass
     return jsonify(default)
 

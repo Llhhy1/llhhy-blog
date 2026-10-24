@@ -562,7 +562,7 @@ def current_theme():
             dark = data.get("dark") or derive_dark(light)
             if light:
                 return {"pack_id": pack_id or "custom", "light": light, "dark": dark}
-        except Exception:
+        except Exception:  # noqa: S110  旁路/兜底路径，失败按降级处理，不影响主流程
             pass
     accent = get_setting("accent_color", "#1a73e8") or "#1a73e8"
     t = _default_theme(accent)

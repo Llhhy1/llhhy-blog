@@ -1899,7 +1899,6 @@ def mobile_media():
     user, deny = _role(admin=True)
     if deny:
         return deny
-    import os
     from admin.media import collect_media
     page, per_page = _page_args(20)
     kw = (request.args.get("q") or "").strip().lower()

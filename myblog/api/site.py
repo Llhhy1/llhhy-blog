@@ -2,9 +2,9 @@
 """
 
 import re as _re
-from flask import request, jsonify, current_app
+from flask import request, jsonify
 
-from .common import (api_bp, db, Post, Category, Tag, Comment, FriendLink, Setting, LinkApplication, Announcement, visible_posts_query, _settings_map, clean_html, render_markdown, rate_limit, client_key)
+from .common import (api_bp, db, Post, Category, Tag, Comment, FriendLink, LinkApplication, Announcement, visible_posts_query, _settings_map, clean_html, render_markdown, rate_limit, client_key)
 from themes import current_theme
 # v4.5.0 首页壁纸。单向依赖（theme 不引用 site），不构成包级循环。
 from .theme import _wallpaper

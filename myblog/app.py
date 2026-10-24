@@ -10,9 +10,6 @@ from flask import (Flask, render_template, request, session, jsonify,
                    redirect, url_for)
 
 from models import (db, Post, Category, Tag, Comment, FriendLink, Setting, User,
-                   ROLE_SUPER, Moment, MomentComment, SocialAccount,
-                   Series, Announcement, Guestbook, Subscriber, Notification,
-                   AuditLog, RecycleBin, LinkApplication, PostHistory,
                    visible_posts_query)
 from utils import make_slug, safe_redirect
 from routes import main_bp
@@ -70,7 +67,7 @@ def _install_sqlite_pragmas():
                 cur.execute("PRAGMA journal_mode=WAL")
                 cur.execute("PRAGMA busy_timeout=5000")
                 cur.execute("PRAGMA synchronous=NORMAL")
-            except Exception:
+            except Exception:  # noqa: S110  内存库/只读库不支持 WAL，忽略即可
                 pass  # 内存库/只读库不支持 WAL，忽略即可
             finally:
                 with contextlib.suppress(Exception):
@@ -205,13 +202,13 @@ def maybe_convert_webp(path, max_side=1600):
             from PIL import features as _feat
             if _feat.check("avif"):
                 im.save(base + ".avif", "AVIF", quality=62)
-        except Exception:
+        except Exception:  # noqa: S110  可选依赖/可选模块，缺了就跳过这条增强路径
             pass
         # 释放原文件，避免上传目录堆积
         try:
             if _os.path.abspath(new_path) != _os.path.abspath(path):
                 _os.remove(path)
-        except Exception:
+        except Exception:  # noqa: S110  清理动作，失败无副作用（文件本就可能已不存在）
             pass
         return new_path
     except Exception:
@@ -837,12 +834,12 @@ def _start_scheduler(app):
                         try:
                             from plugins.signals import emit_post_published
                             emit_post_published(p)
-                        except Exception:
+                        except Exception:  # noqa: S110  可选依赖/可选模块，缺了就跳过这条增强路径
                             pass
                         try:
                             import notify as _notify
                             _notify.notify_new_post(p, app.config.get("SITE_URL", ""))
-                        except Exception:
+                        except Exception:  # noqa: S110  通知是旁路，失败不得影响发布/评论主流程
                             pass
                         # v3.20.0：新文自动推送（默认关闭，见 seo_push.maybe_auto_push 的说明）
                         try:
@@ -853,7 +850,7 @@ def _start_scheduler(app):
                         try:
                             import mail_notify as _mail
                             _mail.notify_subscribers_async(p)
-                        except Exception:
+                        except Exception:  # noqa: S110  通知是旁路，失败不得影响发布/评论主流程
                             pass
                     if due:
                         logger.info("[定时发布] 已自动发布 %d 篇到点文章", len(due))
@@ -901,9 +898,7 @@ def _start_scheduler(app):
                             cs = _cw.check_once()
                             if cs["status"] in ("expired", "critical"):
                                 logger.error("[证书监控] %s", cs["message"])
-                            elif cs["status"] == "warn":
-                                logger.warning("[证书监控] %s", cs["message"])
-                            elif cs["status"] == "unknown":
+                            elif cs["status"] == "warn" or cs["status"] == "unknown":
                                 logger.warning("[证书监控] %s", cs["message"])
                             else:
                                 logger.info("[证书监控] %s", cs["message"])

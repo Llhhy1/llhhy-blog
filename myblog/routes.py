@@ -225,7 +225,7 @@ def index():
 
 
 @main_bp.route("/post/<slug>")
-def post(slug):
+def post(slug):  # noqa: ARG001  路由参数由 URL 规则决定，不能改名或删除
     """v3.18.6 退役：文章页由 Vue SPA 的 `/post/:slug` 渲染。
 
     爬虫/社交抓取不受影响——Nginx 的 UA 分流规则会把它们的 `/post/*` 请求
@@ -285,7 +285,7 @@ def add_comment(slug):
     try:
         from plugins.signals import emit_comment_created
         emit_comment_created(c)
-    except Exception:
+    except Exception:  # noqa: S110  可选依赖/可选模块，缺了就跳过这条增强路径
         pass
     flash("评论成功，感谢留言！")
     return redirect(url_for("main.post", slug=slug) + "#comments")
@@ -304,13 +304,13 @@ def like_post(slug):
 
 
 @main_bp.route("/category/<slug>")
-def category(slug):
+def category(slug):  # noqa: ARG001  路由参数由 URL 规则决定，不能改名或删除
     """v3.18.6 退役：分类页由 Vue SPA 的 `/category/:slug` 渲染。"""
     _retired()
 
 
 @main_bp.route("/tag/<slug>")
-def tag(slug):
+def tag(slug):  # noqa: ARG001  路由参数由 URL 规则决定，不能改名或删除
     """v3.18.6 退役：标签页由 Vue SPA 的 `/tag/:slug` 渲染。"""
     _retired()
 
@@ -514,11 +514,11 @@ def api_weather():
             ctry = g.get("countryName")
             if nm:
                 name = nm + (f"·{ctry}" if ctry else "")
-        except Exception:
+        except Exception:  # noqa: S110  旁路/兜底路径，失败按降级处理，不影响主流程
             pass  # 反查失败就保留「我的位置」
         try:
             temp, desc, code = _wttr(f"{lat},{lon}")
-        except Exception:
+        except Exception:  # noqa: S110  该天气源失败即走下一个兜底源
             pass  # wttr 失败 → open-meteo 兜底
         else:
             return _ok({"name": name, "city": name, "temp": temp, "code": code,
@@ -533,7 +533,7 @@ def api_weather():
         if name != "本地":
             try:
                 temp, desc, code = _wttr(name)
-            except Exception:
+            except Exception:  # noqa: S110  该天气源失败即走下一个兜底源
                 pass  # wttr 失败 → open-meteo 兜底
             else:
                 return _ok({"name": name, "city": name, "temp": temp, "code": code,

@@ -23,7 +23,6 @@ from models import db, User, Setting, AuditLog, ROLE_SUPER, ROLE_ADMIN
 from utils import _sign_csrf
 from backup_settings import decrypt_secret
 
-import mcp_diag
 import mcp_write
 
 
@@ -70,7 +69,7 @@ def _cleanup(uids=(), setting_keys=()):
             kept = [x for x in rows if not str(x.get("name", "")).startswith("mcps-test-")]
             if len(kept) != len(rows):
                 raw.value = _json.dumps(kept, ensure_ascii=False)
-        except Exception:
+        except Exception:  # noqa: S110  读缓存/状态文件失败则当没有缓存
             pass
     # 审计：按操作人（本测试建的用户）清 MCP 面板动作
     if uids:

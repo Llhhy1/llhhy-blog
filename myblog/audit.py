@@ -115,7 +115,7 @@ def log_audit(action, target="", target_id=None, detail="", user=None, ip="", su
             payload=snap,
         ))
         db.session.commit()
-    except Exception:
+    except Exception:  # noqa: S110  旁路/兜底路径，失败按降级处理，不影响主流程
         pass
 
 
@@ -140,7 +140,7 @@ def log_login_attempt(username, success, ip=""):
             ip=ip[:64], success=success,
         ))
         db.session.commit()
-    except Exception:
+    except Exception:  # noqa: S110  旁路/兜底路径，失败按降级处理，不影响主流程
         pass
     # 顺带清理超过保留周期的旧审计日志（含登录日志），避免表无限膨胀
     # （v3.1.0；v3.1.6 周期可配；v3.25.8 起后台「系统设置」可改 → DB → env → 默认 90）
@@ -159,5 +159,5 @@ def _purge_audit_logs_older_than(days):
         deleted = AuditLog.query.filter(AuditLog.created_at < cutoff).delete()
         if deleted:
             db.session.commit()
-    except Exception:
+    except Exception:  # noqa: S110  清理动作，失败无副作用（文件本就可能已不存在）
         pass

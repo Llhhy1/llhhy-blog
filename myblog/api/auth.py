@@ -11,7 +11,7 @@ from flask import (request, jsonify, session, Response, current_app, redirect, f
 
 import twofa   # v3.21.0 2FA：业务操作统一走 twofa 服务层（后台页与 API 共用同一套）
 
-from .common import (api_bp, db, User, Setting, ROLE_USER, _current_user_or_none, _user_pub, _login_user, _login_delay, _csrf_token, rate_limit, client_key, log_login_attempt)
+from .common import (api_bp, db, User, Setting, ROLE_USER, _user_pub, _login_user, _login_delay, _csrf_token, rate_limit, client_key, log_login_attempt)
 
 # ---------- 认证接口（注册 / 登录 / 登出 / 当前用户）----------
 @api_bp.route("/auth/register", methods=["POST"])
@@ -145,7 +145,7 @@ def captcha_verify():
     注册/评论提交时随请求携带该票据（或直接把验证码文本带上由注册接口自行校验）。"""
     data = request.get_json(silent=True) or request.form
     code = (data.get("captcha") or "").strip()
-    from security import verify_captcha, consume_captcha_pass
+    from security import verify_captcha
     if not code:
         return jsonify({"error": "请输入验证码"}), 400
     if not verify_captcha(code):

@@ -78,10 +78,8 @@ def _build_graph():
     """模块级 import 图（只看顶层 import，函数内 import 不进图 —— 它们不是包级依赖）。"""
     edges = {}
     for name in sorted(MODS):
-        if name in PKG:
-            path = MYBLOG / (name + "/__init__.py")     # 铁律 1 + 4
-        else:
-            path = MYBLOG / REL[name]
+        # 铁律 1 + 4：包走 __init__.py，单模块走 REL 映射
+        path = MYBLOG / (name + "/__init__.py") if name in PKG else MYBLOG / REL[name]
         if not path.exists():
             continue
         out = edges.setdefault(name, set())

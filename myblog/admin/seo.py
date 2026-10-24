@@ -257,10 +257,7 @@ def seo_preview():
     from routes import sitemap as _sitemap_view, robots as _robots_view
     kind = request.args.get("kind", "sitemap")
     try:
-        if kind == "robots":
-            resp = _robots_view()
-        else:
-            resp = _sitemap_view()
+        resp = _robots_view() if kind == "robots" else _sitemap_view()
         body = resp.get_data(as_text=True)
     except Exception as e:
         return jsonify(error="生成失败：%s" % type(e).__name__), 500

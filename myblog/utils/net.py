@@ -41,7 +41,7 @@ def rate_limit(key, limit=20, window=60):
             if c == 1:
                 r.expire(rk, window)
             return int(c) <= limit
-        except Exception:
+        except Exception:  # noqa: S110  Redis 不可用则回退内存实现
             pass  # Redis 异常回退内存
     hits = _RATE.get(key, [])
     hits = [t for t in hits if now - t < window]

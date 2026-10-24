@@ -17,7 +17,6 @@
 import json
 import uuid
 
-import pytest
 
 from models import db, User, Setting, AuditLog, ROLE_SUPER, ROLE_ADMIN
 from utils import _sign_csrf

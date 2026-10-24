@@ -251,7 +251,6 @@ def _json_ld(post, public_url, site_name, image_abs, desc):
     百度可读到完整正文与结构化信息。字段全部取自 DB 并经 json 序列化
     （JSON-LD 里 `</script>` 会被 `json.dumps` 的转义处理，但仍显式替换兜底）。
     """
-    from models import Category
     payload = [
         {
             "@context": "https://schema.org",
@@ -287,6 +286,44 @@ def _json_ld(post, public_url, site_name, image_abs, desc):
     # 防 `</script>` 提前闭合（json.dumps 不转义斜杠）
     raw = raw.replace("</", "<\\/")
     return (f"<script type='application/ld+json'>{raw}</script>")
+
+
+def _shell_gate(public_url, site_name):
+    """爬虫通道闸门 —— 文章页与列表页**共用同一份判定**（v4.10.0 抽出）。
+
+    返回 ``(resp, indexable)``：
+      - ``resp`` 非 None → 调用方**原样返回它**（302 回公开地址 / 404）。
+      - ``resp`` 为 None → 继续渲染正文；``indexable`` 决定是否下发 noindex。
+
+    为什么必须抽成一份：v4.10.0 要给列表页（`/archive`、`/category/*`…）也开服务端
+    通道。若各写一遍，两处的「真人误判 → 可读但 noindex」「tool-bot → 404」
+    迟早漂移，而这类漂移的表现是**收录静默归零**，线上看不出、只能从
+    Search Console 里发现 —— 属于最难排查的那类故障。
+
+    ⚠️ **绝不能 3xx 给「经通道但被否决」的请求**：nginx 的 `map` 只按 UA 粗筛、
+    看不见请求头，会把这个 UA 再 rewrite 回来 → 无限 302 环（v3.19.0 线上事故：
+    Googlebot / Baiduspider / QQ 内置浏览器三者都在 12 次重定向后仍是 302）。
+    """
+    seo_flag = (request.args.get("seo") or "").strip() == "1"
+
+    # 出口 3a：直敲 API 地址（无 nginx 通道标记）→ 302 回公开地址。
+    # 该请求没有 ?seo=1，即便 UA 会被 rewrite，下一跳就带标记走出口 2/3b，只有一跳。
+    if not seo_flag:
+        from flask import redirect
+        resp = redirect(public_url, code=302)
+        # 302 同样要带 Vary：否则 CDN 可能把「给爬虫的 302」缓存下来发给真人。
+        resp.headers.update(_varied())
+        return resp, False
+
+    allow, reason = seo_shell_ua()
+    if not allow:
+        if reason not in HUMAN_VETO_REASONS:
+            # tool-bot / not-crawler：本就不该出现在通道上 → 不给正文，也不 3xx
+            return _not_found_shell(site_name), False
+        # 真人（微信 / QQ 内置浏览器）：给可读页面但 noindex —— 人能读到内容，
+        # 索引不受污染，环被断掉。这是唯一「既不误伤真人又不成环」的处置。
+        return None, False
+    return None, True
 
 
 @api_bp.route("/og/post/<slug>")
@@ -332,35 +369,10 @@ def og_post(slug):
         if not rate_limit(client_key("og_shell"), limit=120, window=60):
             return Response("too many requests", 429, _varied())
 
-    seo_flag = (request.args.get("seo") or "").strip() == "1"
-    allow, reason = seo_shell_ua()
-
-    # ---- 出口 3a：直敲 API 地址（未经 nginx 通道）→ 回公开地址 ----
-    # 只在**没有**通道标记时 302：该请求没有 nginx 的通道标记，即使 UA 会被
-    # rewrite，下一次请求会带 ?seo=1 走出口 2/3b，只有一跳。
-    if not seo_flag:
-        from flask import redirect
-        resp = redirect(_public_url(slug), code=302)
-        # 302 同样要带 Vary：否则 CDN 可能把「给爬虫的 302」缓存下来发给真人。
-        # （v3.19.1：原实现漏了，由 test_shell_and_redirect_carry_vary 抓出）
-        resp.headers.update(_varied())
+    # ---- 闸门（与列表页共用 `_shell_gate`，判定只写一份）----
+    resp, indexable = _shell_gate(_public_url(slug), site_name)
+    if resp is not None:
         return resp
-
-    # ---- 出口 3b：经通道但闸门否决 ----
-    # ⚠️ **绝不能 3xx**：nginx 的 map 只按 UA 粗筛、看不见请求头，会把这个 UA
-    # 再次 rewrite 回来 → 无限 302 环。线上实测 Googlebot / Baiduspider /
-    # QQ 内置浏览器真人三者都在 12 次重定向后仍是 302。
-    # 按否决原因分两种处置（都不 3xx）：
-    if not allow:
-        if reason not in HUMAN_VETO_REASONS:
-            # tool-bot / not-crawler：本就不该出现在通道上（nginx 不会 rewrite
-            # 它们，走到这里多半是手拼 ?seo=1）。**不给正文**，也不 3xx。
-            return _not_found_shell(site_name)
-        # 真人（微信 / QQ 内置浏览器等）：给可读页面但 noindex—— 人能读到文章，
-        # 索引不受污染，环被断掉。这是唯一「既不误伤真人又不成环」的处置。
-        indexable = False
-    else:
-        indexable = True
 
     title = post.title or site_name
     desc = (post.seo_description or post.summary or _plain_preview(post.content, 120)

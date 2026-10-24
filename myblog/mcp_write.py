@@ -91,7 +91,7 @@ def _idem_check(key):
             v = r.get("blog:mcpw:idem:" + key)
             if v:
                 return int(v)
-        except Exception:
+        except Exception:  # noqa: S110  Redis 不可用则回退内存实现
             pass
     item = _IDEM.get(key)
     if item and now - item[1] < 86400:
@@ -105,7 +105,7 @@ def _idem_mark(key, post_id):
         r = _redis()
         if r is not None:
             r.set("blog:mcpw:idem:" + key, post_id, ex=86400)
-    except Exception:
+    except Exception:  # noqa: S110  Redis 不可用则回退内存实现
         pass
     _IDEM[key] = (post_id, time.time())
 
@@ -121,7 +121,7 @@ def _write_audit(target_id, ok, detail):
             ip=ip[:64], success=ok,
         ))
         db.session.commit()
-    except Exception:
+    except Exception:  # noqa: S110  旁路/兜底路径，失败按降级处理，不影响主流程
         pass
 
 
@@ -359,7 +359,7 @@ def mcp_write_endpoint():
         from utils import get_setting
         if (get_setting("mcp_write_disabled") or "").strip().lower() == "true":
             return jsonify({"error": "not found"}), 404
-    except Exception:
+    except Exception:  # noqa: S110  可选依赖/可选模块，缺了就跳过这条增强路径
         pass  # 开关读取失败按未设置处理（默认开启），不影响端点自身可用性
     # ① Origin 校验（MCP 规范强制，防 DNS 重绑定）
     if not _origin_ok():

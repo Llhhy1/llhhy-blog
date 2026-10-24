@@ -4,6 +4,101 @@
 
 ---
 
+## R129 · v4.10.0 发版安全审查（推送配置后台化 · SSRF 出口 · 列表页 SEO 通道 · 移动端第二批 · CWE-918 / CWE-200 / CWE-284）
+
+**范围**：本轮四项 —— ① 推送配置（`TELEGRAM_*` / `WECOM_WEBHOOK_URL`）后台化，含 `notify._post_json`
+出站加固；② SPA 列表路径（`/archive`、`/category/*`、`/tag/*`、`/series/*`、`/about`、`/links`）
+服务端 SEO 壳页；③ 移动端第二批 7 组「数据与设置」端点；④ `update.sh` 版本号解析加固 + lint 债务清理。
+
+### 129.1 SSRF（CWE-918）—— 本轮最大风险点，已收口
+
+**风险成因（这是「后台化」本身引入的，不是历史漏洞）**：`notify._post_json` 此前直接用
+`urllib.request.urlopen`，**无 scheme / 私网 / 重定向限制**。在原设计下不构成漏洞 —— 地址只来自
+环境变量，能改 `.env` 的人本来就能改代码（R39 的原判据此作出）。**一旦地址可由后台表单填写**，
+「能登后台」就等于「能指定一个出站请求的目标」：`http://127.0.0.1:8686/admin/*`、
+`169.254.169.254`（云元数据）、内网网段全部可达。这正是 R128 §128.3 提前开列的前置条件。
+
+**处置**：`_post_json` 改为走统一出站层 `outbound.open_url()`，能力全部复用、不新写判断：
+
+| 防护 | 实现 | 挡住的攻击 |
+| --- | --- | --- |
+| scheme 白名单 | `_post_json` 内先判 `https://`（比出站层的 http/https 更严一档） | 明文泄露文章标题/链接；`file://` / `gopher://` 等协议探测 |
+| 私网/回环/链路本地/保留/组播过滤 | `outbound._check()` → `is_private_ip()` | 打内网服务、云元数据 |
+| **IP pinning** | 解析 → 校验 → 把 IP 固定在连接上（`_PinnedHTTPSConnection`） | **DNS rebinding**（检查与使用两次解析之间的 TOCTOU） |
+| 禁跟随 3xx | `NoRedirect`（恒装） | 「公网 302 → 内网」绕过 |
+| URL 内嵌凭据 | `_check()` 拒绝 `user:pass@` | 借 URL 传递凭据、混淆目标 |
+
+**为什么"重试"也要改**：`OutboundRejected` 是**配置错误**，不是瞬时抖动。原 `_send_with_retry`
+会把它重试 3 次（多耗 7 秒、日志里堆 3 条同样堆栈，把真正的错误埋掉）。现改为遇到
+`OutboundRejected` **立即停手**并按 error 级别记一条可照做的提示；网络类异常仍按 1/2/4s 退避重试。
+
+**留存风险（如实记录）**：出站层允许 `https` 到**任意公网地址** —— 后台账号仍可把 webhook 指向
+自己的公网服务（拿到推送内容）。这是「允许自定义 webhook」的固有代价，与「能改推送配置」
+的权限同级；故该页面权限定为**仅超管**，且保存前有 `precheck_url()` 轻量预检。
+
+### 129.2 凭据落库与回显（CWE-312 / CWE-532）
+
+- `TELEGRAM_BOT_TOKEN` / `WECOM_WEBHOOK_URL`（URL 内含 `?key=`）**Fernet 加密落库**
+  （`SECRET_KEY` 派生，复用 `backup_settings.encrypt_secret`），页面与接口只回显**掩码**。
+- **掩码被原样提交回来时不得当成新值**：`push_settings.save()` 显式识别掩码并跳过。
+  若不识别，`ab****cd` 会被存成真 token → 推送全部失败，而页面看起来「明明配着值」。
+- **留空 = 保持不变**（与 `backup_settings` 同一语义）；要清空必须显式勾「清除」。
+  否则「只改 chat id、不动 token」会把 token 一起清掉，且没有任何提示。
+- 读取优先级：**密钥环境变量优先** → 库值兜底（老部署零迁移，不会因升级而静默停推）。
+
+### 129.3 列表页 SEO 通道（CWE-200 信息暴露 / 重复内容）
+
+- 新出口 `/api/og/page/<path>` 走 `visible_posts_query()`，与前台列表**同一可见性口径**：
+  草稿 / 定时未到 / 回收站 / 隐私文章一律不出现。已配 4 条内容级测试 + 变异验证
+  （把 `visible_posts_query()` 换成 `Post.query` 时 4 条同时变红）。
+- **不认识的路径一律 404 + noindex**，绝不给通用兜底页 —— 否则等于向爬虫开放无限个内容雷同的
+  URL。`category` / `tag` / `series` 无 slug 时同样 404（前台也是 404）。
+- 闸门与文章页**共用 `_shell_gate()`**：直敲 API（无 `?seo=1`）→ 302；经通道但被判为真人 →
+  200 但 `noindex`；tool-bot / not-crawler → 404。**任何分支都不 3xx**（否则 nginx 的 UA 粗筛
+  会把它再 rewrite 回来，形成无限重定向 —— v3.19.0 线上事故的根因）。
+- 友链外链一律 `rel="nofollow noopener"`：友链是站长可编辑内容，不能拿站点权重为其背书。
+
+### 129.4 移动端第二批端点（CWE-284 权限 / CWE-200 信息暴露）
+
+**逐条对齐后台页面装饰器**，不沿用「管理员可读」的省事做法（D8.3 的明确要求）：
+
+| 端点 | 后台对应 | 该页装饰器 | 本端点口径 |
+| --- | --- | --- | --- |
+| `/mobile/stats/report` | `admin.stats` | `@admin_required` | 管理员 |
+| `/mobile/audit-logs` | `admin.audit_logs` | `@login_required @super_required` | 超管 |
+| `/mobile/backups` | `admin.backup` | `@super_required` | 超管 |
+| `/mobile/settings` | `admin.settings` | `@super_required` | 超管 |
+| `/mobile/seo/summary` | `admin.seo_console` | `@super_required` | 超管 |
+| `/mobile/cert` | 证书看护 | 超管 | 超管 |
+| `/mobile/users` + 改角色 | `admin.users` | `@login_required @super_required` | 超管 |
+
+PII 收口：用户列表邮箱**遮敏**（超管也给 `ab***@ex***.com`）；审计日志**不返回 `payload`**
+（配置变更前快照，可能含历史密钥值）；站点设置走**白名单键**（黑名单会在新增密钥键时静默泄漏）。
+写操作只保留「改角色」一条，且三条硬约束：不能改自己、角色名白名单、改后 `session_version+1`。
+**刻意不做**备份触发/恢复（含 `_run(timeout=300)` 远程同步，移动端没有任务轮询通道）
+与设置写入（30+ 键各有校验，漏一条即配置损坏）。
+
+### 129.5 update.sh 版本号解析（可运维性，非安全）
+
+原 `grep -oE 'APP_VERSION[[:space:]]*=[[:space:]]*"[0-9.]+"'` 强绑字面格式：改单引号 / 版本号带
+`-rc1` / 加行尾注释都会**静默失配**，而它用在「覆盖后校验」——失配表现为 `fail_exit`
+「版本号校验失败」，让人一路排查「zip 是否没覆盖成功」，实际是**量具坏了**。
+现改为 `read_app_version()`：优先 python 按赋值语句解析（容忍引号/空格/注释/后缀），
+无 python3 时回退正则；**「解析不到」与「版本不符」分开报错**（两者排障方向相反）。
+
+### 129.6 测试与变异验证
+
+新增 `tests/test_push_settings.py`（22 项）、`tests/test_seo_page.py`（20 项）、
+`tests/test_mobile_ops.py`（12 项），并给 `test_update_chain_contract.py` 加 1 项静态契约。
+
+**三处变异验证均实测变红**：
+① 摘掉 `_post_json` 的 https 判定 → 「非 https 被拒」变红（实测真的去连 `example.com:80`）；
+② 摘掉推送设置页的 `@super_required` → 「只有超管能进」变红；
+③ 把 `visible_posts_query()` 换成 `Post.query` → 4 条可见性测试同时变红；
+④ 把设置端点 `super_only=True` 改成 `admin=True` → 「管理员进不了超管专属端点」变红。
+
+---
+
 ## R128 · v4.9.0 发版安全审查（升级地图 6 项落地 · 越权 / 隐私 / 重试幂等）
 
 **范围**：按 `ROADMAP.md` §3.1 落地 6 项 —— 设备/浏览器分布（新增 `visit_log.device` / `browser`

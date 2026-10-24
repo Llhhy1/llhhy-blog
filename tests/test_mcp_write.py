@@ -21,7 +21,6 @@ import json
 import pytest
 
 from models import db, Post, PostHistory, AuditLog
-from app import create_app
 
 TOKEN = "test-mcp-write-token-0123456789"
 

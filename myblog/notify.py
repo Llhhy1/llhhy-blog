@@ -51,16 +51,40 @@ import logging
 import os
 import threading
 import time
-import urllib.request
+
+from outbound import OutboundRejected, open_url
 
 logger = logging.getLogger(__name__)
 
+# v4.10.0：推送目标**只允许 https**。出站层 `open_url` 允许 http/https，
+# 这里再收紧一档 —— 推送内容里带文章标题 / 摘要 / 链接，明文 http 会把这些
+# 暴露给链路上的任何一跳；且两个渠道（Telegram / 企业微信）本来就只提供 https。
+PUSH_SCHEME = "https"
+
 
 def _post_json(url, payload, timeout=6):
-    req = urllib.request.Request(
-        url, data=json.dumps(payload).encode("utf-8"),
-        headers={"Content-Type": "application/json"}, method="POST")
-    with urllib.request.urlopen(req, timeout=timeout) as r:
+    """发一个 JSON POST —— **必须走统一出站层**（v4.10.0）。
+
+    ⚠️ 为什么以前可以裸 `urlopen`、现在不行：
+    在 v4.10.0 之前，推送地址只来自环境变量（管理员自己写进 `.env`），
+    能改到它的人本来就已经能改代码了，所以「不校验」不构成漏洞
+    （见 `SECURITY_AUDIT.md` R39 的原判）。
+    v4.10.0 把 `TELEGRAM_*` / `WECOM_WEBHOOK_URL` 做成**后台表单可填** ——
+    于是「能登后台的人」就能指定这个 URL 的出站目标。若不校验，等于给每个
+    后台账号开一个直连内网的 SSRF 出口（`http://127.0.0.1:8686/admin/*`、
+    云厂商元数据 `169.254.169.254` 全都能打到）。
+
+    所以这里改成 `outbound.open_url()`：scheme 白名单 + 公网解析 + **IP pinning**
+    （防 DNS rebinding）+ **禁跟随 3xx**（防「公网 302 → 内网」绕过），
+    这正是 `SECURITY_AUDIT.md` R128 §128.3 为本次后台化开列的前置条件。
+    """
+    raw = (url or "").strip()
+    if not raw.lower().startswith(PUSH_SCHEME + "://"):
+        raise OutboundRejected("推送地址必须是 %s://（当前值不合法）" % PUSH_SCHEME)
+    data = json.dumps(payload).encode("utf-8")
+    with open_url(raw, timeout=timeout, data=data,
+                  headers={"Content-Type": "application/json"},
+                  method="POST") as r:
         return r.read().decode("utf-8", "ignore")
 
 
@@ -115,6 +139,11 @@ def _send_with_retry(send_fn, label, retries=RETRY_TIMES,
     **只在最后一次失败时才记日志**：中间那几次的堆栈是噪声 —— 重试机制
     存在的意义就是容忍它们。ROADMAP 的原话是「全失败才记日志」。
 
+    **配置类错误不重试（v4.10.0）**：`OutboundRejected` 意味着目标地址本身
+    不合格（非 https / 解析到内网 / 带凭据）。这类失败**重试一万次也不会变好**，
+    却会白白多耗 7 秒并把真正的错误埋在 3 条重复日志里。所以遇到它立刻停手，
+    并按 error 级别记一条**可直接照做的**提示。
+
     `sleep` 刻意做成可注入参数：测试里换成不真睡的探针，
     否则一个单测要干等 7 秒。
     """
@@ -123,6 +152,10 @@ def _send_with_retry(send_fn, label, retries=RETRY_TIMES,
         try:
             send_fn()
             return True
+        except OutboundRejected as exc:
+            logger.error("%s 推送地址被出站安全策略拒绝，已放弃发送：%s",
+                         label, exc)
+            return False
         except Exception as exc:  # noqa: BLE001  (渠道外发，逐次吞掉中间失败)
             last_exc = exc
             if attempt < retries - 1:
@@ -132,14 +165,40 @@ def _send_with_retry(send_fn, label, retries=RETRY_TIMES,
     return False
 
 
+def _push_conf():
+    """取推送配置：**后台库值 + 环境变量**合并结果（v4.10.0）。
+
+    v4.10.0 之前这里只读 `os.environ` —— 于是「改推送地址」必须登服务器改
+    `.env` 再重启。现在走 `push_settings.resolve_all()`：
+    库里配了就用库里的，没配则回退环境变量（老部署零迁移）。
+
+    ⚠️ 为什么放在函数里 import、不放到模块顶部：`push_settings` 会经
+    `backup_settings` 牵到 `cryptography`；而 `notify` 被 `app.py` 等处
+    在**很早的阶段**导入。顶层 import 会把这个依赖变成全模块硬依赖，
+    任何一处环境缺包都会让整个应用起不来。
+    """
+    try:
+        from push_settings import resolve_all
+        return resolve_all()
+    except Exception:  # noqa: BLE001  配置读取跨「模型/加密/DB」三层，无法穷举；回退 env 是刻意的
+        # 库不可用时**不能静默不推送** —— 环境变量这条老路仍要走通
+        logger.debug("读取后台推送配置失败，回退环境变量", exc_info=True)
+        return {
+            "push_telegram_token": os.environ.get("TELEGRAM_BOT_TOKEN", "") or "",
+            "push_telegram_chat": os.environ.get("TELEGRAM_CHAT_ID", "") or "",
+            "push_wecom_webhook": os.environ.get("WECOM_WEBHOOK_URL", "") or "",
+        }
+
+
 def deliver(payload):
     """真正执行外发（纯数据入参，可安全地在任意线程调用）。返回 (ok, failed) 计数。"""
     text = _build_text(payload)
     ok = failed = 0
+    conf = _push_conf()
 
     # Telegram
-    token = os.environ.get("TELEGRAM_BOT_TOKEN")
-    chat = os.environ.get("TELEGRAM_CHAT_ID")
+    token = conf.get("push_telegram_token") or ""
+    chat = conf.get("push_telegram_chat") or ""
     if token and chat:
         if _send_with_retry(lambda: _tg_send(token, chat, text), "Telegram"):
             ok += 1
@@ -147,7 +206,7 @@ def deliver(payload):
             failed += 1
 
     # 企业微信 / 微信「群机器人」
-    wecom = os.environ.get("WECOM_WEBHOOK_URL")
+    wecom = conf.get("push_wecom_webhook") or ""
     if wecom:
         if _send_with_retry(lambda: _wecom_send(wecom, text), "企业微信"):
             ok += 1

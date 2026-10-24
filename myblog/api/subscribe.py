@@ -1,8 +1,6 @@
 """
 """
 
-import re as _re
-import secrets as _sec
 from flask import request, jsonify
 
 from .common import (api_bp, db, Subscriber, rate_limit, client_key)

@@ -25,7 +25,7 @@ import pytest
 from sqlalchemy import event
 
 from api.common import lang_dedup, paged_posts, _DISPLAY_ORDER
-from models import db, Post, Category, Tag, PostTag, visible_posts_query
+from models import db, Post, Category, Tag, visible_posts_query
 from admin._helpers import create_post_core
 
 # ---------- 造数 ----------

@@ -184,7 +184,7 @@ def test_backup_snapshot_is_consistent(app):
                 if os.path.exists(tmp):
                     os.remove(tmp)
                 os.rmdir(os.path.dirname(tmp))
-            except Exception:
+            except Exception:  # noqa: S110  清理动作，失败无副作用（文件本就可能已不存在）
                 pass
 
 

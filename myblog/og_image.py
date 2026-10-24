@@ -357,7 +357,7 @@ def _cache_trim():
         for p in fs[:len(fs) - _CACHE_MAX + 50]:
             with contextlib.suppress(Exception):
                 os.remove(p)
-    except Exception:
+    except Exception:  # noqa: S110  清理动作，失败无副作用（文件本就可能已不存在）
         pass
 
 
@@ -400,7 +400,7 @@ def render_og_image(*, title, desc="", site_name="", accent="",
         dd.ellipse([w - 520, h - 260, w - 60, h + 200], fill=(255, 255, 255, 16))
         img = Image.alpha_composite(img.convert("RGBA"), deco).convert("RGB")
         d = ImageDraw.Draw(img)
-    except Exception:
+    except Exception:  # noqa: S110  旁路/兜底路径，失败按降级处理，不影响主流程
         pass
 
     cover_im = None
@@ -466,7 +466,7 @@ def og_png_bytes(*, slug, stamp="", **kw):
         try:
             with open(hit, "rb") as f:
                 return f.read(), True
-        except Exception:
+        except Exception:  # noqa: S110  读缓存/状态文件失败则当没有缓存
             pass
     try:
         img = render_og_image(**kw)

@@ -2,7 +2,6 @@
 使用 SQLAlchemy ORM，所有表结构都在这里描述，运行时会自动建表。
 """
 from flask_sqlalchemy import SQLAlchemy
-from datetime import datetime
 from _time import utcnow
 
 db = SQLAlchemy()

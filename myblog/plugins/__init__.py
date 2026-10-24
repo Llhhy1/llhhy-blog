@@ -141,7 +141,7 @@ def _load_one(app, cfg, slug):
         try:
             from plugins.signals import emit_plugin_loaded
             emit_plugin_loaded(slug, manifest)
-        except Exception:
+        except Exception:  # noqa: S110  可选依赖/可选模块，缺了就跳过这条增强路径
             pass
         logger.info("[插件] 已加载：%s v%s", slug, manifest.get("version", "?"))
         return manifest
@@ -207,7 +207,7 @@ def set_plugin_enabled(app, cfg, slug, enabled):
     try:
         if os.path.exists(mp):
             os.remove(mp)
-    except Exception:
+    except Exception:  # noqa: S110  清理动作，失败无副作用（文件本就可能已不存在）
         pass
     RUNTIME_DISABLED.discard(slug)
     with contextlib.suppress(Exception):

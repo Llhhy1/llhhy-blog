@@ -1,0 +1,69 @@
+{% extends "admin/base.html" %}
+{% block title %}推送设置{% endblock %}
+{% block content %}
+  <h1 class="page-title">📢 推送设置（新文章通知）</h1>
+  <p class="stats-tip">
+    新文章发布后自动推送到 Telegram / 企业微信群。凭据加密存入数据库，页面只显示掩码，
+    <strong>任何字段留空 = 保持已保存的值</strong>（要清空请勾「清除」）。
+  </p>
+
+  <div class="stats-tip" style="margin-bottom:14px;">
+    <strong>当前生效状态：</strong>
+    Telegram {% if enabled.telegram %}<span class="tag-up">已配置</span>{% else %}<span class="tag-flat">未配置</span>{% endif %}
+    ·
+    企业微信 {% if enabled.wecom %}<span class="tag-up">已配置</span>{% else %}<span class="tag-flat">未配置</span>{% endif %}
+    {% if sources.push_telegram_token == 'env' or sources.push_wecom_webhook == 'env' %}
+      <br><span style="color:#b7791f;">⚠️ 部分凭据来自环境变量——环境变量优先级更高，改这里的库值不会生效，需去服务器改 .env。</span>
+    {% endif %}
+  </div>
+
+  <form method="post" action="{{ url_for('admin.push_settings_view') }}" class="edit-form">
+    {{ csrf_input() }}
+
+    <h3 style="margin-bottom:6px;">Telegram</h3>
+    <label for="push_telegram_token">Bot Token</label>
+    <input id="push_telegram_token" type="password" name="push_telegram_token"
+           value="{{ values.push_telegram_token or '' }}"
+           placeholder="留空则保持已保存的值" autocomplete="new-password">
+    {% if values.push_telegram_token %}
+      <label class="checkbox-row">
+        <input type="checkbox" name="clear_push_telegram_token">
+        <span>清除已保存的 Bot Token</span>
+      </label>
+    {% endif %}
+
+    <label for="push_telegram_chat">Chat ID（频道 / 群组 / 个人会话）</label>
+    <input id="push_telegram_chat" type="text" name="push_telegram_chat"
+           value="{{ values.push_telegram_chat or '' }}" placeholder="-1001234567890" autocomplete="off">
+    {% if values.push_telegram_chat %}
+      <label class="checkbox-row">
+        <input type="checkbox" name="clear_push_telegram_chat">
+        <span>清除已保存的 Chat ID</span>
+      </label>
+    {% endif %}
+
+    <h3 style="margin:18px 0 6px;">企业微信 / 微信群机器人</h3>
+    <label for="push_wecom_webhook">Webhook 地址</label>
+    <input id="push_wecom_webhook" type="text" name="push_wecom_webhook"
+           value="{{ values.push_wecom_webhook or '' }}"
+           placeholder="https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=..." autocomplete="off">
+    <p class="stats-tip" style="margin-top:6px;">
+      地址里带 <code>key=</code> 凭据，会加密存储、页面只回显掩码；必须是 https，且不允许填内网地址。
+    </p>
+    {% if values.push_wecom_webhook %}
+      <label class="checkbox-row">
+        <input type="checkbox" name="clear_push_wecom_webhook">
+        <span>清除已保存的 Webhook 地址</span>
+      </label>
+    {% endif %}
+
+    <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:18px;">
+      <button type="submit" class="btn" name="action" value="save">保存推送配置</button>
+      <button type="submit" class="btn" name="action" value="test">保存并发送测试推送</button>
+    </div>
+    <p class="stats-tip" style="margin-top:8px;">
+      「保存并发送测试推送」会真的往目标会话 / 群发一条测试消息——这是唯一能验出
+      token 或 chat id 写错的办法（只校验地址合法性验不出这些）。5 分钟内最多 5 次。
+    </p>
+  </form>
+{% endblock %}

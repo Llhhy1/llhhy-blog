@@ -65,7 +65,7 @@ def oauth_bindings():
         all_providers = [{"name": n, "label": m.get("label", n),
                           "configured": n in configured, "linked": n in linked}
                          for n, m in oauth_svc.PROVIDERS.items()]
-    except Exception:  # noqa: BLE001  provider 未配置/未安装时只降级提示，不该让整页 500
+    except Exception:  # noqa: BLE001, S110  provider 未配置/未安装时只降级提示，不该让整页 500
         pass
     return render_template("admin/oauth_bindings.html", links=links,
                            target=target, actor=actor, configured=configured,

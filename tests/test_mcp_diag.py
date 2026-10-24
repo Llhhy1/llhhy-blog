@@ -166,7 +166,8 @@ def test_mcp_source_is_readonly():
     """静态审查：MCP 模块不得出现任何写操作（这是本功能的安全红线）。"""
     path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
                         "myblog", "mcp_diag.py")
-    src = open(path, encoding="utf-8").read()
+    with open(path, encoding="utf-8") as _f:
+        src = _f.read()
     forbidden = ("db.session.commit", "db.session.add", "db.session.delete",
                  "os.remove", "os.rename", "os.unlink", "shutil.", "subprocess",
                  "eval(", "exec(")

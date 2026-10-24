@@ -195,10 +195,8 @@ def captcha_required(scope=None):
     enabled = _cfg_bool("captcha_enabled", current_app.config.get("CAPTCHA_ENABLED", True))
     if not enabled:
         return False
-    if scope in ("register", "comment", "guestbook"):
-        if not _cfg_bool("captcha_on_" + scope, True):
-            return False
-    return True
+    return not (scope in ("register", "comment", "guestbook")
+                and not _cfg_bool("captcha_on_" + scope, True))
 
 
 def get_captcha_config():

@@ -46,10 +46,10 @@ def migrate(db_path):
     existing = {r[1] for r in cur.execute("PRAGMA table_info(visit_log)").fetchall()}
     for col, ddl in cols.items():
         if col in existing:
-            print(f"  skip {col} (already exists)")
+            print(f"  skip {col} (already exists)")  # noqa: T201  命令行脚本：print 就是它对外输出的方式
             continue
         cur.execute(f"ALTER TABLE visit_log ADD COLUMN {col} {ddl}")
-        print(f"  added {col}")
+        print(f"  added {col}")  # noqa: T201  命令行脚本：print 就是它对外输出的方式
     conn.commit()
     conn.close()
 
@@ -57,8 +57,8 @@ def migrate(db_path):
 if __name__ == "__main__":
     db_path = find_db()
     if not db_path:
-        print("未找到 blog.db：请用环境变量 BLOG_DB 指定，或在该库所在目录运行。脚本结束。")
+        print("未找到 blog.db：请用环境变量 BLOG_DB 指定，或在该库所在目录运行。脚本结束。")  # noqa: T201  命令行脚本：print 就是它对外输出的方式
         sys.exit(1)
-    print(f"migrating: {db_path}")
+    print(f"migrating: {db_path}")  # noqa: T201  命令行脚本：print 就是它对外输出的方式
     migrate(db_path)
-    print("done.")
+    print("done.")  # noqa: T201  命令行脚本：print 就是它对外输出的方式

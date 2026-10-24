@@ -1,7 +1,6 @@
 """
 """
 
-import datetime
 import hashlib
 import logging
 import re as _re
@@ -15,7 +14,7 @@ logger = logging.getLogger(__name__)
 from .common import (api_bp, db, Post, PostTag, Category, Tag, Comment, ReadLog, User, visible_posts_query, _current_user_or_none, _post_summary, _comment, _render_html, rate_limit, client_key, lang_dedup, paged_posts, _DISPLAY_ORDER, find_spam_hit)
 from models import hreflang_alternates
 import stats  # myblog/stats.py：client_ip / cached_region（浏览量去重与评论归属地）
-from utils import fmt_bj, to_beijing, BEIJING_TZ, site_base
+from utils import fmt_bj, site_base
 
 # ---------- 文章列表（分页 + 搜索）----------
 # v4.0.0：匿名列表接口限流（审计【低危 7】）。此前首页列表**匿名且无限流**，
@@ -390,7 +389,7 @@ def comment(slug):
     try:
         from plugins.signals import emit_comment_created
         emit_comment_created(c)
-    except Exception:
+    except Exception:  # noqa: S110  可选依赖/可选模块，缺了就跳过这条增强路径
         pass
     # A4 站内 @ 通知：解析评论内容里 @username，给注册用户发通知
     notify_mentioned(content, f"/post/{p.slug}", author, post_id=p.id)

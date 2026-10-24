@@ -226,7 +226,8 @@ def test_跨文档引用路径仍有效():
             fp = os.path.join(dirpath, fn)
             rel = os.path.relpath(fp, ROOT).replace("\\", "/")
             try:
-                text = open(fp, encoding="utf-8", errors="replace").read()
+                with open(fp, encoding="utf-8", errors="replace") as _f:
+                    text = _f.read()
             except OSError:
                 continue
             for t in targets:
@@ -264,7 +265,8 @@ def test_代码里的归档路径必须完整():
             fp = os.path.join(dirpath, fn)
             rel = os.path.relpath(fp, ROOT).replace("\\", "/")
             try:
-                text = open(fp, encoding="utf-8", errors="replace").read()
+                with open(fp, encoding="utf-8", errors="replace") as _f:
+                    text = _f.read()
             except OSError:
                 continue
             for t in targets:

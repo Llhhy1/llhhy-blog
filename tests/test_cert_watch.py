@@ -90,9 +90,9 @@ def socket_server(ctx):
     deadline = _time.time() + 5
     while _time.time() < deadline:
         try:
-            with _socket.create_connection(("127.0.0.1", port), timeout=1) as s:
-                with probe.wrap_socket(s, server_hostname="127.0.0.1"):
-                    return ("127.0.0.1", port)
+            with (_socket.create_connection(("127.0.0.1", port), timeout=1) as s,
+                  probe.wrap_socket(s, server_hostname="127.0.0.1")):
+                return ("127.0.0.1", port)
         except OSError:
             _time.sleep(0.05)
     raise RuntimeError("TLS 测试服务在 5s 内未就绪")
@@ -211,7 +211,8 @@ def test_never_reads_cert_file():
     真正要防的是「代码里写死了 `/www/server/panel/vhost/cert/...` 这类路径」——
     宝塔续签/迁移会改路径，写死就等于埋雷。
     """
-    src = open(cw.__file__, encoding="utf-8").read()
+    with open(cw.__file__, encoding="utf-8") as _f:
+        src = _f.read()
     for bad in ("/www/server/panel", "/www/server/nginx", "/etc/nginx",
                 "ssl_certificate", "CERT_PATH", "cert_path"):
         assert bad not in src, "cert_watch 不应硬编码证书路径（%s）" % bad

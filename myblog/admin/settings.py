@@ -218,10 +218,7 @@ def slug_preview():
     title = (request.args.get("title") or "").strip()
     mode = (request.args.get("mode") or "title").strip()
     tpl = (request.args.get("tpl") or "").strip()
-    if mode == "custom":
-        template = tpl or ""
-    else:
-        template = SLUG_PRESETS.get(mode, SLUG_PRESETS["title"])
+    template = tpl or "" if mode == "custom" else SLUG_PRESETS.get(mode, SLUG_PRESETS["title"])
     # 预览用占位数据：ID=123、日期=今天、分类=技术
     date_str = fmt_bj(utcnow(), "%Y%m%d")
     slug = render_slug_template(
@@ -575,3 +572,140 @@ def email_settings():
             return redirect(url_for("admin.email_settings"))
     settings = {s.key: s.value for s in Setting.query.all()}
     return render_template("admin/email_settings.html", settings=settings)
+
+
+@admin_bp.route("/push-settings", methods=["GET", "POST"])
+@super_required
+def push_settings_view():
+    """推送渠道配置后台化（v4.10.0，ROADMAP §3.1）。
+
+    `TELEGRAM_BOT_TOKEN` / `TELEGRAM_CHAT_ID` / `WECOM_WEBHOOK_URL` 此前只能
+    写环境变量——改一次要登服务器改 `.env` 再重启。现在后台可配：
+    凭据经 Fernet 加密落库（页面只回显掩码），保存前做轻量预检。
+
+    ⚠️ **为什么必须是超管**（同 `backup_settings` / `email_settings`）：
+    这些字段是**凭据**——bot token 拿到即可冒用 bot，企微 webhook 的
+    `?key=` 拿到即可往群里发消息。作者 / 编辑角色不该看到掩码以外的任何东西。
+
+    ⚠️ **为什么「改推送地址」本身就是高危动作**：地址一旦可后台填写，
+    它就变成了一个出站请求的目标。所以 `notify._post_json` 在本版本改走
+    `outbound.open_url()`（https 白名单 + 公网解析 + IP pinning + 禁 3xx），
+    否则这里就是个现成的 SSRF 出口。
+    """
+    from utils import client_key, rate_limit
+    import push_settings as ps
+
+    if request.method == "POST":
+        action = (request.form.get("action") or "save").strip()
+
+        # —— 保存 ——
+        err = None
+        for skey in ps.FIELDS:
+            # 勾了「清除」就不看提交值（提交值是回显的掩码，不能当真值）
+            if request.form.get("clear_" + skey):
+                ps.clear(skey)
+                continue
+            raw = (request.form.get(skey) or "").strip()
+            ok, reason = ps.precheck_url(skey, raw)
+            if not ok:
+                err = "%s：%s" % (skey, reason)
+                break
+            ps.save(skey, raw)
+        if err:
+            flash(err, "error")
+            return redirect(url_for("admin.push_settings_view"))
+
+        if action == "test":
+            if not rate_limit(client_key("admin_push_test"), limit=5, window=300):
+                flash("测试发送过于频繁，请 5 分钟后再试", "error")
+                return redirect(url_for("admin.push_settings_view"))
+            results = _probe_push_channels()
+            for label, ok, msg in results:
+                flash("%s %s：%s" % ("✅" if ok else "❌", label, msg),
+                      "success" if ok else "error")
+            return redirect(url_for("admin.push_settings_view"))
+
+        flash("推送配置已保存")
+        return redirect(url_for("admin.push_settings_view"))
+
+    values = {k: ps.for_admin(k) for k in ps.FIELDS}
+    sources = {k: ps.source_of(k) for k in ps.FIELDS}
+    effective = ps.resolve_all()
+    enabled = {
+        "telegram": bool(effective.get("push_telegram_token")
+                         and effective.get("push_telegram_chat")),
+        "wecom": bool(effective.get("push_wecom_webhook")),
+    }
+    return render_template("admin/push_settings.html", values=values,
+                           sources=sources, enabled=enabled)
+
+
+def _probe_push_channels():
+    """给「测试推送」按钮用：向**已配置**的渠道各发一条测试消息。
+
+    返回 ``[(label, ok, msg), ...]``。未配置的渠道**不出现在结果里** ——
+    没配就说「未配置」，别混进「测试失败」里让人以为配错了。
+
+    刻意**复用生产同一条发送路径**（`notify._tg_send` / `_wecom_send` →
+    `_post_json` → `outbound.open_url`）：只校验「地址合法性」的探针
+    会漏掉真实故障（token 错、chat id 错），而管理员最想知道的恰恰是这些。
+    """
+    import notify
+    import push_settings as ps
+
+    conf = ps.resolve_all()
+    text = "🔔 这是一条来自博客后台的测试推送（v4.10.0 连通性测试）。"
+    out = []
+
+    token = conf.get("push_telegram_token") or ""
+    chat = conf.get("push_telegram_chat") or ""
+    if token and chat:
+        try:
+            notify._tg_send(token, chat, text)
+            out.append(("Telegram", True, "已发送，请查看目标会话"))
+        except Exception as exc:  # noqa: BLE001  (连通性测试要的是原因，不是堆栈)
+            out.append(("Telegram", False, _probe_reason(exc)))
+    else:
+        out.append(("Telegram", False, "未配置（token 与 chat id 都需要）"))
+
+    wecom = conf.get("push_wecom_webhook") or ""
+    if wecom:
+        try:
+            notify._wecom_send(wecom, text)
+            out.append(("企业微信", True, "已发送，请查看目标群"))
+        except Exception as exc:  # noqa: BLE001
+            out.append(("企业微信", False, _probe_reason(exc)))
+    else:
+        out.append(("企业微信", False, "未配置 webhook 地址"))
+    return out
+
+
+def _probe_reason(exc):
+    """把外发异常翻译成管理员看得懂的一句话。**绝不能把 URL 回显进页面** ——
+    webhook 的 `?key=` 是凭据，页面日志 / 截图都会泄。所以这里只给类别。
+    """
+    try:
+        from outbound import OutboundRejected
+    except ImportError:
+        # 出站模块缺失（极简部署）时退化为按异常类名判断，不影响提示语
+        return _probe_reason_by_name(exc)
+    if isinstance(exc, OutboundRejected):
+        return str(exc)
+    return _probe_reason_by_name(exc)
+
+
+def _probe_reason_by_name(exc):
+    """按异常类名/子串给提示（不 import 出站模块也能用）。"""
+    name = type(exc).__name__
+    if name == "HTTPError":
+        code = getattr(exc, "code", None)
+        if code in (401, 403):
+            return "被对方拒绝（%s）：token / chat id 或 webhook key 不对" % code
+        if code == 429:
+            return "对方限流（429），请稍后再试"
+        return "对方返回 HTTP %s" % code
+    if name == "URLError":
+        return "连不上对方（地址写错，或服务器出网被拦）"
+    if "timeout" in str(exc).lower() or name == "TimeoutError":
+        return "连接超时，请检查服务器出网"
+    return "%s：%s" % (name, str(exc)[:120])

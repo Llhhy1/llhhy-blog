@@ -53,16 +53,16 @@ def main(force=False):
             man = games_safety.find_manifest(files)
             ok, errs = games_safety.validate_manifest(man) if man else (False, ["缺 manifest"])
             if not ok:
-                print(f"[skip] {slug}: {errs}")
+                print(f"[skip] {slug}: {errs}")  # noqa: T201  命令行脚本：print 就是它对外输出的方式
                 continue
             entry = man["entry"].strip()
             if entry not in {f["name"] for f in files}:
-                print(f"[skip] {slug}: 入口 {entry} 缺失")
+                print(f"[skip] {slug}: 入口 {entry} 缺失")  # noqa: T201  命令行脚本：print 就是它对外输出的方式
                 continue
             findings, score = games_safety.scan_game_files(files)
             g = Game.query.filter_by(slug=slug).first()
             if g and not force:
-                print(f"[skip] {slug}: 已存在（--force 覆盖更新）")
+                print(f"[skip] {slug}: 已存在（--force 覆盖更新）")  # noqa: T201  命令行脚本：print 就是它对外输出的方式
                 continue
             gdir = os.path.join(DST, slug)
             os.makedirs(gdir, exist_ok=True)
@@ -90,9 +90,9 @@ def main(force=False):
             g.audit_summary = "内置游戏（官方）。静态扫描："
             g.audit_summary += f"{len(findings)} 项" if findings else "未见明显可疑"
             made += 1
-            print(f"[ok] {slug} 已上架（静态分 {score}，{len(files)} 文件）")
+            print(f"[ok] {slug} 已上架（静态分 {score}，{len(files)} 文件）")  # noqa: T201  命令行脚本：print 就是它对外输出的方式
         db.session.commit()
-        print(f"完成：内置游戏处理 {made} 个（目录 {DST}）")
+        print(f"完成：内置游戏处理 {made} 个（目录 {DST}）")  # noqa: T201  命令行脚本：print 就是它对外输出的方式
 
 
 if __name__ == "__main__":

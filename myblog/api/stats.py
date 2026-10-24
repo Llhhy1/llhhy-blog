@@ -120,7 +120,7 @@ def stats_referrers():
         su = Setting.query.filter_by(key="site_url").first()
         if su and su.value:
             hosts.add(urllib.parse.urlsplit(su.value).netloc.lower())
-    except Exception:
+    except Exception:  # noqa: S110  旁路/兜底路径，失败按降级处理，不影响主流程
         pass
     with contextlib.suppress(Exception):
         hosts.add((request.host or "").lower())

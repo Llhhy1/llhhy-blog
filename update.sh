@@ -884,6 +884,39 @@ except Exception:
   log "   ✅ $expect_name 校验完成。"
 }
 
+# 读取 config.py 里的 APP_VERSION（v4.10.0 加固，替代散落各处的 grep 正则）。
+#
+# 为什么不再用一行 `grep -oE 'APP_VERSION *= *"[0-9.]+"'`：
+# 那种写法强绑**字面格式** —— 只要有人改成单引号、把赋值换行、加行尾注释、
+# 或版本号带预发布后缀（4.10.0-rc1），正则就**静默失配**。而失配发生在两个
+# 调用点，后果完全不同：
+#   · 更新「前」显示版本 → 只是显示「未知」，无害；
+#   · 更新「后」校验版本 → 直接 fail_exit 中断更新，且报错写成「版本号校验失败」，
+#     让人以为 zip 没覆盖成功，实际是**量具坏了**（典型「东西没坏、尺子坏了」）。
+# 所以改为：优先用 python 按赋值语句解析（容忍引号 / 空格 / 注释 / 后缀），
+# python 不可用时回退正则；**解析不到时由调用方明确报错**，绝不静默降级。
+read_app_version() {
+  local f="${1:-$APP_DIR/config.py}" v=""
+  if command -v python3 >/dev/null 2>&1; then
+    v=$(python3 - "$f" <<'PYEOF' 2>/dev/null || true
+import re, sys
+try:
+    src = open(sys.argv[1], encoding="utf-8", errors="ignore").read()
+except OSError:
+    sys.exit(0)
+m = re.search(r"^[ \t]*APP_VERSION[ \t]*=[ \t]*(['\"])([^'\"]+)\1", src, re.M)
+sys.stdout.write(m.group(2).strip() if m else "")
+PYEOF
+)
+  fi
+  if [ -z "$v" ]; then
+    # 回退：纯 grep（无 python3 的极简环境）。容忍单/双引号与任意版本串。
+    v=$(grep -oE 'APP_VERSION[[:space:]]*=[[:space:]]*["'"'"'][^"'"'"']+["'"'"']' \
+        "$f" 2>/dev/null | sed -E 's/.*["'"'"']([^"'"'"']+)["'"'"'].*/\1/' | head -1)
+  fi
+  printf '%s' "$v"
+}
+
 # ==================== 主流程 ====================
 log "==============================================="
 log " 一键更新 llhhy-blog（懒人版 · 自动下载+校验+备份+覆盖+装依赖+重启）"
@@ -894,7 +927,11 @@ detect_runtime
 # ⓪ 部署前三查之一：清理残留 update.sh + 报告当前版本（v4.8.2 踩坑后固化）
 log "⓪ 部署前三查（残留进程 / 当前版本 / 脚本哈希）..."
 cleanup_stale_updates
-LOCAL_VER=$(grep -o 'APP_VERSION *= *"[^"]*"' "$APP_DIR/config.py" 2>/dev/null | sed 's/.*"\([^"]*\)".*/\1/' | head -1)
+LOCAL_VER=$(read_app_version)
+if [ -z "$LOCAL_VER" ]; then
+  log "   ⚠️ 未能从 $APP_DIR/config.py 解析出 APP_VERSION（赋值格式变了 / 文件不可读？）"
+  log "      此处只影响版本显示，不中断更新；但请确认 config.py 没被改坏。"
+fi
 log "   当前线上版本：v${LOCAL_VER:-未知}（$APP_DIR/config.py）"
 
 # 1. 查询最新 Release 的下载地址
@@ -993,9 +1030,15 @@ if [ "$copied" != "1" ]; then
 fi
 # 覆盖后校验：必须真的把新版本写进 $APP_DIR/config.py（杜绝“假成功”）
 TAG_VER=${TAG#v}   # tag 形如 v3.4.4，config 里是 3.4.4，去掉前缀再比
-new_ver=$(grep -oE 'APP_VERSION[[:space:]]*=[[:space:]]*"[0-9.]+"' "$APP_DIR/config.py" 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+new_ver=$(read_app_version)
+# ⚠️ 必须把「解析不到」与「版本不符」分开报：两者排障方向完全相反。
+# 解析不到 = 尺子坏了（脚本正则/格式失配、文件不可读）；
+# 版本不符 = 东西没换（覆盖没生效）。混成一句话会让人往错的方向查。
+if [ -z "$new_ver" ]; then
+  fail_exit "❌ 覆盖后无法从 $APP_DIR/config.py 解析出 APP_VERSION —— 这不是「版本不符」，是**读不到版本号**：请检查该文件是否存在、是否可读、APP_VERSION 赋值是否被改成了脚本认不出的写法。"
+fi
 if [ "$new_ver" != "$TAG_VER" ]; then
-  fail_exit "❌ 覆盖后版本号校验失败：期望 $TAG_VER（tag $TAG），实际 ${new_ver:-未知}（覆盖未生效，请检查 $APP_DIR 写入权限或磁盘空间）"
+  fail_exit "❌ 覆盖后版本号校验失败：期望 $TAG_VER（tag $TAG），实际 $new_ver（覆盖未生效，请检查 $APP_DIR 写入权限或磁盘空间）"
 fi
 log "   完成（data/ 数据库保留，版本已更新为 $new_ver）。"
 

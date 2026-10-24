@@ -16,25 +16,31 @@
 设计约束：功能模块只从 .common 取共享符号，模块间不互相 import；
 本文件的导入顺序即蓝图的注册顺序（不影响路由匹配，Flask 按 rule 匹配）。
 """
-from . import auth          # 认证 / 验证码（注册 登录 登出 当前用户 CSRF 验证码）
-from . import site          # 站点信息 友链申请 公告
-from . import posts         # 文章 分类 标签 RSS 归档 点赞 评论 相关 搜索 定时发布
-from . import stats         # 访问统计(visit/search/read/summary/trend)
-from . import social        # 朋友圈 动态 点赞 评论 社交账号
-from . import series        # 系列列表 系列详情
-from . import guestbook     # 留言板 留言点赞
-from . import subscribe     # 订阅 退订
-from . import notifications # 通知列表 已读 全部已读
-from . import games        # v3.15.0：游戏平台公开接口/沙箱资源
-from . import og           # v3.15.1：文章分享卡 SSR meta（爬虫 UA）
-from . import theme        # v3.16.0：主题中心（预设包 + 自定义应用）
-from . import review       # v3.17.0：年度回顾 / 访客地域榜（公开只读聚合）
-from . import ai           # v3.17.0：A 内容 AI（文章摘要 / 标签建议，复用 LLM 配置）
-from . import reactions    # v3.17.3：评论表情回应（Setting KV 存储，零表变更）
-from . import system        # 版本检查 在线更新 webhook 部署
+# ⚠️ F401 说明：本文件里的 `from . import xxx` **全都是注册式导入** ——
+# 目的不是引用名字，而是**执行该模块、让它把路由注册到 api_bp 上**。
+# 删掉任何一行，对应的一批 API 端点会静默消失（不报错，只有 404）。
+# 所以这里的「导入未使用」不是死代码，一律 noqa 并写明理由。
+from . import auth          # 认证 / 验证码（注册 登录 登出 当前用户 CSRF 验证码）  # noqa: F401  注册式导入：本行为执行该模块、注册其路由
+from . import site          # 站点信息 友链申请 公告  # noqa: F401  注册式导入：本行为执行该模块、注册其路由
+from . import posts         # 文章 分类 标签 RSS 归档 点赞 评论 相关 搜索 定时发布  # noqa: F401  注册式导入：本行为执行该模块、注册其路由
+from . import stats         # 访问统计(visit/search/read/summary/trend)  # noqa: F401  注册式导入：本行为执行该模块、注册其路由
+from . import social        # 朋友圈 动态 点赞 评论 社交账号  # noqa: F401  注册式导入：本行为执行该模块、注册其路由
+from . import series        # 系列列表 系列详情  # noqa: F401  注册式导入：本行为执行该模块、注册其路由
+from . import guestbook     # 留言板 留言点赞  # noqa: F401  注册式导入：本行为执行该模块、注册其路由
+from . import subscribe     # 订阅 退订  # noqa: F401  注册式导入：本行为执行该模块、注册其路由
+from . import notifications # 通知列表 已读 全部已读  # noqa: F401  注册式导入：本行为执行该模块、注册其路由
+from . import games        # v3.15.0：游戏平台公开接口/沙箱资源  # noqa: F401  注册式导入：本行为执行该模块、注册其路由
+from . import og           # v3.15.1：文章分享卡 SSR meta（爬虫 UA）  # noqa: F401  注册式导入：本行为执行该模块、注册其路由
+from . import theme        # v3.16.0：主题中心（预设包 + 自定义应用）  # noqa: F401  注册式导入：本行为执行该模块、注册其路由
+from . import review       # v3.17.0：年度回顾 / 访客地域榜（公开只读聚合）  # noqa: F401  注册式导入：本行为执行该模块、注册其路由
+from . import ai           # v3.17.0：A 内容 AI（文章摘要 / 标签建议，复用 LLM 配置）  # noqa: F401  注册式导入：本行为执行该模块、注册其路由
+from . import reactions    # v3.17.3：评论表情回应（Setting KV 存储，零表变更）  # noqa: F401  注册式导入：本行为执行该模块、注册其路由
+from . import system        # 版本检查 在线更新 webhook 部署  # noqa: F401  注册式导入：本行为执行该模块、注册其路由
 from . import reader        # noqa: F401  v3.21.0 gamification：读者积分 / 勋章 / 排行榜（注册路由用，非按名引用）
 from . import mobile        # noqa: F401  v4.3.0：移动端管理接口（/api/mobile/*，原生 App 用的后台 JSON 版）
 from . import ecosystem    # noqa: F401  v4.7.5：生态统计（部署实例心跳 + 站点注册表统计）
+from . import seo_page     # noqa: F401  v4.10.0：SPA 列表路径服务端 SEO 壳页（/api/og/page/*）
+from . import mobile_ops   # noqa: F401  v4.10.0：移动端第二批（D8.3 ②统计/审计/备份/设置/SEO/证书/用户）
 
 # 蓝图唯一出处（功能模块从 .common 取，app.py 从本包取，二者同一对象）
-from .common import api_bp
+from .common import api_bp  # noqa: F401  再导出：app.py 的 from api import api_bp 依赖本行

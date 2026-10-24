@@ -4,8 +4,8 @@
 
 from flask import jsonify, session
 
-from .common import (api_bp, db, Notification, User)
-from utils import fmt_bj, to_beijing, BEIJING_TZ
+from .common import (api_bp, db, Notification)
+from utils import fmt_bj
 
 # ---------- 站内通知（A4 评论 @ 通知）----------
 @api_bp.route("/notifications")

@@ -99,6 +99,8 @@
         <a href="{{ url_for('admin.settings') }}" class="{{ 'active' if ep == 'admin.settings' }}"><span class="nav-emoji">⚙️</span>站点设置</a>
         <a href="{{ url_for('admin.theme_center') }}" class="{{ 'active' if ep == 'admin.theme_center' }}"><span class="nav-emoji">🎨</span>主题中心</a>
         <a href="{{ url_for('admin.email_settings') }}" class="{{ 'active' if ep == 'admin.email_settings' }}"><span class="nav-emoji">📧</span>邮件设置</a>
+        {# v4.10.0 推送配置：同邮件/备份设置一样是凭据类配置，故紧邻邮件设置且限于超管。 #}
+        <a href="{{ url_for('admin.push_settings_view') }}" class="{{ 'active' if ep == 'admin.push_settings_view' }}"><span class="nav-emoji">📢</span>推送设置</a>
         {# v3.25.7 第三方登录配置：@super_required（改这里等于改「谁能登进本站」），
            放在超管区而非上面的「第三方绑定」旁 —— 绑定页对普通用户也可见，配置页不行。 #}
         <a href="{{ url_for('admin.oauth_settings') }}" class="{{ 'active' if ep == 'admin.oauth_settings' }}"><span class="nav-emoji">🔑</span>第三方登录</a>

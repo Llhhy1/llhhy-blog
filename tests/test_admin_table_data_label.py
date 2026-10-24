@@ -144,7 +144,8 @@ def _th_labels(src, c_start, c_end):
 
 def _admin_tables(path):
     """产出 (模板名, 表序号, 表头标签列表, [未标data-label 的 td 描述])。"""
-    src = open(path, encoding="utf-8").read()
+    with open(path, encoding="utf-8") as _f:
+        src = _f.read()
     idx = 0
     for c_start, c_end, _attrs, cat in _table_ranges(src):
         if cat != "admin":
@@ -225,7 +226,8 @@ def test_data_label_不是空串():
     """data-label="" 会让::before渲染成裸的「：」，比不标还糟。"""
     bad = []
     for path in _templates():
-        src = open(path, encoding="utf-8").read()
+        with open(path, encoding="utf-8") as _f:
+            src = _f.read()
         for m in re.finditer(r'data-label="([^"]*)"', src):
             if not m.group(1).strip():
                 line = src[:m.start()].count("\n") + 1
@@ -237,7 +239,8 @@ def test_data_label_值已转义():
     """属性值里不能有裸双引号（会提前闭合属性并污染后续 HTML）。"""
     bad = []
     for path in _templates():
-        src = open(path, encoding="utf-8").read()
+        with open(path, encoding="utf-8") as _f:
+            src = _f.read()
         for m in re.finditer(r'data-label="([^"]*)"', src):
             v = m.group(1)
             if "<" in v or ">" in v or "&" in v.replace("&amp;", "").replace("&quot;", ""):
@@ -269,7 +272,8 @@ def test_数据行内不得有循环生成列():
     """
     offenders = []
     for path in _templates():
-        src = open(path, encoding="utf-8").read()
+        with open(path, encoding="utf-8") as _f:
+            src = _f.read()
         for c_start, c_end, _attrs, cat in _table_ranges(src):
             if cat != "admin":
                 continue
@@ -314,7 +318,8 @@ def test_每个表格都纳管():
     counts = {"admin": 0, "scroll": 0, "self_hosted": 0, "unmanaged": 0}
     unmanaged = []
     for path in _templates():
-        src = open(path, encoding="utf-8").read()
+        with open(path, encoding="utf-8") as _f:
+            src = _f.read()
         for _c_start, _c_end, attrs, cat in _table_ranges(src):
             counts[cat] += 1
             if cat == "unmanaged":
@@ -347,7 +352,8 @@ def test_非卡片化的表不带_data_label():
     # backup.html 是 `.bk-table td::before`（不限属性选择器）。
     self_hosted = set()
     for path in _templates():
-        src = open(path, encoding="utf-8").read()
+        with open(path, encoding="utf-8") as _f:
+            src = _f.read()
         for m in re.finditer(
             r"\.([a-zA-Z][\w-]*)\s+td(?:\[data-label\])?::before\s*\{[^}]*attr\(\s*data-label",
             src,
@@ -356,7 +362,8 @@ def test_非卡片化的表不带_data_label():
 
     noise = []
     for path in _templates():
-        src = open(path, encoding="utf-8").read()
+        with open(path, encoding="utf-8") as _f:
+            src = _f.read()
         for c_start, c_end, attrs, cat in _table_ranges(src):
             if cat != "scroll":
                 continue
@@ -381,7 +388,8 @@ def test_非卡片化的表不带_data_label():
 def test_base_css_规则与守卫同口径():
     """守卫的前提是 base.html 那条 ::before 规则还在。规则若被删/改选择器，
     本文件全部断言就成了「测一个不存在的行为」的空转。"""
-    base = open(os.path.join(TPL_DIR, "base.html"), encoding="utf-8").read()
+    with open(os.path.join(TPL_DIR, "base.html"), encoding="utf-8") as _f:
+        base = _f.read()
     assert "td[data-label]::before" in base, (
         "base.html 的 .admin-table td[data-label]::before 规则不见了，"
         "data-label 不会渲染成字段名——请同步修本守卫或修CSS"
@@ -401,7 +409,8 @@ def test_模板_jinja_可解析(tpl):
     Jinja 解析不过 = 模板报废。"""
     from jinja2 import Environment
 
-    src = open(os.path.join(TPL_DIR, tpl), encoding="utf-8").read()
+    with open(os.path.join(TPL_DIR, tpl), encoding="utf-8") as _f:
+        src = _f.read()
     Environment().parse(src, filename=tpl)
 
 
@@ -409,13 +418,15 @@ def test_已知的三个豁免确实还在():
     """把豁免规则也钉住：一旦空状态行改成不写 colspan（或checkbox 列加了文字），
     对应豁免就该失效、必须补标——这条测试提醒人来复核。"""
     # tags.html 的空状态行
-    tags = open(os.path.join(TPL_DIR, "tags.html"), encoding="utf-8").read()
+    with open(os.path.join(TPL_DIR, "tags.html"), encoding="utf-8") as _f:
+        tags = _f.read()
     assert '<td colspan="4">暂无标签</td>' in tags, (
         "tags.html 空状态行写法变了（不再用 colspan 合并），"
         "现在它会被当数据行要求标 data-label——请复核"
     )
     # comments.html 的全选列
-    cm = open(os.path.join(TPL_DIR, "comments.html"), encoding="utf-8").read()
+    with open(os.path.join(TPL_DIR, "comments.html"), encoding="utf-8") as _f:
+        cm = _f.read()
     head = cm[cm.find("<thead"): cm.find("</thead>")]
     first_th = _TH_RE.search(head)
     assert first_th is not None

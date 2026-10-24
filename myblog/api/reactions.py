@@ -99,10 +99,7 @@ def comment_reactions_post(cid):
         return jsonify({"error": "不支持的表情"}), 400
     counts = _load(cid)
     n = int(counts.get(emoji, 0) or 0)
-    if action == "remove":
-        n = max(0, n - 1)
-    else:
-        n = min(_MAX_PER_EMOJI, n + 1)
+    n = max(0, n - 1) if action == "remove" else min(_MAX_PER_EMOJI, n + 1)
     if n > 0:
         counts[emoji] = n
     else:

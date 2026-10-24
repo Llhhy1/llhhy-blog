@@ -554,6 +554,35 @@ def _register_request_hooks(app):
             return jsonify({"error": "twofa_required", "twofa_required": True}), 401
         return redirect(url_for("main.twofa_challenge", next=path))
 
+    # v4.8.5：可选加固 —— 拒绝绕过 EdgeOne 直连源站（默认关闭，见 config 的
+    #   EO_BLOCK_DIRECT 注释）。判据只用「X-EO-Auth 是否等于 EO_AUTH_KEY」，
+    #   与 get_client_ip() 的第 0 级同源，不引入第二套信任逻辑。
+    # ⚠️ 注册在最后（最晚执行）：不抢先于任何既有安全闸门，避免改变现有拦截顺序。
+    # ⚠️ 放行清单刻意保守：ACME 证书续期（/.well-known/）与健康检查（/api/health）
+    #    必须能直连，否则证书过期或监控告警会把站拖死。
+    # ⚠️ 开关**每请求读一次 config**（与 enforce_twofa 读 flag_bool 同 pattern）：
+    #    不在注册时判，否则改配置必须重启才生效，也没法在测试里验证。
+    _EO_ALLOW = ("/.well-known/", "/api/health")
+
+    @app.before_request
+    def enforce_edgeone_only():
+        if not app.config.get("EO_BLOCK_DIRECT"):
+            return None
+        if request.method == "OPTIONS":
+            return None
+        key = (app.config.get("EO_AUTH_KEY") or "").strip()
+        if not key:
+            # 没配密钥就不拦：宁可少一层加固，也不能把自己关在门外
+            return None
+        if request.headers.get("X-EO-Auth", "") == key:
+            return None
+        path = request.path or "/"
+        if path.startswith(_EO_ALLOW):
+            return None
+        if path.startswith("/api/"):
+            return jsonify({"error": "direct_origin_access_forbidden"}), 403
+        return ("Forbidden: direct origin access is not allowed", 403)
+
 def _bootstrap_database(app, migrate_only):
     """首次运行自举：建缺失的表 → 播种勋章 → FTS → 默认设置 → 超管 → 插件。
 

@@ -525,7 +525,43 @@ stop_backend() {
   fi
 }
 
-# ===== 启动后端（setsid+nohup+exec 彻底脱离脚本会话；启动后查日志致命错误）=====
+# ===== 同步宝塔面板的 PID 记录（v4.8.5 新增）=====
+# 背景（v4.8.5 实测踩坑）：宝塔 Python 项目的启停**只认一个文件**——
+#   /www/server/python_project/vhost/pids/<项目名>.pid
+# 面板读它拿到 master pid，再用 psutil 取 master+children 去停。
+# 而本脚本用 setsid 自己拉起 gunicorn，那个文件从没被更新 → 面板「重启」时：
+#   ① 停：读到的 pid 已是死进程 → 杀不到真实的 gunicorn；
+#   ② 起：新 gunicorn 看到 gunicorn_conf.py 的 pidfile 里老 master 还活着 →
+#          **拒绝启动**（"Error: Already running on PID xxx"）→ 面板报「重启失败」，
+#         项目在面板里显示异常，站长无法用面板启停。
+# ⚠️ 面板有一个「按命令行兜底」的自愈逻辑，但它要求**唯一匹配**；gunicorn 的
+#   master 与 N 个 worker 命令行完全相同，会匹配到 N+1 个 → 兜底失效（实测）。
+#   所以必须由本脚本显式把真实 master pid 写进去。
+sync_panel_pid() {
+  local panel_dir="/www/server/python_project/vhost/pids"
+  local panel_file="$panel_dir/${PROJECT_NAME}.pid"
+  [ -d "$panel_dir" ] || { log "   ℹ️ 无宝塔 pids 目录（$panel_dir），跳过面板 PID 同步"; return 0; }
+  local master=""
+  # 优先用 gunicorn 自己写的 pidfile（最权威）；其缺失时用 pgrep 兜底
+  if [ -f "$APP_DIR/gunicorn.pid" ]; then
+    master=$(tr -d '[:space:]' < "$APP_DIR/gunicorn.pid" 2>/dev/null | head -1)
+    case "$master" in ''|*[!0-9]*) master="" ;; esac
+  fi
+  if [ -z "$master" ]; then
+    master=$(pgrep -f "gunicorn.*$APP_DIR" 2>/dev/null | head -1 || true)
+  fi
+  if [ -z "$master" ]; then
+    log "   ⚠️ 未找到 gunicorn master pid，跳过面板 PID 同步（面板可能仍显示异常）"
+    return 0
+  fi
+  if printf '%s' "$master" > "$panel_file" 2>/dev/null; then
+    log "   ✅ 已同步宝塔面板 PID（$panel_file = $master）—— 现在可在面板停止/启动本项目"
+  else
+    log "   ⚠️ 写入 $panel_file 失败（权限？），面板可能仍无法识别本项目"
+  fi
+}
+
+# ===== 启动后端（setsid -f 彻底脱离会话；启动后查日志致命错误）=====
 start_backend() {
   if [ -z "$GUNICORN_BIN" ] || [ -z "$GUNICORN_CONF" ] || [ ! -f "$GUNICORN_CONF" ]; then
     log "   ⚠️ 缺少可用的 gunicorn 启动信息（bin=${GUNICORN_BIN:-空} conf=${GUNICORN_CONF:-空}）。"
@@ -545,8 +581,15 @@ start_backend() {
     *) venv_bin="${GUNICORN_BIN%/*}" ;;
   esac
   local sd_prefix=""
-  command -v setsid >/dev/null 2>&1 && sd_prefix="setsid"
-  log "   启动后端：${bin_args[*]} -c $GUNICORN_CONF app:app（setsid 脱离会话）"
+  # v4.8.5：**必须带 -f/--fork**。不带 -f 时，若调用方不是进程组组长，setsid 会直接
+  #   setsid()+exec，子进程的父进程**仍是调用方** → 留下一个「停在 do_wait 等 gunicorn」
+  #   的壳（实测：update.sh 自己就因此变成 ppid=1 的僵尸，每次部署都产生一个，
+  #   还得靠三查或人工去杀）。-f 会先 fork、父进程立即退出，gunicorn 直接被 init 接管。
+  #   老版本 util-linux 没有 -f 时退化为裸 setsid（行为同旧版，至少不更差）。
+  if command -v setsid >/dev/null 2>&1; then
+    if setsid --fork true >/dev/null 2>&1; then sd_prefix="setsid -f"; else sd_prefix="setsid"; fi
+  fi
+  log "   启动后端：${bin_args[*]} -c $GUNICORN_CONF app:app（${sd_prefix:-直接} 脱离会话）"
   # v3.17.2 修复：启动前加载宝塔项目 env 文件（SECRET_KEY / ADMIN_PASSWORD 等），
   # 否则 create_app 会按安全护栏拒绝启动（"缺少环境变量 SECRET_KEY"）。
   local bt_env="/www/server/python_project/vhost/env/${PROJECT_NAME}.env"
@@ -572,6 +615,9 @@ start_backend() {
     return 1
   fi
   log "   ✅ 后端进程已确认启动（gunicorn 运行中，日志无致命错误）。"
+  # v4.8.5：把真实 master pid 同步给宝塔面板，否则面板「重启」永远失败
+  #   （停不掉真实进程 + 新 gunicorn 被 pidfile 防重入拒绝），站长也无法用面板启停。
+  sync_panel_pid
   return 0
 }
 

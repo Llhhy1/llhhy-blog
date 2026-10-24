@@ -91,10 +91,63 @@ def _is_trusted_proxy(ip, trusted):
     return not a.is_global
 
 
+# ===== EdgeOne 真实客户端 IP 还原（v4.8.5）=====
+# 站点套了腾讯 EdgeOne 后，源站 TCP 对端 = EO 回源节点；Nginx 的
+# $proxy_add_x_forwarded_for 又会把节点 IP 追加到 XFF 末尾，于是「取 XFF 最右端」
+# 拿到的仍是节点 IP（实测线上 visit_log TOP IP 全是 223.74.x.x，单 IP 426 次）。
+#
+# 解法（两路，按优先级）：
+#   ① **EdgeOne 内置头** `EO-Client-IP` —— 控制台「站点加速 → 回源配置 →
+#      客户端 IP 头部」打开后，EO 自动带上，**不需要规则引擎、不需要猜变量名**。
+#   ② 共享密钥头 `X-EO-Auth`（需 EdgeOne 规则引擎支持自定义回源头）——
+#      公网攻击者能伪造 ① 的头，但猜不到这个密钥；密钥不匹配就整个分支不生效。
+#
+# ⚠️ 安全含义（重要）：只开 ① 而没配 ② 时，`EO-Client-IP` 是可被直连源站者伪造的
+#   （谁都能给自己的请求加这个头）。此时本函数仍会采纳它 —— 换取统计准确性，
+#   代价是限流可被轮换假 IP 绕过。若在意，见 app.py 的 EO_BLOCK_DIRECT
+#   （拒绝直连源站）或让 Nginx 只对 EO 回源段透传该头。
+EO_CLIENT_IP_HEADERS = ("EO-Client-IP", "X-EO-Client-IP")
+EO_AUTH_HEADER = "X-EO-Auth"
+
+
+def _eo_auth_key():
+    """取 EdgeOne 共享密钥（部署侧机密）。空 = 未启用 EO 还原。"""
+    from flask import current_app
+    try:
+        return (current_app.config.get("EO_AUTH_KEY") or "").strip()
+    except Exception:  # noqa: BLE001  无 app 上下文（如后台脚本）按未启用处理
+        return ""
+
+
+def _clean_ip(raw):
+    """把头里取到的值归一成合法 IP；不合法返回 ""（严防脏值进库/进日志）。
+
+    兼容 "1.2.3.4" / "1.2.3.4:5678" / "[2001:db8::1]:443" / "2001:db8::1"。
+    """
+    if not raw:
+        return ""
+    s = str(raw).strip()
+    if not s:
+        return ""
+    if s.startswith("["):                       # [IPv6] 或 [IPv6]:port
+        s = s[1:].split("]", 1)[0]
+    elif s.count(":") == 1 and "." in s:        # IPv4:port（IPv6 冒号数 >1，不误伤）
+        s = s.split(":", 1)[0]
+    try:
+        return str(ipaddress.ip_address(s))
+    except Exception:
+        return ""
+
+
 def get_client_ip():
     """取客户端真实 IP（服务端统一收口，杜绝伪造 XFF 绕过限流/埋点/属地）。
 
-    安全模型：
+    安全模型（v4.8.5 起分三级，优先级从高到低）：
+    0. **EdgeOne 真实 IP 头**（`EO-Client-IP`，EdgeOne 内置，控制台开关打开即有）：
+       - 配了 `EO_AUTH_KEY` 时，还要求 `X-EO-Auth` 完全匹配才采纳 —— 公网攻击者
+         能伪造前者但猜不到后者，**这一级不可伪造**；
+       - 没配密钥时也采纳内置头（换取统计准确性），但此时直连源站者可伪造该头，
+         限流可被轮换假 IP 绕过 —— 风险与取舍见模块顶部注释。
     1. X-Forwarded-For 仅在「TCP 直连对端 remote_addr 是可信代理」时才可被采纳；
        公网直连的请求一律忽略 XFF，直接使用不可伪造的 remote_addr——
        攻击者即便伪造任意公网 XFF 也会被丢弃，无法轮换 IP 绕过限流。
@@ -105,6 +158,16 @@ def get_client_ip():
     remote = request.remote_addr or ""
     if not remote:
         return ""
+    # 0) EdgeOne 真实 IP 头（EO-Client-IP 为 EdgeOne 内置；X-EO-Client-IP 为备选自定义名）
+    #    安全门禁只由密钥提供：配了 EO_AUTH_KEY 就要求 X-EO-Auth 完全匹配（不可伪造）；
+    #    没配密钥时无条件采纳 —— 两个头在无密钥时**同样可被直连源站者伪造**，
+    #    区别只在「哪个是 EdgeOne 真会发的」。此处选择保统计准确性，风险见顶部注释。
+    eo_key = _eo_auth_key()
+    if (not eo_key) or request.headers.get(EO_AUTH_HEADER, "") == eo_key:
+        for _h in EO_CLIENT_IP_HEADERS:
+            eo_ip = _clean_ip(request.headers.get(_h, ""))
+            if eo_ip:
+                return eo_ip
     cfg = ""
     try:
         cfg = current_app.config.get("TRUSTED_PROXIES", "")

@@ -2298,3 +2298,50 @@ v4.8.3 上线后，三查在真机测试中**自动清掉了 v4.8.3 部署自身
 （`ppid=1` + `do_wait` + 0 个下载文件），且该僵尸是 gunicorn master 的父进程 ——
 杀后 master 被 init 接管（ppid 1→1）、4 worker 完整、端口与公网 health 全程正常。
 **这是「杀父不杀子、服务零影响」判据的实证。**
+
+## 第一百四十一轮（R141）· v4.8.5 EdgeOne 真实 IP 还原 + update.sh 面板同步
+
+### 141.1 审计范围
+
+- `myblog/utils/net.py`：`get_client_ip()` 新增第 0 级 EO 分支；新增 `_clean_ip()`。
+- `myblog/config.py`：新增 `EO_AUTH_KEY` / `EO_BLOCK_DIRECT`。
+- `myblog/app.py`：新增 `enforce_edgeone_only()` 钩子。
+- `update.sh`：新增 `sync_panel_pid()`；`setsid` → `setsid -f`。
+
+### 141.2 逐维结论
+
+- **IP 伪造（核心，重点审）**：`EO-Client-IP` 是**客户端可控头**，直连源站者可任意伪造。
+  收口规则：
+  - 配了 `EO_AUTH_KEY` 时，**必须** `X-EO-Auth` 完全相等才采纳（用 `==` 全等比较，
+    非前缀/包含匹配；空密钥视为未配置）；
+  - 未配密钥时仍采纳该头 —— 这是**刻意的可用性取舍**（换统计准确性），
+    代价是限流可被轮换假 IP 绕过。已在代码注释、CHANGELOG、部署文档三处显式记录。
+  - 采纳前必须过 `_clean_ip()`（`ipaddress.ip_address` 校验 + 去端口/去方括号），
+    非法值一律拒绝并继续走后续逻辑 —— 严防脏值进 `visit_log.ip` / 审计日志 / 限流 key。
+- **越权**：`enforce_edgeone_only()` 只做「有无密钥头」判定，不涉及身份；
+  放行清单 `/.well-known/`（ACME）、`/api/health`（健康检查）、OPTIONS（CORS 预检）。
+  **默认关闭**（`EO_BLOCK_DIRECT` 默认 false），且未配 `EO_AUTH_KEY` 时该钩子自动失效。
+- **SSRF**：无新增外呼。
+- **CSRF**：无新增写接口。
+- **密钥管理**：`EO_AUTH_KEY` 只从环境变量读，**不在仓库/前端/文档中出现真实值**；
+  部署文档用占位符并说明「为何不放真实密钥」。
+- **`update.sh` 的 `sync_panel_pid()`**：新增一次**文件写入**（面板 pid 文件）。
+  写入内容是本脚本刚启动的 gunicorn master pid（来自 `gunicorn.pid` 或 pgrep），
+  非用户输入；失败仅告警不阻断。`setsid -f` 不改变权限模型，只改变进程父子关系。
+
+### 141.3 已知残留风险（如实记录）
+
+1. **未配密钥时 IP 可被伪造**（上述取舍）。缓解：配 `X-EO-Auth`，或开 `EO_BLOCK_DIRECT`，
+   或让 Nginx 只对 EO 回源段透传该头（备选方案 C，未实现）。
+2. **`EO_BLOCK_DIRECT` 有故障面**：EO 侧漏配规则即全站 403，故默认关闭。
+3. **EdgeOne 回源段会变**：若将来改用 IP 段白名单方案需维护（腾讯提供
+   `https://api.edgeone.ai/ips` 可程序化获取）。
+
+### 141.4 测试与变异验证
+
+`tests/test_edgeone_client_ip.py` 28 项，覆盖：密钥匹配/不匹配/缺失/空白/前缀近似、
+内置头与自定义头、无密钥取舍、向后兼容（可信代理 XFF、公网直连忽略 XFF）、
+脏值归一（IPv4 带端口 / IPv6 带方括号 / 裸 IPv6 / 非法值 / 逗号脏值）、
+`EO_BLOCK_DIRECT` 五种场景。
+三处变异验证均实测变红：① 不校验密钥 → 3 条伪造测试红；
+② 不校验 IP 合法性 → 脏值测试红；③ EO 分支降到 XFF 之后 → 优先级测试红。

@@ -12,7 +12,7 @@ os.makedirs(DATA_DIR, exist_ok=True)
 
 # 应用版本号：与 GitHub Release 标签保持一致（vX.Y.Z）。
 # 后台侧边栏左下角会显示该版本，用于确认服务器安装的代码是否为最新。
-APP_VERSION = "4.8.4"
+APP_VERSION = "4.8.5"
 
 
 class Config:
@@ -90,6 +90,28 @@ class Config:
     # 调用方需在 Header 带 X-Deploy-Token 或在 URL 带 ?token=，与本地配置的值做
     # 恒定时间比较（hmac.compare_digest），避免时序侧信道。未配置则接口返回 403。
     WH_DEPLOY_SECRET = os.environ.get("WH_DEPLOY_SECRET")
+
+    # ===== EdgeOne 真实客户端 IP 还原（v4.8.5）=====
+    # 背景：站点套了腾讯 EdgeOne 后，源站 TCP 对端变成 EO 回源节点，且 Nginx 的
+    #   $proxy_add_x_forwarded_for 会把节点 IP 追加到 XFF 末尾 —— 现有
+    #   get_client_ip() 取「XFF 最右端」拿到的仍是节点 IP。实测线上 visit_log
+    #   TOP IP 全是 223.74.x.x / 116.16.x.x（腾讯回源段），单 IP 426 次访问，
+    #   访客记录/在线统计/限流全部按节点合并计数，统计失真。
+    # 解法：EdgeOne 回源时带两个自定义头，密钥只有站主与 EdgeOne 知道：
+    #   X-EO-Client-IP  客户端真实 IP
+    #   X-EO-Auth       共享密钥（防伪造：公网攻击者猜不到）
+    # 只有 X-EO-Auth 与本地配置**完全一致**时才采纳 X-EO-Client-IP。
+    #
+    # ⚠️ EO_AUTH_KEY 是部署侧机密：**不要写进仓库/前端代码/任何公开位置**，
+    #    只在宝塔「项目环境变量」里配（与 SECRET_KEY 同一处）。
+    # 留空 = 不启用 EO 还原，get_client_ip() 走原有「可信代理 + XFF」逻辑（零风险）。
+    EO_AUTH_KEY = os.environ.get("EO_AUTH_KEY", "")
+
+    # 可选加固：拒绝绕过 CDN 直连源站（无正确 X-EO-Auth 的请求 → 403）。
+    # ⚠️ **默认关闭**，且这是有故障面的开关：一旦 EdgeOne 侧漏配规则、头被 strip、
+    #    或某类回源没带头，全站会 403。确认 EO 配置无误后再显式设 true。
+    #    配了 EO_AUTH_KEY 才会拦；同时放行 ACME（/.well-known/）与 /api/health。
+    EO_BLOCK_DIRECT = os.environ.get("EO_BLOCK_DIRECT", "false").lower() == "true"
 
     # ===== 新文章推送通知（D2 · 运营分发）=====
     # 以下均为可选；不配置则对应渠道自动跳过，且所有异常静默处理，不影响发文章主流程。

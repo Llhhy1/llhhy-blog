@@ -418,7 +418,7 @@ map $http_user_agent $seo_shell {
     # 同时它让「真人被误判」时后端能 302 回 /post/<slug> 而不会成环。
     location /post/ {
         if ($seo_shell) { rewrite ^/post/([^/?#]+)/?$ /api/og/post/$1?seo=1 last; }
-        try_files $uri $uri/ /index.html;
+        try_files $uri $uri/ @spa_nocache;
     }
 
     # v4.10.0：列表类路径也要走服务端壳页。
@@ -429,9 +429,26 @@ map $http_user_agent $seo_shell {
     # 不认识的路径一律 404 + noindex（绝不兜底成通用页）。
     location ~ ^/(archive|about|links|(category|tag|series)/[^/]+)/?$ {
         if ($seo_shell) { rewrite ^/(.*[^/])/?$ /api/og/page/$1?seo=1 last; }
-        try_files $uri $uri/ /index.html;
+        try_files $uri $uri/ @spa_nocache;
+    }
+
+    # ⚠️ v4.10.1 必须有这个 named location：让「真人版」也不许被缓存。
+    # 为什么两边都要 no-store：壳页（爬虫版）在 v4.10.1 已是 no-store，
+    # 但若 SPA 版（真人版）仍可缓存，CDN 就会把 SPA 存下来、**爬虫也拿到 SPA**
+    # —— 列表页 SEO 直接白做（v4.10.0 线上实测：真人访问一次 /archive 之后，
+    #    Baiduspider 拿到的就是 app=1 的空壳）。反向同理：壳页被缓存则真人看到壳页。
+    # 根因是「同一个 URL 有两种内容」，而 Vary: User-Agent 只是建议 ——
+    # EdgeOne 实测不按它分桶。所以这 6 类路径两个版本一律不缓存，每次回源由
+    # nginx 按 UA 分流；代价仅是静态 index.html 回源（1.9KB，不经 gunicorn）。
+    location @spa_nocache {
+        add_header Cache-Control "no-store" always;
+        rewrite ^ /index.html break;
     }
 ```
+
+> ⚠️ **`location /post/` 也必须用 `@spa_nocache`**（文章页是更早就存在的「同 URL 两态」场景：
+> 壳页给爬虫、SPA 给真人）。它此前一直是 `try_files $uri $uri/ /index.html;` —— 靠「真人流量
+> 反复刷新缓存」掩盖了窗口期，v4.10.1 起与列表页一起改成不缓存。
 
 > ⚠️ 上面这段是**正则 location**，优先级高于普通前缀 `location /`，所以能抢在 SPA 兜底之前生效；
 > 但它**不会**压过已有的 `location ^~ /api/og/`（`^~` 一旦命中即停止正则匹配），

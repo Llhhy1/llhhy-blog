@@ -39,6 +39,22 @@
 
 ---
 
+## R127 · v4.8.7 发版安全审查（访客统计页数据表 CSS 打磨 · 无安全面）
+
+**范围**：`templates/admin/stats.html` 仅 `<style>` 扩展（数据表 `.stats-table` 美化 + 环比涨跌徽章 + 暗色适配）。**无任何 Python / 路由 / JS 逻辑变更**，前端零构建（纯 Jinja/CSS）。
+
+### 127.1 安全结论
+
+- **无新增攻击面**：改动仅为 CSS 选择器与颜色，不引入 HTML 属性、不渲染用户输入、不改 DOM 结构（仅给「区间访客数据」表加 `metrics` 类、数值列右对齐）。
+- **作用域隔离**：全部规则限定 `.stats-page`，不影响诊断页等其它后台 `.stats-table`（已确认 `admin.css` 诊断页样式独立）。
+- **无注入 / XSS / SSRF / 越权面**：与 v4.8.6 一致，本次零新增。
+
+### 127.2 测试
+
+复用 `tests/test_stats_reset_searches.py` 渲染用例（5 passed），确认模板仍可正常渲染、未引入 Jinja 错误。完整套件 **1064 passed**（v4.8.6）。
+
+---
+
 ## R101 · v3.25.3 发版安全审查（SSL 证书到期监控）
 
 **范围**：新增 `cert_watch.py`、`diagnostics.py`（+`check_certificate`）、

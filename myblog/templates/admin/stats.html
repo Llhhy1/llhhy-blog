@@ -72,6 +72,27 @@
 /* 表格行 hover */
 .stats-page .rank-table tbody tr{transition:background .12s ease;}
 .stats-page .rank-table tbody tr:hover td{background:#f5f8ff;background:color-mix(in srgb,var(--accent,#1a73e8),#fff 94%);}
+/* 数据表格（区间访客数据 / 热门路径 / 属地 / 来源 / 环比 / 来源渠道 TOP）统一美化 */
+.stats-page .stats-table{width:100%;border-collapse:collapse;font-size:14px;}
+.stats-page .stats-table th{text-align:left;font-size:12px;font-weight:600;letter-spacing:.3px;
+  color:var(--muted,#8a93a0);padding:8px 10px;border-bottom:2px solid var(--border,#ececec);white-space:nowrap;}
+.stats-page .stats-table td{padding:9px 10px;border-bottom:1px solid var(--border,#f0f1f3);
+  vertical-align:middle;color:var(--text,#333);}
+.stats-page .stats-table tbody tr:last-child td{border-bottom:none;}
+.stats-page .stats-table tbody tr{transition:background .12s ease;}
+.stats-page .stats-table tbody tr:hover td{background:color-mix(in srgb,var(--accent,#1a73e8),#fff 94%);}
+/* 数值列：右对齐 + 等宽数字 + 强调色 */
+.stats-page .stats-table th:last-child{text-align:right;}
+.stats-page .stats-table td:last-child{text-align:right;font-variant-numeric:tabular-nums;
+  font-weight:700;color:var(--accent,#1a73e8);}
+/* 区间访客数据：指标数值放大渐变突出 */
+.stats-page .stats-table.metrics td:last-child{font-size:18px;font-weight:800;
+  background:linear-gradient(120deg,var(--accent,#1a73e8),#6aa9ff);-webkit-background-clip:text;
+  background-clip:text;color:transparent;}
+/* 环比涨跌徽章（此前全局未定义，故裸文字） */
+.stats-page .tag-up{background:rgba(72,187,120,.15);color:#2f9e63;padding:2px 9px;border-radius:8px;font-weight:700;font-size:12px;}
+.stats-page .tag-down{background:rgba(245,101,101,.15);color:#e53e3e;padding:2px 9px;border-radius:8px;font-weight:700;font-size:12px;}
+.stats-page .tag-flat{background:rgba(160,174,192,.18);color:#718096;padding:2px 9px;border-radius:8px;font-weight:700;font-size:12px;}
 /* 区间切换按钮 */
 .stats-page .range-switch .btn{border-radius:999px;padding:5px 14px;}
 .stats-page .range-switch .btn-active{background:linear-gradient(120deg,var(--accent,#1a73e8),#6aa9ff);
@@ -86,6 +107,14 @@
 [data-theme="dark"] .stats-page .range-switch .btn-active{background:linear-gradient(120deg,var(--accent,#1a73e8),#5b9dff);}
 [data-theme="dark"] .stats-page .rank-table tbody tr:hover td{background:rgba(255,255,255,.05);}
 [data-theme="dark"] .stats-page .stats-card::before{opacity:.75;}
+[data-theme="dark"] .stats-page .stats-table th{color:#8b94a3;border-color:rgba(255,255,255,.12);}
+[data-theme="dark"] .stats-page .stats-table td{color:#d6dae0;border-color:rgba(255,255,255,.08);}
+[data-theme="dark"] .stats-page .stats-table td:last-child{color:#8ec5ff;}
+[data-theme="dark"] .stats-page .stats-table.metrics td:last-child{background:linear-gradient(120deg,#8ec5ff,#5b9dff);
+  -webkit-background-clip:text;background-clip:text;color:transparent;}
+[data-theme="dark"] .stats-page .tag-up{background:rgba(72,187,120,.2);color:#63d99a;}
+[data-theme="dark"] .stats-page .tag-down{background:rgba(245,101,101,.2);color:#ff8080;}
+[data-theme="dark"] .stats-page .tag-flat{background:rgba(255,255,255,.1);color:#aeb6c2;}
   </style>
   <h1 class="page-title">📊 访问统计
     <span class="stats-updated">更新于 {{ summary.updated_at }}</span>
@@ -103,7 +132,7 @@
       统计区间：<b>{{ range_stats.start }} ~ {{ range_stats.end }}</b>（{{ range_stats.days }} 天）·
       <a href="{{ url_for('admin.visit_logs', range=cur_range) }}">→ 查看该区间访客日志 / 按 IP 拉黑</a>
     </p>
-    <table class="stats-table">
+    <table class="stats-table metrics">
       <thead><tr><th>指标</th><th>数值</th></tr></thead>
       <tbody>
         <tr><td>访问量 PV</td><td>{{ range_stats.pv }}</td></tr>

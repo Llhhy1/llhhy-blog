@@ -5,6 +5,44 @@
 > v3.20.0 ~ v3.21.2 → `docs/archive/CHANGELOG_v3.20.0-v3.21.2.md`（v4.8.5 因体积守卫再次触发，按「新增轮次写进主文件、历史段落才归档」搬出）。
 > 本文件从 v3.20.0 起。**归档不是删除** —— 查旧版本变更细节时去上述文件。
 
+## v4.8.6（2026-10-24）
+
+三件事：**历史脏数据清理（数据操作，已在线上完成）+ 后台「常搜词汇」重置按钮 + 访客统计页 UI 美化**。
+
+### 一、历史 `visit_log` 脏数据清理（线上数据操作，本次发版前已完成）
+
+**背景**：站点套 EdgeOne 之前（v4.8.5 才接真实访客 IP 还原），`visit_log` 长期被 CDN 回源节点 IP 污染。发版前已整体备份并清空：
+
+- 备份：`/www/wwwroot/myblog/data/blog.db.bak_before_visitlog_clear_20261024_172109`（5.1MB，已 `chown www:www`）。
+- 清空前 **4722 行**（created_at 2026-08-25 ~ 2026-10-24）→ 清空后 0 行。
+- **`search_log` 未动**（仅清访问日志，热搜词保留）。
+- 清空走 `PRAGMA busy_timeout=60000` + `BEGIN IMMEDIATE` + 重试，规避 gunicorn 持 WAL 写锁导致的 `database table is locked`。
+
+> 为什么不按「IP 段」删：用户的真实设备 IP（`116.16.142.74`）也落在 `116.16.x.x` 段内，
+> 按段删会误杀真实记录。故采用「整体备份 + 整体清空」而非前缀过滤。
+
+### 二、后台「常搜词汇」重置按钮（超管专属）
+
+`myblog/admin/stats.py` 新增路由 `POST /admin/stats/reset-searches`：
+
+- 权限：`@login_required` + `@super_required`（与既有 `/admin/audit-logs/clear` 同网关）。
+- 防护：CSRF 由 `app.py` 全局 `before_request` 钩子统一校验（表单携带 `csrf_token`）；无 token 直接 403，且**不清数据**（`tests/test_stats_reset_searches.py` 正反双向覆盖）。
+- 行为：`SearchLog.query.delete()` 全清空 → `log_audit("clear","search_log",...)` 落审计 → flash 提示 → 跳回 stats 页。
+- 模板：`templates/admin/stats.html` 的「常搜词汇」卡片加 `card-head` 布局 + 重置按钮（带 `onsubmit` 二次确认）。
+
+### 三、访客统计页 UI 美化
+
+`templates/admin/stats.html` 大幅扩展 `<style>`，全部限定在 `.stats-page` 作用域（不影响其它后台页），并兼容明暗主题：
+
+- 卡片柔和阴影 + hover 上浮 + 顶部渐变描边。
+- KPI 大号渐变数字、横向条形图圆角发光平滑动画、24h 柱状图 hover 高亮。
+- 常搜标签胶囊化 hover 上浮、区间切换圆角高亮 active、表格行 hover 高亮。
+- 修复 `.card-head h3` 双下边框（提升选择器特异性到 `.stats-page .card-head h3`）。
+
+### 安全审计
+
+本轮新增 5 条测试（`tests/test_stats_reset_searches.py`），覆盖匿名拦截 / 普通管理员 403 / 超管清空 + 审计落库 / 缺 CSRF 拒删 / 页面渲染出按钮。完整套件 **1064 passed**。
+
 ## v4.8.5（2026-10-24）
 
 两件事：**EdgeOne 真实访客 IP 还原**（统计失真的根治）+ **`update.sh` 不再绕开宝塔面板**。

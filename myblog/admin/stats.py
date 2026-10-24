@@ -2,7 +2,7 @@
 # 自动切片自 admin.py（v3.11.0）：原样搬运，路由/行为不变。
 from ._helpers import _audit_log_query_with_filters, _current_user_or_none, admin_required, log_audit, login_required, super_required, admin_bp     # 同一蓝图对象
 from flask import flash, redirect, render_template, request, send_file, url_for
-from models import AuditLog, Category, Comment, Post, db
+from models import AuditLog, Category, Comment, Post, SearchLog, db
 from utils import fmt_bj
 from _time import utcnow
 import bot_guard
@@ -251,3 +251,21 @@ def export_visit_stats():
         mimetype="text/csv; charset=utf-8",
         headers={"Content-Disposition": 'attachment; filename="%s"' % fname},
     )
+
+
+@admin_bp.route("/stats/reset-searches", methods=["POST"])
+@login_required
+@super_required
+def reset_hot_searches():
+    """重置常搜词汇榜：清空 SearchLog（谨慎，不可逆）。
+
+    CSRF 由 app.py 的全局 before_request 钩子统一校验（表单携带 csrf_token），
+    此处无需重复校验，与 /admin/audit-logs/clear 保持一致。
+    """
+    deleted = SearchLog.query.delete()
+    db.session.commit()
+    log_audit("clear", "search_log", None,
+              f"重置常搜词汇榜，清空 {deleted} 条历史搜索记录",
+              user=_current_user_or_none())
+    flash(f"已重置常搜词汇榜，清空 {deleted} 条历史搜索记录")
+    return redirect(url_for("admin.stats"))

@@ -6,6 +6,7 @@
 
 {% block title %}访问统计{% endblock %}
 {% block content %}
+  <div class="stats-page">
   <style>
 .tag{display:inline-block;padding:1px 8px;border-radius:10px;font-size:12px;line-height:1.6;}
 .tag-search{background:rgba(56,178,172,.15);color:#319795;}
@@ -16,6 +17,75 @@
 .stats-sub{color:var(--muted,#888);font-size:13px;margin:0 0 10px;}
 .range-switch{display:flex;flex-wrap:wrap;gap:6px;margin:2px 0 12px;}
 .range-switch .btn.btn-active{background:#4a5568;color:#fff;border-color:#4a5568;}
+
+/* ===== 访客统计页美化（作用域限定 .stats-page，不影响其他后台页） ===== */
+.stats-page{max-width:1180px;margin:0 auto;}
+.stats-page .page-title{display:flex;align-items:baseline;flex-wrap:wrap;padding-bottom:12px;
+  border-bottom:2px solid transparent;border-image:linear-gradient(90deg,var(--accent,#1a73e8),transparent) 1;}
+/* 卡片：柔和阴影 + hover 上浮 + 顶部渐变描边 */
+.stats-page .stats-card{position:relative;overflow:hidden;background:var(--surface,#fff);
+  border:1px solid var(--border,#ececec);border-radius:var(--theme-radius,12px);
+  box-shadow:0 1px 3px rgba(20,30,50,.04),0 6px 18px rgba(20,30,50,.05);
+  transition:transform .18s ease,box-shadow .18s ease;}
+.stats-page .stats-card::before{content:"";position:absolute;left:0;right:0;top:0;height:3px;
+  background:linear-gradient(90deg,var(--accent,#1a73e8),#8ec5ff);opacity:.9;}
+.stats-page .stats-card:hover{transform:translateY(-2px);box-shadow:0 4px 10px rgba(20,30,50,.06),0 14px 30px rgba(20,30,50,.10);}
+.stats-page .stats-card h3{font-size:15px;font-weight:700;color:var(--text,#222);letter-spacing:.2px;
+  padding-bottom:10px;margin-bottom:14px;border-bottom:1px solid var(--border,#eee);}
+/* 卡片标题右侧操作（重置按钮） */
+.card-head{display:flex;align-items:center;justify-content:space-between;gap:12px;
+  padding-bottom:10px;margin-bottom:14px;border-bottom:1px solid var(--border,#eee);}
+.stats-page .card-head h3{margin:0;padding:0;border:none;}
+.reset-form{margin:0;}
+.stats-reset-btn{font-size:12px;padding:4px 12px;border-radius:8px;cursor:pointer;
+  border:1px solid #f0b4b4;color:#d64545;background:#fff5f5;transition:all .15s ease;}
+.stats-reset-btn:hover{background:#ffe9e9;border-color:#e89090;}
+/* KPI 指标卡 */
+.stats-page .stat-cards{gap:16px;}
+.stats-page .stat-card{background:var(--surface,#fff);border:1px solid var(--border,#ececec);
+  border-radius:var(--theme-radius,12px);box-shadow:0 1px 3px rgba(20,30,50,.04),0 6px 18px rgba(20,30,50,.05);
+  padding:18px 18px 16px;}
+.stats-page .stat-card .stat-num{font-size:26px;font-weight:800;line-height:1.1;
+  background:linear-gradient(120deg,var(--accent,#1a73e8),#6aa9ff);-webkit-background-clip:text;
+  background-clip:text;color:transparent;}
+/* 横向条形图（区域/热读/Bot） */
+.stats-page .bar-track{height:10px;background:#eef1f5;background:color-mix(in srgb,var(--accent,#1a73e8),#f0f0f0 88%);
+  border-radius:999px;overflow:hidden;}
+.stats-page .bar-fill{height:100%;border-radius:999px;min-width:3px;
+  background:linear-gradient(90deg,#8ec5ff,var(--accent,#1a73e8));
+  box-shadow:0 0 6px rgba(26,115,232,.35);transition:width .5s ease;}
+.stats-page .bar-accent{background:linear-gradient(90deg,#ffd08a,#ff7a59);box-shadow:0 0 6px rgba(255,122,89,.4);}
+.stats-page .bar-bot{background:linear-gradient(90deg,#b794f6,#667eea);box-shadow:0 0 6px rgba(102,126,234,.4);}
+/* 24h 柱状图 */
+.stats-page .hour-bars{gap:4px;}
+.stats-page .hour-bar{width:100%;max-width:20px;min-height:3px;
+  background:linear-gradient(180deg,#9ec5ff,var(--accent,#1a73e8));border-radius:5px 5px 2px 2px;
+  transition:transform .15s ease,filter .15s ease;}
+.stats-page .hour-col:hover .hour-bar{transform:scaleY(1.06);filter:brightness(1.12);}
+/* 常搜词汇标签 */
+.stats-page .search-tag{background:#f3f7ff;background:color-mix(in srgb,var(--accent,#1a73e8),#f3f7ff 86%);
+  border:1px solid #dbe7fb;border-color:color-mix(in srgb,var(--accent,#1a73e8),#ffffff 70%);
+  border-radius:999px;padding:7px 14px;font-size:13px;transition:transform .15s ease,box-shadow .15s ease;}
+.stats-page .search-tag:hover{transform:translateY(-2px);box-shadow:0 4px 10px rgba(20,30,50,.08);}
+.stats-page .search-tag a{color:var(--text,#333);font-weight:600;}
+.stats-page .search-count{color:var(--accent,#1a73e8);font-weight:700;margin-left:6px;}
+/* 表格行 hover */
+.stats-page .rank-table tbody tr{transition:background .12s ease;}
+.stats-page .rank-table tbody tr:hover td{background:#f5f8ff;background:color-mix(in srgb,var(--accent,#1a73e8),#fff 94%);}
+/* 区间切换按钮 */
+.stats-page .range-switch .btn{border-radius:999px;padding:5px 14px;}
+.stats-page .range-switch .btn-active{background:linear-gradient(120deg,var(--accent,#1a73e8),#6aa9ff);
+  color:#fff;border-color:transparent;box-shadow:0 4px 12px rgba(26,115,232,.25);}
+/* 暗色主题适配 */
+[data-theme="dark"] .stats-page .stat-card .stat-num{background:linear-gradient(120deg,#8ec5ff,#5b9dff);
+  -webkit-background-clip:text;background-clip:text;color:transparent;}
+[data-theme="dark"] .stats-page .bar-track{background:rgba(255,255,255,.12);}
+[data-theme="dark"] .stats-page .search-tag{background:rgba(255,255,255,.08);border-color:rgba(255,255,255,.14);}
+[data-theme="dark"] .stats-page .search-tag a{color:#e6e8eb;}
+[data-theme="dark"] .stats-page .search-count{color:#8ec5ff;}
+[data-theme="dark"] .stats-page .range-switch .btn-active{background:linear-gradient(120deg,var(--accent,#1a73e8),#5b9dff);}
+[data-theme="dark"] .stats-page .rank-table tbody tr:hover td{background:rgba(255,255,255,.05);}
+[data-theme="dark"] .stats-page .stats-card::before{opacity:.75;}
   </style>
   <h1 class="page-title">📊 访问统计
     <span class="stats-updated">更新于 {{ summary.updated_at }}</span>
@@ -184,7 +254,14 @@
 
     <!-- 常搜词汇 -->
     <div class="stats-card">
-      <h3>🔍 常搜词汇</h3>
+      <div class="card-head">
+        <h3>🔍 常搜词汇</h3>
+        <form method="post" action="{{ url_for('admin.reset_hot_searches') }}" class="inline-form reset-form"
+              onsubmit="return confirm('确定重置常搜词汇榜？将清空全部历史搜索记录，此操作不可恢复。');">
+          {{ csrf_input() }}
+          <button type="submit" class="stats-reset-btn">重置</button>
+        </form>
+      </div>
       {% if summary.hot_searches %}
         <ul class="search-tags">
           {% for s in summary.hot_searches %}
@@ -312,4 +389,5 @@
   </div>
 
   <p class="stats-tip">数据来源：前端页面每次路由切换上报一次访问；区域属地由后台异步解析（缓存 30 天）。🤖 爬虫识别：会执行 JS 的主流搜索引擎 / AI 爬虫（如 Googlebot、Bingbot、GPTBot）在上报时会被标记；纯无头脚本（不执行 JS）不触发信标，故不计入。</p>
+  </div>
 {% endblock %}

@@ -4,6 +4,41 @@
 
 ---
 
+## R126 · v4.8.6 发版安全审查（后台「常搜词汇」重置按钮 · CWE-284 / CWE-352）
+
+**范围**：新增 `POST /admin/stats/reset-searches` 路由（`myblog/admin/stats.py`）、
+`templates/admin/stats.html` 重置按钮与 UI 美化。**前端零构建**（纯 Jinja/CSS，无 vite 产物变更）。
+
+### 126.1 八维核对
+
+| 维度 | 结论 |
+|---|---|
+| 认证 | `@login_required` 拦截匿名：`tests/test_stats_reset_searches.py::test_anon_cannot_reset_searches` 断言匿名 POST 被拒、库零删除 ✅ |
+| 授权 | `@super_required` 仅超管：普通管理员（`ROLE_ADMIN`）POST 返回 **403**，库零删除（`test_normal_admin_forbidden`）✅ |
+| CSRF | 全局 `before_request` 钩子对无 token 请求直接 403；**正反双向验证**——超管缺 token 既被拒、库也不删（`test_csrf_required_even_for_super`），证明守卫非空转 ✅ |
+| 注入 | `SearchLog.query.delete()` 走 ORM，无用户可控入参；SQLi 面为零 ✅ |
+| XSS | 不渲染任何用户输入；flash 文案为服务器生成的整数计数（`已重置…清空 N 条`），无反射/存储 XSS ✅ |
+| 审计 | `log_audit("clear","search_log",None,...)` 落审计表（action=clear / target=search_log），`test_super_admin_clears_searches` 断言审计行存在 ✅ |
+| 越权 | `target_id=None`、无横向越权路径；按钮仅超管可见（路由层已收口，模板无额外权限分支）✅ |
+| 可用性/误用 | 不可逆清空操作有三重闸门：超管 + CSRF + 客户端 `onsubmit` 二次确认；不提供批量/循环入口，无 DoS 面 ✅ |
+
+### 126.2 本功能最该防的失败模式：空守门员
+
+一个「重置」按钮最危险的失败方式是：**CSRF 校验形同虚设，任何人都能清空热搜榜**。
+专防设计：
+
+1. **全局钩子不豁免无会话用户** —— `app.py` 的 `before_request` 对缺失/无效 token 一律 403，
+   连游客都拦，杜绝「只验登录、不验 token」的常见漏 ✅
+2. **正反双向测试** —— 仅有「能拦」的用例会假绿（一个永远返回 None 的过滤器也能全绿），
+   故 `test_csrf_required_even_for_super` 用「超管 + 缺 token → 库不删」做反例，守卫失效必红 ✅
+
+### 126.3 测试覆盖
+
+新增 `tests/test_stats_reset_searches.py` 5 条：匿名拦截 / 普通管理员 403 / 超管清空+审计 / 缺 CSRF 拒删 / 页面渲染出按钮。
+完整套件 **1064 passed, 0 failed**（v4.8.6）。
+
+---
+
 ## R101 · v3.25.3 发版安全审查（SSL 证书到期监控）
 
 **范围**：新增 `cert_watch.py`、`diagnostics.py`（+`check_certificate`）、

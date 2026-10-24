@@ -26,19 +26,21 @@ import pytest
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ARCH = os.path.join(ROOT, "docs/archive")
 
-# (归档文件名, 主文件, 主文件里必须出现的指针片段, 归档件必须含的锚点)
+# (归档文件名, 主文件, 主文件里必须出现的指针片段, 归档件必须含的锚点, 主文件里不得再出现的特征串)
 PAIRS = [
     (
         "SECURITY_AUDIT_r01-r80.md",
         "myblog/SECURITY_AUDIT.md",
         "docs/archive/SECURITY_AUDIT_r01-r80.md",
         "## 第八十轮 R80",  # 归档件的最后一条历史（标题含中文轮次名）
+        None,
     ),
     (
         "CHANGELOG_v1-v3.18.5.md",
         "CHANGELOG.md",
         "docs/archive/CHANGELOG_v1-v3.18.5.md",
         "## v3.18.5",      # 归档件的最后一条旧版本
+        None,
     ),
     # v3.25.13 追加：主文件涨到 162 KB 触发体积守卫（上限 160 KB），
     # 按「新增轮次写进主文件、历史段落才归档」把 R81~R90 搬出来。
@@ -47,6 +49,7 @@ PAIRS = [
         "myblog/SECURITY_AUDIT.md",
         "docs/archive/SECURITY_AUDIT_r81-r90.md",
         "## R90 · 后台「🔍 收录」控制台",  # 归档件的最后一条（R90）
+        None,
     ),
     # v4.4.0 追加：加完 R122（移动端「内容全套」设计期审计）后主文件涨到 163 KB 再次触发
     # 体积守卫（上限 160 KB）。同一次「先写进主文件、撑满再把最老的十轮搬走」的循环。
@@ -55,6 +58,7 @@ PAIRS = [
         "myblog/SECURITY_AUDIT.md",
         "docs/archive/SECURITY_AUDIT_r91-r100.md",
         "## R100 · v3.25.2",  # 归档件的最后一条（R100）
+        None,
     ),
     # v4.7.0 追加：加完 v4.7.0（含四块长条目）后 CHANGELOG 主文件涨到 201 KB，
     # 再次触发体积守卫（上限 200 KB）。同一次「先写进主文件、撑满再把最老的一批搬走」的循环，
@@ -64,6 +68,7 @@ PAIRS = [
         "CHANGELOG.md",
         "docs/archive/CHANGELOG_v3.18.6-v3.19.2.md",
         "## v3.18.6",  # 归档件的最老一条（也是搬走的最后一条）
+        None,
     ),
     # v4.8.5 追加：加完 v4.8.5（EdgeOne 真实 IP 还原 + update.sh 面板同步）后
     # CHANGELOG 主文件涨到 205 KB，再次触发体积守卫（上限 200 KB）。
@@ -73,6 +78,19 @@ PAIRS = [
         "CHANGELOG.md",
         "docs/archive/CHANGELOG_v3.20.0-v3.21.2.md",
         "## v3.20.0",  # 归档件的最老一条（也是搬走的最后一条）
+        None,
+    ),
+    # v4.8.8 追加：**ROADMAP.md 瘦身**（1282 行 → 68 行，-95%）。
+    # 原「三、分期计划」～「七十三、v3.17.4~9」整段（逐版本迭代记录 + v3.25.x
+    # 决策/取证详志）与 CHANGELOG 高度重复，搬到归档件；主文件只留
+    # 「已做 / 不做」两桶 + 旧章节索引（保住代码与文档里已有的 `ROADMAP §x` 引用）。
+    # stale 特征串取**版本段标题** —— 主文件里出现它即说明「归档只是复制了一份」。
+    (
+        "ROADMAP_archive.md",
+        "ROADMAP.md",
+        "docs/archive/ROADMAP_archive.md",
+        "## 73. v3.17.4~9",   # 归档件的最后一段
+        "## 六、v2.6.x",      # 主文件不应再含逐版本迭代记录
     ),
 ]
 
@@ -88,8 +106,8 @@ def _read(*parts):
         return f.read()
 
 
-@pytest.mark.parametrize("arc,main,pointer,anchor", PAIRS)
-def test_归档件存在且有实质内容(arc, main, pointer, anchor):
+@pytest.mark.parametrize("arc,main,pointer,anchor,stale", PAIRS)
+def test_归档件存在且有实质内容(arc, main, pointer, anchor, stale):
     p = os.path.join(ARCH, arc)
     assert os.path.exists(p), f"归档件丢失：docs/archive/{arc}"
     text = _read("docs/archive", arc)
@@ -100,8 +118,8 @@ def test_归档件存在且有实质内容(arc, main, pointer, anchor):
     assert anchor in text, f"归档件缺末尾锚点 {anchor!r}，切分点可能错位"
 
 
-@pytest.mark.parametrize("arc,main,pointer,anchor", PAIRS)
-def test_主文件留了归档指针(arc, main, pointer, anchor):
+@pytest.mark.parametrize("arc,main,pointer,anchor,stale", PAIRS)
+def test_主文件留了归档指针(arc, main, pointer, anchor, stale):
     text = _read(*main.split("/"))
     assert pointer in text, (
         f"{main} 里找不到归档指针 {pointer!r} —— "
@@ -113,16 +131,22 @@ def test_主文件留了归档指针(arc, main, pointer, anchor):
     )
 
 
-@pytest.mark.parametrize("arc,main,pointer,anchor", PAIRS)
-def test_主文件不再含已归档内容(arc, main, pointer, anchor):
-    """反向守卫：切分必须真的生效。主文件里若还留着 R80 / v3.18.5，
+@pytest.mark.parametrize("arc,main,pointer,anchor,stale", PAIRS)
+def test_主文件不再含已归档内容(arc, main, pointer, anchor, stale):
+    """反向守卫：切分必须真的生效。主文件里若还留着 R80 / v3.18.5 / 版本段标题，
     说明归档只是「复制了一份」而不是「搬走了」，上下文一点没省。"""
     text = _read(*main.split("/"))
-    if arc.startswith("SECURITY_AUDIT"):
+    if stale:
+        # 每个归档对可自带特征串（如 ROADMAP 的「## 六、v2.6.x」版本段标题），
+        # 比通用正则更精确 —— ROADMAP 没有「第一轮/R50」那类轮次标题。
+        assert stale not in text, (
+            f"{main} 仍含已归档的历史段落（{stale!r}）—— 归档没有真正移出内容"
+        )
+    elif arc.startswith("SECURITY_AUDIT"):
         # R1~R80 的特征：最早的轮次标题
-        stale = re.search(r"^## (第一轮|四、|R1\b|R50\b)", text, re.M)
-        assert not stale, (
-            f"{main} 仍含已归档的历史段落（匹配到 {stale.group(0)!r}）—— "
+        hit = re.search(r"^## (第一轮|四、|R1\b|R50\b)", text, re.M)
+        assert not hit, (
+            f"{main} 仍含已归档的历史段落（匹配到 {hit.group(0)!r}）—— "
             "归档没有真正移出内容"
         )
     else:
@@ -143,7 +167,7 @@ def test_一次性快照已归档且原位不存在(name):
 def test_归档件带拆分说明():
     """归档件顶部必须写清「这是归档件、从哪拆来、去哪找近期」，
     否则半年后有人打开它会以为是当前文档。"""
-    for arc, _main, _pointer, _anchor in PAIRS:
+    for arc, _main, _pointer, _anchor, _stale in PAIRS:
         head = _read("docs/archive", arc)[:1200]
         assert "归档件" in head, f"{arc} 顶部没说明自己是归档件"
         assert "拆分" in head, f"{arc} 顶部没写拆分点"
@@ -168,7 +192,7 @@ def test_发版门禁不强迫改归档件():
     assert m, "check-staged.py 里找不到 DOCS 元组"
     docs = m.group(1)
 
-    for arc, _main, _pointer, _anchor in PAIRS:
+    for arc, _main, _pointer, _anchor, _stale in PAIRS:
         assert f"docs/archive/{arc}" not in docs, (
             f"DOCS 元组里仍有 docs/archive/{arc} —— 归档件是历史快照，"
             f"不该被要求每次发版都改（v3.25.1 已移除）"
@@ -185,7 +209,7 @@ def test_跨文档引用路径仍有效():
     - 本测试自身（它必须写出文件名才能断言）
     - ``docs/archive/`` 下的归档件（头部就要写「拆自我」）
     """
-    targets = {arc for arc, _m, _p, _a in PAIRS} | set(LOOSE)
+    targets = {arc for arc, _m, _p, _a, _s in PAIRS} | set(LOOSE)
     self_name = os.path.basename(__file__)
     bad = []
     for dirpath, dirnames, filenames in os.walk(ROOT):
@@ -223,7 +247,7 @@ def test_代码里的归档路径必须完整():
     v3.25.0 归档时 ``tools/review/check-staged.py`` 的 ``DOCS`` 元组就是这种引用
     —— 漏改它等于发版门禁对该归档件失效。
     """
-    targets = {arc for arc, _m, _p, _a in PAIRS} | set(LOOSE)
+    targets = {arc for arc, _m, _p, _a, _s in PAIRS} | set(LOOSE)
     self_name = os.path.basename(__file__)
     bad = []
     for dirpath, dirnames, filenames in os.walk(ROOT):

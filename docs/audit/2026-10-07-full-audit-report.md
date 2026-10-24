@@ -225,7 +225,7 @@ def _fetch_feed_bytes(url, timeout):
 | 4 | 登录限流仅按 IP、不按账号（CWE-307） | 分布式爆破的通用局限，属纵深防御范畴；`client_key()` 已用可信代理模型防 XFF 伪造轮换 |
 | 5 | `og_image.py` 封面路径穿越（需登录） | 需已登录用户；仅能读图片类文件，目标不含凭据文件；上游入口是后台表单 |
 | 6 | `_RENDER_VERSION` 靠纪律而非门禁 | 属「改白名单必须 bump」的流程风险，已在代码注释与 README 记录；建议后续加测试钉住 |
-| 7 | `notify.py` 的 URL 未来后台化后成 SSRF 出口 | **前瞻预警，非当前漏洞**。`ROADMAP.md:201,208` 计划把 `TELEGRAM_BOT_TOKEN` / `WECOM_WEBHOOK_URL` 做成后台可配——届时 `_post_json`（`notify.py:58`）会变成无防护出口，**必须先补 scheme + 私网过滤 + 禁重定向** |
+| 7 | `notify.py` 的 URL 未来后台化后成 SSRF 出口 | **前瞻预警，非当前漏洞**。`ROADMAP.md` 待办「`TELEGRAM_BOT_TOKEN` / `WECOM_WEBHOOK_URL` 进后台」计划把这两个变量做成后台可配——届时 `_post_json`（`notify.py:58`）会变成无防护出口，**必须先补 scheme + 私网过滤 + 禁重定向** |
 
 ---
 

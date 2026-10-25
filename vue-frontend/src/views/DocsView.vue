@@ -1,33 +1,41 @@
 <template>
   <div class="docs-container">
     <aside class="docs-sidebar">
-      <div class="sidebar-header">API 文档</div>
+      <div class="sidebar-header">
+        <span>API 文档</span>
+        <span class="sidebar-ver" :title="'当前运行版本，取自 GET /api/health'">{{ appVersion || '—' }}</span>
+      </div>
+
+      <!-- 文档内搜索：既匹配章节名，也匹配该节正文（端点路径 / 字段名）。
+           780 行文档 + 100 多个端点，纯靠翻侧栏找路径不现实。 -->
+      <div class="doc-search">
+        <input
+          v-model="query"
+          type="search"
+          class="doc-search-input"
+          placeholder="搜索端点 / 章节…"
+          aria-label="搜索文档内容"
+          @keydown.esc="query = ''"
+        />
+        <button v-if="query" type="button" class="doc-search-clear" aria-label="清空搜索" @click="query = ''">✕</button>
+      </div>
+
       <nav class="sidebar-nav">
-        <div class="nav-section">
-          <div class="nav-section-title">开始</div>
-          <a href="#common" class="nav-link" @click.prevent="scrollTo('common')">通用约定</a>
-          <a href="#auth" class="nav-link" @click.prevent="scrollTo('auth')">认证 Auth</a>
+        <div v-for="sec in visibleSections" :key="sec.title" class="nav-section">
+          <div class="nav-section-title">{{ sec.title }}</div>
+          <a
+            v-for="l in sec.links"
+            :key="l.id"
+            :href="'#' + l.id"
+            class="nav-link"
+            :class="{ active: activeId === l.id }"
+            @click.prevent="scrollTo(l.id)"
+          >{{ l.label }}</a>
         </div>
-        <div class="nav-section">
-          <div class="nav-section-title">数据接口</div>
-          <a href="#site" class="nav-link" @click.prevent="scrollTo('site')">站点 Site</a>
-          <a href="#posts" class="nav-link" @click.prevent="scrollTo('posts')">文章 Posts</a>
-          <a href="#stats" class="nav-link" @click.prevent="scrollTo('stats')">统计 Stats</a>
-          <a href="#social" class="nav-link" @click.prevent="scrollTo('social')">社交广场 Social</a>
-          <a href="#series" class="nav-link" @click.prevent="scrollTo('series')">专题 Series</a>
-          <a href="#guestbook" class="nav-link" @click.prevent="scrollTo('guestbook')">留言墙 Guestbook</a>
-          <a href="#subscribe" class="nav-link" @click.prevent="scrollTo('subscribe')">订阅 Subscribe</a>
-          <a href="#notifications" class="nav-link" @click.prevent="scrollTo('notifications')">通知 Notifications</a>
-          <a href="#system" class="nav-link" @click.prevent="scrollTo('system')">系统 System</a>
-        </div>
-        <div class="nav-section">
-          <div class="nav-section-title">页面与订阅源</div>
-          <a href="#pages" class="nav-link" @click.prevent="scrollTo('pages')">SSR 页面 / 源</a>
-        </div>
-        <div class="nav-section">
-          <div class="nav-section-title">二次开发</div>
-          <a href="#devguide" class="nav-link" @click.prevent="scrollTo('devguide')">二次开发指南</a>
-        </div>
+        <p v-if="query && !visibleSections.length" class="nav-empty">
+          没找到「{{ query }}」<br />试试端点片段，比如 <code>mobile</code>、<code>slug</code>
+        </p>
+        <p v-else-if="query" class="nav-result">命中 {{ matchCount }} 节</p>
       </nav>
     </aside>
 
@@ -35,7 +43,17 @@
       <!-- ============ 通用约定 ============ -->
       <div id="common" class="doc-section">
         <h1>通用约定</h1>
-        <p>本文档覆盖 llhhy-blog 的全部 JSON 接口（前缀 <code>/api</code>）与 SSR 页面。当前版本基于 <strong>v3.8.7</strong>。前端（<code>vue-frontend/src/lib/api.js</code>）与站内页面共用这些接口；你可以用它们自定义客户端、App 或第三方集成。</p>
+        <p>
+          本文档覆盖 llhhy-blog 的<strong>前台接口</strong>（数据读取、互动、订阅、认证、系统）与 SSR 页面，
+          当前版本 <strong>{{ appVersion || '—' }}</strong>
+          <span class="p-note">（取自 <code>GET /api/health</code>，随运行中的后端实时变化，不写死）</span>。
+          前端（<code>vue-frontend/src/lib/api.js</code>）与站内页面共用这些接口；你可以用它们自定义客户端、App 或第三方集成。
+        </p>
+        <p class="coverage">
+          另有<strong>管理类接口</strong>（<code>/api/mobile/*</code>，74 条）与<strong>分享卡 / 壳页</strong>（<code>/api/og/*</code>）
+          不在下面逐条展开，概览见 <a href="#more" @click.prevent="scrollTo('more')">其他接口</a>
+          —— 完整清单以仓库 <code>myblog/API.md</code> 为准。
+        </p>
 
         <h3>基地址与返回格式</h3>
         <ul>
@@ -314,8 +332,15 @@ curl -X POST http://your-domain.com/api/post/my-post/like \
       <!-- ============ 系统 ============ -->
       <div id="system" class="doc-section">
         <h1>系统 System</h1>
+        <div class="endpoint"><span class="method get">GET</span><span class="path">/api/health</span><span class="auth auth-public">公开</span></div>
+        <p>
+          健康探活。<code>200 {"ok":true,"version":"{{ appVersion || '…' }}","db":"up"}</code>；
+          数据库不可用返回 <code>503</code>（此时 <code>"db":"down"</code>）。
+          <span class="p-note">本页顶栏显示的版本号就取自这里 —— 之前它写死在模板里，已经落后好几个版本。</span>
+        </p>
+
         <div class="endpoint"><span class="method get">GET</span><span class="path">/api/version/check</span><span class="auth auth-login">登录</span></div>
-        <p>检测新版本。<code>200 {"latest":"v3.8.7","current":"v3.8.7","has_update":false}</code>（对比 GitHub latest tag 与本地 <code>APP_VERSION</code>）。</p>
+        <p>检测新版本。<code>200 {"latest":"v{{ appVersion || '…' }}","current":"v{{ appVersion || '…' }}","has_update":false}</code>（对比 GitHub latest tag 与本地 <code>APP_VERSION</code>）。</p>
 
         <div class="endpoint"><span class="method post">POST</span><span class="path">/api/version/update</span><span class="auth auth-admin">超管</span></div>
         <p>触发在线更新。成功 <code>200 {"ok":true,"message":"更新已触发，服务器将自动重启"}</code>（异步执行 <code>update.sh</code>）。</p>
@@ -325,6 +350,76 @@ curl -X POST http://your-domain.com/api/post/my-post/like \
 
         <div class="endpoint"><span class="method post">POST</span><span class="path">/api/webhook/deploy</span><span class="auth auth-public">公开</span></div>
         <p>部署 Webhook（CSRF 豁免，但需密钥鉴权）。请求头 <code>X-Deploy-Secret: &lt;与配置相同的密钥&gt;</code>。成功 <code>200 {"ok":true,"message":"部署已触发"}</code>；密钥错误 <code>401</code>。</p>
+      </div>
+
+      <!-- ============ 其他接口（分享卡 / 壳页 / 管理类） ============ -->
+      <div id="more" class="doc-section">
+        <h1>其他接口 More</h1>
+        <p>
+          下面三组不在「数据接口」范围内，但同样对外开放。<strong>逐条清单以仓库 <code>myblog/API.md</code> 为准</strong>，
+          这里只给入口与边界条件 —— 写全 74 条管理接口会让本页变成没人读的清单。
+        </p>
+
+        <h3>分享卡与社交图</h3>
+        <div class="endpoint"><span class="method get">GET</span><span class="path">/api/og/post/:slug</span><span class="auth auth-public">公开</span></div>
+        <p>
+          文章分享卡的服务端壳页（社交平台抓取 <code>og:*</code> 用）。附加 <code>?seo=1</code> 走爬虫通道；
+          响应头恒为 <code>Cache-Control: no-store</code> —— 壳页与前端 SPA 共用同一个 URL，
+          一旦允许中间层缓存，真人就会拿到没有样式的壳页（v4.10.1 的真实事故）。
+        </p>
+
+        <div class="endpoint"><span class="method get">GET</span><span class="path">/api/og/post/:slug.png</span><span class="auth auth-public">公开</span></div>
+        <p>
+          动态生成文章分享卡 PNG。配色与版式取自后台「主题美化 / 分享卡」设置（<strong>没有查询参数</strong>）；
+          按 <code>slug + 更新时间 + 主题色</code> 落盘缓存；文章不可见或绘制失败时回退默认图，不会 500。
+        </p>
+
+        <div class="endpoint"><span class="method get">GET</span><span class="path">/api/qr?url=…</span><span class="auth auth-public">公开</span></div>
+        <p>
+          站点二维码，输出 SVG。<strong>只接受本站 URL</strong>（<code>site_url</code> 前缀或站内相对路径），
+          否则本接口就成了公共二维码生成器、可给钓鱼链接批量做码；限流 60 秒 / 30 次。
+        </p>
+
+        <h3>列表页壳页</h3>
+        <div class="endpoint"><span class="method get">GET</span><span class="path">/api/og/page/&lt;path&gt;</span><span class="auth auth-public">公开</span></div>
+        <p>
+          归档 / 分类 / 标签 / 系列 / 关于 / 友链的爬虫可见版本，带真实文章列表与 <code>CollectionPage</code> JSON-LD。
+          只认上述路径，<strong>其余一律 404 + noindex</strong>（不兜底成通用页）；可见性口径与前台一致。
+        </p>
+
+        <h3>自检</h3>
+        <div class="endpoint"><span class="method get">GET</span><span class="path">/api/seo/shell-check?slug=…</span><span class="auth auth-public">公开</span></div>
+        <p>
+          爬虫通道自检：用不同 UA 直接调壳页逻辑（进程内直调，<strong>零出网</strong>），
+          返回每个 UA 会被判定成「壳页 / 重定向 / 隔离」以及原因。它在用户本机跑，
+          所以能改代码解决；<em>nginx 有没有配好</em>不归它管，那层靠 <code>deploy_guide.md</code> 里的 curl 核验。
+        </p>
+
+        <h3>管理类接口 <code>/api/mobile/*</code></h3>
+        <p>
+          共 <strong>74</strong> 条，供原生 App / 脚本调用，<strong>全部需要登录会话</strong>，权限逐条对齐后台对应页面
+          （写操作另有超管限制）。分组：
+        </p>
+        <table class="params-table">
+          <thead><tr><th>分组</th><th>前缀</th><th>说明</th></tr></thead>
+          <tbody>
+            <tr><td>概览与统计</td><td><code>/mobile/overview</code> <code>/mobile/stats</code> <code>/mobile/taxonomy</code></td><td>后台首页指标与分类法（分类 / 标签 / 系列一起返回）</td></tr>
+            <tr><td>文章</td><td><code>/mobile/post*</code></td><td>列表 / 详情 / 新建 / 编辑 / 发布 / 撤下 / 置顶 / 移入回收站</td></tr>
+            <tr><td>版本历史</td><td><code>/mobile/post/:id/history*</code></td><td>历次快照、单次详情、版本 diff、回滚</td></tr>
+            <tr><td>回收站</td><td><code>/mobile/trash*</code></td><td>列表 / 还原 / 彻底删除</td></tr>
+            <tr><td>评论</td><td><code>/mobile/comment*</code></td><td>列表、单条审核、批量审核、全部标记已读</td></tr>
+            <tr><td>访客与风控</td><td><code>/mobile/visit-logs</code> <code>/mobile/blocked</code> <code>/mobile/ip/*</code></td><td>访客日志、拦截名单、IP 封禁 / 解封</td></tr>
+            <tr><td>内容分区</td><td><code>/mobile/{category,tag,series}*</code></td><td>分类 / 标签（含合并）/ 系列的增删改</td></tr>
+            <tr><td>社交与留言</td><td><code>/mobile/{moments,guestbook,link-application}*</code></td><td>微动态、留言墙、友链申请审批</td></tr>
+            <tr><td>公告与订阅</td><td><code>/mobile/announcement*</code> <code>/mobile/subscriber*</code></td><td>公告增删改与上下线、订阅者启用 / 删除</td></tr>
+            <tr><td>友链</td><td><code>/mobile/link*</code></td><td>增删改与排序</td></tr>
+            <tr><td>媒体</td><td><code>/mobile/upload</code> <code>/mobile/media*</code></td><td>上传、媒体库列表、删除</td></tr>
+            <tr><td>数据与设置</td><td><code>/mobile/{stats/report,audit-logs,backups,settings,seo/summary,cert,users}</code></td><td>只读为主；唯一写操作是 <code>POST /mobile/user/:id/role</code>（改角色）</td></tr>
+          </tbody>
+        </table>
+        <p class="p-note">
+          邮箱等个人信息在返回时已遮敏；审计日志不返回 <code>payload</code>；站点设置只返回白名单键。
+        </p>
       </div>
 
       <!-- ============ SSR 页面 / 源 ============ -->
@@ -459,19 +554,28 @@ print(c.get('/api/posts').get_json())
       </div>
     </div>
 
+    <!-- 右侧只放**当前章节的小节**，与左栏章节列表是互补关系，不再互相抄：
+         左栏回答「去哪个章节」，右栏回答「这一章里跳到哪一小节」。
+         改之前右栏把每节的 h1 也列了一遍，前几条和左栏完全重复 —— 那才是「两个目录」的由来。 -->
     <aside class="docs-toc">
-      <div class="toc-title">本页目录</div>
-      <nav class="toc-nav">
-        <a v-for="t in tocItems" :key="t.id" :href="'#'+t.id"
-           class="toc-link" :class="{ 'toc-h3': t.level === 3, 'active': activeId === t.id }"
+      <div class="toc-title">{{ currentLabel || '本节内容' }}</div>
+      <nav v-if="currentSubs.length" class="toc-nav">
+        <a v-for="t in currentSubs" :key="t.id" :href="'#'+t.id"
+           class="toc-link" :class="{ active: activeSub === t.id }"
            @click.prevent="scrollTo(t.id)">{{ t.text }}</a>
       </nav>
+      <p v-else class="toc-empty">本节没有小节</p>
     </aside>
+
+    <!-- 长文档回顶：本页 ~800 行，读到二次开发指南底部再滚回去很费劲 -->
+    <Transition name="docs-top">
+      <button v-if="showTop" type="button" class="docs-top" aria-label="回到顶部" title="回到顶部" @click="toTop">↑</button>
+    </Transition>
   </div>
 </template>
 
 <script setup>
-import { onBeforeUnmount, onMounted, ref } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import { copyText } from "../lib/clipboard.js";
 // v3.17.10：highlight.js 改为本地打包——原 cdnjs 动态注入的 CSS/JS 被 CSP（style-src/script-src 'self'）
 // 拦截，线上代码高亮从未真正生效。代码块仅用 bash/js/json/python 四种语言，主题沿用 github-dark。
@@ -490,24 +594,134 @@ hljs.registerLanguage("javascript", lJs);
 // 既有 tryHl 轮询逻辑依赖 window.hljs，这里直接就绪（轮询保留以兼容时序）
 window.hljs = hljs;
 
-const tocItems = ref([]);
+// 章节树：[{ id, label, subs: [{id, text}] }]
+// 原实现是平铺的 h1+h3 混合列表，导致右栏前几条 = 左栏（两个目录做同一件事）。
+const tocSections = ref([]);
+// activeId：当前**章节**（左栏高亮用）；activeSub：当前**小节**（右栏高亮用）
 const activeId = ref("");
-// v3.20.0：目录高亮用的 observer 句柄，挂载时创建、卸载时 disconnect（原先未清理）
-let _tocObs = null;
+const activeSub = ref("");
+// v3.20.0 曾在挂载时 new 一个 IntersectionObserver 做目录高亮、却从不 disconnect
+// （路由组件反复进出会持续累积）。v4.12.0 改为 scroll 驱动后**根本不需要 observer**，
+// 这类泄漏从结构上消失了；保留一个监听器句柄用于卸载时摘除。
+let _topHandler = null;
+
+// 运行版本：由 /api/health 提供。
+// 原实现把版本号写死在模板里（v3.8.7），线上到 v4.11.0 时这页还写着三个大版本前的号
+// —— 而投稿/评审恰好会点开 /docs 当「接口即文档」的证据。取运行时值就再也不会漂。
+const appVersion = ref("");
+
+// 侧栏导航改为数据驱动：原先是 20 多行硬编码 <a>，既不能搜索也不能标当前节。
+// 标题与顺序与改造前逐条一致。
+const navSections = [
+  { title: "开始", links: [
+    { id: "common", label: "通用约定" },
+    { id: "auth", label: "认证 Auth" },
+  ] },
+  { title: "数据接口", links: [
+    { id: "site", label: "站点 Site" },
+    { id: "posts", label: "文章 Posts" },
+    { id: "stats", label: "统计 Stats" },
+    { id: "social", label: "社交广场 Social" },
+    { id: "series", label: "专题 Series" },
+    { id: "guestbook", label: "留言墙 Guestbook" },
+    { id: "subscribe", label: "订阅 Subscribe" },
+    { id: "notifications", label: "通知 Notifications" },
+    { id: "system", label: "系统 System" },
+    { id: "more", label: "其他接口 More" },
+  ] },
+  { title: "页面与订阅源", links: [
+    { id: "pages", label: "SSR 页面 / 源" },
+  ] },
+  { title: "二次开发", links: [
+    { id: "devguide", label: "二次开发指南" },
+  ] },
+];
+
+const query = ref("");
+// 各节正文的小写快照：让搜索能命中「正文里的端点路径」，而不只是章节标题。
+// 例如输入 mobile / shell-check / slug 都能定位到对应章节。
+const sectionText = ref({});
+
+const visibleSections = computed(() => {
+  const q = query.value.trim().toLowerCase();
+  if (!q) return navSections;
+  return navSections
+    .map((sec) => ({
+      ...sec,
+      links: sec.links.filter((l) => {
+        if ((l.label + " " + l.id).toLowerCase().includes(q)) return true;
+        const body = sectionText.value[l.id];
+        return !!body && body.includes(q);
+      }),
+    }))
+    .filter((sec) => sec.links.length);
+});
+
+const showTop = ref(false);
+
+const currentSection = computed(() => tocSections.value.find((s) => s.id === activeId.value) || null);
+const currentSubs = computed(() => (currentSection.value ? currentSection.value.subs : []));
+const currentLabel = computed(() => (currentSection.value ? currentSection.value.label : ""));
+
+const matchCount = computed(() =>
+  visibleSections.value.reduce((n, sec) => n + sec.links.length, 0)
+);
 
 function scrollTo(id) {
   const el = document.getElementById(id);
   if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
+// 注意：本组件的 scrollTo 遮蔽了 window.scrollTo，回顶必须显式用 window.*
+function toTop() {
+  window.scrollTo({ top: 0, behavior: "smooth" });
+}
+
+// 当前章节 / 小节判定线：站点头 58px 再留一点余量
+const ACTIVE_LINE = 96;
+
+function syncActive() {
+  const secs = document.querySelectorAll(".docs-main .doc-section");
+  if (!secs.length) return;
+  let cur = secs[0];
+  for (const s of secs) {
+    if (s.getBoundingClientRect().top <= ACTIVE_LINE) cur = s;
+    else break;
+  }
+  activeId.value = cur.id;
+  let sub = "";
+  for (const h of cur.querySelectorAll("h3")) {
+    if (h.getBoundingClientRect().top <= ACTIVE_LINE) sub = h.id;
+    else break;
+  }
+  activeSub.value = sub;
+}
+
 function buildToc() {
-  const heads = document.querySelectorAll(".docs-main h1, .docs-main h3");
-  const items = [];
-  heads.forEach((h, i) => {
-    if (!h.id) h.id = "doc-h-" + i;
-    items.push({ id: h.id, text: h.textContent.trim(), level: h.tagName === "H3" ? 3 : 1 });
+  // 按「章节 → 该章的小节」建树，而不是把 h1 / h3 混成一个平铺列表。
+  const sections = [];
+  let cur = null;
+  let n = 0;
+  document.querySelectorAll(".docs-main .doc-section").forEach((sec) => {
+    const h1 = sec.querySelector("h1");
+    if (!sec.id) sec.id = "doc-sec-" + sections.length;
+    cur = { id: sec.id, label: h1 ? h1.textContent.trim() : sec.id, subs: [] };
+    sections.push(cur);
+    sec.querySelectorAll("h3").forEach((h3) => {
+      if (!h3.id) h3.id = "doc-h-" + n++;
+      cur.subs.push({ id: h3.id, text: h3.textContent.trim() });
+    });
   });
-  tocItems.value = items;
+  tocSections.value = sections;
+  // 初始定位到第一节，否则首屏右栏是空的（观察器要等滚动才触发）
+  if (sections.length && !activeId.value) activeId.value = sections[0].id;
+
+  // 同时建立「节 id → 正文小写」索引，供搜索使用
+  const idx = {};
+  document.querySelectorAll(".docs-main .doc-section").forEach((sec) => {
+    if (sec.id) idx[sec.id] = sec.textContent.toLowerCase();
+  });
+  sectionText.value = idx;
 }
 
 // v3.17.9：复制统一走 lib/clipboard.js 的三层兜底（原 fallbackCopy 已被其覆盖）
@@ -516,6 +730,24 @@ onMounted(() => {
   // v3.17.10：highlight.js 与主题样式已本地打包（见 script 顶部 import），不再依赖 CDN 与 CSP 放行
 
   buildToc();
+
+  // 版本号：公开探活接口，只回 ok / version / db，不带任何敏感信息。
+  // 取不到就保持空 → 模板渲染「—」，绝不回退成写死的旧版本号。
+  fetch("/api/health", { headers: { Accept: "application/json" }, credentials: "same-origin" })
+    .then((r) => r.json())
+    .then((d) => {
+      const v = (d && d.version) || "";
+      if (v) appVersion.value = v.startsWith("v") ? v : "v" + v;
+    })
+    .catch(() => { /* 探活失败不影响文档阅读 */ });
+
+  // 回顶按钮 + 目录高亮：同一个 scroll 监听里处理，避免挂两个监听
+  _topHandler = () => {
+    showTop.value = window.scrollY > 600;
+    syncActive();
+  };
+  window.addEventListener("scroll", _topHandler, { passive: true });
+  _topHandler();
 
   // highlight.js 通过 CDN 异步加载，挂载后轮询初始化，确保代码块高亮生效
   let n = 0;
@@ -548,13 +780,10 @@ onMounted(() => {
     pre.appendChild(btn);
   });
 
-  // 右侧「本页目录」随滚动高亮当前章节
-  if ("IntersectionObserver" in window) {
-    _tocObs = new IntersectionObserver((entries) => {
-      entries.forEach((e) => { if (e.isIntersecting) activeId.value = e.target.id; });
-    }, { rootMargin: "-80px 0px -70% 0px", threshold: 0 });
-    document.querySelectorAll(".docs-main h1, .docs-main h3").forEach((h) => _tocObs.observe(h));
-  }
+  // 右侧「本节内容」随滚动高亮：改为在 scroll 里按位置算当前章节 + 当前小节。
+  // 不用 IntersectionObserver 是因为它的回调只给出「谁进入了窄带」，而这里需要的
+  // 是「当前处在哪一节/哪一小节」，按 rect.top 顺序判定更直接，也不会漏。
+  syncActive();
 });
 
 // v3.20.0 修复**真实泄漏**：原实现在 onMounted 里 new 了 IntersectionObserver 却从不
@@ -563,220 +792,483 @@ onMounted(() => {
 // （对比：App.vue 的 scroll/resize 未清理只是「理论问题」，因为根组件不会卸载；
 //   这里才是真正会累积的那个。）
 onBeforeUnmount(() => {
-  if (_tocObs) { _tocObs.disconnect(); _tocObs = null; }
+  // 同一类问题的另一半：新增的 scroll 监听也必须摘，否则每次进 /docs 多挂一个。
+  if (_topHandler) { window.removeEventListener("scroll", _topHandler); _topHandler = null; }
 });
 </script>
 
 <style scoped>
+/* ════════════════════════════════════════════════════════════════════════
+   /docs 样式重做（v4.12.0）
+
+   原实现是一整套**硬编码色**（#3b82f6 / #e5e7eb / #f8fafc / #4b5563…），
+   与全站 tokens.css 是两套体系，导致两个后果：
+     ① 后台改主题色（accent_color）后，这页仍然是蓝的 —— 与全站脱节；
+     ② 深色模式靠 20 多条 [data-theme="dark"] 逐条覆盖，漏一条就糊成一片。
+   现在全部走 token：换主题色跟着变，深色模式几乎不用单独写。
+
+   另修三处真实缺陷（不是审美问题）：
+     1. scroll-margin-top 原为 20px，而站点头是 sticky 58px ——
+        点目录/锚点后标题被顶栏盖住，等于链接点了个寂寞；
+     2. 复制按钮绝对定位在 pre 右上角，padding 只有 16px ——
+        长代码的**首行会被按钮压住**；
+     3. .params-table 桌面用 table-layout: fixed，两列表格被强行 50/50，
+        说明列和张量列一样宽，浪费一半宽度。
+   ════════════════════════════════════════════════════════════════════════ */
+
 .docs-container {
   display: flex;
-  gap: 32px;
+  align-items: flex-start;
+  gap: var(--space-5);
   max-width: 1400px;
   margin: 0 auto;
-  padding: 20px;
+  padding: var(--space-5) var(--space-4) var(--space-8);
   min-height: calc(100vh - 100px);
 }
 
+/* ── 左：章节导航 ─────────────────────────────────────────────── */
 .docs-sidebar {
-  width: 250px;
+  width: 262px;
   flex-shrink: 0;
-  border-right: 1px solid #e5e7eb;
-  padding-right: 20px;
+  border-right: 1px solid var(--border);
+  padding-right: var(--space-4);
   position: sticky;
-  top: 80px;
+  /* 站点头 sticky 高 58px（global.css .header-inner），留 16px 呼吸 */
+  top: 74px;
   height: fit-content;
-  max-height: calc(100vh - 100px);
+  max-height: calc(100vh - 96px);
   overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 .sidebar-header {
-  font-size: 18px;
-  font-weight: bold;
-  margin-bottom: 20px;
-  padding-bottom: 10px;
-  border-bottom: 2px solid #3b82f6;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-2);
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--text);
+  margin-bottom: var(--space-3);
+  padding-bottom: var(--space-2);
+  border-bottom: 2px solid var(--accent);
 }
 
-.nav-section { margin-bottom: 20px; }
+.sidebar-ver {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-faint);
+  padding: 1px 7px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+  white-space: nowrap;
+}
+
+/* 搜索框 */
+.doc-search { position: relative; margin-bottom: var(--space-3); }
+
+.doc-search-input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 7px 30px 7px 11px;
+  font-size: 13px;
+  font-family: inherit;
+  color: var(--text);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  outline: none;
+  transition: border-color var(--transition), background var(--transition), box-shadow var(--transition);
+  -webkit-appearance: none;
+  appearance: none;
+}
+.doc-search-input::-webkit-search-cancel-button { display: none; }
+.doc-search-input::placeholder { color: var(--text-faint); }
+.doc-search-input:focus {
+  border-color: var(--accent);
+  background: var(--surface);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+.doc-search-clear {
+  position: absolute;
+  right: 5px;
+  top: 50%;
+  transform: translateY(-50%);
+  border: 0;
+  background: transparent;
+  color: var(--text-faint);
+  cursor: pointer;
+  font-size: 11px;
+  line-height: 1;
+  padding: 5px 6px;
+  border-radius: var(--radius-xs);
+}
+.doc-search-clear:hover { color: var(--text); background: var(--surface-3); }
+
+.nav-section { margin-bottom: var(--space-4); }
 
 .nav-section-title {
-  font-size: 14px;
-  font-weight: bold;
-  color: #6b7280;
-  margin-bottom: 10px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .04em;
+  color: var(--text-faint);
+  margin-bottom: var(--space-2);
   text-transform: uppercase;
 }
 
 .nav-link {
   display: block;
-  padding: 8px 12px;
-  color: #374151;
+  padding: 6px 10px;
+  color: var(--text-muted);
   text-decoration: none;
-  border-radius: 6px;
-  transition: all 0.2s;
-  font-size: 14px;
+  border-radius: var(--radius-xs);
+  border-left: 2px solid transparent;
+  transition: background var(--transition), color var(--transition), border-color var(--transition);
+  font-size: 13.5px;
+  line-height: 1.5;
+}
+.nav-link:hover { background: var(--surface-2); color: var(--accent); }
+/* 当前所在章节：原来只有右侧 TOC 会跟着滚，左侧没有任何反馈 */
+.nav-link.active {
+  color: var(--accent);
+  background: var(--accent-soft);
+  border-left-color: var(--accent);
+  font-weight: 600;
 }
 
-.nav-link:hover { background-color: #f3f4f6; color: #3b82f6; }
+.nav-result, .nav-empty {
+  font-size: 12px;
+  color: var(--text-faint);
+  line-height: 1.7;
+  margin: var(--space-2) 0 0;
+  padding: 0 10px;
+}
+.nav-empty code { font-size: 11.5px; }
 
-.docs-main { flex: 1; padding-left: 40px; min-width: 0; }
+/* ── 中：正文 ─────────────────────────────────────────────────── */
+.docs-main { flex: 1; min-width: 0; }
 
-.doc-section { margin-bottom: 60px; scroll-margin-top: 20px; overflow-wrap: break-word; }
+.doc-section {
+  margin-bottom: var(--space-8);
+  /* 74px = 顶栏 58px + 16px。原值 20px 会让锚点落点在顶栏下方被遮住。 */
+  scroll-margin-top: 74px;
+  overflow-wrap: break-word;
+}
 
 .doc-section h1 {
-  font-size: 32px;
-  font-weight: bold;
-  margin-bottom: 20px;
-  padding-bottom: 10px;
-  border-bottom: 1px solid #e5e7eb;
+  font-size: 28px;
+  font-weight: 700;
+  letter-spacing: -.01em;
+  color: var(--text);
+  margin: 0 0 var(--space-4);
+  padding-bottom: var(--space-2);
+  border-bottom: 1px solid var(--border);
+}
+.doc-section h3 {
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--text);
+  margin: var(--space-6) 0 var(--space-3);
+  scroll-margin-top: 82px;
+}
+.doc-section h4 {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text);
+  margin: var(--space-5) 0 var(--space-2);
+}
+.doc-section p { line-height: 1.85; color: var(--text-muted); margin: var(--space-3) 0; }
+.doc-section ul, .doc-section ol { line-height: 1.85; color: var(--text-muted); padding-left: 22px; }
+.doc-section li { margin-bottom: 3px; }
+.doc-section a { color: var(--accent); text-decoration: none; }
+.doc-section a:hover { text-decoration: underline; }
+
+.p-note { color: var(--text-faint); font-size: 12.5px; }
+
+/* 「本文档覆盖范围」提示块：把「全部接口」这种不成立的承诺讲清楚 */
+.coverage {
+  background: var(--surface-2);
+  border-left: 3px solid var(--accent);
+  border-radius: var(--radius-xs);
+  padding: 10px 14px;
+  font-size: 13.5px;
 }
 
-.doc-section h3 { font-size: 20px; font-weight: bold; margin-top: 30px; margin-bottom: 15px; }
-.doc-section h4 { font-size: 16px; font-weight: bold; margin-top: 20px; margin-bottom: 10px; }
-.doc-section p { line-height: 1.8; color: #4b5563; }
-.doc-section ul { line-height: 1.9; color: #4b5563; padding-left: 22px; }
-.doc-section li { margin-bottom: 4px; }
-
+/* ── 端点行 ───────────────────────────────────────────────────── */
 .endpoint {
   display: flex;
   align-items: center;
-  gap: 12px;
-  margin: 15px 0;
-  padding: 12px;
-  background-color: #f8fafc;
-  border-radius: 8px;
-  border-left: 4px solid var(--accent);
+  gap: var(--space-3);
+  margin: var(--space-4) 0;
+  padding: 10px 14px;
+  background: var(--surface-2);
+  border-radius: var(--radius-sm);
+  border-left: 3px solid var(--accent);
   flex-wrap: wrap;
 }
 
 .method {
-  padding: 4px 12px;
-  border-radius: 4px;
-  font-size: 12px;
-  font-weight: bold;
+  padding: 3px 10px;
+  border-radius: var(--radius-xs);
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: .03em;
   text-transform: uppercase;
+  /* 深浅两模式都成立：亮色下 --on-accent 是白字，暗色下是近黑 —— 而暗色的
+     success / warning / danger / accent 都被提亮过（见 tokens.css），
+     所以「深底白字」与「亮底黑字」恰好各自可读。 */
+  color: var(--on-accent);
 }
-
-.method.get { background-color: #10b981; color: white; }
-.method.post { background-color: #3b82f6; color: white; }
+.method.get { background: var(--success); }
+.method.post { background: var(--accent); }
+.method.put, .method.patch { background: var(--warning); }
+.method.delete { background: var(--danger); }
 
 .path {
-  font-family: 'Courier New', monospace;
-  font-size: 14px;
-  color: #1f2937;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--text);
   word-break: break-all;
   overflow-wrap: anywhere;
 }
 
 .auth {
-  padding: 2px 8px;
-  border-radius: 10px;
+  padding: 2px 9px;
+  border-radius: var(--radius-pill);
   font-size: 11px;
-  font-weight: bold;
+  font-weight: 600;
   margin-left: auto;
+  white-space: nowrap;
 }
-.auth-public { background-color: #e5e7eb; color: #374151; }
-.auth-login { background-color: #fef3c7; color: #92400e; }
-.auth-admin { background-color: #fee2e2; color: #991b1b; }
+.auth-public { background: var(--surface-3); color: var(--text-muted); }
+.auth-login { background: var(--accent-soft); color: var(--accent); }
+/* 危险级别用描边而非实底：实底红在暗色下会把白字压崩（--danger 提亮过） */
+.auth-admin { color: var(--danger); box-shadow: inset 0 0 0 1px var(--danger); }
 
-.params-table { width: 100%; border-collapse: collapse; margin: 15px 0; table-layout: fixed; }
-.params-table th, .params-table td { padding: 10px; text-align: left; border-bottom: 1px solid #e5e7eb; word-break: break-word; overflow-wrap: anywhere; }
-.params-table th { background-color: #f9fafb; font-weight: bold; }
-
-pre {
-  background-color: #1f2937;
-  color: #f3f4f6;
-  padding: 16px;
-  border-radius: 8px;
-  overflow-x: auto;
-  margin: 15px 0;
+/* ── 表格 ─────────────────────────────────────────────────────── */
+.params-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: var(--space-4) 0;
+  font-size: 13.5px;
+  /* 桌面让浏览器按内容分配：原固定布局把「路径 / 说明」两列拉成 50/50 */
+  table-layout: auto;
 }
-code { font-family: 'Courier New', monospace; font-size: 13px; }
-.doc-section :not(pre) > code {
-  background-color: #f1f5f9;
-  color: #b91c1c;
-  padding: 2px 6px;
-  border-radius: 4px;
-  font-size: 12.5px;
+.params-table th,
+.params-table td {
+  padding: 9px 12px;
+  text-align: left;
+  border-bottom: 1px solid var(--border);
+  vertical-align: top;
   word-break: break-word;
   overflow-wrap: anywhere;
+  line-height: 1.7;
+}
+.params-table th {
+  background: var(--surface-2);
+  color: var(--text);
+  font-weight: 700;
+  font-size: 12.5px;
+  white-space: nowrap;
+}
+.params-table td { color: var(--text-muted); }
+.params-table tbody tr:hover td { background: var(--surface-2); }
+
+/* ── 代码块 ───────────────────────────────────────────────────── */
+/* 代码块刻意保持深底（highlight.js github-dark 主题就要求深底），
+   不随明暗模式翻转 —— 这是唯一不跟 token 的地方。 */
+pre {
+  background: #1f2937;
+  color: #f3f4f6;
+  padding: 14px 16px;
+  border-radius: var(--radius-sm);
+  overflow-x: auto;
+  margin: var(--space-4) 0;
+  position: relative;
+  line-height: 1.7;
+}
+/* 复制按钮压在右上角，而 pre 的 padding 只有 16px ——
+   给 code 加右侧留白，长代码首行就不会被按钮盖住（原实现的首行总被遮）。 */
+pre code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12.8px;
+  display: block;
+  padding-right: 58px;
 }
 
-/* 响应式设计 */
-@media (max-width: 768px) {
-  .docs-container { flex-direction: column; padding: 10px; }
-  .docs-sidebar {
-    width: 100%;
-    border-right: none;
-    border-bottom: 1px solid #e5e7eb;
-    padding-right: 0;
-    padding-bottom: 15px;
-    max-height: 200px;
-    position: static;
-  }
-  .docs-main { padding-left: 0; padding-top: 20px; min-width: 0; }
-  .doc-section { overflow-wrap: anywhere; word-break: break-word; }
-  .doc-section h1 { font-size: 24px; }
-  /* 移动端端点行更紧凑，长路径/标签换行而非溢出 */
-  .endpoint { gap: 8px; padding: 10px; }
-  .path { font-size: 12px; word-break: break-all; }
-  /* 表格固定布局 + 单元格换行，避免长内容撑破视口 */
-  .params-table { table-layout: fixed; }
-  .params-table th, .params-table td { font-size: 12px; padding: 8px 6px; word-break: break-word; overflow-wrap: anywhere; }
+code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12.8px; }
+
+.doc-section :not(pre) > code {
+  background: var(--surface-2);
+  color: var(--danger);
+  padding: 1px 5px;
+  border-radius: var(--radius-xs);
+  font-size: 12.5px;
+  border: 1px solid var(--border);
 }
 
-/* 深色模式（跟随站点 data-theme="dark"） */
-[data-theme="dark"] .docs-sidebar { border-color: #2a2e35; }
-[data-theme="dark"] .sidebar-header { border-color: #3b82f6; }
-[data-theme="dark"] .nav-section-title { color: #9aa3ad; }
-[data-theme="dark"] .nav-link { color: #c7ccd1; }
-[data-theme="dark"] .nav-link:hover { background-color: #23272e; color: #60a5fa; }
-[data-theme="dark"] .doc-section h1,
-[data-theme="dark"] .doc-section h3,
-[data-theme="dark"] .doc-section h4 { color: #e6e8eb; border-color: #2a2e35; }
-[data-theme="dark"] .doc-section p,
-[data-theme="dark"] .doc-section li { color: #b6bcc4; }
-[data-theme="dark"] .doc-section :not(pre) > code { background-color: #23272e; color: #fca5a5; }
-[data-theme="dark"] .endpoint { background-color: #1d2025; border-left-color: #3b82f6; }
-[data-theme="dark"] .path { color: #e6e8eb; }
-[data-theme="dark"] .params-table th,
-[data-theme="dark"] .params-table td { border-color: #2a2e35; color: #c7ccd1; }
-[data-theme="dark"] .params-table th { background-color: #23272e; }
-
-/* 代码块复制按钮（仿 API 文档站） */
-.docs-main pre { position: relative; }
-.copy-btn {
-  position: absolute; top: 8px; right: 8px;
-  background: rgba(255,255,255,.12); color: #e5e7eb;
-  border: 1px solid rgba(255,255,255,.22); border-radius: 5px;
-  font-size: 11px; padding: 3px 10px; cursor: pointer;
+/* ⚠️ 必须用 :deep() —— 这个按钮是 onMounted 里 document.createElement 出来的，
+   **拿不到 scoped 的 data-v 属性**，所以裸写 `.copy-btn { … }` 编译成
+   `.copy-btn[data-v-xxx]` 永远不匹配。原实现正是如此：按钮从上线起一直是
+   一段没样式的裸文字，糊在代码块左下角（靠截图才看出来）。
+   `pre :deep(.copy-btn)` 编译成 `pre[data-v-xxx] .copy-btn`，而 pre 在模板里，
+   带 data-v，于是能命中动态插入的子节点。 */
+pre :deep(.copy-btn) {
+  position: absolute;
+  top: 7px;
+  right: 7px;
+  background: rgba(255, 255, 255, .10);
+  color: #d7dde5;
+  border: 1px solid rgba(255, 255, 255, .18);
+  border-radius: var(--radius-xs);
+  font-size: 11px;
+  line-height: 1.6;
+  padding: 2px 9px;
+  cursor: pointer;
+  opacity: .45;
+  transition: opacity var(--transition), background var(--transition);
 }
-.copy-btn:hover { background: rgba(255,255,255,.22); }
+pre:hover :deep(.copy-btn) { opacity: 1; }
+pre :deep(.copy-btn):hover,
+pre :deep(.copy-btn):focus-visible { background: rgba(255, 255, 255, .22); opacity: 1; }
 
-/* 右侧「本页目录」TOC 栏 */
+/* ── 右：本页目录 ─────────────────────────────────────────────── */
 .docs-toc {
-  width: 200px; flex-shrink: 0;
-  position: sticky; top: 80px; height: fit-content;
-  max-height: calc(100vh - 100px); overflow-y: auto;
-  padding-left: 16px; border-left: 1px solid #e5e7eb;
+  width: 196px;
+  flex-shrink: 0;
+  position: sticky;
+  top: 74px;
+  height: fit-content;
+  max-height: calc(100vh - 96px);
+  overflow-y: auto;
+  padding-left: var(--space-4);
+  border-left: 1px solid var(--border);
+  overscroll-behavior: contain;
 }
-.toc-title { font-size: 12px; font-weight: 700; color: #6b7280; text-transform: uppercase; margin-bottom: 12px; }
-.toc-nav { display: flex; flex-direction: column; gap: 2px; }
+.toc-title {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .04em;
+  color: var(--text-faint);
+  text-transform: uppercase;
+  margin-bottom: var(--space-3);
+  /* 标题现在显示「当前章节名」，过长时省略而不是换行撑高 */
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.toc-empty { font-size: 12px; color: var(--text-faint); margin: 0; padding: 0 9px; }
+.toc-nav { display: flex; flex-direction: column; gap: 1px; }
 .toc-link {
-  display: block; padding: 5px 10px; font-size: 13px; color: #6b7280;
-  text-decoration: none; border-radius: 6px; border-left: 2px solid transparent;
+  display: block;
+  padding: 4px 9px;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--text-faint);
+  text-decoration: none;
+  border-radius: var(--radius-xs);
+  border-left: 2px solid transparent;
+  transition: color var(--transition), background var(--transition), border-color var(--transition);
 }
-.toc-link:hover { color: var(--accent); background: #f3f4f6; }
-.toc-link.active { color: var(--accent); border-left-color: var(--accent); font-weight: 600; }
-.toc-h3 { padding-left: 22px; font-size: 12.5px; }
+.toc-link:hover { color: var(--accent); background: var(--surface-2); }
+.toc-link.active { color: var(--accent); border-left-color: var(--accent); font-weight: 600; background: var(--accent-soft); }
 
-[data-theme="dark"] .docs-toc { border-color: #2a2e35; }
-[data-theme="dark"] .toc-title { color: #9aa3ad; }
-[data-theme="dark"] .toc-link { color: #9aa3ad; }
-[data-theme="dark"] .toc-link:hover { background: #23272e; }
+/* ── 回顶按钮 ─────────────────────────────────────────────────── */
+.docs-top {
+  position: fixed;
+  right: 26px;
+  bottom: 30px;
+  z-index: 30;
+  width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text-muted);
+  font-size: 16px;
+  cursor: pointer;
+  box-shadow: var(--shadow-md);
+  transition: color var(--transition), border-color var(--transition), transform var(--transition);
+}
+.docs-top:hover { color: var(--accent); border-color: var(--accent); transform: translateY(-2px); }
 
-/* 中屏隐藏右侧 TOC，避免挤压正文 */
-@media (max-width: 1100px) {
+.docs-top-enter-active, .docs-top-leave-active { transition: opacity var(--transition), transform var(--transition); }
+.docs-top-enter-from, .docs-top-leave-to { opacity: 0; transform: translateY(8px); }
+
+/* ── 响应式 ───────────────────────────────────────────────────── */
+/* 中屏隐藏右侧 TOC（本页内容宽，三栏会把正文压到 500px 以下） */
+@media (max-width: 1180px) {
   .docs-toc { display: none; }
+}
+
+@media (max-width: 900px) {
+  /* ⚠️ flex-direction 改成 column 后，桌面的 align-items: flex-start 必须显式复位成
+     stretch —— 纵向容器里 flex-start 是「对齐到起始边并按内容宽度收缩」，
+     而正文里有大量长代码行，fit-content 会把整页横向撑到 1245px（实测），
+     移动端就变成整页横向溢出、文字被切掉。 */
+  .docs-container {
+    flex-direction: column;
+    align-items: stretch;
+    padding: var(--space-4) var(--space-3) var(--space-6);
+    gap: var(--space-3);
+  }
+
+  /* 移动端侧栏：原实现是 max-height:200px 的纵向滚动块 —— 占掉半屏还看不全
+     十个入口。改为横向滑动 chip，一划到底。display:contents 让每个 <a> 直接
+     成为 flex 项，省掉一层嵌套改模板。 */
+  .docs-sidebar {
+    position: static;
+    width: 100%;
+    min-width: 0;
+    max-height: none;
+    overflow: visible;
+    border-right: 0;
+    border-bottom: 1px solid var(--border);
+    padding-right: 0;
+    padding-bottom: var(--space-3);
+  }
+  .sidebar-nav {
+    display: flex;
+    gap: var(--space-2);
+    max-width: 100%;
+    overflow-x: auto;
+    padding-bottom: 2px;
+    scrollbar-width: none;
+  }
+  .sidebar-nav::-webkit-scrollbar { display: none; }
+  .nav-section { display: contents; }
+  .nav-section-title { display: none; }
+  .nav-link {
+    flex: 0 0 auto;
+    white-space: nowrap;
+    padding: 5px 12px;
+    font-size: 13px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-pill);
+  }
+  .nav-link.active { border-color: var(--accent); }
+  .nav-result, .nav-empty { flex: 0 0 auto; margin: 0; padding: 0 6px; align-self: center; white-space: nowrap; }
+
+  .docs-main { padding-top: var(--space-2); width: 100%; min-width: 0; max-width: 100%; }
+  .doc-section { scroll-margin-top: 68px; }
+  .doc-section h1 { font-size: 23px; }
+  .doc-section h3 { font-size: 16px; scroll-margin-top: 68px; }
+
+  .endpoint { gap: var(--space-2); padding: 9px 11px; }
+  .path { font-size: 12.5px; }
+  .auth { margin-left: 0; }
+
+  /* 窄屏才用固定布局 + 强制换行，避免长 code 撑破视口 */
+  .params-table { table-layout: fixed; font-size: 12.5px; }
+  .params-table th, .params-table td { padding: 7px 8px; }
+  .params-table th { white-space: normal; }
+
+  .docs-top { right: 16px; bottom: 18px; }
 }
 </style>

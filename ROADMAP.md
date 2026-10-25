@@ -2,12 +2,12 @@
 
 > 本文档 = **功能地图（已做）+ 待办（不做放一块）**，简单描述。
 > 历史版本迭代明细、v3.25.x 详细决策 / 取证日志见 `docs/archive/ROADMAP_archive.md`；权威版本史见 `CHANGELOG.md`。
-> 当前线上：**v4.11.0（Flask 线，v4.0→v4.11.0 连续版本）**。
+> 当前线上：**v4.12.0（Flask 线，v4.0→v4.12.0 连续版本）**。
 > 代码 / 文档里出现的旧章节编号（`ROADMAP §5.2`、`§5.9` 等）→ 见文末「旧章节索引」。
 
 ## 一、当前状态
 
-- 线上 **v4.11.0**：Flask 后端 + Vue SPA 前台 + Flask/Jinja2 后台，SQLite（WAL）。
+- 线上 **v4.12.0**：Flask 后端 + Vue SPA 前台 + Flask/Jinja2 后台，SQLite（WAL）。
 - 已启用：`content_migrate` 插件（WordPress WXR / Typecho SQL / **Typecho SQLite .db** 只读迁移）。
 - 架构决策：**维持 Flask 栈**（SQLite 上 async 负收益，仅 Postgres + asyncpg 才有收益）；**v4 FastAPI 异步栈实验分支已废弃**，不接管线上。
 
@@ -33,6 +33,13 @@
   访问统计页样式越权修复（`.tag` / `.card-head` 无作用域前缀覆盖全站、`var(--muted)` 变量不存在）；
   全站体检 **12 → 19 维**（新增插件 / 搜索索引 / 定时任务 / 出站安全 / 内容质量 / 磁盘 / MCP 自检）
   并修掉「明细表恒不渲染」的静默 bug；MCP 只读工具 **5 → 8**（health_score / issues / run_check）。
+- **v4.12.0 前台 /docs 修正与重做**：版本号改为运行时取 `GET /api/health`（原先写死 v3.8.7，
+  落后三个大版本）；补「其他接口」一章（分享卡 / 列表页壳页 / 二维码 / 通道自检 / 管理类 74 条分组）；
+  修 `scroll-margin-top` 20px 致锚点被 58px 吸顶头遮挡；修**复制按钮从来没有样式**
+  （JS 动态创建拿不到 scoped 的 `data-v`，`pre :deep(.copy-btn)` 才对）；样式全部改走设计令牌
+  （原先硬编码色导致换主题色不跟、深色要逐条覆盖）；左右两个目录改为互补（左=章节，右=当前章小节）；
+  新增文档内搜索、回顶按钮、移动端横向 chip 导航；修纵向 flex 下 `align-items: flex-start`
+  造成整页横向溢出 1245px。
 
 ## 三、待办
 

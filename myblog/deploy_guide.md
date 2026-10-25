@@ -627,7 +627,17 @@ sha256sum /tmp/og.png /www/wwwroot/你的站点根/og-default.png
 1. **备份（最重要）**：到「文件」下载留底：
    - `/www/wwwroot/myblog/data/blog.db`（全部数据）
    - `/www/wwwroot/myblog/static/uploads/`（上传的图片）
-1.1. **升级要点**（其余步骤与通用流程一致；适用于 v4.0.0 → v4.11.0）：
+1.1. **升级要点**（其余步骤与通用流程一致；适用于 v4.0.0 → v4.12.0）：
+   - **v4.12.0（前台 /docs 修正与重做）**：
+     - **无迁移、无表结构变更**（head 仍为 `d9f1a4c7b2e8`）。
+     - ⚠️ **这是纯前端改动**：`vue-frontend/src/views/DocsView.vue` → 必须**重新构建前端**，
+       生效靠 `vue-frontend-dist.zip`（`index.html` 里引用的 `DocsView-*.js/css` 哈希会变）。
+       后端包里只有一个 `APP_VERSION` 变化。
+     - 文档页的版本号现在**运行时**取 `GET /api/health` 的 `version`，所以发版后
+       打开 `/docs` 顶栏徽标应立刻显示新版本号；若仍显示旧值，先确认 `/api/health`
+       返回的 `version` 是否已是新版本（那是唯一真相源）。
+     - 用户侧可能缓存着旧的 `DocsView-*.js`，但 Vite 产出名带内容哈希，不会命中旧缓存；
+       遇到样式没变先硬刷新（`Ctrl/Cmd + Shift + R`）。
    - **v4.11.0（后台统一组件层 · 体检 12→19 维 · MCP 新增 3 工具）**：
      - **无迁移、无表结构变更**（head 仍为 `d9f1a4c7b2e8`）。
      - ⚠️ **`admin.css` 有较大改动（+486 行）**，它在后端包里（`myblog/static/admin.css`），

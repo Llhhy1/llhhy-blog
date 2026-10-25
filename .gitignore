@@ -65,3 +65,7 @@ _rescan*.py
 coverage.xml
 htmlcov/
 .pytest_cache/
+
+# playwright-cli 的临时快照/日志（走查用，绝不入版）
+# 教训：v4.12.1 提交时 `git add -A` 把它一起带进去了，靠 .gitignore 兜住。
+.playwright-cli/

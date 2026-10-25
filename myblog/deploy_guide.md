@@ -627,7 +627,14 @@ sha256sum /tmp/og.png /www/wwwroot/你的站点根/og-default.png
 1. **备份（最重要）**：到「文件」下载留底：
    - `/www/wwwroot/myblog/data/blog.db`（全部数据）
    - `/www/wwwroot/myblog/static/uploads/`（上传的图片）
-1.1. **升级要点**（其余步骤与通用流程一致；适用于 v4.0.0 → v4.12.0）：
+1.1. **升级要点**（其余步骤与通用流程一致；适用于 v4.0.0 → v4.12.1）：
+   - **v4.12.1（访问统计表格对齐修复 · 纯模板/CSS，无前端包变化）**：
+     - **无迁移、无表结构变更**（head 仍为 `d9f1a4c7b2e8`）。
+     - 改动只在 `myblog/templates/admin/stats.html`（`th.num` / `td.num` 右对齐 +
+       移动端恢复 `display: table`）与 `SECURITY_AUDIT.md`（R101~R110 归档）。
+       走 `myblog-backend.zip` 覆盖即可，**前端包与 v4.12.0 完全相同**。
+     - 本版是 v4.12.0 的部署补充：v4.12.0 那次因服务器直连 GitHub 下载超时未上线，
+       重试时请确认 `GH_MIRROR` 已生效（本次用 `GH_MIRROR=https://gh-proxy.com/` 成功）。
    - **v4.12.0（前台 /docs 修正与重做）**：
      - **无迁移、无表结构变更**（head 仍为 `d9f1a4c7b2e8`）。
      - ⚠️ **这是纯前端改动**：`vue-frontend/src/views/DocsView.vue` → 必须**重新构建前端**，

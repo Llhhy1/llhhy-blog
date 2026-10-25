@@ -81,6 +81,17 @@
 .stats-page .stats-table tbody tr:last-child td{border-bottom:none;}
 .stats-page .stats-table tbody tr{transition:background .12s ease;}
 .stats-page .stats-table tbody tr:hover td{background:color-mix(in srgb,var(--accent,#1a73e8),#fff 94%);}
+/* v4.12.1：中间数值列（如「来源 | 次数 | 占比」的次数）表头与数据同对齐。
+   原来 <th>次数</th> 继承的是 .stats-table th 的 text-align:left，而 td 用了
+   .rank-count 的 text-align:right —— 表格是 table-layout:auto，这一列一被拉宽，
+   表头就贴列左边、数字贴列右边，中间空出一大片，看上去「标题和数据没对上」。
+   顺带 width:1% + nowrap 把数值列收窄到内容宽度（桌面下它本来只占 3~6 个字符），
+   剩余宽度全给第一列，跟「占比」列的观感一致。 */
+.stats-page .stats-table th.num{text-align:right;}
+.stats-page .stats-table th.num,
+.stats-page .stats-table td.rank-count{width:1%;white-space:nowrap;}
+.stats-page .stats-table td.num{text-align:right;font-variant-numeric:tabular-nums;}
+
 /* 数值列：右对齐 + 等宽数字 + 强调色 */
 .stats-page .stats-table th:last-child{text-align:right;}
 .stats-page .stats-table td:last-child{text-align:right;font-variant-numeric:tabular-nums;
@@ -97,6 +108,15 @@
 .stats-page .range-switch .btn{border-radius:999px;padding:5px 14px;}
 .stats-page .range-switch .btn-active{background:linear-gradient(120deg,var(--accent,#1a73e8),#6aa9ff);
   color:#fff;border-color:transparent;box-shadow:0 4px 12px rgba(26,115,232,.25);}
+/* v4.12.1：≤900px 时 admin.css 给 .stats-table 设了 display:block 来做横滚，
+   但 display:block 会让 thead / tbody 各自成为「匿名表格」—— 列宽分别计算，
+   表头与数据必然对不齐（手机上本页所有表格都中招，且不易察觉是布局而非数据问题）。
+   这里改回真表格布局，把横滚交给卡片容器。特异性 2 个类，稳压 admin.css 的单类规则。 */
+@media (max-width: 900px){
+  .stats-page .stats-table{display:table;}
+  .stats-page .stats-card{overflow-x:auto;}
+}
+
 /* 暗色主题适配 */
 [data-theme="dark"] .stats-page .stat-card .stat-num{background:linear-gradient(120deg,#8ec5ff,#5b9dff);
   -webkit-background-clip:text;background-clip:text;color:transparent;}
@@ -364,13 +384,13 @@
     <h3>📈 环比（最近 {{ summary.compare.days }} 天 vs 上一个同期）</h3>
     {% set c = summary.compare %}
     <table class="stats-table">
-      <thead><tr><th>指标</th><th>本期</th><th>上期</th><th>环比</th></tr></thead>
+      <thead><tr><th>指标</th><th class="num">本期</th><th class="num">上期</th><th>环比</th></tr></thead>
       <tbody>
         {% for label, it in [("访问量 PV", c.pv), ("独立访客 UV", c.uv), ("新增评论", c.comments), ("新增订阅", c.subscribers)] %}
         <tr>
           <td>{{ label }}</td>
-          <td>{{ it.cur }}</td>
-          <td>{{ it.prev }}</td>
+          <td class="num">{{ it.cur }}</td>
+          <td class="num">{{ it.prev }}</td>
           <td>
             {# 上期为 0 时环比没有百分比意义 —— 显示「—」而不是 0% #}
             {% if it.pct is none %}<span class="stats-empty">—</span>
@@ -389,7 +409,7 @@
     <h3>🔗 来源渠道 TOP（最近 30 天）</h3>
     {% if summary.referrers %}
     <table class="stats-table">
-      <thead><tr><th>来源</th><th>次数</th><th>占比</th></tr></thead>
+      <thead><tr><th>来源</th><th class="num">次数</th><th>占比</th></tr></thead>
       <tbody>
         {% set total_ref = summary.referrers | sum(attribute="count") %}
         {% for r in summary.referrers %}
@@ -410,7 +430,7 @@
     <h3>📱 设备分布 TOP（最近 30 天）</h3>
     {% if summary.devices %}
     <table class="stats-table">
-      <thead><tr><th>设备类型</th><th>次数</th><th>占比</th></tr></thead>
+      <thead><tr><th>设备类型</th><th class="num">次数</th><th>占比</th></tr></thead>
       <tbody>
         {% set total_dev = summary.devices | sum(attribute="count") %}
         {% for d in summary.devices %}
@@ -431,7 +451,7 @@
     <h3>🌐 浏览器分布 TOP（最近 30 天）</h3>
     {% if summary.browsers %}
     <table class="stats-table">
-      <thead><tr><th>浏览器</th><th>次数</th><th>占比</th></tr></thead>
+      <thead><tr><th>浏览器</th><th class="num">次数</th><th>占比</th></tr></thead>
       <tbody>
         {% set total_br = summary.browsers | sum(attribute="count") %}
         {% for b in summary.browsers %}

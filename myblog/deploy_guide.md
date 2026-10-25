@@ -1308,7 +1308,7 @@ sha256sum /tmp/og.png /www/wwwroot/你的站点根/og-default.png
 > **v3.19.0（后台「🔍 收录」控制台：主动推送 + 通道自检）升级要点**：**纯后端改动，只需覆盖后端包**（`vue-frontend/` 未动，前端包无变化、可不必覆盖）。**无需补 Nginx 配置**——本版不含任何 Nginx 变更，通道配置仍以 v3.18.9 的「第 4b 步」为准。
 > - **覆盖 `myblog-backend.zip` → gunicorn「停止 → 启动」**；**无新依赖、无新增必填环境变量**。
 > - **⚠️ 新表 `seo_submission` 启动时由 `create_all` 自愈创建，无需 `flask db`**（与 `game` 表同一机制，见 `models.SeoSubmission` docstring 记录的迁移策略）。首次启动日志可见「已迁移：新建数据表（seo_submission）」。
-> - **新增一个出网站点**：本版起后台可主动向**百度**（`http://data.zz.baidu.com`）与 **IndexNow / Bing**（`https://api.bing.com`）推送文章 URL。这是本项目**唯一允许 http 的出站目标**，且**仅当 host 精确等于 `data.zz.baidu.com`** 才放行（精确比对，非后缀匹配）。**若服务器有出站防火墙/安全组白名单，需放行 `data.zz.baidu.com:80` 与 `api.bing.com:443`**；未放行时推送会记为 `fail`（响应 `blocked-host` 或超时），**不影响站点本身运行**。
+> - **新增一个出网站点**：本版起后台可主动向**百度**（`http://data.zz.baidu.com`）与 **IndexNow / Bing**（`https://api.indexnow.org`）推送文章 URL。这是本项目**唯一允许 http 的出站目标**，且**仅当 host 精确等于 `data.zz.baidu.com`** 才放行（精确比对，非后缀匹配）。**若服务器有出站防火墙/安全组白名单，需放行 `data.zz.baidu.com:80` 与 `api.indexnow.org:443`**；未放行时推送会记为 `fail`（响应 `blocked-host` 或超时），**不影响站点本身运行**。
 > - **⚠️ 字体已随包入库**：`myblog/static/fonts/wqy-microhei.ttc`（5.2 MB，文泉驿微米黑，GPL v2 + 字体嵌入例外）。这修复了 v3.16.0 以来「服务器无中文字体 → 分享卡静默降级成兜底图」的隐患。**升级后必须清两处缓存**，否则仍看到旧兜底图：① 后端 `myblog/data/og_cache/` 全删；② Nginx 代理缓存 `find /www/server/nginx/proxy_cache_dir -type f -delete && nginx -s reload`（宝塔全局 `proxy_cache` 会长期缓存兜底结果，客户端 `Cache-Control: no-cache` 绕不过）。
 > - **推送凭据需在后台自行配置**（不随包分发）：进「🔍 收录」页 → 填百度推送 token（百度搜索资源平台获取）与/或 IndexNow key。凭据以 Fernet 密文存 `Setting` 表，**不入包、不入库明文、不回显**。
 > - **升级后自检**：后台左下角 `v3.19.0`；侧栏出现「🔍 收录」；进页面点「通道自检」应见 4 个身份判定（其中 **QQ 内置浏览器真人** 与 **Chrome** 两盏灯必须是「拿到 SPA」）；`.png` 分享卡应返回真实卡片而非兜底图。

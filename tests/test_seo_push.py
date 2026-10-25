@@ -349,15 +349,23 @@ def test_outbound_host_whitelist_is_exact():
     """白名单必须精确比对 host——防 `data.zz.baidu.com.evil.com` 绕过。"""
     assert seo_push._is_allowed_url("http://data.zz.baidu.com/urls") is True
     assert seo_push._is_allowed_url("https://data.zz.baidu.com/urls") is True
-    assert seo_push._is_allowed_url("https://api.bing.com/indexnow") is True
+    assert seo_push._is_allowed_url("https://api.indexnow.org/indexnow") is True
+    # 旧的错误端点不再放行（api.bing.com 没有 /indexnow 这个接口）
+    assert seo_push._is_allowed_url("https://api.bing.com/indexnow") is False
     # 经典绕过手法，必须全部拒绝
     assert seo_push._is_allowed_url("http://data.zz.baidu.com.evil.com/urls") is False
     assert seo_push._is_allowed_url("http://evil.com/http://data.zz.baidu.com") is False
     assert seo_push._is_allowed_url("http://data.zz.baidu.com@evil.com/") is False
     # 除百度外的 http 一律拒（本项目只此一个 http 例外）
-    assert seo_push._is_allowed_url("http://api.bing.com/indexnow") is False
+    assert seo_push._is_allowed_url("http://api.indexnow.org/indexnow") is False
     assert seo_push._is_allowed_url("http://example.com/") is False
     assert seo_push._is_allowed_url("ftp://data.zz.baidu.com/") is False
+
+
+def test_indexnow_endpoint_is_official():
+    """端点必须是 IndexNow 官方统一地址（api.bing.com/indexnow 不存在，会 400）。"""
+    assert seo_push.INDEXNOW_ENDPOINT == "https://api.indexnow.org/indexnow"
+    assert seo_push.INDEXNOW_HOST == "api.indexnow.org"
 
 
 def test_blocked_host_never_sends(monkeypatch):

@@ -51,8 +51,8 @@ logger = logging.getLogger(__name__)
 # --- 出站目标（唯一真相源；不得从别处拼接）---
 BAIDU_ENDPOINT = "http://data.zz.baidu.com/urls"
 BAIDU_HOST = "data.zz.baidu.com"
-INDEXNOW_ENDPOINT = "https://api.bing.com/indexnow"
-INDEXNOW_HOST = "api.bing.com"
+INDEXNOW_ENDPOINT = "https://api.indexnow.org/indexnow"
+INDEXNOW_HOST = "api.indexnow.org"
 
 TIMEOUT = 10          # 单次外发超时（秒）
 MAX_URLS = 500        # 单次推送条数上限（百度 2000 / IndexNow 10000，取保守值）

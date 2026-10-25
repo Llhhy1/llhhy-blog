@@ -1,72 +1,123 @@
 {% extends "admin/base.html" %}
 {% block title %}用户管理{% endblock %}
 {% block content %}
-  <h1 class="page-title">用户管理（超级管理员）</h1>
-  <div class="admin-actions">
-    <a class="btn" href="{{ url_for('admin.dashboard') }}">← 仪表盘</a>
-    <a class="btn" href="{{ url_for('admin.change_password') }}">修改我的密码</a>
+  <div class="page-head">
+    <h1 class="page-title">👥 用户管理</h1>
+    <div class="page-head-actions">
+      <a class="btn-sm" href="{{ url_for('admin.dashboard') }}">← 仪表盘</a>
+      <a class="btn-sm" href="{{ url_for('admin.change_password') }}">修改我的密码</a>
+    </div>
+  </div>
+  <p class="page-desc">
+    超级管理员专属。可新增用户、调整角色、重置密码、删除用户。
+    <b>超级管理员不可被删除、不可被降级。</b>
+  </p>
+
+  <div class="card">
+    <div class="card-head"><h2 class="card-title">新增用户</h2></div>
+    <div class="card-body">
+      {# v4.11.0：改用 `.field` 范式（与「站点设置」「邮件设置」一致）。
+         原来这里是裸控件 + `aria-label` + placeholder 充当标签 —— placeholder 一输入
+         就消失，标签等于没有；而且这 4 个控件没落进任何带外观的容器类，
+         拿到的是浏览器默认样式，与其它后台页的输入框长得不一样。
+         容器类 `user-add-form` 一并去掉：它自带底色/边框/内边距，套在 `.card-body`
+         里是双层容器，视觉冗余；横排改由 `.field-grid` 负责（auto-fit，天然响应式）。 #}
+      <form method="post" action="{{ url_for('admin.add_user') }}">
+        {{ csrf_input() }}
+        <div class="field-grid">
+          <div class="field">
+            <label class="field-label" for="nu_username">用户名<span class="req">*</span></label>
+            <input id="nu_username" type="text" name="username" placeholder="2-20 个字符"
+                   minlength="2" maxlength="20" required autocomplete="off">
+            <p class="field-hint">登录名，2-20 个字符。</p>
+          </div>
+          <div class="field">
+            <label class="field-label" for="nu_email">邮箱</label>
+            <input id="nu_email" type="email" name="email" placeholder="选填" autocomplete="off">
+            <p class="field-hint">用于找回密码与通知，可留空。</p>
+          </div>
+          <div class="field">
+            <label class="field-label" for="nu_password">初始密码<span class="req">*</span></label>
+            <input id="nu_password" type="password" name="password" placeholder="至少 8 位"
+                   minlength="8" required autocomplete="new-password">
+            <p class="field-hint">至少 8 位；建议用户首次登录后自行修改。</p>
+          </div>
+          <div class="field">
+            <label class="field-label" for="nu_role">初始角色</label>
+            <select id="nu_role" name="role">
+              <option value="user">普通用户</option>
+              <option value="admin">管理员（可进后台管理内容）</option>
+            </select>
+            <p class="field-hint">管理员可进后台管理内容，但不能管理用户。</p>
+          </div>
+        </div>
+        <div class="form-actions">
+          <button type="submit" class="btn">创建用户</button>
+        </div>
+      </form>
+    </div>
   </div>
 
-  <h3>新增用户</h3>
-  <form method="post" action="{{ url_for('admin.add_user') }}" class="user-add-form">
-        {{ csrf_input() }}
-    <input aria-label="用户名" type="text" name="username" placeholder="用户名（2-20 字符）" minlength="2" maxlength="20" required>
-    <input aria-label="邮箱" type="email" name="email" placeholder="邮箱（可选）">
-    <input aria-label="密码" type="password" name="password" placeholder="密码（至少 8 位）" minlength="8" required>
-    <select name="role">
-      <option value="user">普通用户</option>
-      <option value="admin">管理员（可进后台管理内容）</option>
-    </select>
-    <button type="submit">创建用户</button>
-  </form>
+  <div class="card">
+    <div class="card-head">
+      <h2 class="card-title">全部用户 <span class="card-count">{{ users | length }}</span></h2>
+    </div>
+    <table class="admin-table">
+      <thead>
+        <tr><th style="width:60px;">ID</th><th style="width:170px;">用户名</th><th>邮箱</th><th style="width:170px;">角色</th><th style="width:120px;">注册时间</th><th style="width:170px;">操作</th></tr>
+      </thead>
+      <tbody>
+        {% for u in users %}
+          <tr>
+            <td data-label="ID">{{ u.id }}</td>
+            <td data-label="用户名">
+              {{ u.username }}{% if u.id == current_user.id %} <span class="tag tag-info">我</span>{% endif %}
+            </td>
+            <td data-label="邮箱" class="cell-wrap">{{ u.email or '—' }}</td>
+            <td data-label="角色">
+              {% if u.is_super %}
+                <span class="tag tag-down">超级管理员</span>
+              {% else %}
+                <form method="post" action="{{ url_for('admin.set_role', uid=u.id) }}" class="inline-form">
+                  {{ csrf_input() }}
+                  <select name="role" aria-label="调整 {{ u.username }} 的角色" onchange="this.form.submit()">
+                    <option value="admin" {{ 'selected' if u.role == 'admin' }}>管理员</option>
+                    <option value="user" {{ 'selected' if u.role == 'user' }}>普通用户</option>
+                  </select>
+                </form>
+              {% endif %}
+            </td>
+            <td data-label="注册时间">{{ u.created_at | bj('%Y-%m-%d') if u.created_at else '—' }}</td>
+            <td data-label="操作">
+              <div class="row-ops">
+                {% if u.is_super %}
+                  <span class="muted">不可操作</span>
+                {% else %}
+                  <form method="post" action="{{ url_for('admin.reset_password', uid=u.id) }}" class="inline-form"
+                        onsubmit="var p=prompt('输入该用户的新密码（至少 8 位）：'); if(!p||p.length<8){alert('密码无效');return false;} this.new_password.value=p;">
+                    {{ csrf_input() }}
+                    <input type="hidden" name="new_password">
+                    <button type="submit" class="link-btn">重置密码</button>
+                  </form>
+                  <form method="post" action="{{ url_for('admin.delete_user', uid=u.id) }}" class="inline-form"
+                        onsubmit="return confirm('确定删除用户 {{ u.username|tojson }}？其历史评论会保留。');">
+                    {{ csrf_input() }}
+                    <button type="submit" class="link-danger">删除</button>
+                  </form>
+                {% endif %}
+              </div>
+            </td>
+          </tr>
+        {% else %}
+          <tr><td colspan="6">
+            <div class="empty"><span class="empty-ico">👥</span>暂无用户</div>
+          </td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
 
-  <h3>全部用户（{{ users | length }}）</h3>
-  <table class="admin-table">
-    <thead>
-      <tr><th>ID</th><th>用户名</th><th>邮箱</th><th>角色</th><th>注册时间</th><th>操作</th></tr>
-    </thead>
-    <tbody>
-      {% for u in users %}
-        <tr>
-          <td data-label="ID">{{ u.id }}</td>
-          <td data-label="用户名">{{ u.username }}{% if u.id == current_user.id %}（我）{% endif %}</td>
-          <td data-label="邮箱">{{ u.email or '—' }}</td>
-          <td data-label="角色">
-            {% if u.is_super %}
-              <span class="role-tag role-super">超级管理员</span>
-            {% else %}
-              <form method="post" action="{{ url_for('admin.set_role', uid=u.id) }}" class="inline-form">
-                    {{ csrf_input() }}
-                <select name="role" onchange="this.form.submit()">
-                  <option value="admin" {{ 'selected' if u.role == 'admin' }}>管理员</option>
-                  <option value="user" {{ 'selected' if u.role == 'user' }}>普通用户</option>
-                </select>
-              </form>
-            {% endif %}
-          </td>
-          <td data-label="注册时间">{{ u.created_at | bj('%Y-%m-%d') if u.created_at else '—' }}</td>
-          <td data-label="操作">
-            {% if u.is_super %}
-              <span class="muted">不可操作</span>
-            {% else %}
-              <form method="post" action="{{ url_for('admin.reset_password', uid=u.id) }}" class="inline-form"
-                    onsubmit="var p=prompt('输入该用户的新密码（至少 8 位）：'); if(!p||p.length<8){alert('密码无效');return false;} this.new_password.value=p;">
-                    {{ csrf_input() }}
-                <input type="hidden" name="new_password">
-                <button type="submit" class="link-btn">重置密码</button>
-              </form>
-              <form method="post" action="{{ url_for('admin.delete_user', uid=u.id) }}" class="inline-form"
-                    onsubmit="return confirm('确定删除用户 {{ u.username|tojson }}？其历史评论会保留。');">
-                    {{ csrf_input() }}
-                <button type="submit" class="link-danger">删除</button>
-              </form>
-            {% endif %}
-          </td>
-        </tr>
-      {% else %}
-        <tr><td colspan="6">暂无用户</td></tr>
-      {% endfor %}
-    </tbody>
-  </table>
-  <p class="muted" style="margin-top: 10px;">安全规则：超级管理员拥有最高权限，不可被删除、不可被降级；管理员可进入后台管理内容但不能管理用户。</p>
+  <p class="page-desc" style="margin-top:0;">
+    安全规则：超级管理员拥有最高权限，不可被删除、不可被降级；管理员可进入后台管理内容但不能管理用户。
+  </p>
 {% endblock %}

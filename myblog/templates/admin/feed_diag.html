@@ -1,94 +1,140 @@
 {% extends "admin/base.html" %}
 {% block title %}诊断助手{% endblock %}
 {% block content %}
-  <style>
-    .diag-badge { font-size: 12px; padding: 2px 10px; border-radius: 10px; margin-left: 8px; vertical-align: middle; }
-    .diag-ok { background: #e6f4ea; color: #1e7e34; }
-    .diag-warn { background: #fff4e5; color: #b45309; }
-    .diag-error { background: #fde8e8; color: #c53030; }
-    .diag-lv-ok { color: #1e7e34; }
-    .diag-lv-warn { color: #b45309; }
-    .diag-lv-error { color: #c53030; }
-    .diag-lv-info { color: #374151; }
-    .diag-notes { margin: 12px 0 0; padding-left: 20px; color: #b45309; line-height: 1.8; }
-    .diag-notes li { margin-bottom: 4px; }
-    .stats-card h3 { display: flex; align-items: center; }
-    [data-theme="dark"] .diag-lv-info { color: #c7ccd1; }
-    [data-theme="dark"] .diag-notes { color: #e0a96d; }
-  </style>
-
-  <h1 class="page-title">🩺 全站健康体检中心</h1>
-  <p class="stats-sub">
-    一次性体检全站运行状况：数据库、依赖、配置、备份、SEO、待办、前端构建、存储、博客圈 RSS。
-    任何小问题都会在这里标红（异常）/标黄（警告）。生成时间：{{ result.generated_at }}
+  <div class="page-head">
+    <h1 class="page-title">🩺 网站诊断助手</h1>
+    <div class="page-head-actions">
+      <form method="POST" class="inline-form" style="margin:0;">
+        {{ csrf_input() }}
+        <button type="submit" class="btn">↻ 强制刷新聚合 + 重新体检</button>
+      </form>
+      <a class="btn-sm" href="{{ url_for('admin.mcp_services') }}">🔌 MCP 服务</a>
+      <a class="btn-sm" href="{{ url_for('admin.audit_logs') }}">🧾 操作日志</a>
+    </div>
+  </div>
+  <p class="page-desc">
+    一次性体检全站运行状况：数据库、依赖、配置、安全、备份、证书、SEO、待办、前端构建、存储、渲染缓存，
+    以及 v4.11.0 新增的<b>插件载入 / 搜索索引 / 定时发布 / 外发通道 / 内容健康度 / 磁盘 WAL / MCP 自身</b>。
+    任何小问题都会在这里标红（异常）/ 标黄（警告）。生成时间：{{ result.generated_at }}
+    {% if result.issue_total > result.issues|length %}
+      （问题清单只列前 {{ result.issues|length }} 条，共 {{ result.issue_total }} 条）
+    {% endif %}
   </p>
 
-  <div class="stats-grid">
-    <div class="stat-card"><span class="stat-num" style="color:#1e7e34">{{ result.summary.ok }}</span><span class="stat-label">正常</span></div>
-    <div class="stat-card"><span class="stat-num" style="color:#b45309">{{ result.summary.warn }}</span><span class="stat-label">警告</span></div>
-    <div class="stat-card"><span class="stat-num" style="color:#c53030">{{ result.summary.error }}</span><span class="stat-label">异常</span></div>
+  {# ---- 健康评分 + 计数 ---- #}
+  <div class="card">
+    <div class="diag-score {% if result.summary.error %}s-error{% elif result.summary.warn %}s-warn{% else %}s-ok{% endif %}">
+      <div class="diag-score-num">{{ result.score }}<small>/100</small></div>
+      <div class="diag-score-meta">
+        <h3>
+          {% if result.summary.error %}发现 {{ result.summary.error }} 个维度异常
+          {% elif result.summary.warn %}有 {{ result.summary.warn }} 个维度需要留意
+          {% else %}全站 {{ result.sections|length }} 个维度全部正常{% endif %}
+        </h3>
+        <p>
+          正常 <b>{{ result.summary.ok }}</b> · 警告 <b>{{ result.summary.warn }}</b> ·
+          异常 <b>{{ result.summary.error }}</b> · 共 {{ result.sections|length }} 个维度
+          （评分按维度均分：异常 0 分、警告半分）
+        </p>
+      </div>
+    </div>
   </div>
 
-  <div style="margin:20px 0;">
-    <form method="POST" style="display:inline;">
-      {{ csrf_input() }}
-      <button type="submit" class="btn-sm" style="font-size:14px;padding:8px 18px;">↻ 强制刷新聚合 + 重新体检</button>
-    </form>
-    <span class="stats-sub" style="margin-left:10px;">各维度每次打开本页实时计算；点此按钮会强制重新抓取友链 RSS 并刷新聚合诊断。</span>
+  {# ---- 跨维度问题清单：先给「要做什么」，再给细节 ---- #}
+  <div class="card">
+    <div class="card-head">
+      <h2 class="card-title">⚠️ 待处理问题 <span class="card-count">{{ result.issue_total }}</span></h2>
+      <span class="tag tag-flat">按严重度排序</span>
+    </div>
+    <div class="card-body">
+      {% if result.issues %}
+        <ul class="issue-list">
+          {% for it in result.issues %}
+            <li class="issue-item">
+              <span class="diag-badge diag-{{ 'error' if it.level == 'error' else 'warn' }}">
+                {{ '异常' if it.level == 'error' else '警告' }}
+              </span>
+              <span class="issue-dim">{{ it.dimension }}</span>
+              <span class="issue-body">
+                <b>{{ it.label }}</b>：{{ it.value }}
+                <a href="#dim-{{ it.key }}" class="issue-fix">看该维度详情 →</a>
+              </span>
+            </li>
+          {% endfor %}
+        </ul>
+      {% else %}
+        <div class="empty">
+          <span class="empty-ico">✅</span>
+          没有任何异常或警告项。
+        </div>
+      {% endif %}
+    </div>
   </div>
 
+  {# ---- 逐维度明细 ---- #}
   {% for sec in result.sections %}
-  <div class="stats-card" style="margin-top:20px;">
-    <h3>
-      {{ sec.title }}
-      <span class="diag-badge diag-{{ sec.status }}">
-        {% if sec.status == 'ok' %}正常{% elif sec.status == 'warn' %}警告{% else %}异常{% endif %}
-      </span>
-    </h3>
+  <div class="card" id="dim-{{ sec.key }}">
+    <div class="card-head">
+      <h2 class="card-title">
+        {{ sec.title }}
+        <span class="diag-badge diag-{{ sec.status }}">
+          {% if sec.status == 'ok' %}正常{% elif sec.status == 'warn' %}警告{% else %}异常{% endif %}
+        </span>
+      </h2>
+      {% if sec.rows %}<span class="card-count">{{ sec.rows|length }} 项</span>{% endif %}
+    </div>
 
     {% if sec.rows %}
-    <table class="stats-table">
-      <tbody>
-      {% for it in sec.rows %}
-        <tr>
-          <td style="width:240px;color:#6b7280;">{{ it.label }}</td>
-          <td><span class="diag-lv diag-lv-{{ it.level }}">{{ it.value }}</span></td>
-        </tr>
-      {% endfor %}
-      </tbody>
-    </table>
+      <div class="card-body">
+        <dl class="kv-list">
+          {% for it in sec.rows %}
+            <dt>{{ it.label }}</dt>
+            <dd><span class="diag-lv diag-lv-{{ it.level }}">{{ it.value }}</span></dd>
+          {% endfor %}
+        </dl>
+      </div>
     {% endif %}
 
     {% if sec.per_link %}
-    <h4 style="margin-top:14px;">逐条友链明细</h4>
-    <table class="stats-table">
-      <thead><tr><th>友链</th><th>RSS 地址</th><th>安全校验</th><th>解析条数</th><th>状态</th><th>原因</th></tr></thead>
-      <tbody>
-      {% for rec in sec.per_link %}
-        <tr>
-          <td>{{ rec.name }}</td>
-          <td><a href="{{ rec.rss_url }}" target="_blank" rel="noopener">{{ rec.rss_url }}</a></td>
-          <td>{% if rec.safe %}通过{% elif rec.safe is sameas false %}<span style="color:#c53030;">未通过</span>{% else %}—{% endif %}</td>
-          <td>{{ rec.entries }}</td>
-          <td>
-            {% if rec.status == 'ok' %}<span class="tag" style="background:#e6f4ea;color:#1e7e34;">正常</span>
-            {% elif rec.status == 'empty' %}<span class="tag" style="background:#fff4e5;color:#b45309;">解析 0 条</span>
-            {% elif rec.status == 'skipped' %}<span class="tag" style="background:#fde8e8;color:#c53030;">跳过（安全）</span>
-            {% elif rec.status == 'error' %}<span class="tag" style="background:#fde8e8;color:#c53030;">错误</span>
-            {% else %}—{% endif %}
-          </td>
-          <td style="color:#b45309;">{{ rec.reason or '' }}</td>
-        </tr>
-      {% endfor %}
-      </tbody>
-    </table>
+      <div class="card-body" style="padding-top:0;">
+        <h3 class="section-sub">逐条友链明细</h3>
+        <table class="admin-table">
+          <thead><tr><th>友链</th><th>RSS 地址</th><th style="width:96px;">安全校验</th><th style="width:80px;">解析条数</th><th style="width:110px;">状态</th><th>原因</th></tr></thead>
+          <tbody>
+          {% for rec in sec.per_link %}
+            <tr>
+              <td data-label="友链">{{ rec.name }}</td>
+              <td data-label="RSS 地址" class="cell-break"><a href="{{ rec.rss_url }}" target="_blank" rel="noopener noreferrer">{{ rec.rss_url }}</a></td>
+              <td data-label="安全校验">{% if rec.safe %}<span class="tag tag-up">通过</span>{% elif rec.safe is sameas false %}<span class="tag tag-down">未通过</span>{% else %}—{% endif %}</td>
+              <td data-label="解析条数">{{ rec.entries }}</td>
+              <td data-label="状态">
+                {% if rec.status == 'ok' %}<span class="tag tag-up">正常</span>
+                {% elif rec.status == 'empty' %}<span class="tag tag-warn">解析 0 条</span>
+                {% elif rec.status == 'skipped' %}<span class="tag tag-down">跳过（安全）</span>
+                {% elif rec.status == 'error' %}<span class="tag tag-down">错误</span>
+                {% else %}—{% endif %}
+              </td>
+              <td data-label="原因" class="cell-wrap">{{ rec.reason or '' }}</td>
+            </tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
     {% endif %}
 
     {% if sec.notes %}
-    <ul class="diag-notes">
-      {% for n in sec.notes %}<li>{{ n }}</li>{% endfor %}
-    </ul>
+      <div class="card-body" style="padding-top:0;">
+        <ul class="diag-notes">
+          {% for n in sec.notes %}<li>{{ n }}</li>{% endfor %}
+        </ul>
+      </div>
     {% endif %}
   </div>
   {% endfor %}
+
+  <p class="page-desc" style="margin-top:0;">
+    同一次体检的结果也可由外部 AI 助手通过 <b>MCP</b> 读取（工具：<code>health_overview</code> /
+    <code>issues</code> / <code>health_score</code> / <code>run_check</code>），
+    端点与 Token 见 <a href="{{ url_for('admin.mcp_services') }}">🔌 MCP 服务</a>。
+  </p>
 {% endblock %}

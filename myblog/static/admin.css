@@ -1263,3 +1263,489 @@ body.drawer-open {
     scroll-behavior: auto !important;
   }
 }
+
+/* ============================================================
+   v4.11.0 后台统一组件层
+   ------------------------------------------------------------
+   背景：此前「统一美化」只停留在各模板自己内联 <style>，于是同一件事
+   （页面说明、空状态、徽标、按钮尺寸）在每个页面写法都不同，且有一批
+   类名**从未被定义**（.hint-block / .section-sub / .empty-tip / .row-off /
+   .inline-details / .entry-edit-form / .btn-danger / .btn-sm / .tag /
+   .stats-sub / .ann-form-row），模板写了等于没写 —— 浏览器按裸标签渲染，
+   这才是「几个后台页面看着不像一套」的真实原因。
+
+   本区块是后台**唯一**的组件真相源：
+   1. 结构类：.page-head / .card / .toolbar / .field / .kv-list / .empty
+   2. 补齐历史欠账：上面那批未定义类（同名保留，不改模板 data 契约）
+   3. 徽标体系统一为 .tag + 语义变体（.tag-up/-down/-flat/-warn/-info）
+   全部走 tokens.css 的变量，暗色只补「品牌彩色底」这一层。
+   ============================================================ */
+
+/* ---------- ① 页头：标题 + 副标题 + 右侧操作 ---------- */
+.page-head {
+  display: flex; align-items: flex-start; justify-content: space-between;
+  gap: 14px; flex-wrap: wrap; margin-bottom: 4px;
+}
+.page-head .page-title { margin-bottom: 0; }
+.page-head-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.page-desc {
+  color: var(--text-muted); font-size: 13px; line-height: 1.75;
+  margin: 8px 0 18px; max-width: 92ch;
+}
+.page-desc code, .hint-block code {
+  background: var(--surface-2); border: 1px solid var(--border);
+  border-radius: 5px; padding: 0 5px; font-size: 12.5px;
+}
+.page-desc b { color: var(--text); }
+
+/* ---------- ② 卡片：后台唯一的「块」 ---------- */
+.card {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--theme-radius, var(--radius-md));
+  box-shadow: var(--shadow-sm); margin-bottom: 18px; overflow: hidden;
+}
+.card-head {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 12px; flex-wrap: wrap;
+  padding: 14px 20px; border-bottom: 1px solid var(--border);
+  background: var(--surface-2);
+}
+.card-title {
+  font-size: 14px; font-weight: 700; color: var(--text);
+  display: flex; align-items: center; gap: 8px; margin: 0;
+}
+.card-title .card-count {
+  font-weight: 500; font-size: 12px; color: var(--text-muted);
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius-pill); padding: 1px 9px;
+}
+.card-body { padding: 18px 20px; }
+.card-body > :first-child { margin-top: 0; }
+.card-body > :last-child { margin-bottom: 0; }
+.card-foot {
+  padding: 12px 20px; border-top: 1px solid var(--border);
+  background: var(--surface-2); display: flex; align-items: center;
+  gap: 10px; flex-wrap: wrap;
+}
+/* 卡片内的表格不再自带外框/阴影，避免双层边 */
+.card .admin-table, .card-body .admin-table { box-shadow: none; border-radius: 0; margin-bottom: 0; }
+.card > .admin-table { display: block; }
+.card > .table-scroll { padding: 0; }
+
+/* ---------- ③ 工具条：筛选 / 批量操作 ---------- */
+.toolbar {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+}
+.toolbar-right { margin-left: auto; }
+.toolbar .spacer { flex: 1 1 auto; }
+.toolbar label.inline {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: 13px; color: var(--text-muted); margin: 0;
+}
+
+/* ---------- ④ 表单字段：标签 / 控件 / 说明 ---------- */
+.field { margin-bottom: 16px; }
+.field-label {
+  display: block; font-size: 13px; font-weight: 600;
+  color: var(--text); margin-bottom: 6px;
+}
+.field-label .req { color: var(--danger); margin-left: 2px; }
+.field-hint {
+  font-size: 12px; color: var(--text-muted); line-height: 1.7; margin: 6px 0 0;
+}
+.field-hint code {
+  background: var(--surface-2); border: 1px solid var(--border);
+  border-radius: 5px; padding: 0 4px;
+}
+.field-grid {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 4px 16px;
+}
+/* 字段内控件统一外观（此前只有 .edit-form 系有，别处散落裸 input） */
+.field input[type="text"], .field input[type="url"], .field input[type="number"],
+.field input[type="email"], .field input[type="password"], .field input[type="date"],
+.field select, .field textarea,
+.card-body input[type="text"], .card-body input[type="url"],
+.card-body input[type="number"], .card-body input[type="email"],
+.card-body input[type="password"], .card-body input[type="date"] {
+  width: 100%; box-sizing: border-box;
+}
+.field input[type="color"] {
+  width: 64px; height: 38px; padding: 2px; cursor: pointer;
+  border: 1px solid var(--border-strong); border-radius: var(--radius-sm);
+  background: var(--surface);
+}
+.field-row-inline { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+
+/* ===== v4.11.0（同一轮，接上方「后台统一组件层」）∶ 表单控件统一基座 =====
+   上面那段「统一组件层」解决的是**类名欠账**（一批模板写了但从未定义的类）与
+   容器内的宽度约束（`.field input { width:100% }`）。但它是**按容器类**生效的，
+   没有一条全局控件外观规则 —— 于是没落进 `.field` / `.edit-form` / `.inline-form`
+   的控件（筛选栏、工具栏、卡片里直接放的输入框）拿到的是**浏览器默认样式**。
+   这一节补的就是「控件本身长什么样」，与上面那段是同一件事的两半，不是两件事。 */
+
+   这里用 `:where()` 补一层**零特异性**基座。`:where()` 的特异性恒为 0，所以
+   既有的 `.edit-form input` 等规则依然优先，**不会改掉任何现有视觉**，
+   只是把「原本没有外观」的控件补到同一水平线上。
+   （`--muted` / `--theme-radius` 这类不存在的变量名是另一个坑，见 stats.html。） */
+:where(input:not([type=checkbox], [type=radio], [type=range], [type=color], [type=file], [type=submit], [type=button], [type=reset], [type=hidden]),
+       select, textarea) {
+  font-family: inherit;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  padding: 8px 10px;
+  box-sizing: border-box;
+  transition: border-color var(--transition-fast, .15s ease),
+              box-shadow var(--transition-fast, .15s ease);
+}
+
+:where(input:not([type=checkbox], [type=radio], [type=range], [type=color], [type=file], [type=submit], [type=button], [type=reset], [type=hidden]),
+       select, textarea):focus-visible {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+:where(input:not([type=checkbox], [type=radio], [type=range], [type=color], [type=file], [type=submit], [type=button], [type=reset], [type=hidden]),
+       select, textarea)::placeholder { color: var(--text-faint); }
+
+/* 禁用 / 只读：背景降一档，光标给出语义（只读仍可选中复制，所以不用 not-allowed） */
+:where(input:not([type=checkbox], [type=radio], [type=range], [type=color], [type=file]),
+       select, textarea):disabled {
+  background: var(--surface-2); color: var(--text-faint); cursor: not-allowed;
+}
+:where(input[readonly], textarea[readonly]) { background: var(--surface-2); }
+
+/* 多行文本：给出可用的初始高度与纵向缩放（横向缩放必然撑破布局） */
+:where(textarea) { min-height: 76px; resize: vertical; }
+
+/* 勾选类：一行 accent-color 统一（现代浏览器原生支持，不必自造控件） */
+:where(input[type=checkbox], input[type=radio]) { accent-color: var(--accent); }
+
+/* 文件 / 颜色：原生外观特殊，只统一外围，不硬套上面那套 padding */
+:where(input[type=file]) { font-size: 13px; color: var(--text-muted); }
+:where(input[type=file])::file-selector-button {
+  font: inherit; font-size: 13px; margin-right: 10px; padding: 6px 12px;
+  color: var(--text); background: var(--surface-2);
+  border: 1px solid var(--border-strong); border-radius: var(--radius-sm);
+  cursor: pointer; transition: background var(--transition-fast, .15s ease);
+}
+:where(input[type=file])::file-selector-button:hover { background: var(--surface-3); }
+:where(input[type=color]) {
+  width: 56px; height: 36px; padding: 2px; cursor: pointer;
+  background: var(--surface); border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+}
+
+/* ---------- ⑤ 键值列表（诊断 / 详情用，替代散落的两列表格） ---------- */
+.kv-list {
+  display: grid; grid-template-columns: max-content minmax(0, 1fr);
+  gap: 2px 18px; margin: 0; font-size: 13px;
+}
+.kv-list dt { color: var(--text-muted); padding: 6px 0; }
+.kv-list dd {
+  margin: 0; padding: 6px 0; color: var(--text);
+  overflow-wrap: anywhere; word-break: break-word; min-width: 0;
+}
+.kv-list dt + dd { border-bottom: 1px solid var(--border); }
+@media (max-width: 640px) {
+  .kv-list { grid-template-columns: 1fr; gap: 0; }
+  .kv-list dt { padding-bottom: 0; }
+  .kv-list dd { padding-top: 2px; }
+}
+
+/* ---------- ⑥ 空状态 ---------- */
+.empty {
+  text-align: center; padding: 34px 18px; color: var(--text-muted); font-size: 13.5px;
+}
+.empty .empty-ico { display: block; font-size: 30px; opacity: .55; margin-bottom: 8px; }
+.empty .empty-actions { margin-top: 14px; display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; }
+.card-body .empty { padding: 26px 12px; }
+
+/* ---------- ⑦ 补齐历史欠账（模板已在用，CSS 一直缺） ---------- */
+/* nav_entries.html 的说明段落 */
+.hint-block {
+  background: var(--surface-2); border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  border-radius: var(--radius-sm); padding: 10px 14px;
+  font-size: 13px; line-height: 1.75; color: var(--text-muted);
+  margin: 0 0 10px;
+}
+.hint-block b { color: var(--text); }
+.hint-block.warn { border-left-color: var(--warning); }
+
+/* 区块小标题（原为裸 h2，默认 1.5em 粗体，与卡片标题打架） */
+.section-sub {
+  font-size: 14px; font-weight: 700; color: var(--text);
+  margin: 22px 0 10px; padding-bottom: 0;
+}
+.card .section-sub:first-child, .card-body .section-sub:first-child { margin-top: 0; }
+
+/* 空提示（行内版，与 .empty 区分：用于表单区不可用提示） */
+.empty-tip {
+  color: var(--text-muted); font-size: 13px; line-height: 1.7;
+  background: var(--surface-2); border: 1px dashed var(--border-strong);
+  border-radius: var(--radius-sm); padding: 12px 14px; margin: 10px 0;
+}
+.empty-tip b { color: var(--text); }
+
+/* 停用行整行降透明度（原无任何样式，看不出「已停用」） */
+.admin-table tr.row-off td { opacity: .55; }
+.admin-table tr.row-off:hover td { opacity: .8; }
+
+/* <details> 折叠编辑面板：原为裸 summary 冒充按钮，展开后无布局 */
+.inline-details { position: relative; display: inline-block; }
+.inline-details > summary {
+  list-style: none; cursor: pointer; display: inline-flex;
+  align-items: center; gap: 4px; user-select: none;
+}
+.inline-details > summary::-webkit-details-marker { display: none; }
+.inline-details > summary::after { content: "▾"; font-size: 10px; opacity: .6; }
+.inline-details[open] > summary::after { content: "▴"; }
+.inline-details[open] > summary { border-color: var(--accent); color: var(--accent); }
+.inline-details > .entry-edit-form {
+  position: absolute; z-index: 30; left: 0; top: calc(100% + 6px);
+  width: 340px; max-width: min(340px, 78vw);
+}
+@media (max-width: 760px) {
+  .inline-details { display: block; width: 100%; }
+  .inline-details > .entry-edit-form {
+    position: static; width: 100%; max-width: 100%; margin-top: 8px;
+  }
+}
+
+/* 行内编辑表单（新增/编辑共用）：原无样式 → 多个 input 挤成一行溢出 */
+.entry-edit-form {
+  display: grid; grid-template-columns: 1fr; gap: 8px;
+  background: var(--surface); border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md); padding: 12px; box-shadow: var(--shadow-md);
+}
+.entry-edit-form input[type="text"], .entry-edit-form input[type="url"] {
+  width: 100%; box-sizing: border-box;
+  padding: 8px 11px; font-size: 13.5px; font-family: inherit;
+  background: var(--surface); color: var(--text);
+  border: 1px solid var(--border-strong); border-radius: var(--radius-sm);
+}
+.entry-edit-form .btn { justify-self: start; }
+/* 卡片内「添加新入口」这类常驻表单：不要浮层样式 */
+.card-body .entry-edit-form {
+  box-shadow: none; border-style: dashed; background: var(--surface-2);
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); align-items: end;
+}
+
+/* 危险按钮（nav_entries / plugins 已在用，此前缺失 → 与普通按钮同色） */
+.btn.danger, .btn-danger { background: var(--danger); color: var(--on-accent); }
+.btn.danger:hover, .btn-danger:hover { filter: brightness(1.06); }
+.btn-danger {
+  display: inline-block; padding: 5px 12px; border-radius: var(--theme-radius, 8px);
+  border: none; font-size: 13px; cursor: pointer; text-decoration: none;
+}
+.btn-mini.btn-danger, .btn.btn-mini.danger {
+  padding: 4px 10px; font-size: 12px;
+  background: transparent; color: var(--danger);
+  border: 1px solid color-mix(in srgb, var(--danger) 45%, transparent);
+}
+.btn-mini.btn-danger:hover, .btn.btn-mini.danger:hover {
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
+}
+
+/* 小号按钮（announcements / bot_guard / feed_diag / links / visit_logs 在用） */
+.btn-sm {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 5px 12px; border-radius: var(--theme-radius, 8px);
+  border: 1px solid var(--border-strong); background: var(--surface);
+  color: var(--text); font-size: 13px; font-family: inherit;
+  cursor: pointer; text-decoration: none; line-height: 1.5;
+  transition: border-color .15s, color .15s, background .15s;
+}
+.btn-sm:hover { border-color: var(--accent); color: var(--accent); }
+.btn-sm.primary {
+  background: var(--accent); border-color: var(--accent); color: var(--on-accent);
+}
+.btn-sm.primary:hover { filter: brightness(1.06); color: var(--on-accent); }
+.btn-sm:disabled { opacity: .5; cursor: not-allowed; }
+
+/* 页面副标题（feed_diag / 体检页在用） */
+.stats-sub {
+  color: var(--text-muted); font-size: 13px; line-height: 1.75;
+  margin: 6px 0 16px; max-width: 92ch;
+}
+
+/* 公告表单的一行控件（announcements 在用） */
+.ann-form-row {
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-top: 10px;
+}
+.ann-form-row select { width: auto; min-width: 140px; }
+
+/* ---------- ⑧ 徽标统一：.tag + 语义变体 ---------- *
+ * 此前 .tag 只在 stats.html / visit_logs.html 各自内联定义过，
+ * games.html（LLM 审计结论）与 push_settings.html（已配置/未配置）用了
+ * 却没定义 → 徽标退化成裸文字。这里一次定义清楚，各页内联定义仍会覆盖它们
+ * （同选择器、文档顺序在后），不影响既有观感。 */
+.tag {
+  display: inline-block; padding: 1px 9px; border-radius: var(--radius-pill);
+  font-size: 12px; line-height: 1.7; font-weight: 500; white-space: nowrap;
+  background: var(--surface-2); color: var(--text-muted);
+  border: 1px solid var(--border);
+}
+.tag-up {
+  background: rgba(24, 128, 56, .12); color: rgb(21 112 58);
+  border-color: rgba(24, 128, 56, .28);
+}
+.tag-down {
+  background: rgba(211, 66, 71, .12); color: rgb(179 38 43);
+  border-color: rgba(211, 66, 71, .28);
+}
+.tag-warn {
+  background: rgba(232, 163, 61, .16); color: rgb(138 91 0);
+  border-color: rgba(232, 163, 61, .34);
+}
+.tag-info {
+  background: rgba(25, 109, 221, .10); color: rgb(23 88 184);
+  border-color: rgba(25, 109, 221, .26);
+}
+.tag-flat {
+  background: rgba(127, 127, 127, .12); color: rgb(95 102 114);
+  border-color: rgba(127, 127, 127, .22);
+}
+[data-theme="dark"] .tag { border-color: var(--border-strong); color: var(--text-muted); }
+[data-theme="dark"] .tag-up { background: rgba(123, 196, 127, .18); color: rgb(143 214 148); border-color: rgba(123, 196, 127, .32); }
+[data-theme="dark"] .tag-down { background: rgba(240, 93, 95, .18); color: rgb(255 139 141); border-color: rgba(240, 93, 95, .32); }
+[data-theme="dark"] .tag-warn { background: rgba(232, 163, 61, .20); color: rgb(240 187 99); border-color: rgba(232, 163, 61, .34); }
+[data-theme="dark"] .tag-info { background: rgba(138, 180, 255, .18); color: rgb(138 180 255); border-color: rgba(138, 180, 255, .32); }
+[data-theme="dark"] .tag-flat { background: rgba(255, 255, 255, .10); color: rgb(179 185 194); border-color: rgba(255, 255, 255, .14); }
+
+/* ---------- ⑨ 诊断页徽标（从模板内联搬来，补暗色） ---------- */
+.diag-badge {
+  font-size: 12px; padding: 2px 10px; border-radius: var(--radius-pill);
+  margin-left: 8px; vertical-align: middle; font-weight: 600;
+}
+.diag-ok { background: rgba(24, 128, 56, .12); color: rgb(21 112 58); }
+.diag-warn { background: rgba(232, 163, 61, .18); color: rgb(138 91 0); }
+.diag-error { background: rgba(211, 66, 71, .14); color: rgb(179 38 43); }
+.diag-lv { font-weight: 500; }
+.diag-lv-ok { color: rgb(21 112 58); }
+.diag-lv-warn { color: rgb(138 91 0); }
+.diag-lv-error { color: rgb(179 38 43); }
+.diag-lv-info { color: var(--text); }
+.diag-notes {
+  margin: 12px 0 0; padding-left: 20px; line-height: 1.8;
+  color: rgb(138 91 0); font-size: 13px;
+}
+.diag-notes li { margin-bottom: 4px; }
+[data-theme="dark"] .diag-ok { background: rgba(123, 196, 127, .18); color: rgb(143 214 148); }
+[data-theme="dark"] .diag-warn { background: rgba(232, 163, 61, .20); color: rgb(240 187 99); }
+[data-theme="dark"] .diag-error { background: rgba(240, 93, 95, .18); color: rgb(255 139 141); }
+[data-theme="dark"] .diag-lv-ok { color: rgb(143 214 148); }
+[data-theme="dark"] .diag-lv-warn { color: rgb(240 187 99); }
+[data-theme="dark"] .diag-lv-error { color: rgb(255 139 141); }
+[data-theme="dark"] .diag-lv-info { color: rgb(199 204 209); }
+[data-theme="dark"] .diag-notes { color: rgb(224 169 109); }
+
+/* 诊断评分环（体检页顶部） */
+.diag-score {
+  display: flex; align-items: center; gap: 18px; flex-wrap: wrap;
+  padding: 20px 22px;
+}
+.diag-score-num {
+  font-size: 44px; font-weight: 800; line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+.diag-score-num small { font-size: 15px; font-weight: 600; opacity: .6; margin-left: 2px; }
+.diag-score-meta { min-width: 0; }
+.diag-score-meta h3 { font-size: 15px; margin-bottom: 4px; color: var(--text); }
+.diag-score-meta p { font-size: 13px; color: var(--text-muted); line-height: 1.7; margin: 0; }
+.diag-score.s-ok .diag-score-num { color: rgb(21 112 58); }
+.diag-score.s-warn .diag-score-num { color: rgb(138 91 0); }
+.diag-score.s-error .diag-score-num { color: rgb(179 38 43); }
+[data-theme="dark"] .diag-score.s-ok .diag-score-num { color: rgb(143 214 148); }
+[data-theme="dark"] .diag-score.s-warn .diag-score-num { color: rgb(240 187 99); }
+[data-theme="dark"] .diag-score.s-error .diag-score-num { color: rgb(255 139 141); }
+
+/* 问题清单（体检页 / 收纳跨维度异常，按严重度排序） */
+.issue-list { list-style: none; margin: 0; padding: 0; }
+.issue-item {
+  display: flex; gap: 10px; align-items: flex-start;
+  padding: 10px 0; border-bottom: 1px solid var(--border); font-size: 13.5px;
+}
+.issue-item:last-child { border-bottom: none; }
+.issue-dim {
+  flex-shrink: 0; min-width: 96px; color: var(--text-muted); font-size: 12.5px;
+  padding-top: 1px;
+}
+.issue-body { min-width: 0; overflow-wrap: anywhere; }
+.issue-body .issue-fix { color: var(--text-muted); font-size: 12.5px; margin-top: 3px; }
+
+/* ---------- ⑩ 小屏收口 ---------- */
+@media (max-width: 760px) {
+  .card-head, .card-body, .card-foot { padding-left: 14px; padding-right: 14px; }
+  .page-head { gap: 10px; }
+  .page-desc { margin-bottom: 14px; }
+  .toolbar { gap: 8px; }
+  .toolbar-right { margin-left: 0; width: 100%; }
+}
+
+/* ---------- ⑪ .settings-section：被 5 个模板（备份 / 备份配置 / 配置回滚 /
+   MCP 服务 / MCP 指令）当区块容器用，但此前**从未定义** → 它们的内容全部
+   直接贴在页面底上，没有任何分区边界。这里补成与 .card 同源的浅卡片。 ---------- */
+.settings-section {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--theme-radius, var(--radius-md));
+  padding: 18px 20px; margin-bottom: 18px; box-shadow: var(--shadow-sm);
+}
+.settings-section > h2:first-child, .settings-section > h3:first-child { margin-top: 0; }
+.settings-section > table:last-child, .settings-section > .admin-table:last-child { margin-bottom: 0; }
+
+/* MCP 可用工具清单（由 mcp_diag.TOOLS 单一真相源生成） */
+.tool-chips { display: flex; flex-wrap: wrap; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.tool-chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  background: var(--surface-2); border: 1px solid var(--border);
+  border-radius: var(--radius-sm); padding: 6px 10px; font-size: 12.5px;
+}
+.tool-chip code { background: none; border: none; padding: 0; font-size: 12.5px; color: var(--accent); }
+.tool-chip span { color: var(--text-muted); }
+
+/* ---------- ⑫ v4.11.0 取证后修正（真实截图发现的问题，逐条对应） ----------
+ * 证据：本地渲染 .card / .page-head 生效，但这四处仍不对 —— 
+ * 1) 勾选框标签：label.checkbox / label.checkbox-row 此前**从未定义**（只有
+ *    `.batch-actions .checkbox-row`），方块与文字各占一行，视线对不上；
+ * 2) settings 页的卡片被 `.edit-form{max-width:760px}` 卡住，1200px 内容区里
+ *    右边空一大块，看着像没改完；announcements 的 `.link-form` 同理；
+ * 3) seo 页 ④ 卡片头里的搜索框被 flex 压到 ~150px、按钮掉到第二行；
+ * 4) moments 的筛选条紧贴表格（card-body 去掉了下内边距，没补间距）。 */
+label.checkbox,
+label.checkbox-row {
+  display: inline-flex; align-items: flex-start; gap: 8px;
+  font-size: 13.5px; font-weight: 400; color: var(--text);
+  line-height: 1.65; margin: 0; cursor: pointer;
+}
+label.checkbox input[type="checkbox"],
+label.checkbox-row input[type="checkbox"] {
+  width: 16px; height: 16px; margin: 3px 0 0; flex: 0 0 auto;
+  accent-color: var(--accent);
+}
+label.checkbox span, label.checkbox-row span { min-width: 0; }
+/* 卡片里的表单不再被 760px 上限卡住；单行输入控件各自限宽，避免无限拉长 */
+.card-body > .edit-form,
+.card-body > .link-form { max-width: 100%; }
+.card-body .field > input[type="text"],
+.card-body .field > input[type="url"],
+.card-body .field > input[type="email"],
+.card-body .field > input[type="number"],
+.card-body .field > input[type="password"] { max-width: 680px; }
+/* 卡片头里的筛选表单：输入框给足宽度，别被 flex 压成一条 */
+.card-head .toolbar { flex-wrap: wrap; }
+.card-head .toolbar input[type="text"] { flex: 1 1 200px; min-width: 160px; max-width: 320px; }
+/* 筛选条与下方表格之间补间距 */
+.card-body + .admin-table,
+.card-body + .table-scroll { margin-top: 12px; }
+
+/* settings 页的 form 是**卡片的父元素**（form > .card），所以上面
+ * `.card-body > .edit-form` 那条匹配不到它 —— 整页仍被 `.edit-form{max-width:760px}`
+ * 卡在 760，1200 内容区右边空一大块（截图实证）。这里显式给这个表单放宽到 1000。 */
+.edit-form.settings-form { max-width: 1000px; }

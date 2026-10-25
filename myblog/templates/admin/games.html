@@ -1,76 +1,127 @@
 {% extends "admin/base.html" %}
 {% block title %}游戏收录{% endblock %}
 {% block content %}
-  <h1 class="page-title">游戏平台 · 收录与审核</h1>
-  <p class="page-sub-tip">上传 zip（需含 manifest.json：name/entry/description/cover/author/version）→ 安全解包 + 静态扫描 → 待审 → 通过后前台沙箱播放。</p>
+  <div class="page-head">
+    <h1 class="page-title">🎮 游戏平台 · 收录与审核</h1>
+    <div class="page-head-actions">
+      <a class="btn-sm" href="{{ url_for('admin.games_llm_config') }}">⚙️ LLM 代码审计配置</a>
+      <a class="btn-sm" href="{{ url_for('admin.dashboard') }}">← 仪表盘</a>
+    </div>
+  </div>
+  <p class="page-desc">
+    上传 zip（需含 <code>manifest.json</code>：name / entry / description / cover / author / version）→ 安全解包 + 静态扫描 → 待审 → 通过后前台沙箱播放。
+    审核动作全部写入「操作日志」。
+  </p>
 
-  <form method="post" enctype="multipart/form-data" action="{{ url_for('admin.games') }}" class="inline-form">
+  <div class="card">
+    <div class="card-head">
+      <h2 class="card-title">上传新游戏</h2>
+      {% if llm_on %}<span class="tag tag-up">LLM 自动审计已开启</span>{% else %}<span class="tag tag-flat">LLM 审计未开启</span>{% endif %}
+    </div>
+    <div class="card-body">
+      <form method="post" enctype="multipart/form-data" action="{{ url_for('admin.games') }}" class="toolbar">
         {{ csrf_input() }}
-    <input type="file" name="game_zip" accept=".zip" required>
-    <button type="submit" class="btn">上传收录</button>
-    {% if llm_on %}<span class="llm-on-tip">LLM 自动审计已开启</span>{% endif %}
-  </form>
-  <p><a class="btn" href="{{ url_for('admin.games_llm_config') }}">⚙️ LLM 代码审计配置</a></p>
+        <input type="file" name="game_zip" accept=".zip" required aria-label="选择游戏 zip 包">
+        <button type="submit" class="btn">上传收录</button>
+        <span class="spacer"></span>
+        <span class="field-hint" style="margin:0;">上传后先进入「待审」，通过前前台不可见。</span>
+      </form>
+    </div>
+  </div>
 
-  <table class="admin-table">
-    <thead><tr><th>ID</th><th>游戏</th><th>作者/版本</th><th>状态</th><th>审计</th><th>文件数</th><th>收录时间</th><th>操作</th></tr></thead>
-    <tbody>
-      {% for g in games %}
-        {% set verdict = latest_verdict(g) %}
-        <tr>
-          <td data-label="ID">{{ g.id }}</td>
-          <td data-label="游戏"><strong>{{ g.title }}</strong><br><small>{{ g.slug }} · {{ g.description or '' }}</small></td>
-          <td data-label="作者/版本">{{ g.author or '-' }} / {{ g.version }}</td>
-          <td data-label="状态">{{ { 'pending':'待审','approved':'已上架','rejected':'已驳回','removed':'已下架' }.get(g.status, g.status) }}</td>
-          <td data-label="审计">
-            {# v4.4.2：把 LLM 结论显式化。原表只有「静态分」一列，
-               而静态分与 LLM verdict 是两件独立的事，并排显示会误导。 #}
-            {% if verdict[0] == 'safe' %}<span class="tag tag-up">LLM 安全</span>
-            {% elif verdict[0] == 'risk' %}<span class="tag tag-down">LLM 有风险</span>
-            {% elif verdict[1] %}<span class="tag tag-flat">LLM 无法判定</span>
-            {% else %}<span class="tag tag-flat">未审计</span>{% endif %}
-            <br><small>静态分 {{ g.audit_score if g.audit_score is not none else '-' }}</small>
-          </td>
-          <td data-label="文件数">{{ g.file_count }}</td>
-          <td data-label="收录时间">{{ g.created_at | bj('%Y-%m-%d %H:%M') }}</td>
-          <td data-label="操作">
-            <div class="row-ops">
-            {% if g.status == 'pending' %}
-              <form method="post" action="{{ url_for('admin.game_action', gid=g.id) }}" class="inline-form">
+  <div class="card">
+    <div class="card-head">
+      <h2 class="card-title">收录列表 <span class="card-count">{{ games|length }}</span></h2>
+    </div>
+    {% if games %}
+      <table class="admin-table">
+        <thead>
+          <tr>
+            <th style="width:56px;">ID</th>
+            <th>游戏</th>
+            <th style="width:150px;">作者/版本</th>
+            <th style="width:96px;">状态</th>
+            <th style="width:132px;">审计</th>
+            <th style="width:72px;">文件数</th>
+            <th style="width:132px;">收录时间</th>
+            <th style="width:300px;">操作</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for g in games %}
+            {% set verdict = latest_verdict(g) %}
+            <tr>
+              <td data-label="ID">{{ g.id }}</td>
+              <td data-label="游戏" class="cell-wrap">
+                <strong>{{ g.title }}</strong>
+                <div class="muted">{{ g.slug }}{% if g.description %} · {{ g.description }}{% endif %}</div>
+              </td>
+              <td data-label="作者/版本">{{ g.author or '-' }} / {{ g.version }}</td>
+              <td data-label="状态">
+                {% if g.status == 'approved' %}<span class="tag tag-up">已上架</span>
+                {% elif g.status == 'pending' %}<span class="tag tag-warn">待审</span>
+                {% elif g.status == 'rejected' %}<span class="tag tag-down">已驳回</span>
+                {% elif g.status == 'removed' %}<span class="tag tag-flat">已下架</span>
+                {% else %}<span class="tag tag-flat">{{ g.status }}</span>{% endif %}
+              </td>
+              <td data-label="审计">
+                {# v4.4.2：把 LLM 结论显式化。原表只有「静态分」一列，
+                   而静态分与 LLM verdict 是两件独立的事，并排显示会误导。 #}
+                {% if verdict[0] == 'safe' %}<span class="tag tag-up">LLM 安全</span>
+                {% elif verdict[0] == 'risk' %}<span class="tag tag-down">LLM 有风险</span>
+                {% elif verdict[1] %}<span class="tag tag-warn">LLM 无法判定</span>
+                {% else %}<span class="tag tag-flat">未审计</span>{% endif %}
+                <div class="muted">静态分 {{ g.audit_score if g.audit_score is not none else '-' }}</div>
+              </td>
+              <td data-label="文件数">{{ g.file_count }}</td>
+              <td data-label="收录时间">{{ g.created_at | bj('%Y-%m-%d %H:%M') }}</td>
+              <td data-label="操作">
+                <div class="row-ops">
+                  {% if g.status == 'pending' %}
+                    <form method="post" action="{{ url_for('admin.game_action', gid=g.id) }}" class="inline-form">
+                      {{ csrf_input() }}
+                      <button class="btn btn-sm primary" name="action" value="approve">通过上架</button>
+                      <button class="btn-sm" name="action" value="audit">LLM 审计</button>
+                      <input aria-label="驳回原因" name="note" placeholder="驳回原因">
+                      <button class="btn-sm" name="action" value="reject">驳回</button>
+                    </form>
+                  {% elif g.status == 'approved' %}
+                    <form method="post" action="{{ url_for('admin.game_action', gid=g.id) }}" class="inline-form">
+                      {{ csrf_input() }}
+                      <button class="btn-sm" name="action" value="remove">下架</button>
+                      <button class="btn-sm" name="action" value="audit">LLM 审计</button>
+                    </form>
+                  {% else %}
+                    <form method="post" action="{{ url_for('admin.game_action', gid=g.id) }}" class="inline-form">
+                      {{ csrf_input() }}
+                      {% if g.status == 'rejected' %}<button class="btn btn-sm primary" name="action" value="approve">重新上架</button>{% endif %}
+                      {% if g.status == 'removed' %}<button class="btn btn-sm primary" name="action" value="approve">恢复上架</button>{% endif %}
+                      <button class="btn-sm" name="action" value="audit">LLM 审计</button>
+                    </form>
+                  {% endif %}
+                  <form method="post" action="{{ url_for('admin.game_action', gid=g.id) }}" class="inline-form" onsubmit="return confirm('彻底删除？将移除磁盘目录与记录');">
                     {{ csrf_input() }}
-                <button class="btn" name="action" value="approve">通过上架</button>
-                <button class="btn" name="action" value="audit">LLM 审计</button>
-                <input aria-label="驳回原因" name="note" placeholder="驳回原因"><button class="btn" name="action" value="reject">驳回</button>
-              </form>
-            {% elif g.status == 'approved' %}
-              <form method="post" action="{{ url_for('admin.game_action', gid=g.id) }}" class="inline-form">
-                    {{ csrf_input() }}
-                <button class="btn" name="action" value="remove">下架</button>
-                <button class="btn" name="action" value="audit">LLM 审计</button>
-              </form>
-            {% else %}
-              <form method="post" action="{{ url_for('admin.game_action', gid=g.id) }}" class="inline-form">
-                    {{ csrf_input() }}
-                {% if g.status == 'rejected' %}<button class="btn" name="action" value="approve">重新上架</button>{% endif %}
-                {% if g.status == 'removed' %}<button class="btn" name="action" value="approve">恢复上架</button>{% endif %}
-              </form>
+                    <button class="link-danger" name="action" value="delete">删除</button>
+                  </form>
+                </div>
+              </td>
+            </tr>
+            {% if g.audit_summary %}
+            <tr class="editor-row">
+              <td colspan="8" class="row-editor-cell">
+                <div class="muted" style="margin-bottom:4px;">审计结论摘要</div>
+                <pre style="white-space:pre-wrap;max-height:160px;overflow:auto;font-size:12.5px;margin:0;">{{ g.audit_summary }}</pre>
+              </td>
+            </tr>
             {% endif %}
-            <form method="post" action="{{ url_for('admin.game_action', gid=g.id) }}" class="inline-form" onsubmit="return confirm('彻底删除？将移除磁盘目录与记录');">
-                  {{ csrf_input() }}
-              <button class="link-danger" name="action" value="delete">删除</button>
-            </form>
-            </div>
-          </td>
-        </tr>
-        {% if g.audit_summary %}
-        <tr style="background:transparent;">
-          <td colspan="8"><pre style="white-space:pre-wrap;max-height:120px;overflow:auto;font-size:12px;">{{ g.audit_summary }}</pre></td>
-        </tr>
-        {% endif %}
-      {% else %}
-        <tr><td colspan="8">暂无游戏。请上传第一个 zip。</td></tr>
-      {% endfor %}
-    </tbody>
-  </table>
-  <a class="btn" href="{{ url_for('admin.dashboard') }}">返回仪表盘</a>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% else %}
+      <div class="empty">
+        <span class="empty-ico">🎮</span>
+        暂无游戏。用上方表单上传第一个 zip 包。
+      </div>
+    {% endif %}
+  </div>
 {% endblock %}

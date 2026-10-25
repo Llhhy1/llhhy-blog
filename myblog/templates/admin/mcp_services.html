@@ -51,6 +51,19 @@
       </tbody>
     </table>
     <p class="stats-tip" style="margin:10px 0 0;">启停即时生效（无需重启站点）；「停止」= 端点对外 404，不暴露存在。Token 本体在宝塔环境变量，本页只显示掩码。</p>
+
+    {# v4.11.0：只读诊断端点的工具清单，从 mcp_diag.TOOLS 现取（不手抄，避免与 tools/list 漂移） #}
+    {% if diag_tools %}
+    <h3 style="margin:18px 0 8px;font-size:14px;">🧪 只读诊断端点当前提供 {{ diag_tools|length }} 个工具</h3>
+    <ul class="tool-chips">
+      {% for t in diag_tools %}
+        <li class="tool-chip" title="{{ t.description }}">
+          <code>{{ t.name }}</code>
+        </li>
+      {% endfor %}
+    </ul>
+    <p class="stats-tip" style="margin:8px 0 0;">鼠标悬停可看用途。体检维度共 19 项，可用 <code>run_check</code> 单项取明细，<code>issues</code> 一次拿到跨维问题清单。</p>
+    {% endif %}
   </div>
 
   {# ============ 指令域名 ============ #}

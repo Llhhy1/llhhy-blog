@@ -4,6 +4,61 @@
 
 ---
 
+## R130 · v4.11.0 发版安全审查（后台组件层 · 体检 12→19 维 · MCP 新增 3 工具 · CWE-200 / CWE-284）
+
+**范围**：① `admin.css` 后台统一组件层（+486 行，纯样式）；② 全站体检新增 7 个 checker；
+③ MCP 诊断新增 3 个工具（`health_score` / `issues` / `run_check`）；④ 访问统计页样式作用域收口。
+
+### 130.1 权限面（CWE-284）：无变化，逐项确认
+
+| 面 | 变化 |
+| --- | --- |
+| 后台页面 | 无新增页面、无新增路由；`/admin/feed_diag` 仍是 `@super_required` |
+| MCP 端点 | 仍走 `MCP_AUTH_TOKEN` fail-closed + Origin 校验 + 60/分钟限流；新增的 3 个工具**全部只读**，不提供任何写能力的替代路径 |
+| 前端 | 无任何改动（纯后端 + 后台模板），`vue-frontend/` 未动 |
+
+`run_check` 能返回**正常项的实际值**（设计如此，排障要看 db 体积 / WAL 模式 / 证书到期日），
+因此必须确认它不夹带凭据。
+
+### 130.2 信息暴露（CWE-200）：实测扫描 19 个维度
+
+对 `diagnostics.CHECKS_BY_KEY` 全部 19 个 checker 逐一执行 `_normalize()` 并序列化为 JSON，
+用 `(password|passwd|secret|token|api[_-]?key|access[_-]?key|webhook|bearer|PRIVATE KEY|bkenc$)`
+扫描返回文本：
+
+- **18 个维度零命中**；
+- `mcp` 维度命中 `bearer` / `token`，**逐条核对为标签文本**
+  （`{"label": "Bearer Token", "value": "未配置（端点整体关闭）"}`），不含任何实际值。
+
+结论：**19 个维度的返回内容均不含凭据**。已有的 `recent_errors` 仍在输出前打码密钥（v3.x 起）。
+
+### 130.3 样式越权（本轮修的真 bug）
+
+`stats.html` 的页面级 `<style>` 里 13 个选择器**无作用域前缀**，其中 `.tag` 与 `.card-head`
+是全局类：前者被 `announcements` / `bot_guard` / `email_settings` / `feed_diag` / `games`
+五处复用，后者在 `admin.css` 有全局定义 —— 这一页的定义会覆盖全站，属于**样式层面的越权**。
+已全部补 `.stats-page` 前缀。同时修 `var(--muted)`（变量不存在 → 深色模式回退硬编码 `#888`）。
+
+> 这类问题的危害不是安全，而是「改 A 页坏 B 页」，且**没有报错**——与 R124 记录的
+> 「结论与安全状态脱钩」同属静默失效，故一并记在此处。
+
+### 130.4 测试与验证
+
+- 全量 **1181 passed**（v4.10.1 时 1154，+27）；新增 `tests/test_diagnostics_v4110.py`（184 行）
+- Jinja 全部 63 个模板编译通过（改模板后必做）
+- Python 语法：改动过的 5 个文件 `py_compile` 全绿
+- CSS：`admin.css` 大括号配平 688/688、`stats.html` 65/65
+
+### 130.5 已知遗留（如实记录）
+
+1. `admin.css` 里 `.admin-table` / `.hero-card` / `.card-body` 等存在**多处定义**（21/18/17 处），
+   部分在媒体查询外叠加。本轮只统一了「类名欠账 + 控件外观」，**未做重复定义合并** ——
+   那需要逐条判定覆盖关系，风险高于收益，留作后续专项。
+2. `run_check` 的 `inputSchema` 里 19 个维度 key 是**硬编码字符串**。新增 checker 时
+   这段描述会过时（`CHECKS_BY_KEY` 驱动了执行，但没驱动描述）。属于文档漂移，非功能缺陷。
+
+---
+
 ## R129 · v4.10.0 发版安全审查（推送配置后台化 · SSRF 出口 · 列表页 SEO 通道 · 移动端第二批 · CWE-918 / CWE-200 / CWE-284）
 
 **范围**：本轮四项 —— ① 推送配置（`TELEGRAM_*` / `WECOM_WEBHOOK_URL`）后台化，含 `notify._post_json`

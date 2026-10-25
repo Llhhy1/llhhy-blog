@@ -114,7 +114,8 @@ def _builtin_instruction(kind, full=False):
         url = base + "/mcp"
         server_key = "llhhy-blog-diag"
         title = "只读诊断 MCP（%s）接入指令" % url
-        purpose = "让 AI 助手远程查询博客健康状态：全站体检、数据库状态、日志（自动脱敏）、版本一致性等。"
+        purpose = ("让 AI 助手远程查询博客健康状态：19 维全站体检、跨维问题清单、"
+                   "数据库状态、日志（自动脱敏）、版本一致性、内容统计等。")
     else:
         url = base + "/mcp-write"
         server_key = "llhhy-blog-write"
@@ -224,6 +225,15 @@ def mcp_services():
         r = dict(row)
         r["token_masked"] = _mask_token(_get_ext_token(r.get("id", "")))
         ext_rows.append(r)
+    # 只读诊断端点的工具清单：**从 mcp_diag.TOOLS 现取**，不在这里手抄一份。
+    # 手抄的清单一定会漂移（v4.11.0 加了 issues / health_score / run_check），
+    # 而「页面写着有、实际 tools/list 没有」是最难排查的一类不一致。
+    try:
+        from mcp_diag import TOOLS as DIAG_TOOLS
+        diag_tools = [{"name": k, "description": (v.get("description") or "").strip()}
+                      for k, v in DIAG_TOOLS.items()]
+    except Exception:  # noqa: S110  可选依赖：模块缺失时页面只是少一块清单，不影响启停操作
+        diag_tools = []
     return render_template(
         "admin/mcp_services.html",
         diag_enabled=not setting_bool(KEY_DIAG_DISABLED),
@@ -232,6 +242,7 @@ def mcp_services():
         write_token_masked=_mask_token(current_app.config.get("MCP_WRITE_TOKEN") or ""),
         diag_token_ok=bool(current_app.config.get("MCP_AUTH_TOKEN")),
         write_token_ok=bool(current_app.config.get("MCP_WRITE_TOKEN")),
+        diag_tools=diag_tools,
         ext_rows=ext_rows,
         base_url_setting=(get_setting(KEY_BASE_URL) or "").strip(),
     )

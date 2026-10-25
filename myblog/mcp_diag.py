@@ -17,6 +17,18 @@
 3. **Origin 校验**：MCP 规范要求，防 DNS 重绑定攻击；
 4. **限流**：按 IP 限流，异常返回 429；
 5. **日志脱敏**：读取的日志内容统一打码密钥/口令/Token。
+
+工具清单（v4.11.0 起 8 个，与体检的 19 个维度对齐）：
+- `health_overview`：全站体检摘要（只列异常/警告项，可传 section 缩到一维）
+- `health_score`：评分（0-100）+ 各维度状态一览
+- `issues`：跨维度问题清单，按严重度排序（先问「哪里坏了」用这个）
+- `run_check`：只跑单维，返回**不裁剪**的完整明细（排障看实际值用这个）
+- `db_status` / `version_info` / `recent_errors` / `content_stats`：数据库、版本、日志、内容统计
+
+⚠️ 新增工具的两条硬约定：
+- 明细一律复用 `diagnostics.*` 的 checker，**不在 MCP 层另写一套统计**（两套口径必然漂移）；
+- 新维度只需要在 `diagnostics.CHECKS` / `diagnostics.CHECKS_BY_KEY` 登记，
+  `run_check` 的可选值随之自动扩展 —— 不要在 `inputSchema` 里手写枚举后忘记更新。
 """
 import os
 import re
@@ -29,7 +41,7 @@ from flask import Blueprint, request, jsonify, current_app
 mcp_bp = Blueprint("mcp", __name__)
 
 PROTOCOL_VERSION = "2025-03-26"
-SERVER_INFO = {"name": "llhhy-blog-diag", "version": "1.0.0"}
+SERVER_INFO = {"name": "llhhy-blog-diag", "version": "1.1.0"}
 
 # 日志脱敏：把这些值统一替换成 ***，避免密钥经 MCP 外泄
 _REDACT_RULES = [
@@ -258,6 +270,83 @@ def tool_content_stats(args):  # noqa: ARG001  签名由调用方/接口约定�
         return {"error": f"{type(e).__name__}: {e}"}
 
 
+def tool_issues(args):
+    """跨维度问题清单（error 优先），v4.11.0。
+
+    比 `health_overview` 更适合「先告诉我哪里坏了」这种问法：它把 19 个维度里的
+    error/warn 项拉平成一张按严重度排序的清单，AI 不需要自己遍历 sections 再筛。
+    """
+    import diagnostics
+    data = diagnostics.run_all()
+    level = (args.get("level") or "").strip().lower()
+    try:
+        limit = int(args.get("limit") or 50)
+    except (TypeError, ValueError):   # 参数类型不对就用默认值，不值得让整个调用失败
+        limit = 50
+    limit = max(1, min(limit, 200))
+    issues = data.get("issues") or []
+    if level in ("error", "warn"):
+        issues = [i for i in issues if i.get("level") == level]
+    return {
+        "generated_at": data.get("generated_at"),
+        "score": data.get("score"),
+        "issue_total": data.get("issue_total"),
+        "returned": min(len(issues), limit),
+        "issues": issues[:limit],
+        "hint": ("level 可传 error / warn 只看某一级；每项含 key（维度标识，可传给 "
+                 "run_check 或 health_overview.section 看详情）。"),
+    }
+
+
+def tool_health_score(args):  # noqa: ARG001  签名由调用方/接口约定决定，不能删改
+    """健康评分与各维度状态一览（不含明细行）。"""
+    import diagnostics
+    data = diagnostics.run_all()
+    return {
+        "generated_at": data.get("generated_at"),
+        "score": data.get("score"),
+        "summary": data.get("summary"),
+        "issue_total": data.get("issue_total"),
+        "dimensions": [{"key": s.get("key"), "title": s.get("title"),
+                        "status": s.get("status"),
+                        "issues": len([r for r in (s.get("items") or [])
+                                       if r.get("level") in ("error", "warn")])}
+                       for s in (data.get("sections") or [])],
+        "hint": ("score 为维度均分（异常 0 / 警告 0.5 / 正常 1）。"
+                 "先看 status != ok 的维度，再用 run_check 取该维明细。"),
+    }
+
+
+def tool_run_check(args):
+    """只跑单个体检维度，返回该项的全部明细行。
+
+    为什么单独给工具而不复用 `health_overview(section=...)`：后者的返回被裁成
+    「只列异常项」，而排障时经常需要看**正常项的实际值**（比如 db 体积、WAL 模式、
+    证书到期日）。这里返回完整 items，不做裁剪。
+    """
+    import diagnostics
+    key = (args.get("check") or "").strip()
+    available = sorted(diagnostics.CHECKS_BY_KEY)
+    if not key:
+        return {"error": "需要 check 参数", "available": available}
+    fn = diagnostics.CHECKS_BY_KEY.get(key)
+    if not fn:
+        return {"error": f"未知维度：{key}", "available": available}
+    try:
+        sec = diagnostics._normalize(fn())
+    except Exception as e:  # noqa: BLE001  checker 可能抛任意异常（第三方库/IO），此处必须转成结构化错误而不是让 MCP 崩掉
+        return {"check": key, "status": "error",
+                "error": f"{type(e).__name__}: {e}"}
+    return {
+        "check": key,
+        "title": sec.get("title"),
+        "status": sec.get("status"),
+        "items": sec.get("items") or [],
+        "notes": sec.get("notes") or [],
+        "per_link": sec.get("per_link") or [],
+    }
+
+
 TOOLS = {
     "health_overview": {
         "description": ("运行全站体检，返回各维度状态与异常/警告条目。"
@@ -265,6 +354,33 @@ TOOLS = {
         "inputSchema": {"type": "object", "properties": {
             "section": {"type": "string", "description": "可选，只返回指定维度的 key 或标题"}}},
         "fn": tool_health_overview,
+    },
+    "health_score": {
+        "description": ("健康评分（0-100）与 19 个维度的状态一览，不含明细行。"
+                        "适合先快速判断「整体到底有多糟」。"),
+        "inputSchema": {"type": "object", "properties": {}},
+        "fn": tool_health_score,
+    },
+    "issues": {
+        "description": ("跨维度问题清单，按严重度排序（error 在前）。"
+                        "每项含 key/dimension/label/value/level，可直接指出该怎么修。"),
+        "inputSchema": {"type": "object", "properties": {
+            "level": {"type": "string", "description": "可选，error 或 warn，只看某一级"},
+            "limit": {"type": "integer", "description": "返回条数上限，1-200，默认 50"}}},
+        "fn": tool_issues,
+    },
+    "run_check": {
+        "description": ("只跑单个体检维度，返回该维全部明细（不裁剪，含正常项实际值）。"
+                        "check 取值见 health_score 的 dimensions[].key。"),
+        "inputSchema": {"type": "object", "properties": {
+            "check": {"type": "string",
+                      "description": ("维度 key：database / dependencies / config / security / "
+                                      "feed_agg / backup / certificate / seo / pending / "
+                                      "frontend / storage / render_cache / plugins / "
+                                      "search_index / scheduler / outbound / "
+                                      "content_quality / disk / mcp")}},
+         "required": ["check"]},
+        "fn": tool_run_check,
     },
     "db_status": {
         "description": ("数据库状态：journal_mode 是否为 WAL、库与 WAL 文件体积、"

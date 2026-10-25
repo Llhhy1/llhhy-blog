@@ -1,68 +1,97 @@
 {% extends "admin/base.html" %}
 {% block title %}微动态管理{% endblock %}
 {% block content %}
-  <div class="admin-actions">
-    <h1 class="page-title" style="margin:0;">💭 微动态管理</h1>
-    <span class="stats-tip" style="margin:0;">共 {{ total_moments }} 条动态 · {{ total_comments }} 条评论</span>
+  <div class="page-head">
+    <h1 class="page-title">💭 微动态管理</h1>
+    <div class="page-head-actions">
+      <span class="tag tag-info">共 {{ total_moments }} 条动态</span>
+      <span class="tag tag-flat">{{ total_comments }} 条评论</span>
+    </div>
   </div>
-  <p class="stats-tip">广场 / 个人动态的统一管理入口：可修改正文、删除动态（其下评论一并删除）、逐条清理评论。所有操作写入「操作日志」。</p>
+  <p class="page-desc">
+    广场 / 个人动态的统一管理入口：可修改正文、删除动态（其下评论一并删除）、逐条清理评论。所有操作写入「操作日志」。
+  </p>
 
-  <form method="get" class="inline-form" style="margin:12px 0;">
-    <input aria-label="搜索动态内容" type="text" name="q" value="{{ kw or '' }}" placeholder="搜索动态内容…" style="min-width:220px;">
-    <select name="author_id">
-      <option value="">全部作者</option>
-      {% for a in authors %}
-      <option value="{{ a.id }}" {{ 'selected' if author_id == a.id }}>{{ a.username }}</option>
-      {% endfor %}
-    </select>
-    <button type="submit" class="btn small">筛选</button>
-    {% if kw or author_id %}<a class="btn small ghost" href="{{ url_for('admin.moments') }}">清除筛选</a>{% endif %}
-  </form>
+  <div class="card">
+    <div class="card-body" style="padding-bottom:0;">
+      <form method="get" class="toolbar">
+        <input aria-label="搜索动态内容" type="text" name="q" value="{{ kw or '' }}" placeholder="搜索动态内容…"
+               style="min-width:220px;flex:1 1 220px;">
+        <select name="author_id" aria-label="按作者筛选">
+          <option value="">全部作者</option>
+          {% for a in authors %}
+          <option value="{{ a.id }}" {{ 'selected' if author_id == a.id }}>{{ a.username }}</option>
+          {% endfor %}
+        </select>
+        <button type="submit" class="btn btn-sm">筛选</button>
+        {% if kw or author_id %}<a class="btn-sm" href="{{ url_for('admin.moments') }}">清除筛选</a>{% endif %}
+        <span class="spacer"></span>
+        <span class="tag tag-flat" id="moment-selected-count" data-empty="未选中">未选中</span>
+      </form>
+    </div>
 
-  <table class="admin-table">
-    <thead>
-      <tr>
-        <th style="width:36px;"><input type="checkbox" id="select-all-head" title="全选本页"></th>
-        <th style="width:110px;">作者</th>
-        <th>内容</th>
-        <th style="width:70px;">点赞</th>
-        <th style="width:70px;">评论</th>
-        <th style="width:130px;">发布时间</th>
-        <th style="width:140px;">操作</th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for m in rows %}
-        <tr>
-          <td><input type="checkbox" name="ids" value="{{ m.id }}" form="moment-batch" class="row-check"></td>
-          <td data-label="作者">{{ m.author.username if m.author else '（账号已注销）' }}</td>
-          <td title="{{ m.content }}" data-label="内容">
-            {% set txt = m.content.replace('\n', ' ') %}
-            {{ txt[:60] }}{% if txt|length > 60 %}…{% endif %}
-          </td>
-          <td data-label="点赞">❤️ {{ m.likes or 0 }}</td>
-          <td data-label="评论">💬 {{ comment_counts[m.id] or 0 }}</td>
-          <td data-label="发布时间">{{ m.created_at | bj('%Y-%m-%d %H:%M') }}</td>
-          <td data-label="操作">
-            <a class="link-btn" href="{{ url_for('admin.edit_moment', mid=m.id) }}">编辑</a>
-            <form method="post" action="{{ url_for('admin.delete_moment', mid=m.id) }}" class="inline-form"
-                  onsubmit="return confirm('确定删除这条动态？其下 {{ comment_counts[m.id] or 0 }} 条评论会一并删除，且不可恢复。');">
-              {{ csrf_input() }}
-              <button type="submit" class="link-danger">删除</button>
-            </form>
-          </td>
-        </tr>
-      {% else %}
-        <tr><td colspan="7">暂无动态{% if kw or author_id %}（当前筛选条件下无记录）{% endif %}</td></tr>
-      {% endfor %}
-    </tbody>
-  </table>
+    {% if rows %}
+      <table class="admin-table">
+        <thead>
+          <tr>
+            <th style="width:36px;"><input type="checkbox" id="select-all-head" title="全选本页" aria-label="全选本页"></th>
+            <th style="width:110px;">作者</th>
+            <th>内容</th>
+            <th style="width:72px;">点赞</th>
+            <th style="width:72px;">评论</th>
+            <th style="width:132px;">发布时间</th>
+            <th style="width:132px;">操作</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for m in rows %}
+            <tr>
+              <td><input type="checkbox" name="ids" value="{{ m.id }}" form="moment-batch" class="row-check" aria-label="选择这条动态"></td>
+              <td data-label="作者">{{ m.author.username if m.author else '（账号已注销）' }}</td>
+              <td title="{{ m.content }}" data-label="内容" class="cell-wrap">
+                {% set txt = m.content.replace('\n', ' ') %}
+                {{ txt[:60] }}{% if txt|length > 60 %}…{% endif %}
+              </td>
+              <td data-label="点赞">❤️ {{ m.likes or 0 }}</td>
+              <td data-label="评论">💬 {{ comment_counts[m.id] or 0 }}</td>
+              <td data-label="发布时间">{{ m.created_at | bj('%Y-%m-%d %H:%M') }}</td>
+              <td data-label="操作">
+                <div class="row-ops">
+                  <a class="link-btn" href="{{ url_for('admin.edit_moment', mid=m.id) }}">编辑</a>
+                  <form method="post" action="{{ url_for('admin.delete_moment', mid=m.id) }}" class="inline-form"
+                        onsubmit="return confirm('确定删除这条动态？其下 {{ comment_counts[m.id] or 0 }} 条评论会一并删除，且不可恢复。');">
+                    {{ csrf_input() }}
+                    <button type="submit" class="link-danger">删除</button>
+                  </form>
+                </div>
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% else %}
+      <div class="empty">
+        <span class="empty-ico">💭</span>
+        暂无动态{% if kw or author_id %}（当前筛选条件下无记录）{% endif %}
+        {% if kw or author_id %}
+          <div class="empty-actions"><a class="btn-sm" href="{{ url_for('admin.moments') }}">清除筛选</a></div>
+        {% endif %}
+      </div>
+    {% endif %}
 
-  <form method="post" action="{{ url_for('admin.batch_delete_moments') }}" id="moment-batch" class="inline-form" style="margin-top:10px;"
-        onsubmit="return confirm('确定删除选中的动态？其下评论会一并删除，且不可恢复。');">
-    {{ csrf_input() }}
-    <button type="submit" class="btn small ghost">🗑️ 批量删除所选</button>
-  </form>
+    {% if rows %}
+    <div class="card-foot">
+      {# 行复选框在表格里、表单在表格外，靠 HTML5 form="moment-batch" 关联；
+         ⚠️ 不能把表格包进表单（每行还有内嵌 form，会构成表单嵌套非法）。 #}
+      <form method="post" action="{{ url_for('admin.batch_delete_moments') }}" id="moment-batch" class="inline-form"
+            onsubmit="return confirm('确定删除选中的动态？其下评论会一并删除，且不可恢复。');">
+        {{ csrf_input() }}
+        <button type="submit" class="btn btn-sm danger">🗑️ 批量删除所选</button>
+      </form>
+      <span class="field-hint" style="margin:0;">勾选左侧复选框后点此批量删除；删除不可恢复。</span>
+    </div>
+    {% endif %}
+  </div>
 
   {% if pagination and pagination.pages > 1 %}
   <nav class="pagination">
@@ -79,10 +108,27 @@
   <script>
   (function () {
     var all = document.getElementById('select-all-head');
+    var counter = document.getElementById('moment-selected-count');
     if (!all) return;
+    /* 复选框在表格里、表单在表格外，统一从 document 查（不是从 form 查）。 */
+    function boxes() { return Array.prototype.slice.call(document.querySelectorAll('.row-check')); }
+    function sync() {
+      var bs = boxes(), n = bs.filter(function (c) { return c.checked; }).length;
+      all.checked = n > 0 && n === bs.length;
+      all.indeterminate = n > 0 && n < bs.length;
+      if (counter) {
+        counter.textContent = n ? ('已选 ' + n + ' / ' + bs.length) : '未选中';
+        counter.className = n ? 'tag tag-info' : 'tag tag-flat';
+      }
+    }
     all.addEventListener('change', function () {
-      document.querySelectorAll('.row-check').forEach(function (c) { c.checked = all.checked; });
+      boxes().forEach(function (c) { c.checked = all.checked; });
+      sync();
     });
+    document.addEventListener('change', function (e) {
+      if (e.target && e.target.classList && e.target.classList.contains('row-check')) sync();
+    });
+    sync();
   })();
   </script>
 {% endblock %}

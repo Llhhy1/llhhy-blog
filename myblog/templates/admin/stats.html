@@ -8,15 +8,15 @@
 {% block content %}
   <div class="stats-page">
   <style>
-.tag{display:inline-block;padding:1px 8px;border-radius:10px;font-size:12px;line-height:1.6;}
-.tag-search{background:rgba(56,178,172,.15);color:#319795;}
-.tag-ai{background:rgba(159,122,234,.15);color:#9f7aea;}
-.tag-tool{background:rgba(237,137,54,.15);color:#dd6b20;}
-.tag-unknown{background:rgba(160,174,192,.18);color:#718096;}
-.bar-bot{background:linear-gradient(90deg,#9f7aea,#667eea);}
-.stats-sub{color:var(--muted,#888);font-size:13px;margin:0 0 10px;}
-.range-switch{display:flex;flex-wrap:wrap;gap:6px;margin:2px 0 12px;}
-.range-switch .btn.btn-active{background:#4a5568;color:#fff;border-color:#4a5568;}
+.stats-page .tag{display:inline-block;padding:1px 8px;border-radius:10px;font-size:12px;line-height:1.6;}
+.stats-page .tag-search{background:rgba(56,178,172,.15);color:#319795;}
+.stats-page .tag-ai{background:rgba(159,122,234,.15);color:#9f7aea;}
+.stats-page .tag-tool{background:rgba(237,137,54,.15);color:#dd6b20;}
+.stats-page .tag-unknown{background:rgba(160,174,192,.18);color:#718096;}
+.stats-page .bar-bot{background:linear-gradient(90deg,#9f7aea,#667eea);}
+.stats-page .stats-sub{color:var(--text-muted);font-size:13px;margin:0 0 10px;}
+.stats-page .range-switch{display:flex;flex-wrap:wrap;gap:6px;margin:2px 0 12px;}
+.stats-page .range-switch .btn.btn-active{background:#4a5568;color:#fff;border-color:#4a5568;}
 
 /* ===== 访客统计页美化（作用域限定 .stats-page，不影响其他后台页） ===== */
 .stats-page{max-width:1180px;margin:0 auto;}
@@ -33,13 +33,13 @@
 .stats-page .stats-card h3{font-size:15px;font-weight:700;color:var(--text,#222);letter-spacing:.2px;
   padding-bottom:10px;margin-bottom:14px;border-bottom:1px solid var(--border,#eee);}
 /* 卡片标题右侧操作（重置按钮） */
-.card-head{display:flex;align-items:center;justify-content:space-between;gap:12px;
+.stats-page .card-head{display:flex;align-items:center;justify-content:space-between;gap:12px;
   padding-bottom:10px;margin-bottom:14px;border-bottom:1px solid var(--border,#eee);}
 .stats-page .card-head h3{margin:0;padding:0;border:none;}
-.reset-form{margin:0;}
-.stats-reset-btn{font-size:12px;padding:4px 12px;border-radius:8px;cursor:pointer;
+.stats-page .reset-form{margin:0;}
+.stats-page .stats-reset-btn{font-size:12px;padding:4px 12px;border-radius:8px;cursor:pointer;
   border:1px solid #f0b4b4;color:#d64545;background:#fff5f5;transition:all .15s ease;}
-.stats-reset-btn:hover{background:#ffe9e9;border-color:#e89090;}
+.stats-page .stats-reset-btn:hover{background:#ffe9e9;border-color:#e89090;}
 /* KPI 指标卡 */
 .stats-page .stat-cards{gap:16px;}
 .stats-page .stat-card{background:var(--surface,#fff);border:1px solid var(--border,#ececec);
@@ -75,7 +75,7 @@
 /* 数据表格（区间访客数据 / 热门路径 / 属地 / 来源 / 环比 / 来源渠道 TOP）统一美化 */
 .stats-page .stats-table{width:100%;border-collapse:collapse;font-size:14px;}
 .stats-page .stats-table th{text-align:left;font-size:12px;font-weight:600;letter-spacing:.3px;
-  color:var(--muted,#8a93a0);padding:8px 10px;border-bottom:2px solid var(--border,#ececec);white-space:nowrap;}
+  color:var(--text-muted);padding:8px 10px;border-bottom:2px solid var(--border,#ececec);white-space:nowrap;}
 .stats-page .stats-table td{padding:9px 10px;border-bottom:1px solid var(--border,#f0f1f3);
   vertical-align:middle;color:var(--text,#333);}
 .stats-page .stats-table tbody tr:last-child td{border-bottom:none;}

@@ -118,7 +118,7 @@
         <a href="{{ url_for('admin.mcp_services') }}" class="{{ 'active' if ep in ('admin.mcp_services', 'admin.mcp_instruction') }}"><span class="nav-emoji">🔌</span>MCP 服务</a>
         <a href="{{ url_for('admin.games') }}" class="{{ 'active' if ep in ('admin.games', 'admin.games_llm_config') }}"><span class="nav-emoji">🎮</span>游戏收录</a>
         <p class="side-group">运维诊断</p>
-        <a href="{{ url_for('admin.feed_diag') }}" class="{{ 'active' if ep == 'admin.feed_diag' }}"><span class="nav-emoji">🩺</span>全站体检</a>
+        <a href="{{ url_for('admin.feed_diag') }}" class="{{ 'active' if ep == 'admin.feed_diag' }}"><span class="nav-emoji">🩺</span>诊断助手</a>
         {% endif %}
         {% else %}
         <p class="side-group">我的创作</p>

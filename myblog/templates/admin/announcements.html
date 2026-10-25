@@ -1,67 +1,102 @@
 {% extends "admin/base.html" %}
 {% block title %}公告管理{% endblock %}
 {% block content %}
-  <h1 class="page-title">站点公告管理</h1>
-  <form method="post" action="{{ url_for('admin.manage_announcements') }}" class="link-form" style="flex-direction:column;align-items:stretch;">
-        {{ csrf_input() }}
-    <textarea aria-label="公告内容" name="content" rows="3" placeholder="公告内容（支持 Markdown）" required></textarea>
-    <div class="ann-form-row">
-      <select name="level">
-        <option value="info">普通（蓝）</option>
-        <option value="success">成功（绿）</option>
-        <option value="warning">警告（黄）</option>
-      </select>
-      <label class="checkbox"><input type="checkbox" name="active" checked> 启用</label>
-      <label class="checkbox"><input type="checkbox" name="dismissible" checked> 访客可关闭</label>
-      <button type="submit" class="btn">发布公告</button>
+  <div class="page-head">
+    <h1 class="page-title">📢 站点公告管理</h1>
+    <div class="page-head-actions">
+      <span class="tag tag-flat">{{ items|length }} 条公告</span>
     </div>
-  </form>
-  <table class="admin-table">
-    <thead><tr><th>内容</th><th>级别</th><th>状态</th><th>操作</th></tr></thead>
-    <tbody>
-      {% for a in items %}
-        <tr class="ann-row">
-          <td data-label="内容">{{ a.content[:60] }}{% if a.content|length > 60 %}…{% endif %}</td>
-          <td data-label="级别">{{ a.level }}</td>
-          <td data-label="状态">{{ '启用' if a.active else '停用' }}</td>
-          <td class="row-ops" data-label="操作">
-            <button type="button" class="link-btn" data-edit-row="edit-{{ a.id }}">✏️ 编辑</button>
-            <form method="post" action="{{ url_for('admin.toggle_announcement', aid=a.id) }}" class="inline-form">
+  </div>
+  <p class="page-desc">
+    公告会显示在前台顶部横幅，支持 <b>Markdown</b>。可设级别（蓝 / 绿 / 黄）与是否允许访客关闭；
+    <b>停用</b>只是不展示，删掉则不进回收站、无法恢复。
+  </p>
+
+  <div class="card">
+    <div class="card-head"><h2 class="card-title">发布新公告</h2></div>
+    <div class="card-body">
+      <form method="post" action="{{ url_for('admin.manage_announcements') }}" class="link-form" style="flex-direction:column;align-items:stretch;">
+        {{ csrf_input() }}
+        <div class="field">
+          <label class="field-label" for="ann-new-content">公告内容<span class="req">*</span></label>
+          <textarea id="ann-new-content" aria-label="公告内容" name="content" rows="3" placeholder="公告内容（支持 Markdown）" required></textarea>
+        </div>
+        <div class="ann-form-row">
+          <select name="level" aria-label="公告级别">
+            <option value="info">普通（蓝）</option>
+            <option value="success">成功（绿）</option>
+            <option value="warning">警告（黄）</option>
+          </select>
+          <label class="checkbox"><input type="checkbox" name="active" checked> 启用</label>
+          <label class="checkbox"><input type="checkbox" name="dismissible" checked> 访客可关闭</label>
+          <button type="submit" class="btn">发布公告</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-head">
+      <h2 class="card-title">公告列表 <span class="card-count">{{ items|length }}</span></h2>
+    </div>
+    {% if items %}
+      <table class="admin-table">
+        <thead><tr><th>内容</th><th style="width:96px;">级别</th><th style="width:96px;">状态</th><th style="width:180px;">操作</th></tr></thead>
+        <tbody>
+          {% for a in items %}
+            <tr class="ann-row">
+              <td data-label="内容" class="cell-wrap">{{ a.content[:60] }}{% if a.content|length > 60 %}…{% endif %}</td>
+              <td data-label="级别">
+                {% if a.level == 'success' %}<span class="tag tag-up">成功</span>
+                {% elif a.level == 'warning' %}<span class="tag tag-warn">警告</span>
+                {% else %}<span class="tag tag-info">普通</span>{% endif %}
+              </td>
+              <td data-label="状态">
+                {% if a.active %}<span class="tag tag-up">启用</span>{% else %}<span class="tag tag-flat">停用</span>{% endif %}
+              </td>
+              <td class="row-ops" data-label="操作">
+                <button type="button" class="btn-sm" data-edit-row="edit-{{ a.id }}" aria-expanded="false" aria-controls="edit-{{ a.id }}">✏️ 编辑</button>
+                <form method="post" action="{{ url_for('admin.toggle_announcement', aid=a.id) }}" class="inline-form">
                   {{ csrf_input() }}
-              <button type="submit" class="btn-sm">{{ '停用' if a.active else '启用' }}</button>
-            </form>
-            <form method="post" action="{{ url_for('admin.delete_announcement', aid=a.id) }}" class="inline-form" onsubmit="return confirm('确定删除？公告不进回收站，删了无法恢复。');">
+                  <button type="submit" class="btn-sm">{{ '停用' if a.active else '启用' }}</button>
+                </form>
+                <form method="post" action="{{ url_for('admin.delete_announcement', aid=a.id) }}" class="inline-form" onsubmit="return confirm('确定删除？公告不进回收站，删了无法恢复。');">
                   {{ csrf_input() }}
-              <button type="submit" class="link-danger">删除</button>
-            </form>
-          </td>
-        </tr>
-        {# v4.4.0 编辑行：改文案不再需要「删了重建」（重建会掉到列表末尾且原公告无法还原）。 #}
-        <tr class="editor-row" id="edit-{{ a.id }}" style="display:none;">
-          <td colspan="4" class="row-editor-cell">
-            <form method="post" action="{{ url_for('admin.update_announcement', aid=a.id) }}" class="editor-form">
+                  <button type="submit" class="link-danger">删除</button>
+                </form>
+              </td>
+            </tr>
+            {# v4.4.0 编辑行：改文案不再需要「删了重建」（重建会掉到列表末尾且原公告无法还原）。 #}
+            <tr class="editor-row" id="edit-{{ a.id }}" style="display:none;">
+              <td colspan="4" class="row-editor-cell">
+                <form method="post" action="{{ url_for('admin.update_announcement', aid=a.id) }}" class="editor-form">
                   {{ csrf_input() }}
-              <label class="qc-label" for="ann-content-{{ a.id }}">内容（支持 Markdown）</label>
-              <textarea id="ann-content-{{ a.id }}" name="content" rows="3" required>{{ a.content }}</textarea>
-              <div class="ann-form-row">
-                <label class="qc-label" for="ann-level-{{ a.id }}">级别</label>
-                <select id="ann-level-{{ a.id }}" name="level">
-                  <option value="info" {% if a.level == 'info' %}selected{% endif %}>普通（蓝）</option>
-                  <option value="success" {% if a.level == 'success' %}selected{% endif %}>成功（绿）</option>
-                  <option value="warning" {% if a.level == 'warning' %}selected{% endif %}>警告（黄）</option>
-                </select>
-                <label class="checkbox"><input type="checkbox" name="active" {% if a.active %}checked{% endif %}> 启用</label>
-                <label class="checkbox"><input type="checkbox" name="dismissible" {% if a.dismissible %}checked{% endif %}> 访客可关闭</label>
-                <button type="submit" class="btn small">保存</button>
-              </div>
-            </form>
-          </td>
-        </tr>
-      {% else %}
-        <tr><td colspan="4">暂无公告。</td></tr>
-      {% endfor %}
-    </tbody>
-  </table>
+                  <label class="qc-label" for="ann-content-{{ a.id }}">内容（支持 Markdown）</label>
+                  <textarea id="ann-content-{{ a.id }}" name="content" rows="3" required>{{ a.content }}</textarea>
+                  <div class="ann-form-row">
+                    <label class="qc-label" for="ann-level-{{ a.id }}">级别</label>
+                    <select id="ann-level-{{ a.id }}" name="level">
+                      <option value="info" {% if a.level == 'info' %}selected{% endif %}>普通（蓝）</option>
+                      <option value="success" {% if a.level == 'success' %}selected{% endif %}>成功（绿）</option>
+                      <option value="warning" {% if a.level == 'warning' %}selected{% endif %}>警告（黄）</option>
+                    </select>
+                    <label class="checkbox"><input type="checkbox" name="active" {% if a.active %}checked{% endif %}> 启用</label>
+                    <label class="checkbox"><input type="checkbox" name="dismissible" {% if a.dismissible %}checked{% endif %}> 访客可关闭</label>
+                    <button type="submit" class="btn small">保存</button>
+                  </div>
+                </form>
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% else %}
+      <div class="empty">
+        <span class="empty-ico">📢</span>
+        暂无公告。在上方表单填写内容并发布，前台顶部即会出现横幅。
+      </div>
+    {% endif %}
+  </div>
 
   <script>
   (function () {
@@ -69,7 +104,10 @@
       b.addEventListener("click", function () {
         var r = document.getElementById(b.getAttribute("data-edit-row"));
         if (!r) return;
-        r.style.display = r.style.display === "none" ? "" : "none";
+        var open = r.style.display === "none";
+        r.style.display = open ? "" : "none";
+        b.setAttribute("aria-expanded", open ? "true" : "false");
+        b.classList.toggle("primary", open);
       });
     });
   })();

@@ -1,10 +1,10 @@
-"""只读诊断 MCP 端点冒烟测试（v3.10.0）。
+"""只读诊断 MCP 端点冒烟测试（v3.10.0，v4.11.0 扩到 8 个工具）。
 
 覆盖：
 1. 未配置 token 时端点整体关闭（fail-closed，绝不裸奔）；
 2. MCP 握手（initialize / tools/list / tools/call / notification）；
 3. 认证与 Origin 校验（防 DNS 重绑定）；
-4. 五个只读工具均可执行；
+4. 八个只读工具均可执行；
 5. 日志脱敏（密钥/口令/Token 不出现在返回里）；
 6. 不支持的方法与工具返回标准 JSON-RPC 错误码；
 7. GET /mcp 被拒绝（本实现不提供 SSE 流）；
@@ -12,9 +12,17 @@
 
 运行：仓库根目录 `python -m pytest tests/ -q`
 """
+import json
 import os
 
 TOKEN = "test-mcp-token-0123456789"
+
+# v4.11.0：v3.10.0 的 5 个工具 + 诊断扩展的 3 个（issues / health_score / run_check）。
+# 集合写死是**故意的**：加工具必须顺手改这里，避免「新工具上线但文档/测试都不知道」。
+TOOL_NAMES = {
+    "health_overview", "health_score", "issues", "run_check",
+    "db_status", "version_info", "recent_errors", "content_stats",
+}
 
 
 def _rpc(client, payload, extra_headers=None):
@@ -80,24 +88,83 @@ def test_tools_list(app):
              _auth())
     tools = r.get_json()["result"]["tools"]
     names = [t["name"] for t in tools]
-    assert set(names) == {"health_overview", "db_status", "version_info",
-                          "recent_errors", "content_stats"}
+    assert set(names) == TOOL_NAMES
     for t in tools:
         assert t["description"] and "inputSchema" in t
 
 
 def test_every_tool_runs(app):
-    """五个工具逐个执行，都不应报错（isError 为真即失败）。"""
+    """八个工具逐个执行，都不应报错（isError 为真即失败）。"""
     app.config["MCP_AUTH_TOKEN"] = TOKEN
     client = app.test_client()
-    for name in ("health_overview", "db_status", "version_info",
-                 "recent_errors", "content_stats"):
+    args = {"run_check": {"check": "database"}}
+    for name in TOOL_NAMES:
         r = _rpc(client, {"jsonrpc": "2.0", "id": 5, "method": "tools/call",
-                          "params": {"name": name, "arguments": {}}}, _auth())
+                          "params": {"name": name,
+                                     "arguments": args.get(name, {})}}, _auth())
         assert r.status_code == 200, name
         result = r.get_json()["result"]
         assert not result.get("isError"), name + ": " + str(result)
         assert result["content"][0]["type"] == "text"
+
+
+def _call(client, name, arguments=None, rid=11):
+    r = _rpc(client, {"jsonrpc": "2.0", "id": rid, "method": "tools/call",
+                      "params": {"name": name, "arguments": arguments or {}}}, _auth())
+    assert r.status_code == 200
+    body = r.get_json()["result"]
+    assert not body.get("isError"), body
+    return json.loads(body["content"][0]["text"])
+
+
+def test_issues_tool_shape(app):
+    """issues 必须给出评分、总数与可定位的条目（key 能喂回 run_check）。"""
+    app.config["MCP_AUTH_TOKEN"] = TOKEN
+    data = _call(app.test_client(), "issues")
+    assert isinstance(data["score"], int) and 0 <= data["score"] <= 100
+    assert "issue_total" in data and isinstance(data["issue_total"], int)
+    for it in data["issues"]:
+        assert it["level"] in ("error", "warn")
+        assert it["key"] and it["dimension"] and it["label"]
+
+
+def test_issues_level_filter(app):
+    """level=error 只回 error 级；这是「先看硬伤」的主路径，不能静默返回全部。"""
+    app.config["MCP_AUTH_TOKEN"] = TOKEN
+    data = _call(app.test_client(), "issues", {"level": "error"})
+    assert all(i["level"] == "error" for i in data["issues"])
+
+
+def test_health_score_dimensions_match_checks(app):
+    """dimensions 的 key 必须覆盖 diagnostics.CHECKS_BY_KEY 的全部维度。
+
+    这条防的是「加了 checker 但 MCP 看不到」：两处不一致时 AI 会以为维度不存在。
+    """
+    import diagnostics
+    app.config["MCP_AUTH_TOKEN"] = TOKEN
+    data = _call(app.test_client(), "health_score")
+    keys = {d["key"] for d in data["dimensions"]}
+    assert keys == set(diagnostics.CHECKS_BY_KEY.keys())
+    assert len(keys) == len(diagnostics.CHECKS)
+
+
+def test_run_check_unknown_and_missing(app):
+    """未知维度要报错并给出可选值，而不是返回空结果假装成功。"""
+    app.config["MCP_AUTH_TOKEN"] = TOKEN
+    client = app.test_client()
+    bad = _call(client, "run_check", {"check": "nope"})
+    assert bad["error"] and bad["available"]
+    missing = _call(client, "run_check", {})
+    assert missing["error"] and missing["available"]
+
+
+def test_run_check_returns_full_items(app):
+    """run_check 的明细不做裁剪：正常项（level=ok/info）也要在。"""
+    app.config["MCP_AUTH_TOKEN"] = TOKEN
+    data = _call(app.test_client(), "run_check", {"check": "database"})
+    assert data["check"] == "database"
+    assert data["items"], "应返回明细行"
+    assert any(i["level"] in ("info", "ok") for i in data["items"])
 
 
 def test_log_redaction(app, tmp_path):

@@ -1,84 +1,138 @@
 {% extends "admin/base.html" %}
 {% block title %}外部入口{% endblock %}
 {% block content %}
-  <h1 class="page-title">🧰 外部入口管理</h1>
+  <div class="page-head">
+    <h1 class="page-title">🧰 外部入口管理</h1>
+    <div class="page-head-actions">
+      <a class="btn-sm" href="{{ url_for('admin.dashboard') }}">← 仪表盘</a>
+    </div>
+  </div>
 
-  <p class="hint-block">
+  <p class="page-desc">
     在前台导航栏加指向<b>外部站点</b>的入口（如子站、工具站）。<b>可以有多条</b>，
     它们会被收进导航栏上的「🧰 工具箱」下拉 —— 不逐条平铺，是因为导航栏不换行
     （<code>flex-wrap: nowrap</code>），条目多了会把页面撑破。拖动顺序 = 前台显示顺序。
   </p>
-  <p class="hint-block">
+  <p class="hint-block warn">
     ⚠️ <b>地址只能是 http/https 开头的完整地址。</b>
     它是前台链接的直接来源，其它协议（<code>javascript:</code> 等）会变成存储型 XSS，因此一律拒绝保存。
   </p>
 
-  <h2 class="section-sub">现有入口（{{ items|length }} / {{ max_items }}）</h2>
-  {% if not items %}
-    <p class="empty-tip">还没有任何入口。</p>
-  {% else %}
-    <table class="admin-table">
-      <thead>
-        <tr><th>顺序</th><th>图标</th><th>名称</th><th>地址</th><th>状态</th><th>操作</th></tr>
-      </thead>
-      <tbody>
-        {% for it in items %}
-          <tr{% if not it.enabled %} class="row-off"{% endif %}>
-            <td data-label="顺序">
-              <form method="post" action="{{ url_for('admin.nav_entry_move', item_id=it.id, dir='up') }}" class="inline-form">
-                {{ csrf_input() }}
-                <button type="submit" class="btn btn-mini" aria-label="上移 {{ it.label }}"{% if loop.first %} disabled{% endif %}>↑</button>
-              </form>
-              <form method="post" action="{{ url_for('admin.nav_entry_move', item_id=it.id, dir='down') }}" class="inline-form">
-                {{ csrf_input() }}
-                <button type="submit" class="btn btn-mini" aria-label="下移 {{ it.label }}"{% if loop.last %} disabled{% endif %}>↓</button>
-              </form>
-            </td>
-            <td data-label="图标"><span class="nav-emoji">{{ it.icon or '🧰' }}</span></td>
-            <td data-label="名称">{{ it.label }}</td>
-            <td data-label="地址"><a href="{{ it.url }}" target="_blank" rel="noopener">{{ it.url }}</a></td>
-            <td data-label="状态">
-              {% if it.enabled %}<span class="badge-ok">已启用</span>{% else %}<span class="badge-off">已停用</span>{% endif %}
-            </td>
-            <td data-label="操作">
-              <details class="inline-details">
-                <summary class="btn btn-mini">编辑</summary>
-                <form method="post" action="{{ url_for('admin.nav_entry_edit', item_id=it.id) }}" class="entry-edit-form">
-                  {{ csrf_input() }}
-                  <input aria-label="名称" type="text" name="label" value="{{ it.label }}" maxlength="20" required>
-                  <input aria-label="英文名" type="text" name="label_en" value="{{ it.label_en or '' }}" maxlength="40" placeholder="英文界面显示名（可选，如 Toolbox）">
-                  <input aria-label="地址" type="url" name="url" value="{{ it.url }}" placeholder="https://..." required>
-                  <input aria-label="图标" type="text" name="icon" value="{{ it.icon or '' }}" maxlength="8" placeholder="图标（emoji）">
-                  <button type="submit" class="btn">保存</button>
-                </form>
-              </details>
-              <form method="post" action="{{ url_for('admin.nav_entry_toggle', item_id=it.id) }}" class="inline-form">
-                {{ csrf_input() }}
-                <button type="submit" class="btn btn-mini">{{ '停用' if it.enabled else '启用' }}</button>
-              </form>
-              <form method="post" action="{{ url_for('admin.nav_entry_delete', item_id=it.id) }}" class="inline-form"
-                    onsubmit="return confirm('确定删除入口「{{ it.label }}」？此操作可用配置回滚恢复。');">
-                {{ csrf_input() }}
-                <button type="submit" class="btn btn-mini btn-danger">删除</button>
-              </form>
-            </td>
-          </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  {% endif %}
+  <div class="card">
+    <div class="card-head">
+      <h2 class="card-title">
+        现有入口
+        <span class="card-count">{{ items|length }} / {{ max_items }}</span>
+      </h2>
+    </div>
+    {% if not items %}
+      <div class="empty">
+        <span class="empty-ico">🧰</span>
+        还没有任何入口。用下方表单添加第一条，前台会出现「🧰 工具箱」下拉。
+      </div>
+    {% else %}
+      <table class="admin-table">
+        <thead>
+          <tr><th style="width:96px;">顺序</th><th style="width:64px;">图标</th><th style="width:150px;">名称</th><th>地址</th><th style="width:96px;">状态</th><th style="width:230px;">操作</th></tr>
+        </thead>
+        <tbody>
+          {% for it in items %}
+            <tr{% if not it.enabled %} class="row-off"{% endif %}>
+              <td data-label="顺序">
+                <div class="toolbar">
+                  <form method="post" action="{{ url_for('admin.nav_entry_move', item_id=it.id, dir='up') }}" class="inline-form">
+                    {{ csrf_input() }}
+                    <button type="submit" class="btn btn-mini" aria-label="上移 {{ it.label }}"{% if loop.first %} disabled{% endif %}>↑</button>
+                  </form>
+                  <form method="post" action="{{ url_for('admin.nav_entry_move', item_id=it.id, dir='down') }}" class="inline-form">
+                    {{ csrf_input() }}
+                    <button type="submit" class="btn btn-mini" aria-label="下移 {{ it.label }}"{% if loop.last %} disabled{% endif %}>↓</button>
+                  </form>
+                </div>
+              </td>
+              <td data-label="图标"><span class="nav-emoji">{{ it.icon or '🧰' }}</span></td>
+              <td data-label="名称">{{ it.label }}</td>
+              <td data-label="地址" class="cell-break"><a href="{{ it.url }}" target="_blank" rel="noopener noreferrer">{{ it.url }}</a></td>
+              <td data-label="状态">
+                {% if it.enabled %}<span class="tag tag-up">已启用</span>{% else %}<span class="tag tag-flat">已停用</span>{% endif %}
+              </td>
+              <td data-label="操作">
+                <div class="row-ops">
+                  <details class="inline-details">
+                    <summary class="btn-mini">编辑</summary>
+                    <form method="post" action="{{ url_for('admin.nav_entry_edit', item_id=it.id) }}" class="entry-edit-form">
+                      {{ csrf_input() }}
+                      <input aria-label="名称" type="text" name="label" value="{{ it.label }}" maxlength="20" required>
+                      <input aria-label="英文名" type="text" name="label_en" value="{{ it.label_en or '' }}" maxlength="40" placeholder="英文界面显示名（可选，如 Toolbox）">
+                      <input aria-label="地址" type="url" name="url" value="{{ it.url }}" placeholder="https://..." required>
+                      <input aria-label="图标" type="text" name="icon" value="{{ it.icon or '' }}" maxlength="8" placeholder="图标（emoji）">
+                      <button type="submit" class="btn btn-sm primary">保存</button>
+                    </form>
+                  </details>
+                  <form method="post" action="{{ url_for('admin.nav_entry_toggle', item_id=it.id) }}" class="inline-form">
+                    {{ csrf_input() }}
+                    <button type="submit" class="btn-mini">{{ '停用' if it.enabled else '启用' }}</button>
+                  </form>
+                  <form method="post" action="{{ url_for('admin.nav_entry_delete', item_id=it.id) }}" class="inline-form"
+                        onsubmit="return confirm('确定删除入口「{{ it.label }}」？此操作可用配置回滚恢复。');">
+                    {{ csrf_input() }}
+                    <button type="submit" class="btn-mini btn-danger">删除</button>
+                  </form>
+                </div>
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% endif %}
+  </div>
 
-  <h2 class="section-sub">添加新入口</h2>
-  {% if items|length >= max_items %}
-    <p class="empty-tip">已达上限 {{ max_items }} 条，请先删掉不用的再添加。</p>
-  {% else %}
-    <form method="post" action="{{ url_for('admin.nav_entry_add') }}" class="entry-edit-form">
-      {{ csrf_input() }}
-      <input aria-label="名称" type="text" name="label" placeholder="名称（如 百宝箱）" maxlength="20" required>
-      <input aria-label="英文名" type="text" name="label_en" placeholder="英文界面显示名（可选，如 Toolbox）" maxlength="40">
-      <input aria-label="地址" type="url" name="url" placeholder="https://example.com" required>
-      <input aria-label="图标" type="text" name="icon" placeholder="图标 emoji（可选）" maxlength="8">
-      <button type="submit" class="btn">添加</button>
-    </form>
-  {% endif %}
+  <div class="card">
+    <div class="card-head">
+      <h2 class="card-title">添加新入口</h2>
+      {% if items|length >= max_items %}
+        <span class="tag tag-warn">已达上限 {{ max_items }} 条</span>
+      {% endif %}
+    </div>
+    <div class="card-body">
+      {% if items|length >= max_items %}
+        <p class="empty-tip">已达上限 {{ max_items }} 条，请先删掉不用的再添加。</p>
+      {% else %}
+        {# v4.11.0：这个卡片是**新建表单**（不是表格里的行内编辑），所以用 `.field` 范式，
+           与「站点设置」「用户管理」一致。行内编辑（表格里那个 .entry-edit-form）保持紧凑不动
+           —— 它是下拉浮层，套 .field 会把表格撑开。 #}
+        <form method="post" action="{{ url_for('admin.nav_entry_add') }}">
+          {{ csrf_input() }}
+          <div class="field-grid">
+            <div class="field">
+              <label class="field-label" for="ne_label">名称<span class="req">*</span></label>
+              <input id="ne_label" type="text" name="label" placeholder="如 百宝箱"
+                     maxlength="20" required>
+              <p class="field-hint">显示在前台导航里的中文名，最多 20 字。</p>
+            </div>
+            <div class="field">
+              <label class="field-label" for="ne_label_en">英文名</label>
+              <input id="ne_label_en" type="text" name="label_en" placeholder="如 Toolbox"
+                     maxlength="40">
+              <p class="field-hint">英文界面下显示的名字，留空则沿用中文名。</p>
+            </div>
+            <div class="field">
+              <label class="field-label" for="ne_url">地址<span class="req">*</span></label>
+              <input id="ne_url" type="url" name="url" placeholder="https://example.com" required>
+              <p class="field-hint">站内路径（<code>/archive</code>）或完整 URL 都可以。</p>
+            </div>
+            <div class="field">
+              <label class="field-label" for="ne_icon">图标</label>
+              <input id="ne_icon" type="text" name="icon" placeholder="emoji，如 🧰" maxlength="8">
+              <p class="field-hint">一个 emoji（可选）。</p>
+            </div>
+          </div>
+          <div class="form-actions">
+            <button type="submit" class="btn">添加</button>
+          </div>
+        </form>
+        <p class="field-hint">顺序可用列表里的 ↑ / ↓ 调整；前台按这里的顺序渲染下拉项。</p>
+      {% endif %}
+    </div>
+  </div>
 {% endblock %}

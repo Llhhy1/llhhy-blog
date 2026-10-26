@@ -661,8 +661,25 @@ def check_search_index():
     try:
         import fts
         if not fts.available():
-            items.append({"label": "FTS5 支持", "value": "不可用（搜索降级为 LIKE 扫描）", "level": "warn"})
-            notes.append("SQLite 未编译 FTS5：站内搜索退化为 LIKE 全表扫描，文章多时明显变慢。")
+            # v4.13.0：把「环境没有 FTS5」与「探测本身失败」分开报。
+            # 旧版一律写成「SQLite 未编译 FTS5」，而实测里真正发生的是后者
+            # （探测曾用 DDL 写库，抢不到锁就失败并被永久缓存）—— 一句话把站长
+            # 指向了换 SQLite 构建这种完全无关的处置。
+            code = fts.probe_code()
+            detail = fts.probe_reason() or "原因未知"
+            if code == getattr(fts, "CODE_NOT_COMPILED", "not-compiled"):
+                items.append({"label": "FTS5 支持",
+                              "value": "不可用（环境未编译 FTS5，搜索降级为 LIKE 扫描）",
+                              "level": "warn"})
+                notes.append("%s。站内搜索退化为 LIKE 全表扫描，文章多时明显变慢；"
+                             "需要换一个编译了 FTS5 的 SQLite/Python 运行环境。" % detail)
+            else:
+                items.append({"label": "FTS5 支持",
+                              "value": "探测失败（搜索临时降级为 LIKE 扫描）",
+                              "level": "warn"})
+                notes.append("%s。这是**探测本身**失败（多为数据库忙/连接被回收），"
+                             "不是环境缺少 FTS5；%d 秒后会自动重试，持续出现再查数据库锁与连接池。"
+                             % (detail, int(getattr(fts, "_PROBE_RETRY_SECONDS", 60))))
             return {"key": "search_index", "title": "全文搜索索引", "status": "warn",
                     "items": items, "notes": notes}
 

@@ -6,6 +6,81 @@
 > v3.22.0 ~ v3.25.16 → `docs/archive/CHANGELOG_v3.22.0-v3.25.16.md`（v4.11.0 因体积守卫触发，主文件涨到 201 KB / 上限 200 KB）。
 > 本文件从 **v4.0.0** 起。**归档不是删除** —— 查旧版本变更细节时去上述文件。
 
+## v4.13.0（2026-10-26）
+
+> 由一次「帮我诊断一下博客」引出的两个自身缺陷：站点本身健康（19 维全绿），
+> 坏的是**诊断链路自己**——它在拿写操作做能力探测，既让 3/4 的 worker 静默降级，
+> 又会在并发时误报「数据库索引损坏、建议从备份恢复」。
+
+### 修：FTS5 能力探测从「写库」改为「只读」
+
+`fts._probe()` 原先用 `CREATE VIRTUAL TABLE _fts_probe USING fts5(...)` + `DROP` + `commit()`
+来测 FTS5 是否可用，即**拿一次 DDL 当能力测试**，并把结果按进程永久缓存。两条实测后果：
+
+1. **worker 永久降级。** `app.py` 里每个 gunicorn worker 启动都会走
+   `fts.ensure()` → `available()` → `_probe()`，4 个进程同时抢写锁，抢输的拿到异常 →
+   结果被写进模块级变量、终身不再重试 → 该 worker 此后所有 `fts.search()` 直接返回
+   `None`，搜索永久退化为 LIKE 全表扫描，**且没有任何日志**。
+   实测：同一查询连打 10 次 `/api/search?q=Flask`，`engine` 在 `fts5`(3 次) / `like`(7 次)
+   之间翻转 —— 4 个 worker 里 3 个已降级。结果条数相同，用户看不出异常，只有性能与
+   语义（词元匹配 vs 子串匹配）的差异。
+
+2. **体检误报数据库损坏。** `diagnostics.check_search_index()` 会惰性调到这里，等于在
+   「只读」体检里写库。多个连接同时 CREATE/DROP 搅动 `sqlite_master` 时，另一个连接跑
+   `PRAGMA integrity_check` 会吐
+   `malformed inverted index for FTS5 table main.post_fts`，notes 还写着「建议从备份恢复」——
+   照做就是拿一次误报毁掉一个健康的库。
+   隔离复现（在 `/tmp` 的库副本上，不碰生产）：1 个写者 60 次检查 **0** 假报，
+   4 个写者 60 次里 **2** 次假报（`vtable constructor failed: post_fts`）。
+
+修法：`SELECT sqlite_compileoption_used('ENABLE_FTS5')` 只读编译期选项，不开事务、不建表；
+返回 0 时再查一次 `sqlite_master` 里 `post_fts` 是否已存在（老库可能早就建好表），
+避免把能用的库判死。已核实生产 SQLite 3.46.1、本机 3.53.1、测试 venv 3.50.4 均返回 1。
+
+### 修：探测失败不再永久缓存
+
+`available()` 改为**只缓存成功**；失败只保留一个有界窗口（`_PROBE_RETRY_SECONDS = 60`），
+窗口内不重复探测（避免每次搜索多一次查询），窗口外自动重试。单次瞬时故障不再扩散成
+进程级状态。
+
+### 修：把「未编译 FTS5」与「探测失败」分开报
+
+`check_search_index()` 原先一律报「SQLite 未编译 FTS5：站内搜索退化为 LIKE 全表扫描」。
+但实测里真正发生的是**探测本身失败**（抢不到写锁），FTS5 明明是好的 —— 这句话会把运维
+指向「换一个编译了 FTS5 的 SQLite/Python 运行环境」这种完全无关的动作。
+
+现在按 `probe_code()` 分流：`not-compiled` → 提示换运行环境；`probe-failed` →
+明说「这是探测本身失败，多为数据库忙/连接回收，60 秒后自动重试」，并原样带出真实异常文案
+（截断到 200 字符：SQLite 异常偶尔会带数据库绝对路径，超管可见但没必要整段外露）。
+
+### 改：`health_score` 对异常维度回传原因
+
+`MCP health_score` 原先只回各维度的 `key/title/status/问题数`，而 checker 走 `except`
+降级时「为什么坏」只写进 `notes`（有时真实原因只在 `items[].value` 里，`notes` 只是一句
+通用建议）。于是**瞬时错误一消失，根因就永久查不到了** —— 本次就是只看到
+`database=error`，得再单独跑一次 `health_overview` 才捞到那句 `malformed inverted index`，
+而那时错误往往已经消失。
+
+现在 `status != ok` 的维度会一并带上 `notes` 与出问题的 `items`（正常维度仍不回传明细，
+避免 19 个维度把响应撑大）。同一次会话里三次并发 `health_score` 给出 92/95/100 三个分数、
+`generated_at` 却是同一秒 —— 这种「评分不可重复」的表现也因此可解释了。
+
+### 验证
+
+- 新增 `tests/test_fts_probe_readonly.py`（8 条）：在 `before_cursor_execute` 上挂事件
+  收集实际执行的 SQL，断言 `_probe()` 期间**不含任何 DDL/DML**；断言探测后
+  `sqlite_master` 一字不动、无 `_fts_probe` 残表；断言失败在窗口外会重试、成功会缓存；
+  断言两种失败口径不互相污染；断言 `health_score` 会带出原因。
+- **变异验证 4/4**（把修复逐个回退，对应测试必须变红，复原回绿）：
+  ① 失败永久缓存 → 红；② 探测改回 DDL → 红；③ 体检口径退回「一律未编译」→ 红；
+  ④ `health_score` 不回传 notes/items → 2 条红。
+- 全量 **1195 passed**（352 秒）。后端改动，前端包无变化。
+- 生产侧复核：独立只读连接连跑 3 次 `integrity_check` + `quick_check` 全 `ok`，
+  `post_fts` 13 条与 13 篇文章一致，无 `_fts_probe` 残表 —— 确认真实数据一直健康，
+  那句「索引损坏」纯属并发误报。
+
+---
+
 ## v4.12.1（2026-10-25）
 
 > v4.12.0 的部署因服务器直连 GitHub 下载超时（3.3 MB 的包两次都在 2.2~2.9 MB 处断开）未上线，

@@ -6,21 +6,66 @@
   所有调用方自动回退到 LIKE 搜索，绝不报错中断。
 - 维护接口（ensure / sync_post / delete_post）在应用启动时和文章增删改时调用。
 """
+import time
+
 from models import db, Post
+
+# 探测失败后的最小重试间隔（秒）。失败**不永久缓存**，见 available() 的说明。
+_PROBE_RETRY_SECONDS = 60.0
+
+_AVAIL = None        # 只有「确认可用」才会被置 True
+_FAILED_AT = 0.0     # 上次探测失败的时刻（time.monotonic），0 = 没失败过
+_FAIL_CODE = ""      # "" | "not-compiled" | "probe-failed"
+_FAIL_DETAIL = ""    # 失败详情（人话），供体检原样展示
+
+# 探测失败的两种口径：对站长意味着完全不同的处置动作，绝不能混成一句话。
+CODE_NOT_COMPILED = "not-compiled"   # 环境真的没有 FTS5 → 换 SQLite 构建 / 接受 LIKE
+CODE_PROBE_FAILED = "probe-failed"   # 探测本身失败（锁/连接）→ 等重试 / 查数据库
 
 
 def _probe():
+    """只读探测 FTS5 是否可用，返回 `(ok, code, detail)`。
+
+    ⚠️ 这里**绝对不能写库**（v4.13.0 修）。历史实现是
+    `CREATE VIRTUAL TABLE IF NOT EXISTS _fts_probe ... / DROP TABLE _fts_probe / commit()`，
+    即拿一次 DDL 当能力测试，实测两条后果：
+
+    ① **worker 永久降级**：4 个 gunicorn worker 启动时都会经 `ensure()` 走到这里，
+       同时抢写锁，抢输的拿到异常 → `_AVAIL=False` 被按进程永久缓存 →
+       该 worker 此后整个生命周期都走 LIKE 全表扫描，而体检把它报成
+       「SQLite 未编译 FTS5」（错判：FTS5 明明是好的）。
+       实测 `/api/search` 连打 10 次，`engine` 在 fts5(3) / like(7) 之间翻转。
+
+    ② **体检误报数据库损坏**：`diagnostics.check_search_index()` 会惰性调到这里，
+       等于在「只读」体检里写库；多个连接同时 CREATE/DROP 搅动 sqlite_master 时，
+       别的连接跑 `PRAGMA integrity_check` 会吐
+       `malformed inverted index for FTS5 table main.post_fts` ——
+       配上 notes「建议从备份恢复」，会让站长拿一次误报去毁掉一个健康的库。
+       隔离实验：库副本上 1 个写者 60 次检查 0 假报，4 个写者 60 次里 2 次假报。
+
+    `sqlite_compileoption_used()` 只读编译期选项，不开事务、不建表，从根上消掉这两条。
+    返回 0 时再查一次 `sqlite_master` 里 `post_fts` 是否已存在：老库可能早已建好表，
+    直接判死会让既有索引白白失效。
+    """
     try:
-        db.session.execute(db.text("CREATE VIRTUAL TABLE IF NOT EXISTS _fts_probe USING fts5(content)"))
-        db.session.execute(db.text("DROP TABLE _fts_probe"))
-        db.session.commit()
-        return True
-    except Exception:
-        db.session.rollback()
-        return False
-
-
-_AVAIL = None
+        used = db.session.execute(
+            db.text("SELECT sqlite_compileoption_used('ENABLE_FTS5')")
+        ).scalar()
+        if used:
+            return True, "", ""
+        exists = db.session.execute(db.text(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='post_fts'"
+        )).scalar()
+        if exists:
+            return True, "", ""
+        return (False, CODE_NOT_COMPILED,
+                "SQLite 未编译 FTS5（sqlite_compileoption_used('ENABLE_FTS5') 返回 0）")
+    except Exception as e:  # noqa: BLE001  探测失败必须降级返回而非外抛：调用方全是搜索/启动路径，抛异常会拖垮请求
+        # 截断到 200 字符：这段文本会出现在后台体检页与 MCP 诊断输出里（两者都需
+        # 超管 / Bearer Token），SQLite 的异常文案偶尔会带上数据库绝对路径，
+        # 没必要整段外露（R132.2）。
+        return (False, CODE_PROBE_FAILED,
+                ("FTS5 探测失败（%s: %s）" % (type(e).__name__, e))[:200])
 
 
 def _indexable(post):
@@ -48,11 +93,45 @@ def _insert(post):
 
 
 def available():
-    """FTS5 是否可用（带缓存，只探测一次）。"""
-    global _AVAIL
-    if _AVAIL is None:
-        _AVAIL = _probe()
-    return _AVAIL
+    """FTS5 是否可用。**只缓存成功**，失败按 `_PROBE_RETRY_SECONDS` 重试。
+
+    为什么失败不能永久缓存：探测失败可能是瞬时原因（写锁竞争、连接被回收）。
+    旧实现把 `_probe()` 的结果无条件写进模块级 `_AVAIL`，一次失败就把该进程锁死成
+    LIKE 全表扫描，而且**没有任何日志**——线上实测 4 个 worker 里 3 个中招。
+    反过来也不能每次搜索都探一遍（每个搜索请求多一次查询），所以失败结果只保留
+    一个有界窗口，窗口内不再重试。
+    """
+    global _AVAIL, _FAILED_AT, _FAIL_CODE, _FAIL_DETAIL
+    if _AVAIL:
+        return True
+    now = time.monotonic()
+    if _FAILED_AT and (now - _FAILED_AT) < _PROBE_RETRY_SECONDS:
+        return False
+    ok, code, detail = _probe()
+    if ok:
+        _AVAIL = True
+        _FAILED_AT = 0.0
+        _FAIL_CODE = ""
+        _FAIL_DETAIL = ""
+    else:
+        _FAILED_AT = now
+        _FAIL_CODE = code
+        _FAIL_DETAIL = detail
+    return ok
+
+
+def probe_code():
+    """最近一次探测失败的**类别**：`""` / `"not-compiled"` / `"probe-failed"`。
+
+    体检靠它区分「环境真的没有 FTS5」与「探测本身失败了（锁/并发）」——
+    两者对站长的处置动作完全不同，旧实现一律报成前者。
+    """
+    return _FAIL_CODE
+
+
+def probe_reason():
+    """最近一次探测失败的详情（人话，空串 = 可用或尚未探测）。"""
+    return _FAIL_DETAIL
 
 
 def ensure():

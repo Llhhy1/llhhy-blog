@@ -4,6 +4,66 @@
 
 ---
 
+## R132 · v4.13.0 发版安全审查（FTS5 探测改只读 · 诊断口径分离 · CWE-693 / CWE-200）
+
+**范围**：`myblog/fts.py`（`_probe` / `available` 重写 + 新增 `probe_code` `probe_reason`）、
+`myblog/diagnostics.py`（`check_search_index` 口径分离）、`myblog/mcp_diag.py`（`health_score`
+回传 notes / items）。无新路由、无权限变更、无表结构变更、无迁移。
+
+本轮的性质比较特殊：**修的是一个「本该只读的路径在写库」的缺陷**，所以审计重点有两层 ——
+新探测本身是否引入新攻击面，以及它带出的错误文案是否会变成信息泄露通道。
+
+### 132.1 探测语句的注入面
+
+`_probe()` 现在只发两条**常量** SQL：
+
+| 语句 | 参数化 | 用户可控输入 |
+|---|---|---|
+| `SELECT sqlite_compileoption_used('ENABLE_FTS5')` | 无参数（字面量） | 无 |
+| `SELECT 1 FROM sqlite_master WHERE type='table' AND name='post_fts'` | 无参数（字面量） | 无 |
+
+两条都不拼接任何变量，不存在注入面。**旧的 DDL 版本反而更大**：`CREATE VIRTUAL TABLE
+IF NOT EXISTS` 失败后走 `rollback()`，而 pysqlite 的隐式事务对 DDL 的处理与 DML 不同，
+失败路径上是否 100% 回滚依赖驱动行为 —— 本次顺带把这个不确定性去掉了。
+
+### 132.2 新增错误文案的暴露面（CWE-200 复核）
+
+`probe_reason()` 会把探测失败的异常文案带出（`OperationalError: …`）。逐层确认可见性：
+
+| 消费方 | 鉴权 | 判定 |
+|---|---|---|
+| `admin/feed_diag` 页（`diagnostics.run_all`） | `@super_required`（`admin/misc.py:221`） | 超管可见，可接受 |
+| MCP `/mcp` 的 `health_score` / `run_check` / `health_overview` | Bearer Token + 仅同源 Origin | 已鉴权，可接受 |
+
+**没有公开路径**会输出这段文本（已 `grep` 确认 `run_all()` 只有上述两个消费方）。
+仍做了防御性收口：`_probe()` 把整段文案**截断到 200 字符** —— SQLite 的异常偶尔会带上
+数据库绝对路径，对超管不必隐藏但也没必要整段外露。与 `admin/misc.py` 既有的
+`str(e)[:200]` 同口径。
+
+### 132.3 「诊断工具不得改数据」这条约束的落地
+
+`diagnostics.py` 头部写死了「只读：不写库、不发网络请求」，但 `check_search_index()`
+经 `fts.available()` 走到旧 `_probe()` 的 DDL —— **体检在写生产库**。探测改只读后，
+这条约束才真正成立。守卫方式是一条结构测试：在 `before_cursor_execute` 上挂事件收集语句，
+断言 `_probe()` 期间**不含任何 DDL/DML**（`tests/test_fts_probe_readonly.py`）。
+选「收集实际执行的 SQL」而不是「grep 源码」，是因为前者连将来换实现也拦得住。
+
+### 132.4 并发路径的可用性风险（CWE-693 保护机制未生效）
+
+旧实现把探测结果**按进程永久缓存**，失败一次即让该 worker 整个生命周期降级成 LIKE
+全表扫描，且**无日志**。这不只是性能问题：`/api/search` 的 FTS 分支与 LIKE 分支语义不同
+（词元匹配 vs 子串匹配），同一查询落在不同 worker 上会得到不同结果集，行为不可预期。
+改为「成功才永久缓存、失败只在 60 秒窗口内缓存」后，单次瞬时故障不再扩散成进程级状态。
+失败文案同时区分「环境未编译」与「探测失败」，避免把运维指向换 SQLite 构建这种无关动作。
+
+### 132.5 遗留
+
+- 无新增。仍沿用 R130.5 的已知项（`admin.css` 重复定义未合并、`run_check` 枚举硬编码）。
+- 本轮**未修**的既有文档缺陷：本文件内 `## R127 · v4.8.7 …` 标题**重复出现两次**（内容完全相同）。
+  属历史合并时的重复写入，无安全含义，未纳入本次改动范围。
+
+---
+
 ## R131 · v4.12.0 发版安全审查（前台 /docs 重做 · CWE-200 信息暴露复核）
 
 **范围**：仅 `vue-frontend/src/views/DocsView.vue`（+ 后端 `APP_VERSION`）。无接口、无权限、

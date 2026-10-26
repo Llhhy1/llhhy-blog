@@ -298,6 +298,30 @@ def tool_issues(args):
     }
 
 
+def _dim_brief(sec):
+    """单个维度的要点行（v4.13.0）。
+
+    正常维度只回 key/title/status/issues 计数；**status != ok 时额外带上 notes 与
+    出问题的 items**。原因：checker 走 except 降级时「为什么坏」只写进 notes
+    （有时只有 items 里的 value 带真实原因，notes 只是一句通用建议），而这两样以前
+    都不在这里回传 —— 于是瞬时错误一消失，根因就永久查不到了。
+    线上实测：只看到 database=error，捞不到那句
+    `malformed inverted index for FTS5 table main.post_fts`，
+    得再单独跑一次 health_overview 才看见，而那时错误往往已经消失。
+    """
+    bad = [r for r in (sec.get("items") or []) if r.get("level") in ("error", "warn")]
+    out = {"key": sec.get("key"), "title": sec.get("title"),
+           "status": sec.get("status"), "issues": len(bad)}
+    if sec.get("status") not in (None, "ok"):
+        notes = [n for n in (sec.get("notes") or []) if n]
+        if notes:
+            out["notes"] = notes
+        if bad:
+            out["items"] = [{"label": r.get("label"), "value": r.get("value"),
+                             "level": r.get("level")} for r in bad]
+    return out
+
+
 def tool_health_score(args):  # noqa: ARG001  签名由调用方/接口约定决定，不能删改
     """健康评分与各维度状态一览（不含明细行）。"""
     import diagnostics
@@ -307,13 +331,10 @@ def tool_health_score(args):  # noqa: ARG001  签名由调用方/接口约定决
         "score": data.get("score"),
         "summary": data.get("summary"),
         "issue_total": data.get("issue_total"),
-        "dimensions": [{"key": s.get("key"), "title": s.get("title"),
-                        "status": s.get("status"),
-                        "issues": len([r for r in (s.get("items") or [])
-                                       if r.get("level") in ("error", "warn")])}
-                       for s in (data.get("sections") or [])],
+        "dimensions": [_dim_brief(s) for s in (data.get("sections") or [])],
         "hint": ("score 为维度均分（异常 0 / 警告 0.5 / 正常 1）。"
-                 "先看 status != ok 的维度，再用 run_check 取该维明细。"),
+                 "status != ok 的维度会带上 notes 与出问题的 items；"
+                 "需要正常项的实测值再用 run_check 取该维全量明细。"),
     }
 
 
@@ -356,7 +377,8 @@ TOOLS = {
         "fn": tool_health_overview,
     },
     "health_score": {
-        "description": ("健康评分（0-100）与 19 个维度的状态一览，不含明细行。"
+        "description": ("健康评分（0-100）与 19 个维度的状态一览，不含正常维度的明细行；"
+                        "异常/警告维度会一并给出原因（notes）与出问题的条目。"
                         "适合先快速判断「整体到底有多糟」。"),
         "inputSchema": {"type": "object", "properties": {}},
         "fn": tool_health_score,

@@ -627,7 +627,21 @@ sha256sum /tmp/og.png /www/wwwroot/你的站点根/og-default.png
 1. **备份（最重要）**：到「文件」下载留底：
    - `/www/wwwroot/myblog/data/blog.db`（全部数据）
    - `/www/wwwroot/myblog/static/uploads/`（上传的图片）
-1.1. **升级要点**（其余步骤与通用流程一致；适用于 v4.0.0 → v4.12.1）：
+1.1. **升级要点**（其余步骤与通用流程一致；适用于 v4.0.0 → v4.13.0）：
+   - **v4.13.0（FTS5 探测改只读 · 诊断口径分离 · `health_score` 回传原因）**：
+     - **无迁移、无表结构变更**（head 仍为 `d9f1a4c7b2e8`）。改动全在
+       `myblog/fts.py` / `myblog/diagnostics.py` / `myblog/mcp_diag.py`，
+       走 `myblog-backend.zip` 覆盖即可，**前端包与 v4.12.1 完全相同**。
+     - ⚠️ **本版必须重启 gunicorn（停止→启动），且重启后要确认 4 个 worker 都恢复了 FTS**。
+       旧版把 FTS5 探测结果按进程永久缓存，升级前那批 worker 里有降级成 LIKE 的；
+       重启是让新探测重新跑一遍的**唯一**办法（不重启的话，降级的 worker 会一直降级）。
+       判据（连打 8~10 次，看 `engine` 是否稳定为 `fts5`）：
+       `for i in $(seq 1 10); do curl -s 'https://<域名>/api/search?q=Flask&per_page=3' | grep -o '"engine":"[a-z0-9]*"'; done`
+     - 升级后 `/admin/feed-diag` 的「全文搜索索引」维度若显示**探测失败**（而不是
+       「未编译 FTS5」），说明是数据库瞬时忙：60 秒后自动重试，不需要换 SQLite 构建；
+       持续出现再看数据库锁与连接池。
+     - `MCP health_score` 的返回变了：`status != ok` 的维度会多带 `notes` 与 `items`。
+       按旧字段解析的脚本不受影响（只增不改）。
    - **v4.12.1（访问统计表格对齐修复 · 纯模板/CSS，无前端包变化）**：
      - **无迁移、无表结构变更**（head 仍为 `d9f1a4c7b2e8`）。
      - 改动只在 `myblog/templates/admin/stats.html`（`th.num` / `td.num` 右对齐 +

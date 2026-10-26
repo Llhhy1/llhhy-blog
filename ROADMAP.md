@@ -2,12 +2,12 @@
 
 > 本文档 = **功能地图（已做）+ 待办（不做放一块）**，简单描述。
 > 历史版本迭代明细、v3.25.x 详细决策 / 取证日志见 `docs/archive/ROADMAP_archive.md`；权威版本史见 `CHANGELOG.md`。
-> 当前线上：**v4.12.1（Flask 线，v4.0→v4.12.1 连续版本）**。
+> 当前线上：**v4.13.0（Flask 线，v4.0→v4.13.0 连续版本）**。
 > 代码 / 文档里出现的旧章节编号（`ROADMAP §5.2`、`§5.9` 等）→ 见文末「旧章节索引」。
 
 ## 一、当前状态
 
-- 线上 **v4.12.1**：Flask 后端 + Vue SPA 前台 + Flask/Jinja2 后台，SQLite（WAL）。
+- 线上 **v4.13.0**：Flask 后端 + Vue SPA 前台 + Flask/Jinja2 后台，SQLite（WAL）。
 - 已启用：`content_migrate` 插件（WordPress WXR / Typecho SQL / **Typecho SQLite .db** 只读迁移）。
 - 架构决策：**维持 Flask 栈**（SQLite 上 async 负收益，仅 Postgres + asyncpg 才有收益）；**v4 FastAPI 异步栈实验分支已废弃**，不接管线上。
 

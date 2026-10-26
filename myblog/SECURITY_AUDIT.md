@@ -59,8 +59,6 @@ IF NOT EXISTS` 失败后走 `rollback()`，而 pysqlite 的隐式事务对 DDL �
 ### 132.5 遗留
 
 - 无新增。仍沿用 R130.5 的已知项（`admin.css` 重复定义未合并、`run_check` 枚举硬编码）。
-- 本轮**未修**的既有文档缺陷：本文件内 `## R127 · v4.8.7 …` 标题**重复出现两次**（内容完全相同）。
-  属历史合并时的重复写入，无安全含义，未纳入本次改动范围。
 
 ---
 
@@ -327,11 +325,17 @@ lint 棘轮：本轮一度引入 +3（SIM102 / F401 未用 `pytest` / `Setting` 
 
 ## R127 · v4.8.7 发版安全审查（访客统计页数据表 CSS 打磨 · 无安全面）
 
-**范围**：`templates/admin/stats.html` 数据表 CSS 与暗色主题适配，**仅 CSS 选择器 / 颜色**。
+**范围**：`templates/admin/stats.html` 仅 `<style>` 扩展（数据表 `.stats-table` 美化 + 环比涨跌徽章 + 暗色适配）。**无任何 Python / 路由 / JS 逻辑变更**，前端零构建（纯 Jinja/CSS）。
 
-结论：无 HTML 属性、用户输入或 DOM 结构变更；样式全部限定 `.stats-page` 作用域
-（`admin.css` 中诊断页的 `.stats-table` 不受影响）。无注入 / XSS / SSRF / 越权面。
-模板渲染用例 5 passed。
+### 127.1 安全结论
+
+- **无新增攻击面**：改动仅为 CSS 选择器与颜色，不引入 HTML 属性、不渲染用户输入、不改 DOM 结构（仅给「区间访客数据」表加 `metrics` 类、数值列右对齐）。
+- **作用域隔离**：全部规则限定 `.stats-page`，不影响诊断页等其它后台 `.stats-table`（已确认 `admin.css` 诊断页样式独立）。
+- **无注入 / XSS / SSRF / 越权面**：与 v4.8.6 一致，本次零新增。
+
+### 127.2 测试
+
+复用 `tests/test_stats_reset_searches.py` 渲染用例（5 passed），确认模板仍可正常渲染、未引入 Jinja 错误。完整套件 **1064 passed**（v4.8.6）。
 
 ---
 
@@ -367,22 +371,6 @@ lint 棘轮：本轮一度引入 +3（SIM102 / F401 未用 `pytest` / `Setting` 
 
 新增 `tests/test_stats_reset_searches.py` 5 条：匿名拦截 / 普通管理员 403 / 超管清空+审计 / 缺 CSRF 拒删 / 页面渲染出按钮。
 完整套件 **1064 passed, 0 failed**（v4.8.6）。
-
----
-
-## R127 · v4.8.7 发版安全审查（访客统计页数据表 CSS 打磨 · 无安全面）
-
-**范围**：`templates/admin/stats.html` 仅 `<style>` 扩展（数据表 `.stats-table` 美化 + 环比涨跌徽章 + 暗色适配）。**无任何 Python / 路由 / JS 逻辑变更**，前端零构建（纯 Jinja/CSS）。
-
-### 127.1 安全结论
-
-- **无新增攻击面**：改动仅为 CSS 选择器与颜色，不引入 HTML 属性、不渲染用户输入、不改 DOM 结构（仅给「区间访客数据」表加 `metrics` 类、数值列右对齐）。
-- **作用域隔离**：全部规则限定 `.stats-page`，不影响诊断页等其它后台 `.stats-table`（已确认 `admin.css` 诊断页样式独立）。
-- **无注入 / XSS / SSRF / 越权面**：与 v4.8.6 一致，本次零新增。
-
-### 127.2 测试
-
-复用 `tests/test_stats_reset_searches.py` 渲染用例（5 passed），确认模板仍可正常渲染、未引入 Jinja 错误。完整套件 **1064 passed**（v4.8.6）。
 
 ---
 

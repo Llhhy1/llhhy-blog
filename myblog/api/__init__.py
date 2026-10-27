@@ -41,6 +41,7 @@ from . import ecosystem    # noqa: F401  v4.7.5：生态统计（部署实例心
 from . import seo_page     # noqa: F401  v4.10.0：SPA 列表路径服务端 SEO 壳页（/api/og/page/*）
 from . import mobile_ops   # noqa: F401  v4.10.0：移动端第二批（D8.3 ②统计/审计/备份/设置/SEO/证书/用户）
 from . import media        # noqa: F401  v4.14.0：公开媒体（图库 / 视频集，仅 is_public）
+from . import album        # noqa: F401  v5.1.0：公开相册（列表 / 详情，编排层）
 
 # 蓝图唯一出处（功能模块从 .common 取，app.py 从本包取，二者同一对象）
 from .common import api_bp  # noqa: F401  再导出：app.py 的 from api import api_bp 依赖本行

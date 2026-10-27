@@ -1,0 +1,56 @@
+{% extends "admin/base.html" %}
+{% block title %}相册{% endblock %}
+{% block content %}
+  <h1 class="page-title">📚 相册（{{ albums | length }}）</h1>
+
+  <form method="post" action="{{ url_for('admin.album_create') }}" class="panel"
+        style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;">
+    {{ csrf_input() }}
+    <input type="text" name="title" placeholder="新相册标题，如「云和梯田畲乡自驾」"
+           aria-label="新相册标题" required size="36">
+    <button type="submit" class="btn">➕ 新建相册</button>
+    <span class="hint">新建后进入编排页：从媒体库挑素材、分章节、写图注</span>
+  </form>
+
+  {% if albums %}
+    <div class="album-admin-grid">
+      {% for a in albums %}
+        <div class="album-admin-card">
+          <div class="album-admin-cover">
+            {% if a.cover %}
+              <img src="{{ a.cover }}" alt="{{ a.title }}" loading="lazy">
+            {% else %}
+              <span class="album-admin-nocover">无封面</span>
+            {% endif %}
+          </div>
+          <div class="album-admin-body">
+            <h3 class="album-admin-title">
+              <a href="{{ url_for('admin.album_edit', aid=a.id) }}">{{ a.title or '未命名相册' }}</a>
+            </h3>
+            <p class="hint album-admin-summary">{{ a.summary or '（无摘要）' }}</p>
+            <p class="hint">
+              {{ a.count }} 项
+              {% if a.event_date %} · {{ a.event_date }}{% endif %}
+              {% if a.location %} · {{ a.location }}{% endif %}
+              {% if not a.is_public %} · <strong>私密</strong>{% endif %}
+            </p>
+            <div class="admin-actions">
+              <a class="btn small" href="{{ url_for('admin.album_edit', aid=a.id) }}">编排</a>
+              {% if a.is_public %}
+                <a class="btn small" href="/album/{{ a.slug }}" target="_blank" rel="noopener">前台 ↗</a>
+              {% endif %}
+              <form method="post" action="{{ url_for('admin.album_delete', aid=a.id) }}"
+                    class="inline-form"
+                    onsubmit="return confirm('删除相册「{{ a.title }}」？\n\n只删编排关系，媒体文件仍保留在媒体库。');">
+                {{ csrf_input() }}
+                <button type="submit" class="btn small danger">删除</button>
+              </form>
+            </div>
+          </div>
+        </div>
+      {% endfor %}
+    </div>
+  {% else %}
+    <p class="empty">还没有相册。上面填个标题，就能建第一个。</p>
+  {% endif %}
+{% endblock %}

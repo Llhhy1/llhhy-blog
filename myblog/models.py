@@ -720,3 +720,112 @@ class MediaAsset(db.Model):
     def __repr__(self):
         return "<MediaAsset %s %s>" % (self.kind, self.filename or self.url)
 
+
+
+class Album(db.Model):
+    """v5.1.0 相册：**媒体素材的编排层**（一个相册 = 一个可发布的图文集合）。
+
+    ## 为什么要单独建「相册」，而不是继续扩展 media_asset
+
+    `media_asset` 记的是**素材本身**（文件在哪、多大、什么格式、公不公开），
+    它回答「我有什么」。相册要回答的是另一件事：**「这些素材怎么讲一个故事」**。
+
+    两者是不同层次，硬塞进一张表会立刻出问题：
+
+    1. **同一张图要能进多个相册** —— 一张梯田照片既属于「云和自驾」，
+       也可能属于「2026 年度精选」。若把 album_id 写进 media_asset，
+       就只能归一处（或者再加一张关系表，绕一圈还是回到这里）。
+    2. **说明文字是「相册语境」相关的** —— 同一张照片在两个相册里配文不同。
+       说明该属于「照片 × 相册」这条关系，而不是属于文件。
+    3. **顺序是相册的属性，不是文件的** —— 排序、分组只在这个相册内有意义。
+
+    所以相册**只引用** media_asset（存 media_id），不复制文件、不复制 URL。
+    媒体删了相册项会变成空引用（前端跳过），相册本身不会跟着消失 ——
+    误删一张图不该让整篇游记崩掉。
+
+    ## 三张表的分工
+
+    - `Album`：相册本身（slug / 标题 / 摘要 / 封面 / 日期 / 地点 / 公开）。
+    - `AlbumSection`：相册内的**可选分组**（如「D1 畲乡之窗」「D2 云和梯田」）。
+      不建分组就是扁平照片墙 —— 分组是可选能力，不是强制结构。
+    - `AlbumItem`：一条「照片/视频 + 说明文字 + 归属 + 顺序」。
+
+    ## 字段口径
+
+    - `slug`：URL 片段（`/gallery/<slug>`），唯一索引。中文 slug 允许
+      （读者分享时更可读），由后台生成时做 ASCII 化 + 冲突去重。
+    - `trip_days` / `intro` / `tips`：**游记页专属**（v5.1.0 追加）。加了这三个，
+      相册就不只是「一面照片墙」，而是能独立成文的游记页 —— 与参考站
+      （travel.victor42.work/trip/...）同构：顶部写交通/住宿/路线概览，
+      底部列门票、索道、停车这类「去了才知道」的小提示。
+      全部为空时页面自动省略对应区块，不影响「纯照片相册」这种轻用法。
+    - `cover_media_id`：封面。存 id 而非 URL —— 媒体改名/换存储后端时
+      封面不会裂（URL 是媒体行算出来的，相册不该再存一份）。
+    - `event_date`：相册记录的**事件日期**（哪天去的），与 `created_at`
+      （什么时候整理的）是两回事，必须分开，否则补建旧相册时日期全乱。
+    - `is_public`：默认 True。私密相册（如家人照片）可关掉，列表与详情
+      都在 SQL 层过滤，不靠取回再筛。
+    """
+    __tablename__ = "album"
+
+    id = db.Column(db.Integer, primary_key=True)
+    slug = db.Column(db.String(120), unique=True, index=True, nullable=False)
+    title = db.Column(db.String(200), default="", nullable=False)
+    summary = db.Column(db.Text, default="")
+    # 游记页三块（见类注释「trip_days / intro / tips」）：留空即不渲染对应区块
+    trip_days = db.Column(db.String(40), default="")     # 「4天4晚」这类节奏说明
+    intro = db.Column(db.Text, default="")               # 行程概览：交通 / 住宿 / 路线
+    tips = db.Column(db.Text, default="")                # 小提示：门票 / 索道 / 停车
+    cover_media_id = db.Column(db.Integer, index=True)   # 不设外键：媒体删了相册仍在
+    event_date = db.Column(db.Date)
+    location = db.Column(db.String(120), default="")
+    is_public = db.Column(db.Boolean, default=True, nullable=False, index=True)
+    created_at = db.Column(db.DateTime, default=utcnow, index=True)
+    updated_at = db.Column(db.DateTime, default=utcnow, onupdate=utcnow)
+
+    def __repr__(self):
+        return "<Album %s>" % self.slug
+
+
+class AlbumSection(db.Model):
+    """v5.1.0 相册内的分组（可选）：给长相册分出节奏。
+
+    为什么单独一张表而不是在 AlbumItem 上加个 `section` 字符串：
+    分组自己也有**标题和说明**（「D2 云和梯田 —— 自驾上梯田，玩九曲云环」），
+    字符串字段表达不了；而且分组需要排序、需要独立增删改而不影响其下的照片。
+    """
+    __tablename__ = "album_section"
+
+    id = db.Column(db.Integer, primary_key=True)
+    album_id = db.Column(db.Integer, index=True, nullable=False)
+    title = db.Column(db.String(200), default="")
+    summary = db.Column(db.Text, default="")
+    sort = db.Column(db.Integer, default=0, index=True)
+
+    def __repr__(self):
+        return "<AlbumSection %s>" % (self.title or self.id)
+
+
+class AlbumItem(db.Model):
+    """v5.1.0 相册条目：一张照片 / 一段视频在某个相册中的呈现方式。
+
+    `caption` 是这个类存在的**主要理由** —— 参考站的每张照片都带
+    `<figcaption>` 说明，那才是「相册」和「文件列表」的分界线。
+
+    - `section_id` 为空 = 该条目直接挂在相册下（扁平照片墙）。
+      分组是可选的，不该为了「支持分组」强迫每个相册都建分组。
+    - `media_id` 不设外键：媒体行被删后，本条会变成空引用，
+      接口渲染时跳过，相册其余部分照常显示。
+    - `sort` 只对同一 (album_id, section_id) 内有效。
+    """
+    __tablename__ = "album_item"
+
+    id = db.Column(db.Integer, primary_key=True)
+    album_id = db.Column(db.Integer, index=True, nullable=False)
+    section_id = db.Column(db.Integer, index=True)   # 可空：空 = 不分组
+    media_id = db.Column(db.Integer, nullable=False)
+    caption = db.Column(db.Text, default="")
+    sort = db.Column(db.Integer, default=0, index=True)
+
+    def __repr__(self):
+        return "<AlbumItem album=%s media=%s>" % (self.album_id, self.media_id)

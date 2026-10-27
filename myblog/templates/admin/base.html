@@ -77,6 +77,7 @@
         <a href="{{ url_for('admin.categories') }}" class="{{ 'active' if ep == 'admin.categories' }}"><span class="nav-emoji">🗂️</span>分类管理</a>
         <a href="{{ url_for('admin.tags') }}" class="{{ 'active' if ep == 'admin.tags' }}"><span class="nav-emoji">🏷️</span>标签管理</a>
         <a href="{{ url_for('admin.media_lib') }}" class="{{ 'active' if ep == 'admin.media_lib' }}"><span class="nav-emoji">🖼️</span>媒体库</a>
+        <a href="{{ url_for('admin.album_list') }}" class="{{ 'active' if ep in ('admin.album_list', 'admin.album_edit') }}"><span class="nav-emoji">📚</span>相册</a>
         <a href="{{ url_for('admin.comments') }}" class="{{ 'active' if ep == 'admin.comments' }}"><span class="nav-emoji">💬</span>评论管理{% if pending_comments %} <span class="nav-badge">{{ pending_comments }}</span>{% endif %}</a>
         <a href="{{ url_for('admin.links') }}" class="{{ 'active' if ep == 'admin.links' }}"><span class="nav-emoji">🔗</span>友链管理</a>
         <a href="{{ url_for('admin.nav_entries') }}" class="{{ 'active' if ep == 'admin.nav_entries' }}"><span class="nav-emoji">🧰</span>外部入口</a>

@@ -3,56 +3,45 @@
     <h1 class="page-title">{{ t("gallery") }}</h1>
     <p class="gallery-sub">{{ t("gallery_sub") }}</p>
 
-    <div class="gallery-bar">
-      <div class="tabs">
-        <button v-for="tab in kinds" :key="tab.value"
-                :class="['tab', { active: kind === tab.value }]"
-                @click="setKind(tab.value)">{{ tab.label }}</button>
-      </div>
-      <div class="folders" v-if="folders.length">
-        <button :class="['chip', { active: !folder }]" @click="setFolder('')">{{ t("all") }}</button>
-        <button v-for="f in folders" :key="f.folder"
-                :class="['chip', { active: folder === f.folder }]"
-                @click="setFolder(f.folder)">{{ f.folder }} · {{ f.count }}</button>
-      </div>
-    </div>
-
     <div v-if="loading" class="gallery-empty">{{ t("loading") }}</div>
 
-    <div v-else-if="!items.length" class="gallery-empty">{{ t("gallery_empty") }}</div>
+    <div v-else-if="!albums.length" class="gallery-empty">{{ t("gallery_empty") }}</div>
 
-    <div v-else class="grid">
-      <figure v-for="it in items" :key="it.id" class="card">
-        <!-- 外链播放器（B站/YouTube）：域名在后台登记时已按白名单校验 -->
-        <div v-if="it.source === 'embed'" class="thumb embed">
-          <iframe :src="it.url" loading="lazy" allowfullscreen
-                  referrerpolicy="no-referrer"
-                  sandbox="allow-scripts allow-same-origin allow-presentation"></iframe>
-        </div>
-        <div v-else-if="it.kind === 'video'" class="thumb">
-          <video :src="it.url" :poster="it.poster || undefined"
-                 controls preload="metadata" playsinline></video>
-        </div>
-        <a v-else class="thumb" :href="it.url" target="_blank" rel="noopener noreferrer">
-          <img :src="it.url" :alt="it.title" loading="lazy">
-        </a>
+    <template v-else>
+      <div class="album-grid">
+        <router-link v-for="a in albums" :key="a.id" class="album-card"
+                     :to="'/album/' + encodeURIComponent(a.slug)">
+          <div class="album-cover">
+            <img v-if="a.cover && a.cover.url" :src="a.cover.url" :alt="a.title" loading="lazy">
+            <span v-else class="album-nocover">{{ t("untitled") }}</span>
+          </div>
 
-        <figcaption>
-          <span class="title">{{ it.title || t("untitled") }}</span>
-          <span class="meta">
-            <template v-if="it.width && it.height">{{ it.width }}×{{ it.height }} · </template>
-            {{ it.created_at }}
-            <template v-if="it.folder"> · {{ it.folder }}</template>
-          </span>
-        </figcaption>
-      </figure>
-    </div>
+          <div class="album-body">
+            <h2 class="album-title">{{ a.title || t("untitled") }}</h2>
+            <p v-if="a.summary" class="album-summary">{{ a.summary }}</p>
+            <p class="album-meta">
+              <template v-if="a.event_date">{{ a.event_date }}</template>
+              <template v-if="a.location"> · {{ a.location }}</template>
+              <template v-if="a.trip_days"> · {{ a.trip_days }}</template>
+              <span> · {{ a.count }} {{ t("items") }}</span>
+            </p>
 
-    <div class="more" v-if="hasMore">
-      <button class="btn" :disabled="loadingMore" @click="loadMore">
-        {{ loadingMore ? t("loading") : t("load_more") }}
-      </button>
-    </div>
+            <div v-if="a.preview && a.preview.length > 1" class="album-preview">
+              <span v-for="p in a.preview.slice(0, 4)" :key="p.id" class="album-preview-cell">
+                <img v-if="p.kind === 'image'" :src="p.poster || p.url" alt="" loading="lazy">
+                <span v-else class="album-preview-video">{{ t("videos") }}</span>
+              </span>
+            </div>
+          </div>
+        </router-link>
+      </div>
+
+      <div v-if="hasMore" class="more">
+        <button class="btn" :disabled="loadingMore" @click="load(page + 1)">
+          {{ loadingMore ? t("loading") : t("load_more") }}
+        </button>
+      </div>
+    </template>
   </div>
 </template>
 
@@ -61,87 +50,125 @@ import { computed, onMounted, ref } from "vue";
 import { apiGet } from "../lib/api.js";
 import { t } from "../store.js";
 
-const kinds = computed(() => [
-  { value: "", label: t("all") },
-  { value: "image", label: t("images") },
-  { value: "video", label: t("videos") },
-]);
-
-const items = ref([]);
-const folders = ref([]);
-const kind = ref("");
-const folder = ref("");
+const albums = ref([]);
 const page = ref(1);
-const size = 24;
 const total = ref(0);
+const size = 12;
 const loading = ref(true);
 const loadingMore = ref(false);
-const hasMore = computed(() => items.value.length < total.value);
+const hasMore = computed(() => albums.value.length < total.value);
 
-async function fetchList(reset) {
-  if (reset) { page.value = 1; loading.value = true; }
-  else loadingMore.value = true;
+async function load(p) {
+  if (p === 1) loading.value = true; else loadingMore.value = true;
   try {
-    const qs = new URLSearchParams({ page: String(page.value), size: String(size) });
-    if (kind.value) qs.set("kind", kind.value);
-    if (folder.value) qs.set("folder", folder.value);
-    const data = await apiGet("/api/media/list?" + qs.toString());
+    const data = await apiGet(`/api/albums?page=${p}&size=${size}`);
     total.value = Number(data.total) || 0;
-    items.value = reset ? (data.items || []) : items.value.concat(data.items || []);
+    page.value = Number(data.page) || p;
+    albums.value = p === 1 ? (data.items || []) : albums.value.concat(data.items || []);
   } catch (e) {
-    if (reset) items.value = [];
+    if (p === 1) albums.value = [];
   } finally {
     loading.value = false;
     loadingMore.value = false;
   }
 }
 
-async function fetchFolders() {
-  try {
-    folders.value = await apiGet("/api/media/folders");
-  } catch (e) {
-    folders.value = [];
-  }
-}
-
-function setKind(v) { kind.value = v; fetchList(true); }
-function setFolder(v) { folder.value = v; fetchList(true); }
-function loadMore() { page.value += 1; fetchList(false); }
-
-onMounted(() => {
-  fetchFolders();
-  fetchList(true);
-});
+onMounted(() => load(1));
 </script>
 
 <style scoped>
-.gallery-sub { margin: -8px 0 20px; color: var(--text-muted, #9aa0a6); font-size: 14px; }
-.gallery-bar { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; margin-bottom: 20px; }
-.tabs { display: inline-flex; padding: 3px; border-radius: 12px; background: var(--surface-2, #f2f3f5); }
-.tab { border: 0; background: transparent; padding: 6px 14px; border-radius: 10px;
-  font-size: 14px; color: var(--text-muted, #5f6368); cursor: pointer; }
-.tab.active { background: var(--surface, #fff); color: var(--text, #1c1c1e);
-  box-shadow: 0 1px 3px rgba(0, 0, 0, .12); font-weight: 600; }
-.folders { display: flex; flex-wrap: wrap; gap: 8px; }
-.chip { border: 1px solid var(--border, #e5e5ea); background: transparent; color: var(--text-muted, #5f6368);
-  padding: 4px 12px; border-radius: 99px; font-size: 13px; cursor: pointer; }
-.chip.active { border-color: var(--accent, #0a84ff); color: var(--accent, #0a84ff); background: transparent; }
-
-.grid { display: grid; gap: 16px; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); }
-.card { margin: 0; border-radius: 16px; overflow: hidden; background: var(--surface, #fff);
-  border: 1px solid var(--border, #ececec); transition: transform .18s ease, box-shadow .18s ease; }
-.card:hover { transform: translateY(-2px); box-shadow: 0 8px 24px rgba(0, 0, 0, .08); }
-.thumb { display: block; aspect-ratio: 4 / 3; background: #000; overflow: hidden; }
-.thumb img, .thumb video { width: 100%; height: 100%; object-fit: cover; display: block; }
-.thumb.embed iframe { width: 100%; height: 100%; border: 0; display: block; }
-figcaption { padding: 10px 12px 12px; display: flex; flex-direction: column; gap: 4px; }
-.title { font-size: 14px; color: var(--text, #1c1c1e); font-weight: 500;
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.meta { font-size: 12px; color: var(--text-muted, #9aa0a6); }
-
-.gallery-empty { padding: 60px 0; text-align: center; color: var(--text-muted, #9aa0a6); }
+.gallery-sub { margin: -8px 0 22px; color: var(--text-muted, #9aa0a6); font-size: 15px; }
+.gallery-empty {
+  padding: 56px 24px;
+  text-align: center;
+  color: var(--text-muted, #9aa0a6);
+  border-radius: var(--ui-radius-card, 22px);
+  border: 1px dashed var(--ui-hairline, rgba(60, 60, 67, .12));
+}
 .more { display: flex; justify-content: center; padding: 28px 0 8px; }
-.btn { border: 1px solid var(--border, #e5e5ea); background: var(--surface, #fff);
-  color: var(--text, #1c1c1e); padding: 8px 22px; border-radius: 99px; cursor: pointer; font-size: 14px; }
+.btn { border: 1px solid var(--ui-hairline, rgba(60, 60, 67, .12)); background: var(--surface, #fff);
+  color: var(--text, #1c1c1e); padding: 8px 22px; border-radius: 999px; cursor: pointer; font-size: 14px; }
 .btn:disabled { opacity: .5; cursor: default; }
+
+.album-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 20px;
+}
+.album-card {
+  display: block;
+  border-radius: var(--ui-radius-card, 22px);
+  border: 1px solid var(--ui-hairline, rgba(60, 60, 67, .12));
+  background: var(--surface, #fff);
+  overflow: hidden;
+  text-decoration: none;
+  color: inherit;
+  transition: transform var(--ui-dur, 280ms) var(--ui-ease, cubic-bezier(.32, .72, 0, 1)),
+              box-shadow var(--ui-dur, 280ms) var(--ui-ease, cubic-bezier(.32, .72, 0, 1));
+}
+.album-card:hover {
+  transform: translateY(-3px);
+  box-shadow: var(--ui-shadow-lift, 0 2px 8px rgba(0, 0, 0, .07));
+}
+
+/* 封面固定比例：不同尺寸首图不会把卡片撑成高低不齐 */
+.album-cover {
+  aspect-ratio: 16 / 10;
+  background: var(--ui-fill, rgba(120, 120, 128, .10));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+.album-cover img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transition: transform 420ms var(--ui-ease, cubic-bezier(.32, .72, 0, 1));
+}
+.album-card:hover .album-cover img { transform: scale(1.03); }
+.album-nocover { font-size: 13px; color: var(--text-faint, #9aa0a6); }
+
+.album-body { padding: 16px 18px 18px; }
+.album-title {
+  font-size: 18px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  line-height: 1.35;
+  margin: 0 0 6px;
+}
+.album-summary {
+  color: var(--text-muted, #5f6368);
+  font-size: 14px;
+  line-height: 1.6;
+  margin: 0 0 8px;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.album-meta { color: var(--text-faint, #9aa0a6); font-size: 12.5px; margin: 0; }
+
+/* 预览带：让人一眼看出「里面有东西」 */
+.album-preview {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 4px;
+  margin-top: 12px;
+}
+.album-preview-cell {
+  aspect-ratio: 1;
+  border-radius: 6px;
+  overflow: hidden;
+  background: var(--ui-fill, rgba(120, 120, 128, .10));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.album-preview-cell img { width: 100%; height: 100%; object-fit: cover; }
+.album-preview-video { font-size: 11px; color: var(--text-faint, #9aa0a6); }
+
+@media (max-width: 640px) {
+  .album-grid { grid-template-columns: 1fr; }
+}
 </style>

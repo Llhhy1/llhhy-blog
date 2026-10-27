@@ -45,6 +45,7 @@
   两端 → 新增 `th.num` / `td.num` 统一右对齐并用 `width:1%+nowrap` 收窄；同源另一半：
   `≤900px` 给 `.stats-table` 的 `display:block`（为横滚）会把 `thead`/`tbody` 拆成两个
   匿名表格、列宽各自计算，改为恢复 `display:table` + 卡片级横滚。
+- **v5.1.0（2026-10-28 已发布）相册（媒体编排层）**：`media_asset` 回答「我有什么素材」，相册回答「这些素材怎么讲一个故事」—— 只引用 media_id，不复制文件。三张新表 `album` / `album_section`（可选章节）/ `album_item`；后台 `/admin/albums` 列表 + 编排页（章节增删改、媒体选择器搜索多选、图注、排序、设封面）；前台 `/gallery` 改为相册卡片墙，新增 `/album/<slug>` 游记页（封面大图、行程概览、章节图文、小提示、灯箱左右键翻页）。行程概览/小提示用「空行分段 + `- ` 转列表」纯文本解析，不引 markdown 库、不用 `v-html`。
 - **v5.0.0（2026-10-28 已发布）媒体库升级为图床**：新增视频（mp4/m4v/mov/webm，图片 50MB /
   视频 500MB 分级上限）+ **8MB 分块上传**（绕开 gunicorn 30s timeout，500MB 单请求
   在国内上行要 80~250 秒，必被 kill）+ 新建 `media_asset` 表承载归档元数据

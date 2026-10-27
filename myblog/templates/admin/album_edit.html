@@ -1,0 +1,309 @@
+{% extends "admin/base.html" %}
+{% block title %}编排相册 · {{ album.title }}{% endblock %}
+
+{% macro item_card(it) %}
+  <div class="album-item" data-item-id="{{ it.id }}" data-media-id="{{ it.media_id }}">
+    <div class="album-item-thumb">
+      {% if it.missing %}
+        <span class="album-item-missing">媒体已删除</span>
+      {% elif it.kind == 'video' %}
+        <video src="{{ it.url }}" muted preload="metadata" playsinline></video>
+        <span class="album-item-kind">视频</span>
+      {% else %}
+        <img src="{{ it.thumb }}" alt="" loading="lazy">
+      {% endif %}
+    </div>
+    <input class="album-item-caption" type="text" value="{{ it.caption }}"
+           placeholder="图注（可选）" aria-label="图注" data-role="caption">
+    <div class="album-item-ops">
+      <button type="button" class="btn small" data-role="up" title="上移">↑</button>
+      <button type="button" class="btn small" data-role="down" title="下移">↓</button>
+      <button type="button" class="btn small" data-role="cover" title="设为相册封面">封面</button>
+      <button type="button" class="btn small danger" data-role="del" title="从相册移除">移除</button>
+    </div>
+  </div>
+{% endmacro %}
+
+{% block content %}
+  <h1 class="page-title">📚 {{ album.title or '未命名相册' }}</h1>
+
+  <p class="hint" style="margin-bottom:14px;">
+    <a href="{{ url_for('admin.album_list') }}">← 返回相册列表</a>
+    {% if album.is_public and album.slug %}
+      · <a href="/album/{{ album.slug }}" target="_blank" rel="noopener">前台查看 ↗</a>
+    {% endif %}
+    · 相册只引用媒体库的素材，<strong>移除条目不会删文件</strong>
+  </p>
+
+  <form method="post" action="{{ url_for('admin.album_update', aid=album.id) }}" class="panel">
+    {{ csrf_input() }}
+    <div class="field-grid">
+      <div class="field">
+        <label class="field-label" for="f-title">标题 <span class="req">*</span></label>
+        <input id="f-title" type="text" name="title" value="{{ album.title }}" required>
+      </div>
+      <div class="field">
+        <label class="field-label" for="f-slug">URL 片段</label>
+        <input id="f-slug" type="text" name="slug" value="{{ album.slug }}">
+        <p class="field-hint">前台地址：/album/&lt;这段&gt;，可留空沿用当前值</p>
+      </div>
+      <div class="field">
+        <label class="field-label" for="f-date">事件日期</label>
+        <input id="f-date" type="date" name="event_date" value="{{ event_date }}">
+      </div>
+      <div class="field">
+        <label class="field-label" for="f-loc">地点</label>
+        <input id="f-loc" type="text" name="location" value="{{ album.location }}"
+               placeholder="如 浙江丽水">
+      </div>
+      <div class="field">
+        <label class="field-label" for="f-days">节奏</label>
+        <input id="f-days" type="text" name="trip_days" value="{{ album.trip_days }}"
+               placeholder="如 4天4晚">
+      </div>
+      <div class="field">
+        <label class="field-label" for="f-cover">封面媒体 ID</label>
+        <input id="f-cover" type="number" name="cover_media_id"
+               value="{{ album.cover_media_id or '' }}" placeholder="留空则用第一张图">
+        {% if cover_url %}<p class="field-hint">当前封面：<img src="{{ cover_url }}" alt="" class="album-cover-mini"></p>{% endif %}
+      </div>
+    </div>
+
+    <div class="field">
+      <label class="field-label" for="f-summary">摘要</label>
+      <textarea id="f-summary" name="summary" rows="2"
+                placeholder="列表卡片上显示的一句话">{{ album.summary }}</textarea>
+    </div>
+
+    <div class="field">
+      <label class="field-label" for="f-intro">行程概览</label>
+      <textarea id="f-intro" name="intro" rows="5"
+                placeholder="交通怎么走、住哪、每天大致安排…（支持 Markdown 换行）">{{ album.intro }}</textarea>
+      <p class="field-hint">留空则前台不显示这一块 —— 纯照片相册可以整块省略</p>
+    </div>
+
+    <div class="field">
+      <label class="field-label" for="f-tips">小提示</label>
+      <textarea id="f-tips" name="tips" rows="5"
+                placeholder="门票规则、索道、停车、闭馆日这类「去了才知道」的信息">{{ album.tips }}</textarea>
+    </div>
+
+    <label class="checkbox-row">
+      <input type="checkbox" name="is_public" value="1" {% if album.is_public %}checked{% endif %}>
+      前台公开（关闭后列表与详情都不展示）
+    </label>
+
+    <div class="form-actions">
+      <button type="submit" class="btn">保存相册信息</button>
+    </div>
+  </form>
+
+  <div class="admin-actions" style="margin:18px 0 12px;">
+    <button type="button" class="btn" id="btn-add-section">＋ 新建章节</button>
+    <button type="button" class="btn" data-role="pick" data-section="">＋ 添加照片 / 视频</button>
+    <span class="hint">章节可选：不建章节就是一面扁平照片墙</span>
+  </div>
+
+  <div id="sections-wrap">
+    {% for s in sections %}
+      <div class="panel album-section" data-section-id="{{ s.id }}">
+        <div class="album-section-head">
+          <input class="album-section-title" type="text" value="{{ s.title }}"
+                 placeholder="章节名，如「D1 畲乡之窗」" aria-label="章节名" data-role="s-title">
+          <div class="admin-actions">
+            <button type="button" class="btn small" data-role="pick" data-section="{{ s.id }}">＋ 照片</button>
+            <button type="button" class="btn small" data-role="s-save">保存章节</button>
+            <button type="button" class="btn small danger" data-role="s-del">删除章节</button>
+          </div>
+        </div>
+        <textarea class="album-section-summary" rows="2" data-role="s-summary" aria-label="章节说明"
+                  placeholder="这一段的说明（可选）">{{ s.summary }}</textarea>
+        <div class="album-items" data-section-id="{{ s.id }}">
+          {# s['items'] 不能用 s.items：Jinja 的属性优先取 dict 的 .items 方法 #}
+          {% for it in s['items'] %}{{ item_card(it) }}{% endfor %}
+        </div>
+        {% if not s['items'] %}<p class="hint album-section-empty">这一段还没有照片</p>{% endif %}
+      </div>
+    {% endfor %}
+
+    <div class="panel album-section" data-section-id="">
+      <h3 class="album-section-head-plain">未分组</h3>
+      <p class="field-hint">不归入任何章节的条目；章节删掉后，其条目会回到这里</p>
+      <div class="album-items" data-section-id="">
+        {% for it in loose_items %}{{ item_card(it) }}{% endfor %}
+      </div>
+      {% if not loose_items %}<p class="hint album-section-empty">这里还没有照片</p>{% endif %}
+    </div>
+  </div>
+
+  <div class="album-picker-mask" id="picker-mask" hidden>
+    <div class="album-picker">
+      <div class="album-picker-head">
+        <strong>从媒体库选择</strong>
+        <div class="admin-actions">
+          <input type="search" id="picker-q" placeholder="搜索标题或文件名" aria-label="搜索素材" size="20">
+          <select id="picker-kind" aria-label="素材类型">
+            <option value="">全部</option>
+            <option value="image">图片</option>
+            <option value="video">视频</option>
+          </select>
+          <button type="button" class="btn small" id="picker-close">关闭</button>
+        </div>
+      </div>
+      <div class="album-picker-grid" id="picker-grid"></div>
+      <div class="album-picker-foot">
+        <span class="hint" id="picker-status">已选 0 项</span>
+        <select id="picker-section" aria-label="加入哪个章节">
+          <option value="">未分组</option>
+          {% for s in sections %}<option value="{{ s.id }}">{{ s.title or ('章节 ' ~ s.id) }}</option>{% endfor %}
+        </select>
+        <button type="button" class="btn" id="picker-add">加入相册</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    var CSRF = '{{ csrf_token }}';
+    var AID = {{ album.id }};
+    var BASE = "{{ url_for('admin.album_list') }}";
+
+    function post(url, data) {
+      return fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': CSRF },
+        body: JSON.stringify(data || {})
+      }).then(function (r) { return r.json(); });
+    }
+
+    function api(url) {
+      return fetch(url, { headers: { 'Accept': 'application/json' } }).then(function (r) { return r.json(); });
+    }
+
+    function fail(res) {
+      alert((res && res.msg) || '操作失败');
+    }
+
+    document.addEventListener('click', function (ev) {
+      var btn = ev.target.closest('button[data-role]');
+      if (!btn) return;
+      var role = btn.dataset.role;
+      var card = btn.closest('.album-item');
+      var sec = btn.closest('.album-section');
+      var itemId = card && card.dataset.itemId;
+
+      if (role === 'del' && itemId) {
+        if (!confirm('从相册移除这一项？（媒体文件仍保留在媒体库）')) return;
+        post(BASE + '/' + AID + '/items/' + itemId + '/delete').then(function (r) {
+          if (r.ok) card.remove(); else fail(r);
+        });
+        return;
+      }
+      if ((role === 'up' || role === 'down') && itemId) {
+        var wrap = card.parentNode;
+        if (role === 'up' && card.previousElementSibling) {
+          wrap.insertBefore(card, card.previousElementSibling);
+        } else if (role === 'down' && card.nextElementSibling) {
+          wrap.insertBefore(card.nextElementSibling, card);
+        } else { return; }
+        var ids = [].map.call(wrap.querySelectorAll('[data-item-id]'), function (el) { return el.dataset.itemId; });
+        post(BASE + '/' + AID + '/items/sort', { ids: ids.join(',') });
+        return;
+      }
+      if (role === 'cover' && itemId) {
+        if (!card.querySelector('img')) { alert('视频请先设置封面图，再作为相册封面'); return; }
+        document.getElementById('f-cover').value = card.dataset.mediaId || '';
+        alert('已填入封面媒体 ID，记得点「保存相册信息」');
+        return;
+      }
+      if (role === 's-del' && sec) {
+        var sid = sec.dataset.sectionId;
+        if (!sid) return;
+        if (!confirm('删除这个章节？其下照片会回到「未分组」，不会被删除。')) return;
+        post(BASE + '/' + AID + '/sections/' + sid + '/delete').then(function (r) {
+          if (r.ok) location.reload(); else fail(r);
+        });
+        return;
+      }
+      if (role === 's-save' && sec) {
+        var sid2 = sec.dataset.sectionId;
+        if (!sid2) return;
+        post(BASE + '/' + AID + '/sections/' + sid2, {
+          title: sec.querySelector('[data-role="s-title"]').value,
+          summary: sec.querySelector('[data-role="s-summary"]').value
+        }).then(function (r) {
+          if (r.ok) { btn.textContent = '已保存'; setTimeout(function () { btn.textContent = '保存章节'; }, 1200); }
+          else fail(r);
+        });
+        return;
+      }
+      if (role === 'pick') {
+        openPicker(btn.dataset.section || '');
+        return;
+      }
+    });
+
+    document.addEventListener('change', function (ev) {
+      var input = ev.target.closest('input[data-role="caption"]');
+      if (!input) return;
+      var card = input.closest('.album-item');
+      post(BASE + '/' + AID + '/items/' + card.dataset.itemId, { caption: input.value })
+        .then(function (r) { if (!r.ok) fail(r); });
+    });
+
+    document.getElementById('btn-add-section').addEventListener('click', function () {
+      var title = prompt('章节名，如「D1 畲乡之窗」');
+      if (title === null) return;
+      post(BASE + '/' + AID + '/sections', { title: title }).then(function (r) {
+        if (r.ok) location.reload(); else fail(r);
+      });
+    });
+
+    var pickerSel = {};
+    function openPicker(sectionId) {
+      document.getElementById('picker-section').value = sectionId || '';
+      document.getElementById('picker-mask').hidden = false;
+      pickerSel = {};
+      loadPicker(1);
+    }
+    function loadPicker(page) {
+      var q = document.getElementById('picker-q').value.trim();
+      var kind = document.getElementById('picker-kind').value;
+      var url = "{{ url_for('admin.album_media_picker') }}?page=" + page +
+                "&q=" + encodeURIComponent(q) + "&kind=" + encodeURIComponent(kind);
+      api(url).then(function (res) {
+        var grid = document.getElementById('picker-grid');
+        grid.innerHTML = '';
+        (res.items || []).forEach(function (m) {
+          var cell = document.createElement('button');
+          cell.type = 'button';
+          cell.className = 'album-picker-cell';
+          cell.dataset.mid = m.id;
+          cell.innerHTML = m.thumb
+            ? '<img src="' + m.thumb + '" alt="" loading="lazy">'
+            : '<span class="album-picker-nothumb">' + (m.kind === 'video' ? '视频' : '无预览') + '</span>';
+          cell.addEventListener('click', function () {
+            if (pickerSel[m.id]) { delete pickerSel[m.id]; cell.classList.remove('on'); }
+            else { pickerSel[m.id] = 1; cell.classList.add('on'); }
+            document.getElementById('picker-status').textContent = '已选 ' + Object.keys(pickerSel).length + ' 项';
+          });
+          grid.appendChild(cell);
+        });
+      });
+    }
+    document.getElementById('picker-close').addEventListener('click', function () {
+      document.getElementById('picker-mask').hidden = true;
+    });
+    document.getElementById('picker-q').addEventListener('change', function () { loadPicker(1); });
+    document.getElementById('picker-kind').addEventListener('change', function () { loadPicker(1); });
+    document.getElementById('picker-add').addEventListener('click', function () {
+      var ids = Object.keys(pickerSel);
+      if (!ids.length) { alert('先点选要加入的素材'); return; }
+      post(BASE + '/' + AID + '/items', {
+        media_ids: ids.join(','),
+        section_id: document.getElementById('picker-section').value || ''
+      }).then(function (r) {
+        if (r.ok) location.reload(); else fail(r);
+      });
+    });
+  </script>
+{% endblock %}

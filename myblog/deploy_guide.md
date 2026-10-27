@@ -984,7 +984,7 @@ sha256sum /tmp/og.png /www/wwwroot/你的站点根/og-default.png
 5. **重启后端（关键）**：宝塔「网站 → Python项目」→ 该项目 → **先点「停止」，再点「启动」**。
    - ⚠️ 只点「重启」可能只是重载配置，gunicorn 旧进程没退出，页面还是旧版；
    - 可用 `ps -ef | grep gunicorn` 看进程启动时间，确认是新进程；
-   - 若需核对迁移基线：先执行 `flask db current`，再按上方第 4 步的分支处理（空版本 / 旧基线都直接 `flask db upgrade`）。**绝对不要 `flask db stamp head`** —— 它会把版本号直接写成当前 head，跳过待执行的列/索引变更，形成「版本号已升级、表结构没变」的假升级。当前 head 以 `flask db heads` 为准（v5.0.0 起为 **`f3b7d2a91c58`**；此前 v4.9.0~v4.13.1 为 `d9f1a4c7b2e8`）。
+   - 若需核对迁移基线：先执行 `flask db current`，再按上方第 4 步的分支处理（空版本 / 旧基线都直接 `flask db upgrade`）。**绝对不要 `flask db stamp head`** —— 它会把版本号直接写成当前 head，跳过待执行的列/索引变更，形成「版本号已升级、表结构没变」的假升级。当前 head 以 `flask db heads` 为准（v5.1.0 起为 **`a1c9e4f72b38`**；v5.0.0 为 `f3b7d2a91c58`；v4.9.0~v4.13.1 为 `d9f1a4c7b2e8`）。
 6. **覆盖前端**：上传新版 `vue-frontend-dist.zip` 到 `/www/wwwroot/vue-frontend/` → 解压覆盖 `index.html` + `assets/`（**无需重启后端**）。
 7. **验证**：浏览器**无痕窗口**打开（避免缓存）：
    - 后台左下角显示 `vX.Y.Z`，与 [GitHub Releases](https://github.com/Llhhy1/llhhy-blog/releases) 最新标签一致 → 后端升级成功；
@@ -1434,6 +1434,25 @@ python verify_package_checksums.py
 > **v3.17.10（update.sh 清理旧 assets + 文档页代码高亮修复）升级要点**：`update.sh` 前端覆盖步骤新增「先清 `assets/` 再解压」（防止历史 hash chunk 堆积）；文档页 `/docs` 的 highlight.js 由 cdnjs 动态注入改为**本地打包**（原被 CSP 拦截、高亮从未生效）。**只需覆盖前端包**（后端仅版本号）；无迁移、无新依赖。
 > **v3.17.9（复制修复 + 后台移动端 + AI 摘要 + 社交墙独立页）升级要点**：**前后端包都要覆盖**（前端新增 `lib/clipboard.js`、`lib/social.js`、`SocialView.vue` 与路由 `/social`；后台模板改造复制调用、`admin.css` 补移动端规则、`social.html` 加平台预设）。**无迁移、无新依赖**。验证：手机端打开后台「备份配置」与「诊断助手」不再挤压/溢出；任一「复制」按钮（后台媒体库/预览链接、前台代码块/分享链接）可复制并给出提示；后台「AI 摘要」页摘要完整可读；前台导航出现「🔗 社交」，主页出现「找到我」区块，`/social` 卡片墙正常。
 > **v3.17.3（评论表情回应 + 访客来源分析）升级要点**：**前后端包都要覆盖**（后端新增 `api/reactions.py`、VisitLog 新列 `referrer` 与 `/api/stats/referrers`；前端新增评论表情条与统计页「访客来源 Top 10」）。**VisitLog 的 `referrer` 列由启动自愈自动添加**（`_migrate_visit_log_table` 幂等补列，重启即生效）——**无需手动迁移**；备用脚本 `myblog/migrate_visit_log_referrer.py`（幂等）仅当自愈失效时手动跑。表情回应计数存 Setting KV（`react_<评论id>`），零表结构变更。验证：评论区出现 👍❤️😂🎉🤔👏 表情条（点击 +1，再点取消）；统计页出现「🧭 访客来源 Top 10」卡（需积累几天外部访问数据）；后台左下角 v3.17.3。**v3.17.3 同版补全「🗺️ 访客地图」**（`/annual` 页，阿里 DataV 合规底图由后端缓存 7 天，无需任何 key；仅省级聚合、不含个人位置；底图不可用时前端自动降级为地域榜）。
+> **v5.1.0（相册：把素材编排成游记页）升级要点**：**前后端包都要覆盖**。
+>
+> **① 迁移（本版有）**：新增 `album` / `album_section` / `album_item` 三张表，
+> Alembic head 由 `f3b7d2a91c58` → **`a1c9e4f72b38`**。`update.sh` 自动执行；
+> **只加新表，不改任何既有表**，媒体与文章数据不受影响。
+>
+> **② 无 Nginx 变更、无新依赖、无新环境变量**：改完覆盖两包 → gunicorn「停止 → 启动」即可。
+>
+> **③ 语义变化（需知会）**：前台 `/gallery` 从「全站素材平铺」改为**相册卡片墙**，
+> 点进去是 `/album/<slug>` 游记页。此前 `/gallery` 是列表页，读者若存了书签仍能用，
+> 只是内容形态变了。**媒体库 `/admin/media` 不变**，仍是素材管理入口。
+>
+> **④ 升级后没有相册是正常的**：相册需要手工创建与编排（后台「📚 相册」→ 新建 →
+> 从媒体库挑素材）。存量素材不会自动变成相册 —— 这与「新表上线后数据是空的」同一条规律。
+>
+> **⑤ 验证**：后台左下角 `v5.1.0`；侧栏出现「📚 相册」；新建相册后能在编排页
+> 添加照片、写图注、建章节；前台 `/gallery` 显示相册卡片、点进 `/album/<slug>` 能看灯箱；
+> `flask db current` 为 `a1c9e4f72b38`。
+
 > **v5.0.0（媒体库升级为图床 + 游戏下线 + 前后台统一观感）升级要点**：**前后端包都要覆盖**。
 >
 > **① 迁移（本版有）**：新增 `media_asset` 表，Alembic head 由 `d9f1a4c7b2e8` → **`f3b7d2a91c58`**。

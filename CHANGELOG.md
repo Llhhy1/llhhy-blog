@@ -6,6 +6,201 @@
 > v3.22.0 ~ v3.25.16 → `docs/archive/CHANGELOG_v3.22.0-v3.25.16.md`（v4.11.0 因体积守卫触发，主文件涨到 201 KB / 上限 200 KB）。
 > 本文件从 **v4.0.0** 起。**归档不是删除** —— 查旧版本变更细节时去上述文件。
 
+## v5.0.0（2026-10-28 · 媒体库升级为图床 + 游戏下线 + 前后台统一观感）
+
+> 大版本：**媒体库升级为图床**（视频播放 / 分类归档 / 云存储外挂）+ **游戏板块整体下线**
+> + 生态统计优化 + 部署门槛文档 + 前后台统一观感改版。
+>
+> 原计划的 v4.13.2 未单独发版，内容已并入本版。
+
+### 新：媒体库升级为图床（视频 / 归档 / 云存储）
+
+**支持视频**：新增 `mp4 / m4v / mov / webm`（浏览器能原生播放的容器；刻意不收
+avi/wmv/flv —— 收了也播不了，除非上 ffmpeg 转码）。上限分级：**图片 50MB、视频 500MB**
+（`MEDIA_IMAGE_MAX_MB` / `MEDIA_VIDEO_MAX_MB` 可调）。
+
+**分块上传**：>16MB 的文件自动切 8MB 块逐块上传（`/admin/upload/chunk/init|part|complete`）。
+这不是花活：500MB 单请求在国内家宽上行要 80~250 秒，而 gunicorn 默认 `timeout=30s`
+会把 worker 直接杀掉，表现为「传到一半 502」。分块后每块最慢也在 30s 内完成，且天然可续传。
+
+**新建 `media_asset` 表**（唯一表结构变更，只加新表）：承载标题 / 归档分类 / 时长 /
+封面 / 是否公开等元数据。此前媒体库是纯目录扫描 + `O(文件数 × 文章数)` 的引用判定，
+几百个视频进来首屏就会秒级卡顿。旧图片由 `sync_from_disk()` 自动补登记（幂等），
+**不会出现「升级后媒体库全空」**。
+
+**云存储外挂**：媒体库可切到**对象存储（OSS/COS/S3 兼容）** 或 **WebDAV 网盘**
+（坚果云 / Nextcloud / 群晖）。通道复用 `backup.py` 已趟过的 boto3 / curl 两条路，
+但与备份配置**完全独立**（备份桶通常私有，图床桶必须公开可读，混用会 403）。
+密钥 Fernet 加密落库、页面只回显掩码。云端失败时**保留本地副本**并提示，
+不把「云挂了」变成「文章写不了」。
+
+**归档页面**：后台 `/admin/media` 重做（图片/视频分栏、分类筛选、关键词搜索、
+编辑标题/分类/公开状态/视频封面、复制 URL 与 Markdown）；前台新增 `/gallery`
+（分类 chips + 图片墙 + 视频内嵌播放 + 分页）。
+
+**正文视频播放**：`![](/static/uploads/x.mp4)` 会渲染成 `<video controls preload="metadata">`
+（`_img_to_video()`），白名单新增 `video/source`（**没有 style、没有 on\*、没有 iframe**）。
+`_RENDER_VERSION` 4 → 5，强制历史缓存重渲染。
+
+**磁盘闸门**：上传前检查剩余空间 ≥ 文件大小 + `MEDIA_DISK_RESERVE_GB`（默认 2GB），
+不足直接拒传。磁盘写满会让 SQLite 全线失败，那比「传不上去」严重得多。
+
+### 删：游戏板块整体下线
+
+按你的判断「实际不会打开、白占资源」，整体移除：
+`api/games.py`、`admin/games.py`、`games_safety.py`、`tools/seed_games.py`、
+`Game` 模型、3 个后台模板、3 个前端页面（`/games`、`/games/dev`、`/games/:slug`）、
+后台导航与抽屉/顶栏入口、相关测试与 i18n 键。
+
+**没有跟着一起删的东西**（刻意保留）：
+- `games_llm_*` 设置键：AI 摘要一直在用同一套 OpenAI 兼容配置。键名不改（改键名会让
+  存量部署加密存的 Key 静默失效）。配置入口从「游戏收录 → LLM 审计」搬到
+  **`/admin/ai-summary/llm-config`**，`ai_summary.html` 里的链接同步改掉 ——
+  否则 `url_for('admin.games')` 会 BuildError，AI 摘要页直接 500。
+- 数据库 `game` 表与 `data/games/` 目录：**不删数据**。代码不再引用它们，需要清空可自行操作。
+- `gamify.py`（读者积分勋章）：名字含 game 但与本功能无关，**没动**。
+
+### 新：生态统计独立页面 `/ecosystem`
+
+原「关于」页里的「🌐 生态」板块（跨站点注册表统计）迁出，单独成
+`/ecosystem` 页面（抽屉导航 + 顶栏「更多」均加入口）。关于页仅保留本站
+「当前在线访客」指标（与生态注册表无关）。新页面拉取既有公开接口
+`GET /api/ecosystem/stats`，无新增后端接口、无权限变更。
+
+### 改：离线站点超过 24 小时无心跳自动删除
+
+原逻辑：注册表里超过 30 天无心跳的站点只是「不展示」，行仍在，导致
+「站点总数」被早已离线的实例虚高（实测曾出现 2 条 10-25 发版当天的本地
+实例一直计入 `total`）。
+
+新逻辑：中心端每小时心跳后顺手调用 `ecosystem.prune_stale_sites()`，
+**硬删** `last_seen` 早于 `now - 24h` 的行（心跳每小时一次，24h≈24 次
+连续错过，足以判定部署已不在）。`stats()` 的展示窗口同步从 30 天收敛到
+24h，并给站点输出补 `first_seen` 与带时分的 `last_seen` 时间戳。
+
+`prune_stale_sites()` 的 `exclude_self=True` 会排除本机 `site_key`
+对应的那一行 —— 即使某次心跳偶发失败，中心站也不会把自己误删；心跳先跑
+（刷新自身 `last_seen`）、prune 后跑，进一步保证不会误删自己。
+
+### 文档：README 补「服务器最低配置」
+
+README 的 `## 部署` 下新增 `### 服务器最低配置` 小节，给出 **CPU / 内存 / 磁盘 /
+系统 / Python** 五项「最低 vs 推荐」对照，并显式列出**不需要**的东西（MySQL /
+Redis / Node.js / 独立数据库服务器），省掉新用户的选型纠结；原本的部署要点
+收进 `### 部署要点` 小标题。`myblog/deploy_guide.md` 的「部署前置条件」加入
+对应指引与锚点链接，`myblog/README.md` 的「部署」段也加一行指向根 README
+（**只放链接不复制表格**，避免两份文档的数字漂移）。
+
+内存口径为实测而非估算：Python 解释器空载 22 MB，导入 Flask / SQLAlchemy /
+Pillow / cryptography / markdown / bleach / feedparser 全套后 **81 MB**；据此推算
+4 worker + Nginx + 宝塔面板合计约 1.2~1.5 GB。故 1 GB 只在「worker 降到 2 +
+开 2 GB swap」时可用，2 GB 是省心起点。此前 README 只有零散的「Python ≥3.10」
+和 `gunicorn_conf.py` 注释里的「2 核机器」，读者无法据此选机型。
+
+### 改：前后台统一观感（v5.0.0 主线）
+
+**刻意没做的事：换配色。** `--text` / `--bg` / `--text-muted` 这些语义色既被
+WCAG 守卫视死（`test_wcag_contrast.py`），又与 `myblog/themes.py` 的 `_BASE_LIGHT`
+逐字绑定（`test_base_light_matches_token_files`）—— 改一个值就是「前后台灰阶不一致」
+或「对比度不达标」。所以这套观感全部由**形状 + 动效 + 层级**来出：
+
+| 维度 | 做法 |
+|---|---|
+| 形状 | 卡片 22px、分组 14px、控件 12px、**按钮全胶囊** |
+| 动效 | 系统缓动 `cubic-bezier(.32,.72,0,1)`；按压 `scale(.96)` 回弹；卡片 hover 上浮 |
+| 层级 | 1px 发丝分隔线 + 半透明填充（tertiary fill）+ 顶栏**毛玻璃**（backdrop-filter） |
+| 排版 | 导航大标题：`clamp(24px,3.4vw,32px)`、字距 `-0.02em`；去掉标题左侧竖条 |
+| 后台 | 侧栏激活项从「左侧渐变竖杠」改为**填充胶囊**；表格改分组圆角 |
+
+新增 21 条 `--ui-*` 令牌，两份 `tokens.css`（前台 / 后台）**取值逐字一致**。
+暗色下发丝线与填充**反相叠白**（亮色的 12% 黑在深底上几乎看不见，会整片糊掉）。
+`prefers-reduced-motion` 打开时位移全部关闭，只保留颜色过渡。
+
+**踩到的真坑（已修 + 已加守卫）**：第一版把规则追加在 `global.css` 末尾，
+构建通过但页面没变 —— `main.js` 里 `responsive.css` 在 `global.css` **之后**导入，
+它的 `.page-title { clamp(19px…) }` 同特异性下赢过了新规则。改为单独
+`styles/look.css` 排在 responsive.css 之后，并新增 `test_frontend_css_order.py` 锁住顺序。
+判据是构建产物里 `.page-title` 的最后一条是否为新值 —— **构建通过证明不了样式生效**。
+
+顺带修了 `test_css_token_ratchet.py` 的计数 bug：`find(")", v, m.end())` 区间右开，
+导致 `var(--accent, #196ddd)` 这种**标准兜底写法**会被误判成裸 hex
+（闭合 var( 的 `)` 恰好在 hex 之后）。已补回归用例锁住。
+
+**逐页精修（第二轮）**：在全局组件层之上，对读者停留最久的几处做针对性打磨。
+
+- **文章卡片**（`PostCard.vue` 无 scoped 样式，改 `look.css` 即首页 / 归档 / 分类 /
+  标签 / 搜索结果**全部跟着变**）：22px 分组卡、标题 20px/600、封面比卡片小一档
+  圆角形成层次、「阅读全文」从裸链接改为灰填充胶囊按钮。
+- **分页**：改为分段控件（38px 胶囊，当前页填充品牌色）。
+- **文章页阅读排版**：正文 17px / 行距 1.86（阅读器式）、标题字阶与段前距重排、
+  图片与视频 14px 圆角、代码块 12px 圆角、引用块改「左侧品牌色竖条 + 填充底」、
+  目录 / 语言切换 / 标签 / AI 摘要统一为分组卡与胶囊。
+- **侧栏**：标签云改胶囊 chips、列表行改用发丝线分隔、搜索框改胶囊字段。
+- ⚠️ **刻意没动 `.post-body table`** —— v4.12.1 修过「表头与数据分居两端」的对齐 bug，
+  表格的圆角/边框改动容易把那套对齐口径弄坏，收益不抵风险。
+
+
+**逐页精修（第三轮）**：前台交互页 + 后台 48 个模板的结构类。
+
+- **登录 / 注册**：卡片 22px；表单标签从「粗体黑字」弱化为 13px/500 灰阶
+  （原来标签比输入内容还抢眼）；验证码图 12px 圆角可点。
+- **留言墙**：条目改分组卡 + hover 上浮；点赞按钮从「1px 描边方角」改灰填充胶囊
+  + 按压 `scale(.94)`；元信息与提示改用令牌色。
+- **归档时间线**：轴线从 2px 实线改 1px 发丝线，节点圆点带底色环，年月字阶重排。
+- **搜索结果**：22px 分组卡 + hover 上浮；搜索历史 chips 与「清空」按钮统一胶囊、
+  去掉下划线（`SearchView.vue` 的 `<style scoped>` 内改 —— 它的属性选择器特异性
+  高于全局类，只能在组件内改）。
+- **后台**：只覆盖跨模板复用的结构类（`.card` 系 / `.field` 系 / `.stat-card` /
+  编辑器 `.md-*`），一轮覆盖几十个模板；复选框行补 hover 反馈；统计卡统一圆角与上浮。
+- ⚠️ **踩到的坑（自查修掉）**：给 `.md-toolbar` / `.md-pane` 加全边框时，忘了它们
+  在 `.md-stage`（自带边框 + `overflow:hidden`）**内部**，会画成嵌套双框；`.md-stage`
+  不是 flex/grid，给它写 `gap` 是无效规则；`.field-grid` 原 `gap: 4px 16px` 的紧凑
+  行距被我压成 16px、`.stats-grid` 原 18px 被我改小 —— 三处均已回退到原意图。
+  教训：**给子元素加边框前，先确认祖先有没有边框**（与 v4.12.1「改铺满视口前查
+  祖先限宽」是同一类错误）。
+
+**命名合规**：本轮把所有风格相关命名从厂商产品名改为中性名 ——
+`--ios-*` → `--ui-*`（21 条令牌）、`styles/ios.css` → `styles/look.css`、
+文档措辞改为「统一观感层 / 圆润风格」，`Large Title`、`tertiary fill`、
+`inset grouped` 等专有叫法一并换成通用说法。
+**保留**的 4 处是技术事实指代，不属于风格自述：`utils/text.py` 里 UA 设备识别
+（Windows / Android / macOS 并列）、以及「某浏览器对 `background-attachment: fixed`
+存在支持缺陷」这类兼容性说明。判据是：**说别人家的浏览器/系统 → 保留；说自己
+产品的风格 → 改掉。**
+
+### 影响面
+
+- **新增路由**：`/gallery`（前台）；`/api/media/list|folders/<id>`；
+  `/admin/media/update|embed|sync|storage`；
+  `/admin/upload/chunk/init|part|complete|abort`；`/admin/ai-summary/llm-config`。
+- **删除路由**：`/api/games*`、`/admin/games*`、前台 `/games`、`/games/dev`、`/games/:slug`。
+- **表结构**：新增 `media_asset` 表（Alembic `f3b7d2a91c58`，down_revision `d9f1a4c7b2e8`）；
+  **不改任何既有表**。`game` 表保留但代码不再读写。
+- **权限**：媒体库页面/上传/删除要求管理员；**存储后端设置要求超管** ——
+  能改「文件往哪写」等于接管存储，不能下放给普通管理员。
+- **部署**：Nginx 必须加 `client_max_body_size 40m`（默认 1MB，否则大图直接 413，
+  且后端日志里什么都没有）；`data/upload_tmp/` 需可写（分块临时目录，超 24h 自动清）。
+- **环境变量（可选）**：`MEDIA_IMAGE_MAX_MB`（默认 50）、`MEDIA_VIDEO_MAX_MB`（默认 500）、
+  `MEDIA_DISK_RESERVE_GB`（默认 2）。小盘服务器建议调低视频上限。
+- **依赖**：仅在选择 OSS 后端时需要 `boto3`；未安装会在媒体库页面**明确报错**，
+  不静默降级成本地存储（否则用户以为文件在云上，本地盘被悄悄写满）。
+
+### 验证
+
+- `tests/test_media_asset.py` 新增 **17 条**：伪装视频拒绝、图片/视频上限分流、
+  磁盘闸门、分块合并 / 缺块 / 大小不符、会话 ID 路径穿越、公开接口只吐 `is_public`、
+  外链播放器白名单、正文 `img→video` 转换与 script/iframe 剥离。
+- `tests/test_ecosystem.py` 28 passed（含 3 个 prune 用例）。
+- 渲染白名单棘轮：`EXPECTED_ALLOWLIST_SHA256` 与 `_RENDER_VERSION=5` 已同步更新
+  （白名单新增 `video/source`，属性仍无 style、无 on\*、无 iframe）。
+- `vite build` 通过，`GalleryView` chunk 正常产出。
+- 删除游戏后回归：`/admin/games` 相关诊断用例与游戏测试一并移除，无残留 500。
+- **全量回归：1186 passed / 0 failed**（较 v4.13.1 的 1195：媒体 +18、前台样式顺序 +2、棘轮计数回归 +1，删除 2 个游戏测试文件 −15）。三轮精修后复跑仍为 1186 / 0 failed。
+- `vite build` 通过；构建产物里 `.page-title` / `.post-card` / `.pagination` / `.toc` /
+  `.post-body` / `.tag-cloud .tag` / `.read-more` / `button,.btn` / `@supports backdrop-filter`
+  的**最后生效规则均为观感层新值**（不是只看构建成功）。
+
+
 ## v4.13.1（2026-10-26）
 
 > 纯文档补丁：清理 `SECURITY_AUDIT.md` 里重复出现的 R127 标题。**无代码变更、无前端变化、无迁移**。

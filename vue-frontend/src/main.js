@@ -5,6 +5,9 @@ import router from "./router.js";
 import { setInstallPrompt } from "./store.js";
 import "./styles/global.css";
 import "./styles/responsive.css"; // v3.15.1 响应式基座（结构级防溢出/流式排版）
+// v5.0.0 统一观感层：**必须在 responsive.css 之后** —— 它要覆盖
+// responsive.css:75 的 .page-title 字号，顺序反了大标题就不会生效。
+import "./styles/look.css";
 
 // v3.21.0 PWA：仅生产构建注册 Service Worker（dev 不注册，避免缓存干扰 HMR）
 if (import.meta.env.PROD && "serviceWorker" in navigator) {

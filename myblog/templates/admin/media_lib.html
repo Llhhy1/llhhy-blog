@@ -2,10 +2,47 @@
 {% block title %}媒体库{% endblock %}
 {% block content %}
   <h1 class="page-title">🖼️ 媒体库（{{ items | length }}）</h1>
+
+  {# 筛选：kind / folder / q。用 GET，保证可收藏、可后退 #}
+  <form method="get" action="{{ url_for('admin.media_lib') }}" class="panel"
+        style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;">
+    <select name="kind" onchange="this.form.submit()">
+      <option value="">全部类型</option>
+      <option value="image" {% if cur_kind == 'image' %}selected{% endif %}>🖼️ 图片</option>
+      <option value="video" {% if cur_kind == 'video' %}selected{% endif %}>🎬 视频</option>
+    </select>
+    <select name="folder" onchange="this.form.submit()">
+      <option value="">全部分类</option>
+      {% for f in folders %}
+        <option value="{{ f }}" {% if cur_folder == f %}selected{% endif %}>{{ f }}</option>
+      {% endfor %}
+    </select>
+    <input type="search" name="q" value="{{ cur_q }}" placeholder="搜索标题或文件名"
+           aria-label="搜索媒体标题或文件名" size="24">
+    <button type="submit" class="btn">筛选</button>
+    {% if cur_kind or cur_folder or cur_q %}
+      <a class="btn" href="{{ url_for('admin.media_lib') }}">清除</a>
+    {% endif %}
+    <span class="hint" style="margin-left:auto;">
+      图片 ≤ {{ image_max }} · 视频 ≤ {{ video_max }} · 超过 {{ single_max }} 自动分块（每块 {{ chunk_size }}）
+    </span>
+  </form>
+
   <div class="admin-actions">
-    <button type="button" class="btn" id="media-upload-btn">📤 上传图片</button>
-    <input type="file" id="media-file-input" accept="image/*" hidden>
-    <span class="hint" style="align-self:center;">上传成功自动刷新列表；图片用于正文/封面。</span>
+    <button type="button" class="btn" id="media-upload-btn">📤 上传图片 / 视频</button>
+    <input type="file" id="media-file-input" accept="image/*,video/mp4,video/webm,video/quicktime" hidden>
+    <form method="post" action="{{ url_for('admin.media_sync') }}" class="inline-form">
+      {{ csrf_input() }}
+      <button type="submit" class="btn">🔄 同步磁盘文件</button>
+    </form>
+    <span class="hint" id="upload-status" style="align-self:center;"></span>
+  </div>
+
+  <div class="panel" id="upload-progress" style="display:none;padding:10px;">
+    <div style="height:8px;background:rgba(127,127,127,.2);border-radius:99px;overflow:hidden;">
+      <div id="upload-bar" style="height:100%;width:0;background:var(--accent,#4f8cff);transition:width .2s;"></div>
+    </div>
+    <div class="hint" id="upload-detail" style="margin-top:6px;"></div>
   </div>
 
   <div class="panel">
@@ -14,29 +51,45 @@
       {% for it in items %}
         <div class="media-card" data-name="{{ it.name }}">
           <div class="media-thumb">
-            <img src="{{ it.url }}" alt="{{ it.name }}" loading="lazy">
+            {% if it.kind == 'video' %}
+              <video src="{{ it.url }}" {% if it.poster %}poster="{{ it.poster }}"{% endif %}
+                     preload="metadata" muted playsinline style="width:100%;height:100%;object-fit:cover;"></video>
+            {% else %}
+              <img src="{{ it.url }}" alt="{{ it.title or it.name }}" loading="lazy">
+            {% endif %}
           </div>
           <div class="media-info">
-            <div class="media-name" title="{{ it.name }}">{{ it.name }}</div>
+            <div class="media-name" title="{{ it.name }}">{{ it.title or it.name }}</div>
             <div class="media-meta">
-              {% if it.time_str %}{{ it.time_str }} · {% endif %}{{ (it.size / 1024) | round(1) }} KB
+              {% if it.kind == 'video' %}🎬 · {% endif %}
+              {% if it.time_str %}{{ it.time_str }} · {% endif %}{{ it.size_str }}
+              {% if it.width and it.height %} · {{ it.width }}×{{ it.height }}{% endif %}
+              {% if it.storage and it.storage != 'local' %} · ☁️ {{ it.storage }}{% endif %}
+              {% if not it.is_public %} · 🔒 不公开{% endif %}
             </div>
+            {% if it.folder %}<div class="media-meta">📁 {{ it.folder }}</div>{% endif %}
             {% if it.refs %}
               <div class="media-refs">
                 {% for r in it.refs %}
-                  <a href="{{ url_for('admin.edit_post', post_id=r.id) }}" title="{{ r.title }}">{{ '封面' if r.kind == '封面' else '正文' }}</a>{% if not loop.last %}, {% endif %}
+                  <a href="{{ url_for('admin.edit_post', post_id=r.id) }}" title="{{ r.title }}">{{ r.kind }}</a>{% if not loop.last %}, {% endif %}
                 {% endfor %}
                 {% if it.ref_total > it.refs | length %}等 {{ it.ref_total }} 处{% endif %}
               </div>
             {% endif %}
           </div>
-          <div class="media-actions">
-            <button type="button" class="link-btn copy-url">复制 URL</button>
+          <div class="media-actions" style="flex-wrap:wrap;gap:4px;">
+            <button type="button" class="link-btn copy-url" data-url="{{ it.url }}">复制 URL</button>
+            <button type="button" class="link-btn copy-md" data-url="{{ it.url }}"
+                    data-title="{{ it.title or it.name }}">复制 MD</button>
+            <button type="button" class="link-btn edit-meta"
+                    data-id="{{ it.id }}" data-title="{{ it.title or '' }}"
+                    data-folder="{{ it.folder or '' }}" data-public="{{ 1 if it.is_public else 0 }}"
+                    data-poster="{{ it.poster or '' }}">编辑</button>
             {% if is_super %}
             <button type="button" class="link-btn set-wallpaper" data-url="{{ it.url }}" data-name="{{ it.name }}">设为壁纸</button>
             {% endif %}
             <form method="post" action="{{ url_for('admin.delete_media') }}" class="inline-form del-media" style="display:inline;">
-                  {{ csrf_input() }}
+              {{ csrf_input() }}
               <input type="hidden" name="name" value="{{ it.name }}">
               <button type="submit" class="link-danger">删除</button>
             </form>
@@ -45,83 +98,251 @@
       {% endfor %}
     </div>
     {% else %}
-      <p class="muted">还没有图片。点右上角「上传图片」，或在写文章时用「📷 插入图片」。</p>
+      <p class="muted">还没有资源。点上方「上传图片 / 视频」，或在写文章时用「📷 插入图片」。</p>
     {% endif %}
   </div>
 
+  {# 元数据编辑：所有卡片共用一个表单，点「编辑」把值填进来并显示 #}
+  <div class="panel" id="meta-panel" style="display:none;">
+    <h3 style="margin-top:0;">编辑归档信息</h3>
+    <form method="post" action="{{ url_for('admin.update_media') }}" class="inline-form">
+      {{ csrf_input() }}
+      <input type="hidden" name="id" id="meta-id">
+      <p><label>标题<br><input type="text" name="title" id="meta-title" size="50"></label></p>
+      <p><label>归档分类（自由填写，如「旅行」「2026」）<br>
+        <input type="text" name="folder" id="meta-folder" size="30" list="folder-list"></label></p>
+      <datalist id="folder-list">
+        {% for f in folders %}<option value="{{ f }}">{% endfor %}
+      </datalist>
+      <p><label><input type="checkbox" name="is_public" value="1" id="meta-public"> 前台图库展示</label></p>
+      <p><label>视频封面（/static/uploads/ 或 https 地址，可留空）<br>
+        <input type="text" name="poster" id="meta-poster" size="60"></label></p>
+      <button type="submit" class="btn">保存</button>
+      <button type="button" class="btn" id="meta-cancel">取消</button>
+    </form>
+  </div>
+
+  <details class="panel">
+    <summary style="cursor:pointer;">🔗 登记外链视频（B 站 / YouTube / Vimeo）</summary>
+    <form method="post" action="{{ url_for('admin.media_embed') }}" class="inline-form" style="margin-top:10px;">
+      {{ csrf_input() }}
+      <p><label>播放器地址<br>
+        <input type="text" name="url" size="70" placeholder="https://player.bilibili.com/player.html?bvid=BV..."></label></p>
+      <p><label>标题 <input type="text" name="title" size="40"></label>
+         <label>分类 <input type="text" name="folder" size="20"></label></p>
+      <button type="submit" class="btn">登记</button>
+    </form>
+  </details>
+
+  <details class="panel">
+    <summary style="cursor:pointer;">
+      ☁️ 云存储后端 —— 当前：<strong>{{ storage.backend }}</strong>
+      {% if storage.configured %}（已就绪）{% elif storage.message %}（{{ storage.message }}）{% endif %}
+    </summary>
+    {% if is_super %}
+    <form method="post" action="{{ url_for('admin.media_storage_save') }}" class="inline-form" style="margin-top:10px;">
+      {{ csrf_input() }}
+      <p><label>存储位置
+        <select name="media_backend">
+          <option value="local" {% if storage.backend == 'local' %}selected{% endif %}>本地磁盘（默认）</option>
+          <option value="oss" {% if storage.backend == 'oss' %}selected{% endif %}>对象存储（OSS / COS / S3）</option>
+          <option value="webdav" {% if storage.backend == 'webdav' %}selected{% endif %}>WebDAV 网盘</option>
+        </select>
+      </label></p>
+
+      <fieldset style="margin:10px 0;">
+        <legend>对象存储（S3 兼容）</legend>
+        <p><label>Bucket <input type="text" name="media_oss_bucket" size="28"></label>
+           <label>Region <input type="text" name="media_oss_region" size="18" placeholder="oss-cn-hangzhou"></label></p>
+        <p><label>Endpoint <input type="text" name="media_oss_endpoint" size="45" placeholder="https://oss-cn-hangzhou.aliyuncs.com"></label></p>
+        <p><label>AccessKey <input type="text" name="media_oss_key" size="36"></label></p>
+        <p><label>SecretKey（留空=不修改）<input type="password" name="media_oss_secret" size="36"></label></p>
+        <p><label>公开访问前缀 <input type="text" name="media_oss_public_base" size="48" placeholder="https://cdn.example.com"></label></p>
+        <p><label>对象前缀 <input type="text" name="media_oss_prefix" size="16" placeholder="media"></label></p>
+      </fieldset>
+
+      <fieldset style="margin:10px 0;">
+        <legend>WebDAV 网盘</legend>
+        <p><label>地址 <input type="text" name="media_webdav_url" size="48" placeholder="https://dav.jianguoyun.com/dav/blog"></label></p>
+        <p><label>用户名 <input type="text" name="media_webdav_user" size="24"></label>
+           <label>密码（留空=不修改）<input type="password" name="media_webdav_password" size="24"></label></p>
+        <p><label>公开访问前缀 <input type="text" name="media_webdav_public_base" size="48"></label></p>
+        <p><label>对象前缀 <input type="text" name="media_webdav_prefix" size="16" placeholder="media"></label></p>
+      </fieldset>
+
+      <button type="submit" class="btn">保存</button>
+      <button type="submit" class="btn" name="action" value="test">测试连接</button>
+      <p class="hint">⚠️ 切到云存储后，<strong>新上传</strong>的文件才写云；已有文件仍在本地。
+        公开访问前缀必须是浏览器能直接打开文件的地址（私有桶会全部 403）。</p>
+    </form>
+    {% else %}
+      <p class="muted">只有超级管理员可以修改存储后端。</p>
+    {% endif %}
+  </details>
+
   <script>
   (function () {
-    // v4.7.4：把媒体库里的图直接设为首屏壁纸，不必再传一遍文件。
-    // 写壁纸走 /api/theme（要求超管），所以按钮只对超管渲染（见 media_lib 路由）。
-    function csrfTok() {
-      return (document.querySelector('input[name="csrf_token"]') || {}).value || '{{ csrf_token }}' || "";
+    var CSRF = '{{ csrf_token }}';
+    var SINGLE_MAX = {{ single_max_bytes }};
+    var status = document.getElementById('upload-status');
+    var bar = document.getElementById('upload-bar');
+    var detail = document.getElementById('upload-detail');
+    var box = document.getElementById('upload-progress');
+
+    function headers(extra) {
+      var h = {'X-CSRF-Token': CSRF};
+      for (var k in (extra || {})) h[k] = extra[k];
+      return h;
     }
+    function setProgress(pct, text) {
+      box.style.display = 'block';
+      bar.style.width = Math.max(0, Math.min(100, pct)) + '%';
+      detail.textContent = text || '';
+    }
+    function finish(msg) {
+      status.textContent = msg;
+      setProgress(100, msg);
+      setTimeout(function () { location.reload(); }, 700);
+    }
+
+    function uploadSingle(file) {
+      var fd = new FormData();
+      fd.append('file', file);
+      setProgress(0, '上传中…');
+      return fetch('{{ url_for("admin.upload") }}', {
+        method: 'POST', body: fd, headers: headers(), credentials: 'same-origin'
+      }).then(function (r) { return r.json().then(function (j) { return {ok: r.ok, j: j}; }); })
+        .then(function (res) {
+          if (!res.ok) throw new Error(res.j.error || '上传失败');
+          if (res.j.cloud_error) status.textContent = '云端失败，已存本地：' + res.j.cloud_error;
+          finish('上传完成');
+        });
+    }
+
+    function uploadChunked(file) {
+      return fetch('{{ url_for("admin.upload_chunk_init") }}', {
+        method: 'POST', credentials: 'same-origin',
+        headers: headers({'Content-Type': 'application/json'}),
+        body: JSON.stringify({filename: file.name, size: file.size})
+      }).then(function (r) { return r.json().then(function (j) { return {ok: r.ok, j: j}; }); })
+        .then(function (res) {
+          if (!res.ok) throw new Error(res.j.error || '初始化失败');
+          var id = res.j.upload_id, size = res.j.chunk_size;
+          var total = Math.ceil(file.size / size), i = 0;
+          function next() {
+            if (i >= total) {
+              setProgress(100, '合并中…');
+              return fetch('{{ url_for("admin.upload_chunk_complete") }}', {
+                method: 'POST', credentials: 'same-origin',
+                headers: headers({'Content-Type': 'application/json'}),
+                body: JSON.stringify({upload_id: id})
+              }).then(function (r) { return r.json().then(function (j) { return {ok: r.ok, j: j}; }); })
+                .then(function (r2) {
+                  if (!r2.ok) throw new Error(r2.j.error || '合并失败');
+                  finish('上传完成（分块 ' + total + ' 块）');
+                });
+            }
+            var blob = file.slice(i * size, Math.min(file.size, (i + 1) * size));
+            var fd = new FormData();
+            fd.append('upload_id', id);
+            fd.append('index', String(i));
+            fd.append('chunk', blob, 'part');
+            return fetch('{{ url_for("admin.upload_chunk_part") }}', {
+              method: 'POST', body: fd, headers: headers(), credentials: 'same-origin'
+            }).then(function (r) { return r.json().then(function (j) { return {ok: r.ok, j: j}; }); })
+              .then(function (r3) {
+                if (!r3.ok) throw new Error(r3.j.error || ('第 ' + (i + 1) + ' 块失败'));
+                i += 1;
+                setProgress(i / total * 100, '已上传 ' + i + ' / ' + total + ' 块');
+                return next();
+              });
+          }
+          return next();
+        });
+    }
+
+    document.getElementById('media-upload-btn').addEventListener('click', function () {
+      document.getElementById('media-file-input').click();
+    });
+    document.getElementById('media-file-input').addEventListener('change', function (e) {
+      var file = e.target.files && e.target.files[0];
+      if (!file) return;
+      status.textContent = '';
+      var p = (file.size > SINGLE_MAX) ? uploadChunked(file) : uploadSingle(file);
+      p.catch(function (err) {
+        status.textContent = '❌ ' + err.message;
+        setProgress(0, '');
+      });
+      e.target.value = '';
+    });
+
+    function copyText(t) {
+      if (window.__copyText) return window.__copyText(t);
+      return navigator.clipboard.writeText(t).then(function () { return true; });
+    }
+    Array.prototype.forEach.call(document.querySelectorAll('.copy-url'), function (b) {
+      b.addEventListener('click', function () {
+        copyText(b.dataset.url).then(function (ok) {
+          b.textContent = ok ? '已复制 ✓' : '复制失败';
+          setTimeout(function () { b.textContent = '复制 URL'; }, 1600);
+        });
+      });
+    });
+    Array.prototype.forEach.call(document.querySelectorAll('.copy-md'), function (b) {
+      b.addEventListener('click', function () {
+        // 视频也用图片语法：正文渲染时 `_img_to_video()` 会自动转成 <video>
+        var text = '![' + (b.dataset.title || '') + '](' + b.dataset.url + ')';
+        copyText(text).then(function (ok) {
+          b.textContent = ok ? '已复制 ✓' : '复制失败';
+          setTimeout(function () { b.textContent = '复制 MD'; }, 1600);
+        });
+      });
+    });
+
+    var metaPanel = document.getElementById('meta-panel');
+    Array.prototype.forEach.call(document.querySelectorAll('.edit-meta'), function (b) {
+      b.addEventListener('click', function () {
+        document.getElementById('meta-id').value = b.dataset.id;
+        document.getElementById('meta-title').value = b.dataset.title;
+        document.getElementById('meta-folder').value = b.dataset.folder;
+        document.getElementById('meta-poster').value = b.dataset.poster;
+        document.getElementById('meta-public').checked = b.dataset.public === '1';
+        metaPanel.style.display = 'block';
+        metaPanel.scrollIntoView({behavior: 'smooth', block: 'center'});
+      });
+    });
+    document.getElementById('meta-cancel').addEventListener('click', function () {
+      metaPanel.style.display = 'none';
+    });
+
+    Array.prototype.forEach.call(document.querySelectorAll('.del-media'), function (f) {
+      f.addEventListener('submit', function (e) {
+        var name = f.querySelector('input[name="name"]').value;
+        if (!confirm('确定删除 ' + name + ' ？引用它的文章会裂图/失去视频。')) e.preventDefault();
+      });
+    });
+
+    // v4.7.4：把媒体库里的图直接设为首屏亮色壁纸（超管专属按钮）
     Array.prototype.forEach.call(document.querySelectorAll('.set-wallpaper'), function (b) {
       b.addEventListener('click', function () {
-        var url = b.getAttribute('data-url');
-        var name = b.getAttribute('data-name');
+        var url = b.dataset.url, name = b.dataset.name;
         if (!confirm('把「' + name + '」设为亮色模式壁纸？\n会同时启用壁纸；暗色壁纸保持不变。')) return;
-        var tok = csrfTok();
         fetch('/api/theme').then(function (r) { return r.json(); }).then(function (d) {
           var wp = (d && d.wallpaper) || {};
           return fetch('/api/theme', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': tok },
-            body: JSON.stringify({ wallpaper: {
-              enabled: true,
-              light: url,
-              dark: wp.dark || '',
+            headers: {'Content-Type': 'application/json', 'X-CSRF-Token': CSRF},
+            body: JSON.stringify({wallpaper: {
+              enabled: true, light: url, dark: wp.dark || '',
               overlay: (typeof wp.overlay === 'number') ? wp.overlay : 0.35
             }})
           });
         }).then(function (r) {
-          return r.json().then(function (d) { return { ok: r.ok, d: d }; });
+          return r.json().then(function (d) { return {ok: r.ok, d: d}; });
         }).then(function (res) {
-          if (res.ok) alert('已设为亮色壁纸：' + name);
-          else alert('设置失败：' + ((res.d && res.d.error) || '未知错误'));
-        }).catch(function () { alert('设置失败：网络错误'); });
-      });
-    });
-  })();
-  </script>
-  <script>
-  (function () {
-    var btn = document.getElementById("media-upload-btn");
-    var input = document.getElementById("media-file-input");
-    if (btn && input) {
-      btn.addEventListener("click", function () { input.click(); });
-      input.addEventListener("change", async function () {
-        var file = input.files[0];
-        if (!file) return;
-        var fd = new FormData();
-        fd.append("file", file);
-        var tok = (document.querySelector('input[name="csrf_token"]') || {}).value || '{{ csrf_token }}' || "";
-        if (!tok) {
-          try { var tr = await fetch("/api/csrf"); tok = ((await tr.json()) || {}).csrf_token || ""; } catch (e) {}
-        }
-        if (tok) fd.append("csrf_token", tok);
-        try {
-          var resp = await fetch("/admin/upload", { method: "POST", body: fd });
-          var d = await resp.json();
-          if (d.error) { alert(d.error); return; }
-          location.reload();
-        } catch (e) { alert("上传失败，请重试"); }
-      });
-    }
-    document.querySelectorAll(".copy-url").forEach(function (b) {
-      b.addEventListener("click", function () {
-        var name = b.closest(".media-card").getAttribute("data-name");
-        var url = location.origin + "/static/uploads/" + encodeURIComponent(name);
-        window.__copyText(url).then(function (ok) {
-          b.textContent = ok ? "已复制 ✓" : "复制失败";
-          setTimeout(function () { b.textContent = "复制 URL"; }, 1800);
-        });
-      });
-    });
-    document.querySelectorAll(".del-media").forEach(function (f) {
-      f.addEventListener("submit", function (e) {
-        var name = f.querySelector('input[name="name"]').value;
-        if (!confirm("确定删除文件 " + name + " ？删除后引用它的图片将无法显示。")) e.preventDefault();
+          status.textContent = res.ok ? ('已设为亮色壁纸：' + name)
+                                      : ('设置失败：' + ((res.d && res.d.error) || '未知错误'));
+        }).catch(function () { status.textContent = '设置失败：网络错误'; });
       });
     });
   })();

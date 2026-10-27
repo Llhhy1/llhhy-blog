@@ -29,7 +29,6 @@ from . import series        # 系列列表 系列详情  # noqa: F401  注册式
 from . import guestbook     # 留言板 留言点赞  # noqa: F401  注册式导入：本行为执行该模块、注册其路由
 from . import subscribe     # 订阅 退订  # noqa: F401  注册式导入：本行为执行该模块、注册其路由
 from . import notifications # 通知列表 已读 全部已读  # noqa: F401  注册式导入：本行为执行该模块、注册其路由
-from . import games        # v3.15.0：游戏平台公开接口/沙箱资源  # noqa: F401  注册式导入：本行为执行该模块、注册其路由
 from . import og           # v3.15.1：文章分享卡 SSR meta（爬虫 UA）  # noqa: F401  注册式导入：本行为执行该模块、注册其路由
 from . import theme        # v3.16.0：主题中心（预设包 + 自定义应用）  # noqa: F401  注册式导入：本行为执行该模块、注册其路由
 from . import review       # v3.17.0：年度回顾 / 访客地域榜（公开只读聚合）  # noqa: F401  注册式导入：本行为执行该模块、注册其路由
@@ -41,6 +40,7 @@ from . import mobile        # noqa: F401  v4.3.0：移动端管理接口（/api/
 from . import ecosystem    # noqa: F401  v4.7.5：生态统计（部署实例心跳 + 站点注册表统计）
 from . import seo_page     # noqa: F401  v4.10.0：SPA 列表路径服务端 SEO 壳页（/api/og/page/*）
 from . import mobile_ops   # noqa: F401  v4.10.0：移动端第二批（D8.3 ②统计/审计/备份/设置/SEO/证书/用户）
+from . import media        # noqa: F401  v4.14.0：公开媒体（图库 / 视频集，仅 is_public）
 
 # 蓝图唯一出处（功能模块从 .common 取，app.py 从本包取，二者同一对象）
 from .common import api_bp  # noqa: F401  再导出：app.py 的 from api import api_bp 依赖本行

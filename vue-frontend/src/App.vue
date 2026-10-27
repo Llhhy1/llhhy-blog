@@ -17,11 +17,12 @@
       <router-link to="/stats" @click="drawerOpen = false"><span class="nav-emoji">📊</span>{{ t('stats') }}</router-link>
       <router-link to="/annual" @click="drawerOpen = false"><span class="nav-emoji">📅</span>{{ t('annual') }}</router-link>
       <router-link to="/about" @click="drawerOpen = false"><span class="nav-emoji">ℹ️</span>{{ t('about') }}</router-link>
+      <router-link to="/ecosystem" @click="drawerOpen = false"><span class="nav-emoji">🌐</span>{{ t('ecosystem') }}</router-link>
+      <router-link to="/gallery" @click="drawerOpen = false"><span class="nav-emoji">🖼️</span>{{ t('gallery') }}</router-link>
       <router-link to="/links" @click="drawerOpen = false"><span class="nav-emoji">🤝</span>{{ t('links') }}</router-link>
       <router-link to="/square" @click="drawerOpen = false"><span class="nav-emoji">💬</span>{{ t('square') }}</router-link>
       <router-link to="/social" @click="drawerOpen = false"><span class="nav-emoji">🔗</span>{{ t('social') }}</router-link>
       <router-link to="/series" @click="drawerOpen = false"><span class="nav-emoji">📚</span>{{ t('series') }}</router-link>
-      <router-link to="/games" @click="drawerOpen = false"><span class="nav-emoji">🎮</span>{{ t('games') }}</router-link>
       <router-link to="/tags/hot" @click="drawerOpen = false"><span class="nav-emoji">🔥</span>{{ t('hot_tags') }}</router-link>
       <router-link to="/docs" @click="drawerOpen = false"><span class="nav-emoji">📖</span>{{ t('docs') }}</router-link>
       <router-link to="/guestbook" @click="drawerOpen = false"><span class="nav-emoji">📝</span>{{ t('guestbook') }}</router-link>
@@ -85,8 +86,9 @@
             <router-link to="/series" class="more-link" @click="closeMore"><span class="nav-emoji">📚</span>{{ t('series') }}</router-link>
             <router-link to="/docs" class="more-link" @click="closeMore"><span class="nav-emoji">📖</span>{{ t('docs') }}</router-link>
             <router-link to="/about" class="more-link" @click="closeMore"><span class="nav-emoji">ℹ️</span>{{ t('about') }}</router-link>
+            <router-link to="/ecosystem" class="more-link" @click="closeMore"><span class="nav-emoji">🌐</span>{{ t('ecosystem') }}</router-link>
+            <router-link to="/gallery" class="more-link" @click="closeMore"><span class="nav-emoji">🖼️</span>{{ t('gallery') }}</router-link>
             <router-link to="/social" class="more-link" @click="closeMore"><span class="nav-emoji">🔗</span>{{ t('social') }}</router-link>
-            <router-link to="/games" class="more-link" @click="closeMore"><span class="nav-emoji">🎮</span>{{ t('games') }}</router-link>
             <template v-for="ni in pluginNav" :key="'more-' + ni.label">
               <a :href="ni.href || ni.to" class="plugin-nav-link more-link" @click="closeMore"><span v-if="ni.icon" class="nav-emoji">{{ ni.icon }}</span>{{ ni.label }}</a>
             </template>

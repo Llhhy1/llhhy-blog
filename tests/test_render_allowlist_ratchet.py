@@ -19,12 +19,16 @@ RENDER_PY = os.path.join(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
     "myblog", "utils", "render.py")
 
-# v3.25.x 基线：白名单 = 常用排版标签 + 表格系，属性集**不含 style、不含任何 on\***。
+# v4.14.0：白名单新增 `video` / `source`（正文视频播放），属性仅放行播放控制类
+# （controls/preload/poster/playsinline/loop/muted/width/height/src/type），
+# **仍然没有 style、没有任何 on\*、没有 iframe** —— 底线不变。
 EXPECTED_ALLOWLIST_SHA256 = \
-    "8c47e46f63649a7ef41f0b2ac110866fce3cbd0f6867aeb30e6f8c02afa06db5"
+    "46cd29226fcf6aaaec9696b0b9a6ab192b9c862788b765f663748be4737ba5d7"
 # v4.7.7：3 → 4。白名单本身没动（哈希不变），但 **markdown 库 3.8.1 → 3.11.1**
 # 同样是「渲染器变了」——已缓存的 content_html 必须失效重渲染，否则新旧渲染结果混着。
-EXPECTED_RENDER_VERSION = "4"
+# v4.14.0：4 → 5。白名单加 video/source + `_img_to_video()` 转换，
+# 不 bump 的话带视频的老文章会一直吐「视频已被剥掉」的旧缓存。
+EXPECTED_RENDER_VERSION = "5"
 
 
 def _load():

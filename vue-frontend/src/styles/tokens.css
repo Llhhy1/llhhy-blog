@@ -80,6 +80,41 @@
   --transition: 160ms ease;
   --transition-slow: 240ms ease;
   --ease-standard: cubic-bezier(.2, 0, .2, 1);
+
+  /* ===== v5.0.0 统一观感层（只新增，不改上面任何语义色）=====
+   *
+   * 为什么是「新增」而不是「改值」：上面的 --text / --text-muted / --bg 等
+   * 既被 WCAG 守卫视死（tests/test_wcag_contrast.py），又与 myblog/themes.py
+   * 的 _BASE_LIGHT 逐字绑定（test_base_light_matches_token_files），
+   * 改一个值就会「前后台灰阶不一致」或「对比度不达标」。
+   *
+   * 所以这套观感全部靠**形状 + 动效 + 层级**来做，而不是换一套颜色：
+   *   · 更大的圆角（卡片 22px、控件 12px、按钮全胶囊）
+   *   · 系统缓动 cubic-bezier(.32,.72,0,1)（位移曲线）
+   *   · 1px 发丝分隔线 + 半透明填充
+   *   · 毛玻璃顶栏（backdrop-filter + saturate）
+   * 这四样加起来就是「圆润、通透」的观感，且完全不触碰对比度预算。
+   */
+  --ui-radius-card: 22px;      /* 分组卡 / 弹层 */
+  --ui-radius-group: 14px;     /* 组内首末行 */
+  --ui-radius-control: 12px;   /* 输入框 / 分段控件 */
+  --ui-radius-pill: 999px;     /* 按钮 / 徽章 */
+
+  --ui-ease: cubic-bezier(.32, .72, 0, 1);      /* 系统曲线（位移） */
+  --ui-ease-out: cubic-bezier(.16, 1, .3, 1);   /* 淡出曲线 */
+  --ui-dur: 280ms;
+  --ui-dur-fast: 180ms;
+
+  --ui-hairline: rgba(60, 60, 67, .12);         /* 发丝分隔线 */
+  --ui-fill: rgba(120, 120, 128, .10);          /* 第三级填充 */
+  --ui-fill-strong: rgba(120, 120, 128, .18);   /* 次级填充 */
+  --ui-blur: blur(20px) saturate(180%);         /* 毛玻璃 */
+
+  --ui-shadow-card: 0 1px 2px rgba(0, 0, 0, .04), 0 8px 24px rgba(0, 0, 0, .05);
+  --ui-shadow-lift: 0 2px 8px rgba(0, 0, 0, .07), 0 16px 40px rgba(0, 0, 0, .09);
+
+  --ui-title: 32px;            /* 大标题 */
+  --ui-tracking: -0.02em;      /* 大字号收紧字距（西文观感） */
 }
 
 /* 暗色：只重写 token 取值，不碰具体组件 */
@@ -124,4 +159,12 @@
   --nav-bg: #1d2025;
   --nav-fg: #d7d9dc;
   --nav-border: #2a2e35;
+
+  /* v5.0.0 统一观感层（暗色）：发丝线与填充必须反相 —— 亮色的 12% 黑
+   * 在深底上几乎看不见，会整片糊掉；这里换成「叠白」而不是「叠黑」。 */
+  --ui-hairline: rgba(84, 84, 88, .42);
+  --ui-fill: rgba(120, 120, 128, .24);
+  --ui-fill-strong: rgba(120, 120, 128, .36);
+  --ui-shadow-card: 0 1px 2px rgba(0, 0, 0, .30), 0 8px 24px rgba(0, 0, 0, .34);
+  --ui-shadow-lift: 0 2px 8px rgba(0, 0, 0, .34), 0 16px 40px rgba(0, 0, 0, .46);
 }

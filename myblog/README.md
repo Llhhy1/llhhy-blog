@@ -2,7 +2,7 @@
 
 llhhy-blog 的后端：Flask + SQLite，服务端渲染前台 + `/api/*` JSON 接口 + Jinja2 管理后台。
 
-- 当前版本：**v4.13.1**
+- 当前版本：**v5.0.0**
 - **版本历史一律记在 [CHANGELOG.md](../CHANGELOG.md)，本文件不重复记录。**
 - 根目录总览见 [README.md](../README.md)
 - 时区：展示统一北京时间（UTC+8），存储仍为 UTC；配置见 `config.TIME_ZONE`
@@ -42,11 +42,13 @@ myblog/
 │                   #   v3.10.0 起仓库不再内置插件，放目录 + 填 ENABLED_PLUGINS 即启用
 ├── fts.py          # SQLite FTS5 全文搜索（不可用时降级 LIKE）
 ├── tasks.py        # 后台长任务（v3.23.0）：状态落盘 data/tasks/、同名任务锁文件互斥、
-│                   #   立即备份 / 游戏 LLM 审计走它，不再占死 gunicorn 并发槽
+│                   #   立即备份 / LLM 审计走它，不再占死 gunicorn 并发槽
 ├── logging_setup.py  # 结构化日志（v3.23.0）：request_id 中间件 + rid= 日志格式 + LOG_LEVEL
 ├── stats.py        # 访问统计与 IP 属地解析、设备/浏览器分布（v4.9.0）
 ├── og_image.py     # OG 分享卡片绘制（v4.9.0 起支持多模板，含微信方图 800×800；模板进缓存 key）
 ├── backup.py       # 数据备份与异地容灾（本地/OSS/SCP/WebDAV）
+├── media_service.py  # 媒体服务层：类型/魔数/大小/磁盘闸门/分块合并/登记
+├── media_storage.py  # 媒体存储后端：本地 / OSS(S3 兼容) / WebDAV
 ├── bot_guard.py    # 反爬限流（默认关闭）
 ├── security.py     # 安全响应头 / 图形验证码 / CSRF
 ├── config.py       # 配置（含 APP_VERSION）
@@ -168,3 +170,6 @@ python app.py            # http://127.0.0.1:5000
 ## 部署
 
 宝塔面板点按式教程见 [deploy_guide.md](deploy_guide.md)：后端用 gunicorn（监听 8686），前端 `vue-frontend` 构建产物作静态站根，Nginx 反代 `/api/`、`/admin`、`/static/`。
+
+**机器规格**（最低 1 核 1 GB / 推荐 2 核 2 GB、磁盘 ≥10 GB、Python ≥3.10）见根 README 的
+[服务器最低配置](../README.md#服务器最低配置) —— 那张表是唯一真相源，此处不重复以免漂移。

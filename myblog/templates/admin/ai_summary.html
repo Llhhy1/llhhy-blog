@@ -10,9 +10,9 @@
   <div class="section-box" style="margin-bottom:16px;">
     <p style="margin:0 0 6px;">
       {% if llm.on and llm.base and llm.model and llm.has_key %}
-        ✅ LLM 已配置：<code>{{ llm.model }}</code> @ {{ llm.base }}（复用「游戏收录 → LLM 审计配置」，<a href="{{ url_for('admin.games') }}">去调整</a>）
+        ✅ LLM 已配置：<code>{{ llm.model }}</code> @ {{ llm.base }}（<a href="{{ url_for('admin.ai_llm_config') }}">去调整</a>）
       {% else %}
-        ⚠️ LLM 未配置完整（需开启并填写 Base / Key / Model）——<a href="{{ url_for('admin.games') }}">前往「游戏收录 → ⚙️ LLM 审计配置」</a>，本页与游戏审计共用同一配置
+        ⚠️ LLM 未配置完整（需开启并填写 Base / Key / Model）——<a href="{{ url_for('admin.ai_llm_config') }}">前往「LLM 接口配置」</a>
       {% endif %}
     </p>
     <form method="post" action="{{ url_for('admin.ai_summary_batch') }}" style="display:inline;">

@@ -69,7 +69,11 @@ def _bare_hex_count(src: str) -> int:
         # 找最近的一个 var( 与它是否配对到当前 hex 之前
         v = src.rfind("var(", max(0, m.start() - 60), m.start())
         if v != -1:
-            close = src.find(")", v, m.end())
+            # ⚠️ 右边界必须**从 hex 之后**开始找，不能止于 m.end()：
+            # `var(--accent, #196ddd)` 里闭合这个 var( 的 ")" 恰好就在 hex 尾字符之后，
+            # 用 find(")", v, m.end()) 永远找不到它（区间右开），于是 `var(--token, #hex)`
+            # 这种**标准兜底写法**会被误判成裸 hex —— v5.0.0 观感层首当其冲撞上了这条。
+            close = src.find(")", max(v, m.end()))
             if close != -1:
                 # var( ... ) 完整包住这个 hex -> 兜底写法
                 tail = src[v + 4:close]
@@ -124,3 +128,25 @@ def test_新增的_token_化必须带兜底():
         "新 token 化一律用 var(--token, #原值) 兜底写法"
     )
 
+
+
+def test_兜底写法里的_hex_不算裸色():
+    """`var(--token, #hex)` 必须被判为「不是裸 hex」—— v5.0.0 修的就是这里。
+
+    ⚠️ 变异验证：把 `_bare_hex_count` 的 `find(")", max(v, m.end()))` 改回
+    `find(")", v, m.end())`，本用例立刻变红 —— 因为闭合 `var(` 的那个 `)`
+    恰好落在 hex 尾字符**之后**，旧写法永远找不到它，于是把标准兜底写法
+    当成了新增裸色（观感层第一次引入 `var(--accent, #196ddd)` 时踩到）。
+    """
+    cases = [
+        "  color: var(--accent, #196ddd);",                 # 标准兜底
+        "  background: var(--surface, #ffffff);",
+        "  border-color: var(--accent, #196ddd);",
+        "  box-shadow: 0 0 0 3px var(--accent-soft, rgba(25, 109, 221, .10));",
+    ]
+    for css in cases:
+        assert _bare_hex_count(css) == 0, "兜底写法被误判为裸 hex：%r" % css
+
+    # 反过来：真正的裸 hex 必须仍然被数出来，否则守卫就失去意义了
+    assert _bare_hex_count("  color: #196ddd;") == 1
+    assert _bare_hex_count("  border: 1px solid #eee;") == 1

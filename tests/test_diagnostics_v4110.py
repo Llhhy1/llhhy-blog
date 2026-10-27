@@ -163,7 +163,8 @@ ADMIN_PAGES = [
     ("/admin/settings", "站点设置"),
     ("/admin/email-settings", "邮件设置"),
     ("/admin/users", "用户管理"),
-    ("/admin/games", "游戏收录"),
+    # v4.14.0：游戏板块整体下线（/admin/games 与 /api/games* 已删除），
+    # 该页不再存在，列表里保留会让本测试永远红。
 ]
 
 

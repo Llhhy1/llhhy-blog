@@ -47,6 +47,10 @@ _MAX_URL = 300
 # 自部署者可在设置里改成自己的中心；留空即回退到这里。
 DEFAULT_CENTER = "https://www.llhhy.cn"
 
+# 离线站点清理阈值（小时）。心跳每小时一次，24h ≈ 24 次连续错过，足以判定
+# 「这个部署已经不在了」（关站 / 换了 center / 取消上报）。见 prune_stale_sites。
+PRUNE_STALE_HOURS = 24
+
 
 # ---------- 客户端侧 ----------
 
@@ -232,7 +236,11 @@ def receive_heartbeat(data):
 
 
 def stats(active_hours=24, list_limit=60):
-    """中心端统计：总站点数 / 近 N 小时活跃数 / 可公开展示的站点列表。"""
+    """中心端统计：总站点数 / 近 N 小时活跃数 / 可公开展示的站点列表。
+
+    ⚠️ 展示窗口与 prune 阈值一致（默认 24h）：超过 24h 无心跳的站点会被
+    prune_stale_sites 硬删，这里再多一层防御，保证列表里不会出现僵尸站点。
+    """
     from models import EcosystemSite
     out = {"total": 0, "active": 0, "sites": [], "active_hours": active_hours}
     try:
@@ -241,16 +249,59 @@ def stats(active_hours=24, list_limit=60):
         cutoff = utcnow() - datetime.timedelta(hours=active_hours)
         recent = [r for r in all_rows if r.last_seen and r.last_seen >= cutoff]
         out["active"] = len(recent)
-        # 公开展示：作者愿意列出（listed=1）且 30 天内有心跳（避免僵尸站点长期挂着）
-        stale = utcnow() - datetime.timedelta(days=30)
-        shown = [r for r in all_rows if r.listed and r.last_seen and r.last_seen >= stale]
+        # 公开展示：作者愿意列出（listed=1）且近 active_hours 小时内有心跳
+        # （prune 已清掉更旧的，这里再兜底一次）
+        shown = [r for r in all_rows if r.listed and r.last_seen and r.last_seen >= cutoff]
         shown.sort(key=lambda r: r.last_seen or utcnow(), reverse=True)
         for r in shown[:list_limit]:
             out["sites"].append({
                 "url": r.url,
                 "version": r.version,
-                "last_seen": (r.last_seen.strftime("%Y-%m-%d") if r.last_seen else ""),
+                "first_seen": (r.first_seen.strftime("%Y-%m-%d %H:%M") if r.first_seen else ""),
+                "last_seen": (r.last_seen.strftime("%Y-%m-%d %H:%M") if r.last_seen else ""),
             })
     except Exception as e:  # noqa: BLE001
         logger.warning("[ECOSYSTEM] 统计失败：%s", str(e)[:120])
     return out
+
+
+def _stored_site_key():
+    """非生成式读取本机 site_key（仅用于 prune 时排除自身，避免误删自己）。
+
+    与 site_key() 的区别：不落库生成，没设置就返回 None —— prune 是维护动作，
+    不该因为它而凭空造出一个安装 ID。
+    """
+    from utils.settings import get_setting
+    v = get_setting(KEY_SITE_KEY)
+    if v and _SITE_KEY_RE.match(str(v).strip()):
+        return str(v).strip()
+    return None
+
+
+def prune_stale_sites(stale_hours=PRUNE_STALE_HOURS, exclude_self=True):
+    """中心端：删除超过 stale_hours 小时没有心跳的站点。
+
+    心跳是每小时一次。24 小时 = 24 次错过的心跳，足以判定「这个部署已经不在了」
+    （关站 / 改了 center / 取消上报）。硬删而不是「只不展示」，理由：
+    - 注册表是自报数据，留一堆永远不跳的僵尸行只会虚高「站点数」；
+    - 中心站自己每小时给自己心跳，永远保鲜；`exclude_self` 再上一道闸，
+      即使某次心跳偶发失败也不会把自己误删。
+
+    返回被删除的条数。
+    """
+    from models import db, EcosystemSite
+    cutoff = utcnow() - datetime.timedelta(hours=stale_hours)
+    try:
+        q = EcosystemSite.query.filter(EcosystemSite.last_seen < cutoff)
+        if exclude_self:
+            sk = _stored_site_key()
+            if sk:
+                q = q.filter(EcosystemSite.site_key != sk)
+        n = q.delete(synchronize_session=False)
+        if n:
+            db.session.commit()
+        return n or 0
+    except Exception as e:  # noqa: BLE001
+        db.session.rollback()
+        logger.warning("[ECOSYSTEM] 清理离线站点失败：%s", str(e)[:120])
+        return 0

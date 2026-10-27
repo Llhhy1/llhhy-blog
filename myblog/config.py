@@ -12,7 +12,7 @@ os.makedirs(DATA_DIR, exist_ok=True)
 
 # 应用版本号：与 GitHub Release 标签保持一致（vX.Y.Z）。
 # 后台侧边栏左下角会显示该版本，用于确认服务器安装的代码是否为最新。
-APP_VERSION = "4.13.1"
+APP_VERSION = "5.0.0"
 
 
 class Config:
@@ -42,11 +42,34 @@ class Config:
     # 首页每页显示的文章数量
     POSTS_PER_PAGE = 8
 
-    # ===== 上传文件配置（写文章插图用）=====
+    # ===== 上传文件配置（写文章插图 / 图床 / 视频，v4.14.0 扩容）=====
     UPLOAD_FOLDER = os.path.join(BASE_DIR, "static", "uploads")
     # 上传图片允许的类型。注意：不包含 svg —— svg 可内嵌脚本，被直接访问时可能执行，存在 XSS 风险。
     ALLOWED_EXTENSIONS = {"png", "jpg", "jpeg", "gif", "webp"}
-    MAX_CONTENT_LENGTH = 5 * 1024 * 1024  # 单文件最大 5MB
+    # 视频只收**浏览器能原生播放**的容器：mp4/m4v/mov（H.264）与 webm（VP8/VP9/AV1）。
+    # 刻意不收 avi/wmv/flv/rmvb —— 浏览器放不了，收进来只会变成一个「下载链接」，
+    # 既占磁盘又骗点击。要支持它们必须引入 ffmpeg 转码，那是另一件事（且很吃 CPU）。
+    ALLOWED_VIDEO_EXTENSIONS = {"mp4", "m4v", "mov", "webm"}
+
+    # 分级上限：图片 50MB、视频 500MB。可用环境变量按机器规格调低（小盘服务器建议调）
+    IMAGE_MAX_BYTES = int(float(os.environ.get("MEDIA_IMAGE_MAX_MB", "50")) * 1024 * 1024)
+    VIDEO_MAX_BYTES = int(float(os.environ.get("MEDIA_VIDEO_MAX_MB", "500")) * 1024 * 1024)
+
+    # ⚠️ **MAX_CONTENT_LENGTH 是「单请求」上限，不是「单文件」上限。**
+    # 500MB 视频**必须**分块传：国内家宽上行常见 2~6 MB/s，500MB 要 80~250 秒，
+    # 而 gunicorn 默认 timeout=30s 会直接把 worker 杀掉（表现为「传到一半 502」）。
+    # 分块后每块 8MB，最慢也能在 30s 内完成；同时天然支持断点续传。
+    UPLOAD_CHUNK_SIZE = 8 * 1024 * 1024          # 每块 8MB
+    UPLOAD_SINGLE_SHOT_MAX = 16 * 1024 * 1024    # 超过此值前端自动改走分块
+    MAX_CONTENT_LENGTH = 32 * 1024 * 1024        # 32MB：覆盖单块/单发，留足 multipart 开销
+
+    # 分块临时目录放 data/ 下：升级脚本会跳过 data/（不被覆盖），也不会被静态目录清理波及
+    UPLOAD_TMP_DIR = os.path.join(BASE_DIR, "data", "upload_tmp")
+    # 磁盘闸门：剩余空间低于「本次文件大小 + 该值」直接拒传。
+    # 没有这道闸，几个 500MB 视频就能把 2 核 2G 小盘服务器打满，
+    # 而磁盘满了 SQLite 写入会全面失败 —— 那比「传不上去」严重得多。
+    MEDIA_DISK_RESERVE_BYTES = int(
+        float(os.environ.get("MEDIA_DISK_RESERVE_GB", "2")) * 1024 * 1024 * 1024)
 
     # 站点对外地址（RSS/sitemap 生成绝对链接用，留空则自动用请求域名）
     SITE_URL = os.environ.get("SITE_URL", "")
@@ -269,3 +292,5 @@ class Config:
 
 # 确保上传目录存在（图片保存在 static/uploads，随项目一起）
 os.makedirs(Config.UPLOAD_FOLDER, exist_ok=True)
+# v4.14.0：分块上传的临时目录（data/upload_tmp/<uuid>/<序号>.part），失败/中断的残留由服务层清理
+os.makedirs(Config.UPLOAD_TMP_DIR, exist_ok=True)

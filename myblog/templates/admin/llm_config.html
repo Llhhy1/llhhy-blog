@@ -1,0 +1,18 @@
+{% extends "admin/base.html" %}
+{% block title %}LLM 接口配置{% endblock %}
+{% block content %}
+  <h1 class="page-title">LLM 接口配置</h1>
+  <p style="color:#666;">
+    OpenAI 兼容接口（Base URL + Key + Model）。AI 摘要等功能共用这一套配置，改完立即生效，无需重启。<br>
+    键名沿用历史的 <code>games_llm_*</code>（早期由游戏审计引入），仅为兼容存量部署，与游戏功能无关。
+  </p>
+  <form method="post" action="{{ url_for('admin.ai_llm_config') }}" class="inline-form">
+        {{ csrf_input() }}
+    <p><label><input type="checkbox" name="on" value="1" {% if on == '1' %}checked{% endif %}> 开启 LLM 功能</label></p>
+    <p><label>Base URL（如 https://api.deepseek.com/v1）<br><input type="text" name="base" value="{{ base }}" size="60" placeholder="https://…/v1"></label></p>
+    <p><label>Model<br><input type="text" name="model" value="{{ model }}" size="40"></label></p>
+    <p><label>API Key（留空表示不修改；已存 {{ key_masked }}）<br><input type="password" name="key" size="60" placeholder="sk-…"></label></p>
+    <button type="submit" class="btn">保存</button>
+  </form>
+  <p><a class="btn" href="{{ url_for('admin.ai_summary') }}">← 返回 AI 摘要</a></p>
+{% endblock %}

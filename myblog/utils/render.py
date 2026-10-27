@@ -16,6 +16,8 @@ _ALLOWED_TAGS = {
     "ul", "ol", "li", "a", "h1", "h2", "h3", "h4", "img", "hr", "span", "del",
     "table", "thead", "tbody", "tfoot", "tr", "th", "td", "caption",
     "colgroup", "col",
+    # v4.14.0 视频播放：没有这两个标签，正文里的视频会被 strip=True 整个剥掉
+    "video", "source",
 }
 _ALLOWED_ATTRS = {
     "a": ["href", "title", "target", "rel"],
@@ -26,8 +28,41 @@ _ALLOWED_ATTRS = {
     "td": ["colspan", "rowspan", "align"],
     "col": ["span"],
     "colgroup": ["span"],
+    # ⚠️ 只放「播放控制」类属性，`src` 由 `_img_to_video()` 生成，不接受作者手写外域
+    "video": ["src", "poster", "controls", "preload", "playsinline", "loop", "muted",
+              "width", "height"],
+    "source": ["src", "type"],
     "*": ["class"],
 }
+
+
+# v4.14.0 视频：Markdown 里 `![](/static/uploads/x.mp4)` 会生成 `<img src=...mp4>`，
+# 浏览器把它当裂图。清洗前先换成 `<video>` —— 这样才能「写图片语法，播放视频」。
+_VIDEO_SRC_RE = re.compile(r"\.(?:mp4|m4v|mov|webm)(?:[?#].*)?$", re.I)
+
+
+def _img_to_video(html):
+    """把 src 指向视频文件的 `<img>` 换成 `<video controls>`。
+
+    只认**视频后缀**，不碰普通图片；`src` 里的引号做转义，防止有人用
+    `![](x.mp4" onerror="alert(1))` 这类写法在标签里注入属性
+    —— 虽然 bleach 之后还会再洗一遍，但「构造合法 HTML」不该依赖下游兜底。
+
+    `preload="metadata"` 而不是 `auto`：正文可能有多段视频，auto 会把整文件下下来
+    拖垮首屏；metadata 只取时长/首帧尺寸。
+    """
+    if not html or "<img" not in html:
+        return html
+
+    def _repl(m):
+        tag = m.group(0)
+        sm = re.search(r'src\s*=\s*"([^"]+)"', tag)
+        if not sm or not _VIDEO_SRC_RE.search(sm.group(1)):
+            return tag
+        src = sm.group(1).replace('"', "%22")
+        return ('<video controls preload="metadata" playsinline src="%s"></video>' % src)
+
+    return re.sub(r"<img\b[^>]*>", _repl, html)
 
 
 def clean_html(html):
@@ -92,9 +127,11 @@ def render_markdown(content):
     """把 Markdown 渲染为 HTML 并清理（统一出口，避免 XSS）。
 
     v3.17.0：清洗后追加 AVIF <picture> 升级（存在同名 .avif 时）。
+    v4.14.0：清洗**前**先把「src 指向视频」的 img 换成 video，并把 video/source
+             加进白名单 —— 顺序不能反，否则 video 标签会先被剥掉。
     """
     raw = markdown(content or "", extensions=["fenced_code", "tables"])
-    return _upgrade_img_avif(clean_html(raw))
+    return _upgrade_img_avif(clean_html(_img_to_video(raw)))
 # ---------- 正文渲染缓存（v3.9.1）----------
 # Markdown 渲染 + bleach 清洗是 CPU 密集操作，长文单次可达数百毫秒；以前每次
 # 打开文章、每次渲染首页列表都要重算一遍。这里把结果落到 post 表的 content_html
@@ -106,7 +143,9 @@ def render_markdown(content):
 # v4.7.7：3 → 4（markdown 3.8.1 → 3.11.1）。**升级 markdown 库也算「渲染器变了」** ——
 #   不 bump 的话，已缓存的 content_html 指纹依然匹配（指纹只认「版本|正文|HTML」），
 #   于是老文章继续吐旧库渲染的 HTML，新文章用新库渲染，两套结果静默混着且不会报错。
-_RENDER_VERSION = "4"
+# v4.14.0：4 → 5（白名单加 video/source + img→video 转换）。不加的话，
+#   带视频的老文章会一直吐「旧的、视频已被剥掉」的缓存 HTML，表现为「改了代码但视频还是不见」。
+_RENDER_VERSION = "5"
 
 
 def content_digest(content, html=""):

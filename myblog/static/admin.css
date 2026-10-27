@@ -841,10 +841,10 @@ body.admin {
 /* ============================================================
    完整响应式（v2.5.3 系统重构后台自适应）
    断点：>1280 桌面完整 / ≤1100 窄桌面 / ≤900 平板 / ≤760 手机 / ≤480 小屏
-   ============================================================ *//* 中等屏幕（≤1100）：抽屉式侧栏（v2.6.2 终极方案：iOS 风格毛玻璃+圆角+精致菜单） */@media (max-width: 1100px) {
+   ============================================================ *//* 中等屏幕（≤1100）：抽屉式侧栏（v2.6.2 终极方案：风格毛玻璃+圆角+精致菜单） */@media (max-width: 1100px) {
 .admin-shell {
  flex-direction: column; }
-/* 抽屉面板：iOS 风格——右侧圆角 + 大阴影 */.admin-sidebar {
+/* 抽屉面板：风格——右侧圆角 + 大阴影 */.admin-sidebar {
 
     position: fixed; left: 0; top: 0; bottom: 0;
     width: 280px; max-width: 82%;
@@ -1749,3 +1749,318 @@ label.checkbox span, label.checkbox-row span { min-width: 0; }
  * `.card-body > .edit-form` 那条匹配不到它 —— 整页仍被 `.edit-form{max-width:760px}`
  * 卡在 760，1200 内容区右边空一大块（截图实证）。这里显式给这个表单放宽到 1000。 */
 .edit-form.settings-form { max-width: 1000px; }
+/* ============================================================================
+ * v5.0.0 统一观感层（后台）
+ *
+ * 与前台 global.css 末尾同一层做法：只覆盖**跨页面共享的基类**，
+ * 不改语义色值（那些值与 WCAG 守卫、前后台一致性守卫绑定）。
+ *
+ * ⚠️ 颜色一律写 `var(--token, 原值)` 兜底 —— 这是本文件的既有约定
+ * （tests/test_css_token_ratchet.py::test_兜底写法是本项目约定 会检查），
+ * 也让「裸 hex 不得增长」的棘轮保持成立。
+ *
+ * ⚠️ 顺序依赖：必须在文件末尾（CSS 同特异性后者胜）。
+ * ==========================================================================*/
+
+/* --- 字体渲染 + 页面大标题 --- */
+body { -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }
+.page-title {
+  font-size: clamp(22px, 2.6vw, 28px);
+  font-weight: 700;
+  letter-spacing: var(--ui-tracking, -0.02em);
+  line-height: 1.24;
+  margin: 2px 0 20px;
+}
+
+/* --- 按钮：胶囊 + 按压回弹 --- */
+.btn, .admin-actions .btn {
+  border-radius: var(--ui-radius-pill, 999px);
+  padding: 9px 18px;
+  font-size: 14px; font-weight: 500;
+  -webkit-tap-highlight-color: transparent;
+  transition: transform var(--ui-dur-fast, 180ms) var(--ui-ease, cubic-bezier(.32, .72, 0, 1)),
+              background-color var(--ui-dur-fast, 180ms) ease,
+              opacity var(--ui-dur-fast, 180ms) ease;
+}
+.btn:active { transform: scale(0.96); opacity: 0.88; }
+
+/* --- 侧边栏：分组列表 —— 激活项是「填充胶囊」而不是「左侧竖条」--- */
+.side-nav a {
+  border-radius: var(--ui-radius-control, 12px);
+  padding: 10px 14px;
+  margin-bottom: 2px;
+  font-size: 14px;
+  transition: background-color var(--ui-dur-fast, 180ms) ease,
+              color var(--ui-dur-fast, 180ms) ease,
+              transform var(--ui-dur-fast, 180ms) var(--ui-ease, cubic-bezier(.32, .72, 0, 1));
+}
+.side-nav a:hover {
+  background: var(--ui-fill, rgba(120, 120, 128, .10));
+  color: var(--accent, #196ddd);
+}
+.side-nav a.active {
+  background: var(--accent-soft, rgba(25, 109, 221, .10));
+  color: var(--accent, #196ddd);
+  font-weight: 600;
+}
+/* 没有「激活项左边一条渐变竖杠」，去掉它才像 列表选中态 */
+.side-nav a.active::before { display: none; }
+.side-logo .logo-dot { border-radius: 5px; width: 11px; height: 11px; }
+
+/* --- 面板 / 卡片：分组卡 --- */
+.panel, .media-card, .hero-card {
+  border-radius: var(--ui-radius-card, 22px);
+  border: 1px solid var(--ui-hairline, rgba(60, 60, 67, .12));
+  box-shadow: var(--ui-shadow-card, 0 1px 2px rgba(0, 0, 0, .04));
+}
+.panel { padding: 18px 20px; }
+.admin-main .panel + .panel { margin-top: 16px; }
+
+/* --- 输入控件：圆角填充字段 --- */
+input[type=text], input[type=password], input[type=email], input[type=number],
+input[type=search], input[type=url], input[type=date], select, textarea {
+  border-radius: var(--ui-radius-control, 12px);
+  padding: 10px 13px;
+  font-size: 14px;
+  border: 1px solid var(--ui-hairline, rgba(60, 60, 67, .12));
+  background: var(--ui-fill, rgba(120, 120, 128, .10));
+  transition: border-color var(--ui-dur-fast, 180ms) ease,
+              box-shadow var(--ui-dur-fast, 180ms) ease;
+}
+input[type=text]:focus, input[type=password]:focus, input[type=email]:focus,
+input[type=number]:focus, input[type=search]:focus, input[type=url]:focus,
+input[type=date]:focus, select:focus, textarea:focus {
+  outline: none;
+  border-color: var(--accent, #196ddd);
+  box-shadow: 0 0 0 3px var(--accent-soft, rgba(25, 109, 221, .10));
+}
+
+/* --- 表格：inset grouped —— 外框圆角 + 行间发丝线 --- */
+.stats-table, .admin-main table {
+  border-collapse: separate;
+  border-spacing: 0;
+  border-radius: var(--ui-radius-group, 14px);
+  overflow: hidden;
+  border: 1px solid var(--ui-hairline, rgba(60, 60, 67, .12));
+}
+.stats-table th, .admin-main table th,
+.stats-table td, .admin-main table td {
+  border-bottom: 1px solid var(--ui-hairline, rgba(60, 60, 67, .12));
+}
+.stats-table tbody tr:last-child td,
+.admin-main table tbody tr:last-child td { border-bottom: 0; }
+
+/* --- 文本操作（复制 / 编辑 / 删除）：「文字按钮」不该有下划线 --- */
+.link-btn, .link-danger, .side-footer a {
+  text-decoration: none;
+  border-radius: var(--radius-xs, 4px);
+  padding: 2px 6px;
+  transition: background-color var(--ui-dur-fast, 180ms) ease;
+}
+.link-btn:hover { background: var(--ui-fill, rgba(120, 120, 128, .10)); }
+.link-danger:hover { background: var(--ui-fill-strong, rgba(120, 120, 128, .18)); }
+
+/* --- 媒体库卡片：跟随前台的分组卡圆角 --- */
+.media-grid { gap: 16px; }
+.media-card {
+  overflow: hidden;
+  transition: transform var(--ui-dur, 280ms) var(--ui-ease, cubic-bezier(.32, .72, 0, 1)),
+              box-shadow var(--ui-dur, 280ms) var(--ui-ease, cubic-bezier(.32, .72, 0, 1));
+}
+.media-card:hover { transform: translateY(-2px); box-shadow: var(--ui-shadow-lift, 0 2px 8px rgba(0, 0, 0, .07)); }
+
+/* --- 表单 fieldset / 折叠块 --- */
+fieldset, details.panel {
+  border-radius: var(--ui-radius-group, 14px);
+  border: 1px solid var(--ui-hairline, rgba(60, 60, 67, .12));
+}
+summary { cursor: pointer; padding: 2px 0; }
+
+/* --- 尊重「减弱动态效果」--- */
+@media (prefers-reduced-motion: reduce) {
+  .btn:active { transform: none; opacity: 1; }
+  .media-card:hover { transform: none; }
+  .btn, .side-nav a, input, select, textarea, .media-card { transition-duration: 1ms; }
+}
+
+/* ============================================================================
+ * v5.0.0 逐页精修（后台第三轮）：表单密集页 / 统计卡 / 编辑器
+ *
+ * 后台有 48 个模板，逐个改不现实。这里只覆盖**跨模板复用的结构类**：
+ *   · .card 系（设置页 / 诊断页 / 各列表页的分组容器）
+ *   · .field 系（表单字段与标签、提示的留白节奏）
+ *   · .stat-card / .stats-grid（仪表盘与统计页）
+ *   · .edit-form / .meta-grid / .md-*（文章编辑器）
+ * 一轮覆盖，几十个模板同时受益。
+ *
+ * ⚠️ 颜色仍一律 `var(--token, 原值)` —— 满足「裸 hex 不得增长」的棘轮。
+ * ==========================================================================*/
+
+/* --- 分组卡片（.card 系）：统一到观感层的大圆角 --- */
+.card {
+  border-radius: var(--ui-radius-card, 22px);
+  border: 1px solid var(--ui-hairline, rgba(60, 60, 67, .12));
+  box-shadow: var(--ui-shadow-card, 0 1px 2px rgba(0, 0, 0, .04));
+  margin-bottom: 16px;
+}
+.card-head {
+  padding: 15px 20px;
+  border-bottom: 1px solid var(--ui-hairline, rgba(60, 60, 67, .12));
+}
+.card-title {
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: .01em;
+}
+.card-title .card-count {
+  border-radius: var(--ui-radius-pill, 999px);
+  padding: 2px 10px;
+  border: 1px solid var(--ui-hairline, rgba(60, 60, 67, .12));
+}
+.card-body { padding: 18px 20px; }
+.card-foot {
+  padding: 13px 20px;
+  border-top: 1px solid var(--ui-hairline, rgba(60, 60, 67, .12));
+}
+
+/* --- 表单字段：标签弱化、提示独立成行（原来标签是粗体黑字，抢内容） --- */
+.field { margin-bottom: 16px; }
+.field-label, .edit-form label, .settings-form label {
+  display: block;
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: .01em;
+  color: var(--text-muted, #6a717f);
+  margin-bottom: 6px;
+}
+.field-hint, .field-label .hint {
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--text-faint, #7d838f);
+  margin-top: 5px;
+}
+.field-grid { display: grid; gap: 10px 16px; }
+.req { color: var(--danger, #d93025); }
+/* 复选框行：整行可点 + 圆角 hover（原来的勾选行没有 hover 反馈） */
+.checkbox-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  border-radius: var(--ui-radius-control, 12px);
+  transition: background-color var(--ui-dur-fast, 180ms) ease;
+}
+.checkbox-row:hover { background: var(--ui-fill, rgba(120, 120, 128, .10)); }
+.checkbox-row input[type=checkbox] { width: 16px; height: 16px; accent-color: var(--accent, #196ddd); }
+
+/* --- 工具条：按钮组用胶囊而不是方块 --- */
+.toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.toolbar .btn, .page-head-actions .btn { border-radius: var(--ui-radius-pill, 999px); }
+.section-sub, .page-desc {
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--text-muted, #6a717f);
+}
+
+/* --- 标签 chip：胶囊 --- */
+.tag, .tag-flat {
+  border-radius: var(--ui-radius-pill, 999px);
+  padding: 2px 10px;
+  font-size: 12px;
+}
+
+/* --- 统计卡（仪表盘 / 统计页）--- */
+.stats-grid { gap: 18px; }
+.stat-cards { gap: 14px; }
+.stat-card, .stats-card {
+  border-radius: var(--ui-radius-card, 22px);
+  border: 1px solid var(--ui-hairline, rgba(60, 60, 67, .12));
+  box-shadow: var(--ui-shadow-card, 0 1px 2px rgba(0, 0, 0, .04));
+  padding: 16px 18px;
+  transition: transform var(--ui-dur, 280ms) var(--ui-ease, cubic-bezier(.32, .72, 0, 1)),
+              box-shadow var(--ui-dur, 280ms) var(--ui-ease, cubic-bezier(.32, .72, 0, 1));
+}
+.stat-card:hover, .stats-card:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--ui-shadow-lift, 0 2px 8px rgba(0, 0, 0, .07));
+}
+.stat-card .stat-num, .stats-card .stat-num, .stat-card .stat-label, .stats-card .stat-label {
+  letter-spacing: -.01em;
+}
+.stat-card .stat-num { font-size: 24px; font-weight: 600; }
+.stat-card .stat-label, .stats-card .stat-label {
+  font-size: 12px;
+  color: var(--text-muted, #6a717f);
+}
+.stat-card .stat-ico {
+  border-radius: var(--ui-radius-control, 12px);
+  width: 38px; height: 38px;
+}
+.rank-table {
+  border-collapse: separate;
+  border-spacing: 0;
+  border-radius: var(--ui-radius-group, 14px);
+  overflow: hidden;
+  border: 1px solid var(--ui-hairline, rgba(60, 60, 67, .12));
+}
+.rank-table td { border-bottom: 1px solid var(--ui-hairline, rgba(60, 60, 67, .12)); }
+.rank-table tbody tr:last-child td { border-bottom: 0; }
+
+/* --- 文章编辑器 --- */
+.edit-form { max-width: none; }
+.meta-grid, .publish-grid { display: grid; gap: 14px; }
+.meta-cell {
+  border-radius: var(--ui-radius-control, 12px);
+  padding: 10px 12px;
+  background: var(--ui-fill, rgba(120, 120, 128, .10));
+}
+.meta-cell label, .qc-label {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-muted, #6a717f);
+  margin-bottom: 5px;
+}
+/* Markdown 工具条：只改 border-bottom —— 它在 .md-stage 内部，
+ * .md-stage 自带全边框 + overflow:hidden，这里再加全边框会画成嵌套双框。 */
+.md-toolbar {
+  border-bottom: 1px solid var(--ui-hairline, rgba(60, 60, 67, .12));
+  background: var(--ui-fill, rgba(120, 120, 128, .10));
+  padding: 8px 10px;
+}
+.md-toolbar button { border-radius: var(--ui-radius-pill, 999px); padding: 5px 12px; }
+.md-tb-sep { background: var(--ui-hairline, rgba(60, 60, 67, .12)); width: 1px; }
+.md-stage {
+  border-radius: var(--ui-radius-card, 22px);
+  border: 1px solid var(--ui-hairline, rgba(60, 60, 67, .12));
+}
+/* 分栏之间的那道竖线改发丝线（同样不加外框，父级 .md-stage 已有） */
+.md-pane-preview { border-left: 1px solid var(--ui-hairline, rgba(60, 60, 67, .12)); }
+/* 底部操作条：贴底 + 毛玻璃感（长编辑页滚动时不会「飘」） */
+.editor-footer, .form-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 4px;
+}
+.editor-footer .btn, .form-actions .btn { border-radius: var(--ui-radius-pill, 999px); }
+.upload-row { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.cover-preview {
+  border-radius: var(--ui-radius-group, 14px);
+  overflow: hidden;
+  border: 1px solid var(--ui-hairline, rgba(60, 60, 67, .12));
+}
+.view-split, .md-vw {
+  border-radius: var(--ui-radius-pill, 999px);
+  overflow: hidden;
+}
+.autosave-state, .upload-status, .qc-hint {
+  font-size: 12px;
+  color: var(--text-faint, #7d838f);
+}
+
+/* --- 尊重「减弱动态效果」--- */
+@media (prefers-reduced-motion: reduce) {
+  .stat-card:hover, .stats-card:hover { transform: none; }
+  .stat-card, .stats-card { transition-duration: 1ms; }
+}

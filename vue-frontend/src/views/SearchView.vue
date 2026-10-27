@@ -122,14 +122,17 @@ watch(() => route.query.q + (route.query.page || ""), load);
   color: var(--text);
   background: var(--surface-2);
   border: 1px solid var(--border);
-  border-radius: var(--radius-pill, 999px);
+  border-radius: var(--ui-radius-pill, 999px);
   cursor: pointer;
-  transition: background var(--transition-fast, 0.15s ease);
+  transition: background var(--transition-fast, 0.15s ease),
+              transform var(--ui-dur-fast, 180ms) var(--ui-ease, cubic-bezier(.32, .72, 0, 1));
 }
 .sh-chip:hover {
   background: var(--accent-soft);
   border-color: var(--accent);
 }
+/* v5.0.0 观感层：按压回弹 —— 胶囊类控件统一带触觉反馈 */
+.sh-chip:active { transform: scale(.94); }
 .sh-del {
   color: var(--text-faint);
   font-size: 13px;
@@ -139,13 +142,14 @@ watch(() => route.query.q + (route.query.page || ""), load);
   color: var(--danger);
 }
 .sh-clear {
-  padding: 0 4px;
+  padding: 2px 10px;
   font-size: 12px;
   color: var(--text-muted);
-  background: none;
-  border: none;
+  background: var(--ui-fill, rgba(120, 120, 128, .10));
+  border: 1px solid transparent;
+  border-radius: var(--ui-radius-pill, 999px);
   cursor: pointer;
-  text-decoration: underline;
+  text-decoration: none;
 }
 .sh-clear:hover {
   color: var(--danger);

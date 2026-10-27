@@ -287,7 +287,7 @@ def test_统计总站点与活跃数(app):
         s = ecosystem.stats()
         assert s["total"] == 2
         assert s["active"] == 1, "24 小时内有活动的才算活跃"
-        assert len(s["sites"]) == 1, "只列出 30 天内有心跳的站点（陈旧的只计数不展示）"
+        assert len(s["sites"]) == 1, "只列出 24 小时内有心跳的站点（陈旧的已 prune / 不展示）"
         assert s["sites"][0]["url"] == "https://a.example.com"
 
 
@@ -304,6 +304,72 @@ def test_不愿公开的站点只计数不展示(app):
         s = ecosystem.stats()
         assert s["total"] == 1, "仍然计数"
         assert s["sites"] == [], "但不出现在公开展示列表里"
+
+
+# ---------- 中心端：离线清理（v4.13.2）----------
+
+
+def test_prune_删除超阈值站点保留新鲜站点(app):
+    """超过 stale_hours 无心跳的站点应被硬删，新鲜的保留。"""
+    from models import EcosystemSite
+    from _time import utcnow
+    import datetime
+    with app.app_context():
+        _wipe()
+        now = utcnow()
+        db.session.add(EcosystemSite(site_key="x" * 32, url="https://fresh.example.com",
+                                     version="4.13.2", listed=True,
+                                     first_seen=now, last_seen=now))
+        db.session.add(EcosystemSite(site_key="y" * 32, url="https://stale.example.com",
+                                     version="4.13.2", listed=True,
+                                     first_seen=now - datetime.timedelta(days=5),
+                                     last_seen=now - datetime.timedelta(days=2)))
+        db.session.commit()
+        removed = ecosystem.prune_stale_sites(stale_hours=24)
+        assert removed == 1, "应只删掉 1 个过期站点"
+        rows = EcosystemSite.query.all()
+        assert len(rows) == 1
+        assert rows[0].site_key == "x" * 32, "新鲜的站点必须保留"
+
+
+def test_prune_无过期时返回0(app):
+    from models import EcosystemSite
+    from _time import utcnow
+    with app.app_context():
+        _wipe()
+        now = utcnow()
+        db.session.add(EcosystemSite(site_key="z" * 32, url="https://a.example.com",
+                                     version="4.13.2", listed=True,
+                                     first_seen=now, last_seen=now))
+        db.session.commit()
+        removed = ecosystem.prune_stale_sites(stale_hours=24)
+        assert removed == 0, "没有过期站点时不应删除"
+        assert EcosystemSite.query.count() == 1
+
+
+def test_prune_排除自身_key不被误删(app):
+    """exclude_self 必须保护「本机 site_key」对应的那一行，即使它已过期。"""
+    from models import EcosystemSite
+    from _time import utcnow
+    import datetime
+    with app.app_context():
+        _wipe()
+        self_key = "a" * 32
+        _set("ecosystem_site_key", self_key)  # 模拟本机已有安装 ID
+        now = utcnow()
+        db.session.add(EcosystemSite(site_key=self_key, url="https://self.example.com",
+                                     version="4.13.2", listed=True,
+                                     first_seen=now - datetime.timedelta(days=10),
+                                     last_seen=now - datetime.timedelta(days=3)))
+        db.session.add(EcosystemSite(site_key="b" * 32, url="https://other.example.com",
+                                     version="4.13.2", listed=True,
+                                     first_seen=now - datetime.timedelta(days=10),
+                                     last_seen=now - datetime.timedelta(days=3)))
+        db.session.commit()
+        removed = ecosystem.prune_stale_sites(stale_hours=24)
+        assert removed == 1, "只应删掉非自身的过期站点"
+        kept = EcosystemSite.query.filter_by(site_key=self_key).first()
+        assert kept is not None, "自身的过期行不应被误删"
 
 
 # ---------- API ----------

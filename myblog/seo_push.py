@@ -26,7 +26,7 @@
     host 的 GET，半盲 SSRF）。新增任何出网动作都必须走 `_http_post()`，
     否则绕过白名单与禁跳转两道约束。
     ⚠️ 注意区分：**项目内其它模块也有各自的外网调用**（notify / routes / stats /
-    api.ai / api.review / api.system / admin.games 等），「只有一处」仅指本模块。
+    api.ai / api.review / api.system 等），「只有一处」仅指本模块。
 
 配额与退避：
     - 百度单次最多 2000 条 URL（本站取 500 作上限，够了）；

@@ -2025,3 +2025,224 @@ v4.8.3 上线后，三查在真机测试中**自动清掉了 v4.8.3 部署自身
 `EO_BLOCK_DIRECT` 五种场景。
 三处变异验证均实测变红：① 不校验密钥 → 3 条伪造测试红；
 ② 不校验 IP 合法性 → 脏值测试红；③ EO 分支降到 XFF 之后 → 优先级测试红。
+
+---
+
+## R142 · v4.13.2（待发版）生态统计优化安全审查（24h 离线清理 + 独立页 · 无新攻击面）
+
+**范围**：`myblog/ecosystem.py`（`stats()` 展示窗口 30 天→24h 收敛 + 新增 `prune_stale_sites` /
+`_stored_site_key`）、`myblog/app.py`（`_start_scheduler` 每小时生态块新增 prune 调用）、
+前端 `EcosystemView.vue` + `router.js` 路由 + `App.vue` 导航 + `AboutView.vue` 剥离生态板块。
+无新路由、无权限变更、无表结构变更、无迁移。
+
+### 142.1 删除操作的注入面与误删面
+
+`prune_stale_sites()` 的删除条件：
+
+```python
+cutoff = utcnow() - datetime.timedelta(hours=stale_hours)
+q = EcosystemSite.query.filter(EcosystemSite.last_seen < cutoff)
+if exclude_self:
+    sk = _stored_site_key()
+    if sk:
+        q = q.filter(EcosystemSite.site_key != sk)
+```
+
+- `cutoff` 完全由服务端时间算出，**没有任何用户输入参与** → 无注入面（SQLAlchemy ORM 参数化）。
+- `exclude_self=True`（默认）排除本机 `site_key` 对应的那一行：
+  即使中心站某次心跳偶发失败、自身 `last_seen` 变陈旧，也不会把自己删掉；
+  且调度里**心跳先跑**（刷新自身 `last_seen`）、prune 后跑，双保险不会误删自身。
+- `_stored_site_key()` 是**非生成式**读取（不落库造 ID），避免 prune 这种维护动作凭空产生安装 ID。
+- 只动 `ecosystem_site` 表，**不触碰** `visit_log` / 评论 / 文章等任何访客或内容数据。
+
+### 142.2 新页面权限与数据暴露（CWE-200 复核）
+
+- 新页面 `/ecosystem` 仅 `GET /api/ecosystem/stats`，该接口自 v4.7.5 起就是**公开只读**、已有限流，
+  本次未改其鉴权与返回字段结构（仅给 `sites[]` 明细补了 `first_seen` 与带时分时间戳）。
+- 注册表内容仍是**自报**的（`site_key` / `url` / `version` / 时间戳），**不含任何访客数据**；
+  沿用既有设计：**中心端不验证 URL 可达性**（那会成 SSRF 探测器），页面已如实标注「数据自报」。
+- 离线清理把保留期从「30 天不展示」收成「24 小时硬删」—— 留存更少陈旧的「自报」数据，
+  属**隐私正向**变化，无新增泄露通道。
+
+### 142.3 已知残留风险（如实记录）
+
+1. 生态注册表的「真伪」本质上不可验证（心跳可伪造、不验 URL）—— 这是该统计的设计前提，
+   本次未改变；页面免责声明已写明「只反映当前仍在运行的实例」。
+2. `exclude_self` 依赖 `Setting` 里存有本机 `site_key`；若极端情况下该设置缺失，
+   `_stored_site_key()` 返回 None、exclude 失效，但心跳先跑会即时补植 key，下一轮即恢复，
+   且中心站自身行即便被删也会在下一次成功心跳后重新注册，无持久影响。
+
+### 142.4 测试与变异验证
+
+- `tests/test_ecosystem.py` 新增 3 个 prune 用例：超阈值删除 / 无过期返回 0 / exclude_self 保护自身，
+  全文件 **28 passed**。
+- 该轮完成时全量 **1198 passed**（较 v4.13.1 的 1195 + 3）；并入 v5.0.0 后的最终全量见 R143.7。`vite build` 通过（产出 `EcosystemView` chunk）。
+- 变异验证：临时把阈值改到 0h → 「超阈值删除」用例变红（证明删除确实按时间窗生效）；
+  把 `exclude_self` 强制 False → 「保护自身」用例变红（证明 exclude 逻辑真实生效）。
+
+## R143 · v5.0.0（待发版）媒体上传面扩容安全审查
+
+本轮把上传口从「只收 5 种图片」扩到「图片 + 视频 + 分块 + 云存储」，攻击面显著变大。
+按「新增入口逐个过」的口径记录。
+
+### 143.1 上传校验链（顺序即边界）
+
+```
+后缀白名单 → 单文件大小（按 kind 分流）→ 磁盘余量 → 文件头魔数（后缀与内容必须一致）→ 落盘
+```
+
+1. **后缀白名单**：图片 `png/jpg/jpeg/gif/webp`（**仍不含 svg**，svg 可内嵌脚本），
+   视频 `mp4/m4v/mov/webm`。不在白名单直接拒，不读文件内容。
+2. **魔数比旧实现更严**：旧 `_detect_image_magic(header, ext)` **忽略 ext**，只判断
+   「是不是某种图片」，于是 PNG 改名成 .jpg 也能过。新 `validate_magic()` 要求
+   「声明后缀对应的规范类型」== 「文件头真实类型」，不一致即拒
+   （如 `.mp4` 里塞 PNG 字节 → 拒绝）。
+3. **大小分流**：图片 50MB、视频 500MB。**不共用同一个上限** —— 放开视频不能顺带
+   把图片也放到 500MB。
+4. **磁盘闸门**：剩余空间 < 文件大小 + 2GB 直接拒（HTTP 507）。这道闸的意义不在
+   「省空间」，而在**保护 SQLite**：磁盘写满时 WAL 与回滚日志写不进去，整站写入会雪崩。
+
+### 143.2 分块上传的路径与状态安全
+
+- `upload_id` 必须匹配 `^[0-9a-f]{32}$`，且拼出的绝对路径必须落在 `UPLOAD_TMP_DIR`
+  **内**（双重校验）—— 这是本功能唯一的路径穿越入口，测试里对 `../../etc` 有专门用例。
+- `index` 限制在 `[0, 9999]` 整数；单块上限 `2 × chunk_size`（16MB），防止用超大
+  「一块」绕过总大小检查。
+- **合并前三道复核**：块数齐全 → 合并后字节数 == 初始化声明值 → 文件头魔数。
+  任一失败**删除半成品**，绝不入库一个「存在但内容不对」的文件。
+- 临时目录按 mtime 超 24h 清理（在每次 `chunk_init` 时顺手做，不额外加定时任务）。
+- 分块大小 8MB 是**安全与可用性的平衡点**：既保证单请求远低于 gunicorn 30s timeout
+  （否则大文件必然「传到一半 502」），又不给单请求留太大缓冲。
+
+### 143.3 公开展示面（CWE-200）
+
+- `/api/media/*` 的过滤写在 **SQL 层**（`filter(is_public == True)`），不是取回再筛 ——
+  后者一旦加分页就会算错 `total`，也容易在重构中漏掉。
+- 公开接口**不返回** `filename`（磁盘名含秒级上传时间）、`uploaded_by`（上传者 id）、
+  `storage`（部署细节）。私密资源的详情接口返回 404，与「不存在」不区分，避免枚举。
+- 后台 `/admin/media` 与上传/删除要求管理员；**存储后端设置要求超管** ——
+  能改「文件往哪写」等于接管存储，不能下放。
+
+### 143.4 云存储凭据
+
+- OSS SecretKey / WebDAV 密码经 `backup_settings.encrypt_secret()`（Fernet）加密后存
+  `Setting` 表，页面只回显 `••••••`，表单留空 = 不修改（避免「打开设置页一保存就把
+  密钥清空」这类经典事故）。
+- 与 `BACKUP_OSS_*` **完全独立**：备份桶通常私有、图床桶必须公开可读，混用会造成
+  私有桶被公开或图片全 403。
+- 云端上传失败时**保留本地副本并明确提示**，不静默降级 —— 静默降级会让用户以为
+  文件在云上，本地盘被悄悄写满。
+
+### 143.5 正文与 iframe 的边界
+
+- 正文白名单新增 `video` / `source`，属性仅播放控制类（`controls/preload/poster/
+  playsinline/loop/muted/width/height/src/type`）。**仍然没有 `style`、没有任何 `on*`、
+  没有 `iframe`** —— `test_allowlist_has_no_dangerous_tags_or_attrs` 与棘轮哈希双重把关。
+- `_img_to_video()` 生成的 `src` 做了引号转义；`javascript:` 之类即便写进 Markdown，
+  也会在 bleach 阶段被清掉（有专门用例）。
+- 外链播放器**只允许 B 站 / YouTube / Vimeo 的播放器域名**（`normalize_embed()`），
+  且只接受 http/https。**正文里不放 iframe**：外链播放器只在前台图库页由 Vue 以
+  `<iframe :src>` 渲染，域名在登记时已按白名单校验，并带 `sandbox` 属性。
+
+### 143.6 残留风险（明确承认）
+
+1. **没有病毒/恶意内容扫描**：视频只校验容器魔数，不解析内容。自建博客的上传者是
+   管理员本人，风险可接受；若将来开放给普通用户上传，必须补这一层。
+2. **盗链与流量**：文件由 Nginx 直接服务，未加 Referer 防盗链。500MB 视频被外站
+   盗链会消耗真实流量，需要时在 Nginx 侧加 `valid_referers`。
+3. **单块请求仍占 worker 最多 30s**：多人大文件并发上传会挤占并发槽（默认 4 worker）。
+   个人博客量级可接受；要彻底解决需改成后台任务队列。
+4. **云端删除是尽力而为**：远端 API 失败只记日志，可能留下孤儿对象（不会导致 404，
+   因为记录已删）。
+
+### 143.7 测试与变异验证
+
+- **v5.0.0 全量回归：1186 passed**（0 failed）。较并入前的 1198 少 15 条，差额来自删除的 2 个游戏测试文件（`test_games.py` / `test_games_audit_v442.py`）与诊断页参数化用例里移除的 `/admin/games` 一项；新增媒体相关 18 条。
+
+- `tests/test_media_asset.py` **17 passed**：伪装视频拒绝 / 上限分流 / 磁盘闸门 /
+  分块成功 / 缺块拒绝 / 大小不符拒绝 / 会话 ID 穿越 / 公开接口只吐 is_public /
+  类型筛选 / 外链白名单 / img→video / 普通图仍是 img / `<video>` 不被剥 /
+  script+iframe 仍被剥离。
+- 渲染白名单棘轮同步：`EXPECTED_ALLOWLIST_SHA256` 更新、`EXPECTED_RENDER_VERSION="5"`。
+- 变异验证：把 `validate_magic()` 改回「只看是不是图片」→「伪装视频」用例变红；
+  把公开接口的 `is_public` 过滤去掉 →「只返回 is_public」用例变红。
+
+## R144 · v5.0.0（2026-10-28）观感层与整体变更安全审查
+
+R143 已覆盖媒体上传面（分块/魔数/云存储凭据/公开展示）。本轮补审**观感层改版**与
+**本版整体变更面**，按「新增入口逐个过」的口径记录。
+
+### 144.1 观感层（纯样式，攻击面为零但有两条真实风险）
+
+本轮风格改动**只新增 CSS 令牌与覆盖规则，不含任何可执行代码、不含新路由、不含新
+后端逻辑**：新增 21 条 `--ui-*` 令牌（两份 `tokens.css` 取值一致）、新增
+`styles/look.css`（748 行，纯声明式规则）、`admin.css` 末尾追加一段。
+
+按七维逐项过：
+
+| 维度 | 结论 |
+|---|---|
+| XSS | 无。CSS 不承载用户可控内容；`content` 属性未新增 |
+| SQL 注入 | 无。不涉及查询 |
+| 越权 | 无。不涉及路由与权限 |
+| SSRF | 无。观感层未引入 `url()` 外链资源（背景图仍走既有 `--wallpaper`） |
+| CSRF | 无。不涉及写接口 |
+| 密钥泄露 | 无 |
+| 资源泄漏 / 限流 | 无 |
+
+**两条需要记录的真实风险**（都不是漏洞，是「会静默退化」的坑）：
+
+1. **层叠顺序**：覆盖层若放回 `global.css` 末尾会被 `responsive.css:75` 的
+   `.page-title` 压回旧值 —— 表现为「代码写了、构建通过、页面没变」。
+   已由 `tests/test_frontend_css_order.py` 锁死导入顺序，并把判据定为
+   「构建产物里该选择器的**最后一条**是否为新值」。
+2. **scoped 特异性**：带 `<style scoped>` 的组件，其属性选择器特异性高于全局类，
+   观感层覆盖不到（`LoginView` 的 `.oauth-*`、`SearchView` 的 `.sh-*` 已就地改）。
+   这条不设守卫是因为它属于「改的时候要知道」，不是「会自己变坏」。
+
+### 144.2 命名合规（非安全项，按用户要求执行并留档）
+
+风格层命名去掉厂商产品名：`--ios-*` → `--ui-*`、`styles/ios.css` → `styles/look.css`，
+文档措辞改「统一观感层 / 圆润风格」，`Large Title`、`tertiary fill`、`inset grouped`
+等专有叫法换成通用说法。
+
+**保留**的 4 处为技术事实指代，不属于风格自述：`utils/text.py` 的 UA 设备识别
+（Windows / Android / macOS 并列），以及两处「某浏览器对 `background-attachment: fixed`
+存在支持缺陷」的兼容性说明。判据：**说别人家的浏览器/系统 → 保留；说自己产品的风格 → 改掉。**
+
+### 144.3 本版整体变更面复核
+
+- **新增路由**：`/gallery`、`/api/media/list`、`/api/media/folders/<id>`、
+  `/admin/media/update|embed|sync|storage`、`/admin/upload/chunk/init|part|complete|abort`、
+  `/admin/ai-summary/llm-config`。均已核验装饰器：`/admin/*` 全数带管理员或超管装饰器，
+  **存储后端设置要求超管**（能改「文件往哪写」等于接管存储，不能下放）；
+  `/api/media/*` 为公开只读，过滤写在 **SQL 层**（`filter(is_public == True)`）而非取回再筛。
+- **删除路由**：`/api/games*`、`/admin/games*`、前台 `/games` 三条。删除前已
+  `grep` 全部 `url_for('admin.games')` 引用面并改指新入口 —— 否则 AI 摘要页会
+  `BuildError` 500（经验 24 的同类坑，本次在动手前就查了）。
+- **表结构**：新增 `media_asset`（head `d9f1a4c7b2e8` → `f3b7d2a91c58`），**不改任何既有表**；
+  `game` 表保留但代码不再读写，`data/games/` 数据不删。
+- **部署面**：Nginx 需加 `client_max_body_size 40m`（默认 1 MB，漏了表现为「上传转圈后
+  失败且后端日志空白」）；`data/upload_tmp/` 需可写。已写入 `deploy_guide.md` 的 v5.0.0 升级要点。
+
+### 144.4 审计结论表
+
+| 编号 | 级别 | 问题 | 状态 |
+|---|---|---|---|
+| 144-A | 🟡 | 覆盖层放错文件会被 `responsive.css` 压回旧值（静默失效） | 已修 + 已加守卫 `test_frontend_css_order.py` |
+| 144-B | 🟡 | scoped 组件特异性高于全局类，观感层覆盖不到 | 已就地改（LoginView / SearchView），注释记录 |
+| 144-C | 🟡 | 命名借用厂商产品名，存在商标风险 | 已全量改为中性名（`--ui-*` / `look.css`） |
+| 144-D | 🟢 | 观感层七维安全面 | 通过（无可执行代码、无新路由、无外链资源） |
+| 144-E | 🟢 | 新增路由权限 | 通过（管理员 / 超管分级正确） |
+| 144-F | 🟢 | 公开接口过滤 | 通过（SQL 层过滤，不返回 filename / uploaded_by / storage） |
+| 144-G | 🟡 | Nginx 上传上限未配置会导致 413 且后端无日志 | 已写入 deploy_guide 升级要点 ② |
+
+### 144.5 测试与变异验证
+
+- **全量回归 1186 passed / 0 failed**。
+- `test_frontend_css_order.py`（2 条）：锁住 `look.css` 必须在 `responsive.css` 之后导入，
+  且文件非空并引用 `--ui-radius-card`。变异验证：把导入顺序调换 → 立即变红。
+- `test_css_token_ratchet.py`：裸 hex 棘轮守住（颜色一律 `var(--token, 原值)` 兜底）；
+  本版顺带修了该守卫自身的计数 bug 并补了回归用例。
+- `test_wcag_contrast.py` + `test_base_light_matches_token_files`：语义色未被改动，
+  对比度与前后台一致性均在预算内。

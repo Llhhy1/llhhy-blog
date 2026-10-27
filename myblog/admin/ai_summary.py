@@ -145,3 +145,57 @@ def ai_summary_clear(post_id):
     log_audit("clear", "post", post_id, "清除 AI 摘要", user=_current_user_or_none())
     flash("已清除")
     return redirect(url_for("admin.ai_summary"))
+
+
+# ---------------------------------------------------------------- LLM 接口配置
+# v4.14.0：游戏板块下线后，这段配置从 `admin/games.py` 搬到此处 ——
+# **功能不能跟着游戏一起消失**：AI 摘要一直在用它（`api/ai.py` 读同一批键）。
+# 键名保持 `games_llm_*` 不动：改键名会让存量部署的 Key 静默失效，
+# 而这套配置是加密存的，迁移要解密再重新加密，收益为零、风险不小。
+
+def _normalize_llm_base(raw):
+    """归一化 OpenAI 兼容 Base：去掉末尾 `/`，兼容误填完整 `/chat/completions`。"""
+    base = (raw or "").strip().rstrip("/")
+    if base.endswith("/chat/completions"):
+        base = base[: -len("/chat/completions")].rstrip("/")
+    return base
+
+
+@admin_bp.route("/ai-summary/llm-config", methods=["GET", "POST"])
+@super_required
+def ai_llm_config():
+    """LLM 接口配置页（超管）：Base / Key / Model / 总开关。"""
+    from models import Setting
+    from backup_settings import encrypt_secret
+    from outbound import safe_public_url
+
+    def _set(k, v):
+        s = Setting.query.filter_by(key=k).first()
+        if s:
+            s.value = v
+        else:
+            db.session.add(Setting(key=k, value=v))
+
+    if request.method == "POST":
+        base = _normalize_llm_base(request.form.get("base"))
+        if base and not safe_public_url(base):
+            flash("Base URL 必须是公网 http/https 地址（不允许内网/回环/保留地址）")
+            return redirect(url_for("admin.ai_llm_config"))
+        _set("games_llm_on", "1" if request.form.get("on") == "1" else "0")
+        _set("games_llm_base", base)
+        _set("games_llm_model", (request.form.get("model") or "").strip())
+        new_key = (request.form.get("key") or "").strip()
+        if new_key:
+            _set("games_llm_key_enc", encrypt_secret(new_key))
+        db.session.commit()
+        log_audit("update", "setting", 0, "LLM 接口配置", user=_current_user_or_none())
+        flash("已保存（Key 已加密存储）")
+        return redirect(url_for("admin.ai_llm_config"))
+
+    return render_template(
+        "admin/llm_config.html",
+        on=get_setting("games_llm_on", "0"),
+        base=get_setting("games_llm_base", ""),
+        model=get_setting("games_llm_model", "gpt-4o-mini"),
+        key_masked="••••••" if get_setting("games_llm_key_enc", "") else "",
+    )

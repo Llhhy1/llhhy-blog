@@ -161,26 +161,35 @@ async function startOAuthLogin(p) {
 </script>
 
 <style scoped>
-.oauth-box { margin-top: 18px; padding-top: 14px; border-top: 1px dashed var(--border); }
+/* v5.0.0 观感层：虚线分隔改发丝线（--ui-hairline 在暗色下自动反相） */
+.oauth-box { margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--ui-hairline, rgba(60, 60, 67, .12)); }
 .oauth-divider {
   position: relative; text-align: center; margin: 10px 0 12px;
 }
 .oauth-divider::before {
   content: ""; position: absolute; left: 0; right: 0; top: 50%;
-  border-top: 1px solid var(--border);
+  border-top: 1px solid var(--ui-hairline, rgba(60, 60, 67, .12));
 }
 .oauth-divider span {
-  position: relative; background: var(--bg); padding: 0 10px;
+  position: relative; background: var(--bg); padding: 2px 12px;
+  border-radius: var(--ui-radius-pill, 999px);
   font-size: 12px; color: var(--text-muted);
 }
 .oauth-btn {
   display: block; width: 100%; margin-bottom: 8px;
-  padding: 9px 14px; border-radius: var(--theme-radius, 12px);
-  border: 1px solid var(--border-strong, var(--border));
-  background: var(--surface); color: var(--text);
-  font-size: 14px; cursor: pointer; transition: border-color .15s, opacity .15s;
+  padding: 11px 18px; border-radius: var(--ui-radius-pill, 999px);
+  border: 1px solid var(--ui-hairline, rgba(60, 60, 67, .12));
+  background: var(--ui-fill, rgba(120, 120, 128, .10)); color: var(--text);
+  font-size: 14px; font-weight: 500; cursor: pointer;
+  transition: background-color var(--ui-dur-fast, 180ms) ease,
+              border-color .15s,
+              transform var(--ui-dur-fast, 180ms) var(--ui-ease, cubic-bezier(.32, .72, 0, 1));
 }
-.oauth-btn:hover:not(:disabled) { border-color: var(--accent); }
+.oauth-btn:hover:not(:disabled) {
+  background: var(--accent-soft, rgba(25, 109, 221, .10));
+  border-color: var(--accent);
+}
+.oauth-btn:active:not(:disabled) { transform: scale(.97); }
 .oauth-btn:disabled { opacity: .6; cursor: not-allowed; }
 .oauth-github { font-weight: 600; }
 .oauth-google { font-weight: 600; }

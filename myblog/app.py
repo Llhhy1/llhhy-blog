@@ -812,7 +812,13 @@ def _start_scheduler(app):
                         _last_eco_hour[0] = _h
                         try:
                             import ecosystem as _eco
+                            # 心跳先跑：刷新中心站自己的 last_seen，保证下面的 prune 不会误删自己。
                             _eco.report_heartbeat()
+                            # v4.13.2：每小时心跳后顺手清理「超过 24h 无心跳」的离线站点，
+                            # 避免僵尸行虚高「站点数」。失败一律静默，绝不影响发布主流程。
+                            removed = _eco.prune_stale_sites()
+                            if removed:
+                                logger.info("[生态统计] 已清理 %d 个超过 24h 无心跳的离线站点", removed)
                         except Exception:  # noqa: BLE001, S110
                             pass
                     due = Post.query.filter(

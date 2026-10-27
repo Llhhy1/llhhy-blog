@@ -66,11 +66,16 @@ def test_媒体库产出的_url_形态与壁纸一致():
     """
     here = os.path.dirname(os.path.abspath(__file__))
     root = os.path.dirname(here)
-    with open(os.path.join(root, "myblog", "admin", "media.py"), encoding="utf-8") as f:
+    # v4.14.0：URL 的构造点从 admin/media.py 搬到 media_service.register_local() ——
+    # 上传（含分块）与磁盘补登记都走那一处，断言必须跟着搬，否则锁的是一个
+    # 已经不产出 URL 的文件，等于假绿。
+    with open(os.path.join(root, "myblog", "media_service.py"), encoding="utf-8") as f:
         media_src = f.read()
     with open(os.path.join(root, "myblog", "api", "theme.py"), encoding="utf-8") as f:
         theme_src = f.read()
-    assert '"uploads/"' in media_src, "媒体库 URL 形态变了，需同步壁纸白名单"
+    # 两处必须出现**同一个完整前缀** —— 比旧的「各查各的片段」更严：
+    # 谁把前缀改成 /static/media/ 或 /uploads/ 都会立刻红。
+    assert '"/static/uploads/"' in media_src, "媒体库 URL 形态变了，需同步壁纸白名单"
     assert '"/static/uploads/"' in theme_src, "壁纸白名单前缀变了，需同步媒体库"
 
 

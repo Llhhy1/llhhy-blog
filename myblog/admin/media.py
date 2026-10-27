@@ -1,51 +1,107 @@
 # -*- coding: utf-8 -*-
-# 自动切片自 admin.py（v3.11.0）：原样搬运，路由/行为不变。
-from ._helpers import (_current_user_or_none, _detect_image_magic, admin_required, allowed_file,
-                       log_audit, login_required, admin_bp)     # 同一蓝图对象
+# v4.14.0：媒体库从「扫目录」改为「查 media_asset 表 + 磁盘同步」，
+# 并新增分块上传（视频 500MB）、归档元数据编辑、云存储后端设置。
+from ._helpers import (_current_user_or_none, admin_required, log_audit,
+                       login_required, admin_bp)
 from flask import current_app, flash, jsonify, redirect, render_template, request, url_for
-from werkzeug.utils import secure_filename
-from models import Post
+from sqlalchemy import or_
+from models import db, Post, MediaAsset
 from utils import fmt_bj
 import datetime
 import os
 import time
 
+import media_service
+import media_storage
+
+
+# ---------------------------------------------------------------- 上传（单发）
+
 @admin_bp.route("/upload", methods=["POST"])
 @login_required
 def upload():
-    """接收后台上传的图片，保存到 static/uploads，返回可访问的 URL。
+    """单请求上传（图片 ≤50MB / 视频 ≤16MB）。更大文件走 `/admin/upload/chunk/*`。
 
-    v3.1.6 安全加固：不仅要后缀名在白名单，还须校验文件内容魔数（magic bytes），
-    防「伪装成 .png/.jpg 的脚本或 HTML」上传后被访问执行（XSS/钓鱼）。
+    校验链全部在 `media_service.save_single()`：后缀白名单 → 魔数 → 大小 → 磁盘余量。
+    这里只负责把异常翻译成 HTTP 响应。
     """
     file = request.files.get("file")
-    if not file or file.filename == "":
-        return jsonify({"error": "没有选择文件"}), 400
-    if not allowed_file(file.filename):
-        return jsonify({"error": "只支持 png/jpg/jpeg/gif/webp 图片"}), 400
-    # v3.1.6：读文件头 16 字节做魔数校验（不落盘判断，防后缀伪装）
-    header = file.stream.read(16)
-    file.stream.seek(0)  # 读完回卷，让 file.save 能从头保存
-    if not _detect_image_magic(header, file.filename.rsplit(".", 1)[1].lower()):
-        return jsonify({"error": "文件内容与图片格式不符，已拒绝（仅允许真实图片）"}), 400
-    filename = secure_filename(file.filename)
-    # 用时间戳前缀避免重名覆盖
-    filename = f"{int(time.time())}-{filename}"
-    save_dir = current_app.config["UPLOAD_FOLDER"]
-    os.makedirs(save_dir, exist_ok=True)
-    save_path = os.path.join(save_dir, filename)
-    file.save(save_path)
-    # 图片优化：体积较大时转 WebP 省流量（Pillow 未装则零依赖降级，保持原格式）
     try:
-        from app import maybe_convert_webp
-        new_path = maybe_convert_webp(save_path)
-        if new_path != save_path:
-            filename = os.path.basename(new_path)
-    except Exception:  # noqa: S110  可选依赖/可选模块，缺了就跳过这条增强路径
-        pass
-    url = url_for("static", filename=f"uploads/{filename}")
-    return jsonify({"url": url})
+        asset = media_service.save_single(file, user_id=_uid(),
+                                          folder=(request.form.get("folder") or "").strip())
+    except media_service.MediaError as e:
+        return jsonify({"error": e.message}), e.status
+    except Exception as e:  # noqa: BLE001
+        current_app.logger.exception("[media] 上传异常")
+        return jsonify({"error": "上传失败：%s" % str(e)[:120]}), 500
 
+    return jsonify({
+        "url": asset.url, "id": asset.id, "kind": asset.kind,
+        "title": asset.title, "size": asset.size,
+        "cloud_error": getattr(asset, "cloud_error", ""),
+    })
+
+
+# ---------------------------------------------------------------- 上传（分块）
+
+@admin_bp.route("/upload/chunk/init", methods=["POST"])
+@login_required
+def upload_chunk_init():
+    """开一个分块会话。前端按返回的 `chunk_size` 切片，逐块 POST。"""
+    body = request.get_json(silent=True) or {}
+    try:
+        info = media_service.chunk_init(body.get("filename"), body.get("size"),
+                                        user_id=_uid(),
+                                        folder=(body.get("folder") or "").strip())
+    except media_service.MediaError as e:
+        return jsonify({"error": e.message}), e.status
+    return jsonify(info)
+
+
+@admin_bp.route("/upload/chunk", methods=["POST"])
+@login_required
+def upload_chunk_part():
+    """接收第 N 块。**每块 8MB**，单请求耗时远低于 gunicorn 的 30s timeout。"""
+    part = request.files.get("chunk")
+    data = part.read() if part else request.get_data()
+    try:
+        info = media_service.chunk_save(request.form.get("upload_id"),
+                                        request.form.get("index"), data)
+    except media_service.MediaError as e:
+        return jsonify({"error": e.message}), e.status
+    return jsonify(info)
+
+
+@admin_bp.route("/upload/chunk/complete", methods=["POST"])
+@login_required
+def upload_chunk_complete():
+    """合并分块 → 复核大小与魔数 → 落盘/上云 → 登记。"""
+    body = request.get_json(silent=True) or request.form
+    try:
+        asset = media_service.chunk_complete(body.get("upload_id"), user_id=_uid())
+    except media_service.MediaError as e:
+        return jsonify({"error": e.message}), e.status
+    except Exception as e:  # noqa: BLE001
+        current_app.logger.exception("[media] 分块合并异常")
+        return jsonify({"error": "合并失败：%s" % str(e)[:120]}), 500
+    return jsonify({"url": asset.url, "id": asset.id, "kind": asset.kind,
+                    "title": asset.title, "size": asset.size,
+                    "cloud_error": getattr(asset, "cloud_error", "")})
+
+
+@admin_bp.route("/upload/chunk/abort", methods=["POST"])
+@login_required
+def upload_chunk_abort():
+    """取消上传：删临时目录。前端在用户取消或重试前调用。"""
+    body = request.get_json(silent=True) or request.form
+    try:
+        media_service.chunk_abort(body.get("upload_id"))
+    except media_service.MediaError as e:
+        return jsonify({"error": e.message}), e.status
+    return jsonify({"ok": True})
+
+
+# ---------------------------------------------------------------- 引用判定
 
 def media_refs_for(name, posts=None):
     """列出**疑似**引用某上传文件的在库文章（封面 / 正文），完整返回、不截断。
@@ -76,58 +132,143 @@ def media_refs_for(name, posts=None):
     return refs
 
 
-def collect_media(folder=None):
-    """媒体库清单的唯一实现（v4.4.0 抽出，后台页面与 `/api/mobile/media` 共用）。
+# ---------------------------------------------------------------- 清单
 
-    返回按上传时间倒序的 dict 列表，键名与既有模板保持一致（`name/url/size/ts/time_str/
-    refs/ref_total`），后台模板不用改。
+_SYNC_AT = [0.0]          # 上次磁盘同步时间（秒）；节流用，避免每次进页面都扫目录
 
-    两个已知代价，写在这里而不是藏在调用方：
-      · 一次读全目录，**引用判定是 O(文件数 × 文章数)** 的字符串包含 —— 上传目录大了会慢，
-        但引用信息正是「删这张图会不会让文章图裂」的唯一依据，砍掉它就等于没有提醒。
-      · 时间取文件名前缀的 unix 秒（上传时 `f"{int(time.time())}-{name}"` 写进去的），
-        不是 `st_mtime`：移动/恢复文件不会改变显示顺序，比 mtime 稳。
+
+def collect_media(folder=None, kind=None, q=None):
+    """媒体库清单的唯一实现（后台页面 / 移动端 / 主题中心壁纸选择器共用）。
+
+    v4.14.0 改为**查表**：`media_asset` 是元数据真相源，磁盘只负责存字节。
+    返回键名与旧实现保持兼容（`name/url/size/ts/time_str/refs/ref_total`），
+    额外补 `id/kind/title/folder/storage/is_public/created_str`。
+
+    **磁盘同步节流**：v4.14.0 之前上传的图片没有表记录，首次进页面必须补登记，
+    否则它们在媒体库里会「集体消失」。但每次进页面都扫目录没必要，故 60s 内只做一次。
     """
-    folder = folder or current_app.config["UPLOAD_FOLDER"]
-    items = []
-    try:
-        names = [n for n in os.listdir(folder) if not n.startswith(".")]
-    except OSError:
-        names = []
-    posts = Post.query.filter(Post.in_trash == False).all()  # noqa: E712  (与既有实现一致)
-    for n in names:
-        fp = os.path.join(folder, n)
+    now = time.time()
+    if now - _SYNC_AT[0] > 60:
         try:
-            st = os.stat(fp)
-        except OSError:
-            continue
-        if not os.path.isfile(fp):
-            continue
+            media_service.sync_from_disk()
+        except Exception as e:  # noqa: BLE001  同步失败不该让页面打不开
+            current_app.logger.warning("[media] 磁盘同步失败：%s", str(e)[:120])
+        _SYNC_AT[0] = now
+
+    query = MediaAsset.query.filter(MediaAsset.source == "local")
+    if kind in ("image", "video"):
+        query = query.filter(MediaAsset.kind == kind)
+    if folder:
+        query = query.filter(MediaAsset.folder == folder)
+    if q:
+        like = "%" + q + "%"
+        query = query.filter(or_(MediaAsset.title.like(like), MediaAsset.filename.like(like)))
+
+    rows = query.order_by(MediaAsset.created_at.desc(), MediaAsset.id.desc()).all()
+    posts = Post.query.filter(Post.in_trash == False).all()  # noqa: E712  (与既有实现一致)
+
+    items = []
+    for a in rows:
+        name = a.filename or ""
         ts = 0
-        head = n.split("-", 1)[0]
+        head = name.split("-", 1)[0]
         if head.isdigit():
             ts = int(head)
-        refs = media_refs_for(n, posts)
+        refs = media_refs_for(name, posts) if name else []
+        created = a.created_at or (datetime.datetime.utcfromtimestamp(ts) if ts else None)
         items.append({
-            "name": n,
-            "url": url_for("static", filename="uploads/" + n),
-            "size": st.st_size,
+            # —— 旧键（后台模板 / 移动端 / 主题中心依赖，不要改名）——
+            "name": name,
+            "url": a.url,
+            "size": a.size or 0,
             "ts": ts,
-            "time_str": fmt_bj(datetime.datetime.utcfromtimestamp(ts), "%Y-%m-%d %H:%M") if ts else "",
+            "time_str": fmt_bj(created, "%Y-%m-%d %H:%M") if created else "",
             "refs": refs[:6],
             "ref_total": len(refs),
+            # —— v4.14.0 新增 ——
+            "id": a.id,
+            "kind": a.kind,
+            "title": a.title or "",
+            "folder": a.folder or "",
+            "storage": a.storage or "local",
+            "is_public": bool(a.is_public),
+            "width": a.width,
+            "height": a.height,
+            "duration": a.duration,
+            "poster": a.poster or "",
+            "mime": a.mime or "",
+            "size_str": media_service.human_size(a.size),
         })
-    items.sort(key=lambda x: x["ts"], reverse=True)
     return items
 
 
+def folders():
+    """已用过的归档分类（给筛选下拉与编辑时的候选）。"""
+    rows = db.session.query(MediaAsset.folder).filter(
+        MediaAsset.folder.isnot(None), MediaAsset.folder != "").distinct().all()
+    return sorted({r[0] for r in rows if r[0]})
+
+
+# ---------------------------------------------------------------- 页面
+
+@admin_bp.route("/media", methods=["GET"])
+@admin_required
+def media_lib():
+    """媒体库：图片 / 视频分栏、归档分类筛选、关键词搜索、元数据编辑。"""
+    u = _current_user_or_none()
+    kind = (request.args.get("kind") or "").strip()
+    folder = (request.args.get("folder") or "").strip()
+    q = (request.args.get("q") or "").strip()
+    return render_template(
+        "admin/media_lib.html",
+        items=collect_media(folder=folder or None, kind=kind or None, q=q or None),
+        folders=folders(), cur_kind=kind, cur_folder=folder, cur_q=q,
+        is_super=bool(u and getattr(u, "is_super", False)),
+        storage=media_storage.status(),
+        image_max=media_service.human_size(media_service.max_bytes_for("image")),
+        video_max=media_service.human_size(media_service.max_bytes_for("video")),
+        chunk_size=media_service.human_size(
+            current_app.config.get("UPLOAD_CHUNK_SIZE", 8 * 1024 * 1024)),
+        single_max=media_service.human_size(
+            current_app.config.get("UPLOAD_SINGLE_SHOT_MAX", 16 * 1024 * 1024)),
+        # JS 需要的是字节数（用来判断走单发还是分块），不是给用户看的字符串
+        single_max_bytes=current_app.config.get("UPLOAD_SINGLE_SHOT_MAX", 16 * 1024 * 1024),
+        chunk_bytes=current_app.config.get("UPLOAD_CHUNK_SIZE", 8 * 1024 * 1024),
+    )
+
+
+@admin_bp.route("/media/update", methods=["POST"])
+@admin_required
+def update_media():
+    """编辑归档元数据：标题 / 分类 / 是否公开展示 / 视频封面。"""
+    aid = request.form.get("id", type=int)
+    a = db.session.get(MediaAsset, aid) if aid else None
+    if not a:
+        flash("资源不存在")
+        return redirect(url_for("admin.media_lib"))
+    a.title = (request.form.get("title") or "").strip()[:200]
+    a.folder = (request.form.get("folder") or "").strip()[:60]
+    a.is_public = request.form.get("is_public") == "1"
+    poster = (request.form.get("poster") or "").strip()
+    if poster and not (poster.startswith("/static/uploads/") or poster.startswith("https://")):
+        flash("封面地址必须是本站 /static/uploads/ 或 https 地址")
+        return redirect(url_for("admin.media_lib"))
+    a.poster = poster[:800]
+    db.session.commit()
+    log_audit("update", "media", a.id, "编辑媒体元数据：%s" % (a.title or a.filename),
+              user=_current_user_or_none())
+    flash("已保存")
+    return redirect(url_for("admin.media_lib"))
+
+
+# ---------------------------------------------------------------- 删除
+
 def delete_media_core(name):
-    """删除 uploads 里的一个文件 → `(是否成功, 说明)`。路径校验与既有实现逐条一致。
+    """删除一个媒体文件 → `(是否成功, 说明)`。路径校验与既有实现逐条一致。
 
     五道防护：①`basename` 剥掉一切目录成分 ②拒空串 / `.` / `..`
     ③绝对路径必须落在 uploads **那一层内** ④必须是普通文件 ⑤才敢 `os.remove`。
-    副作用沿用现状：只删点名的那个文件，`maybe_convert_webp` 生成的同名 `.avif` 旁路
-    会留成孤儿（不在本次改动范围内，需要的话另开一条清孤儿文件的维护接口）。
+    v4.14.0 追加：同时删掉 `media_asset` 行；云存储后端会尝试删远端对象（尽力而为）。
     """
     safe = os.path.basename((name or "").strip())
     if not safe or safe in (".", ".."):
@@ -143,31 +284,28 @@ def delete_media_core(name):
             return False, "该图片正被首屏壁纸引用，请先到「主题中心」更换或清除壁纸再删除"
     except Exception as e:  # noqa: BLE001 （检查挂了不该让管理员完全删不了文件）
         current_app.logger.warning("[media] 壁纸引用检查失败，放行删除：%s", str(e)[:120])
+
+    asset = MediaAsset.query.filter_by(filename=safe).first()
     folder = current_app.config["UPLOAD_FOLDER"]
     fp = os.path.join(folder, safe)
-    if not os.path.abspath(fp).startswith(os.path.abspath(folder) + os.sep) or not os.path.isfile(fp):
+    existed = os.path.isfile(fp) and os.path.abspath(fp).startswith(os.path.abspath(folder) + os.sep)
+    if existed:
+        try:
+            os.remove(fp)
+        except OSError as e:
+            return False, "删除失败：" + str(e)[:120]
+    elif not asset:
         return False, "文件不存在"
-    try:
-        os.remove(fp)
-    except OSError as e:
-        return False, "删除失败：" + str(e)[:120]
+
+    if asset:
+        storage = asset.storage or "local"
+        try:
+            media_storage.delete_remote(asset.filename, storage)
+        except Exception as e:  # noqa: BLE001  远端删不掉不该阻断本地清理
+            current_app.logger.warning("[media] 远端删除失败：%s", str(e)[:120])
+        db.session.delete(asset)
+        db.session.commit()
     return True, safe
-
-
-@admin_bp.route("/media", methods=["GET"])
-@admin_required
-def media_lib():
-    """媒体库（v3.14.0）：浏览 / 复用 / 删除 static/uploads 下已上传的图片（仅管理员）。
-
-    按文件名里的时间戳前缀倒序（后上传在前）。每张图标注文件大小、归属类型与
-    「疑似引用它的文章」，删除前有明确提醒，避免误删正在使用的封面/插图。
-    """
-    # v4.7.4：「设为壁纸」是**超管**操作（写壁纸走 /api/theme，那边要求 is_super），
-    # 而本页是管理员可进 —— 权限不同，所以按钮只对超管显示，
-    # 否则普通管理员点了只会拿到一个 403 白板。
-    u = _current_user_or_none()
-    return render_template("admin/media_lib.html", items=collect_media(),
-                           is_super=bool(u and getattr(u, "is_super", False)))
 
 
 @admin_bp.route("/media/delete", methods=["POST"])
@@ -181,3 +319,88 @@ def delete_media():
     else:
         flash(msg)
     return redirect(url_for("admin.media_lib"))
+
+
+# ---------------------------------------------------------------- 外链 / 同步 / 云存储
+
+@admin_bp.route("/media/embed", methods=["POST"])
+@admin_required
+def media_embed():
+    """登记一条外链播放器（B 站 / YouTube / Vimeo），不占磁盘。"""
+    try:
+        asset = media_service.register_embed(
+            request.form.get("url"), title=(request.form.get("title") or "").strip(),
+            folder=(request.form.get("folder") or "").strip(), user_id=_uid())
+    except media_service.MediaError as e:
+        flash(e.message)
+        return redirect(url_for("admin.media_lib"))
+    flash("已登记外链视频")
+    log_audit("create", "media", asset.id, "登记外链视频：%s" % asset.url,
+              user=_current_user_or_none())
+    return redirect(url_for("admin.media_lib"))
+
+
+@admin_bp.route("/media/sync", methods=["POST"])
+@admin_required
+def media_sync():
+    """手动把 uploads/ 里未登记的文件补进表（升级后第一次进媒体库会自动做一次）。"""
+    n = media_service.sync_from_disk()
+    flash("已补登记 %d 个文件" % n)
+    return redirect(url_for("admin.media_lib"))
+
+
+_STORAGE_KEYS = (
+    "media_backend", "media_oss_bucket", "media_oss_region", "media_oss_endpoint",
+    "media_oss_key", "media_oss_public_base", "media_oss_prefix",
+    "media_webdav_url", "media_webdav_user", "media_webdav_public_base",
+    "media_webdav_prefix",
+)
+_SECRET_KEYS = ("media_oss_secret", "media_webdav_password")
+
+
+@admin_bp.route("/media/storage", methods=["POST"])
+@admin_required
+def media_storage_save():
+    """保存云存储后端配置。
+
+    **超管专属**：这里能改的是「文件往哪写」，普通管理员改了等于接管存储。
+    密钥走 Fernet 加密后落库；表单里留空 = 保持原值（页面上只显示掩码）。
+    """
+    u = _current_user_or_none()
+    if not (u and getattr(u, "is_super", False)):
+        flash("只有超级管理员可以修改存储后端")
+        return redirect(url_for("admin.media_lib"))
+
+    from models import Setting
+    from backup_settings import encrypt_secret
+
+    if request.form.get("action") == "test":
+        ok, msg = media_storage.test_connection()
+        flash(("连接成功：" if ok else "连接失败：") + str(msg)[:160])
+        return redirect(url_for("admin.media_lib"))
+
+    for k in _STORAGE_KEYS:
+        if k in request.form:
+            _put_setting(Setting, k, (request.form.get(k) or "").strip()[:500])
+    for k in _SECRET_KEYS:
+        v = (request.form.get(k) or "").strip()
+        if v:                       # 留空 = 不修改
+            _put_setting(Setting, k, encrypt_secret(v)[:1000])
+    log_audit("update", "settings", None, "修改媒体存储后端为：%s"
+              % (request.form.get("media_backend") or "local"), user=u)
+    flash("存储配置已保存")
+    return redirect(url_for("admin.media_lib"))
+
+
+def _put_setting(Setting, key, value):
+    row = Setting.query.filter_by(key=key).first()
+    if row:
+        row.value = value
+    else:
+        db.session.add(Setting(key=key, value=value))
+    db.session.commit()
+
+
+def _uid():
+    u = _current_user_or_none()
+    return getattr(u, "id", None) if u else None

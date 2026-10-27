@@ -2,7 +2,7 @@
 
 前后端分离的个人博客：**Flask** 后端（JSON API + 管理后台）+ **Vue3** 前台（SPA）。单仓库托管前后端代码、部署文档与安全报告。
 
-- 当前版本：**v4.13.1**
+- 当前版本：**v5.0.0**
 - **版本历史一律记在 [CHANGELOG.md](CHANGELOG.md)，README 不重复记录。**
 
 ## 功能一览
@@ -10,6 +10,7 @@
 - **内容**：Markdown 写作（代码高亮）、定时发布、置顶、分类 / 标签 / 归档 / 系列专栏、每篇独立 SEO 字段、RSS / Atom / sitemap / robots、多语言与译文回退
 - **搜索**：SQLite FTS5 全文搜索（环境不支持时自动降级 LIKE）、搜索历史（本地记录最近词）
 - **阅读**：目录 TOC、阅读进度条、相关文章推荐、图片懒加载 + AVIF / WebP、阅读量防刷、多作者署名
+- **媒体**：图床（图片 50MB / 视频 500MB，超 16MB 自动分块断点续传）、视频正文直接播放、`/gallery` 图库归档页（分类 + 公开开关）、云存储外挂（OSS / COS / S3 兼容 或 WebDAV 网盘）
 - **互动**：评论（登录 / 匿名，嵌套回复）、文章与评论点赞、表情回应、留言墙
 - **社交**：广场微动态、友链 RSS 聚合（博客圈）、社交账号墙
 - **写作后台**：分屏实时预览、云端自动保存、免登录预览链接、文章管理（筛选 / 排序 / 批量操作）、内容日历（月历聚合草稿 / 定时 / 已发布）、媒体库、版本历史逐行对比、AI 摘要
@@ -53,7 +54,33 @@ npm run dev              # http://localhost:5173
 完整宝塔面板点按式教程见 [myblog/deploy_guide.md](myblog/deploy_guide.md)。
 可选配置（MCP / 邮件 / 友链 RSS / 自动部署 / 排错）已拆分到 [docs/deploy/](docs/deploy/)。
 
+### 服务器最低配置
+
+个人博客量级（日均几千 PV）够用的门槛，**低于「最低」不建议部署**：
+
+| 项目 | 最低 | 推荐 | 说明 |
+|---|---|---|---|
+| **CPU** | 1 核 | 2 核 | 1 核须把 gunicorn `workers` 从 4 降到 2（改 `gunicorn_conf.py`），否则请求排队明显 |
+| **内存** | 1 GB + 2 GB swap | 2 GB | 每个 worker 常驻 90~130 MB，4 worker + Nginx + 宝塔面板合计约 1.2~1.5 GB（由下方单进程实测值推算） |
+| **磁盘** | 10 GB | 20 GB | 系统 + 宝塔约 4~6 GB，Python 虚拟环境约 120 MB，代码 13 MB，前端产物 650 KB；余量留给上传图片与备份 |
+| **系统** | x86_64 / arm64 Linux | Debian 12/13、Ubuntu 22.04+ | 部署手册以 Debian 13 + 宝塔面板为例，其他发行版菜单大同小异 |
+| **Python** | **3.10** | 3.13 | 低于 3.10 装不上依赖（`bleach 6.4.0` / `cryptography 50.0.1` 的 `requires_python` 下限） |
+
+> **内存口径来自实测，不是拍脑袋**：Python 解释器空载 22 MB，导入 Flask / SQLAlchemy / Pillow / cryptography / markdown / bleach / feedparser 全套后约 **81 MB**；gunicorn 每个 worker 是独立进程，处理请求后堆继续增长到 90~130 MB。官方站点本身就是 2 核 2 GB、`workers = 4, threads = 2`（见 [`gunicorn_conf.py`](gunicorn_conf.py)）。
+
+**不需要**（省下的都是钱）：
+
+- **MySQL / PostgreSQL** —— 内置 SQLite，单文件、零运维，备份就是拷一个文件
+- **Redis** —— 可选。只有多 worker 想统一限流计数时才需要（配 `REDIS_URL` 即启用），不配自动回退进程内限流
+- **Node.js** —— 服务器只托管构建好的静态文件；Node 18+ 只在**你自己电脑**上构建前端时需要
+- **独立数据库服务器 / 对象存储** —— 备份到 OSS / WebDAV / SCP 是可选项，本地磁盘备份开箱即用
+
+> ⚠️ **1 核 1 GB 的注意点**：内存是硬约束——`update.sh` 里的 `pip install` 和备份打包是两个内存峰值，**必须开 swap**，否则容易 OOM 被杀。如果预算能加，直接把内存从 1 GB 提到 2 GB 比升 CPU 收益大。
+
+### 部署要点
+
 - **后端**：gunicorn 运行 `myblog`（监听 8686），Nginx 反代 `/api/`、`/admin`、`/static/`
+- **Nginx 必加**：`client_max_body_size 40m;`（默认只有 1MB，否则稍大的图片/分块会被 413，后端日志里看不到任何错误）
 - **前端**：`npm run build` 后把 `dist/` 作为静态站根目录
 - **必配环境变量**：`SECRET_KEY`、`ADMIN_PASSWORD`
 - **升级**：覆盖后端与前端后，gunicorn 必须「**停止 → 启动**」（restart 不会重载前端静态资源），再硬刷新浏览器

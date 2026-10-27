@@ -141,6 +141,7 @@ supervisorctl status
 **另外确认**：域名已在域名商后台做好 A 记录解析（主机记录 `@` 和 `www`，记录值填服务器公网 IP）。解析通常几分钟生效。
 
 **部署前置条件**（以宝塔面板为例，若已具备可跳过）：
+- ✅ **机器规格**见 [README「服务器最低配置」](../README.md#服务器最低配置)：**最低 1 核 1 GB**（须开 2 GB swap 并把 worker 降到 2），**推荐 2 核 2 GB**（默认 4 worker）；磁盘 ≥10 GB，Python ≥3.10。
 - ✅ Nginx 1.30.4 已安装
 - ✅ Python 3.13.5 系统级环境已就绪（但**不能直接作为项目环境**，需先基于它创建虚拟环境，见第 2 步）；**注意 v3.17.14 起 `requirements.txt` 要求 Python ≥3.10**（bleach 6.4.0 / cryptography 50.0.1 的 `requires_python` 下限），低于 3.10 会 `pip install` 失败。本机 3.13.5 满足。
 - ✅ 宝塔 v13 的 Python 项目入口在：左侧「网站」→ 顶部「Python项目」
@@ -272,6 +273,13 @@ for p in $(pgrep -f 'gunicorn.*myblog'); do echo "pid=$p threads=$(ls /proc/$p/t
 4. 左侧点 **「配置文件」**，在 `server { }` 块里**找到并替换** `location / { ... }` 这段为（整段复制粘贴覆盖）：
 
 ```nginx
+    # ⚠️ v4.14.0 必加：媒体库允许 50MB 图片 / 500MB 视频（分块每块 8MB）。
+    # Nginx 默认 client_max_body_size 是 **1MB** —— 不放开的话，稍大的图
+    # 会直接被 413 拦在 Flask 之外，表现为「上传转圈后失败」且后端日志里什么都没有。
+    # 这里按「单块 + 表单开销」给 40MB 就够（不是 500MB：视频走分块，每块 8MB）。
+    client_max_body_size 40m;
+    client_body_timeout 120s;
+
     # Vue 单页应用：找不到文件就回退到 index.html（刷新/直达文章页不 404）
     location / {
         try_files $uri $uri/ /index.html;
@@ -976,7 +984,7 @@ sha256sum /tmp/og.png /www/wwwroot/你的站点根/og-default.png
 5. **重启后端（关键）**：宝塔「网站 → Python项目」→ 该项目 → **先点「停止」，再点「启动」**。
    - ⚠️ 只点「重启」可能只是重载配置，gunicorn 旧进程没退出，页面还是旧版；
    - 可用 `ps -ef | grep gunicorn` 看进程启动时间，确认是新进程；
-   - 若需核对迁移基线：先执行 `flask db current`，再按上方第 4 步的分支处理（空版本 / 旧基线都直接 `flask db upgrade`）。**绝对不要 `flask db stamp head`** —— 它会把版本号直接写成当前 head，跳过待执行的列/索引变更，形成「版本号已升级、表结构没变」的假升级。当前 head 以 `flask db heads` 为准（v4.9.0 起为 **`d9f1a4c7b2e8`**）。
+   - 若需核对迁移基线：先执行 `flask db current`，再按上方第 4 步的分支处理（空版本 / 旧基线都直接 `flask db upgrade`）。**绝对不要 `flask db stamp head`** —— 它会把版本号直接写成当前 head，跳过待执行的列/索引变更，形成「版本号已升级、表结构没变」的假升级。当前 head 以 `flask db heads` 为准（v5.0.0 起为 **`f3b7d2a91c58`**；此前 v4.9.0~v4.13.1 为 `d9f1a4c7b2e8`）。
 6. **覆盖前端**：上传新版 `vue-frontend-dist.zip` 到 `/www/wwwroot/vue-frontend/` → 解压覆盖 `index.html` + `assets/`（**无需重启后端**）。
 7. **验证**：浏览器**无痕窗口**打开（避免缓存）：
    - 后台左下角显示 `vX.Y.Z`，与 [GitHub Releases](https://github.com/Llhhy1/llhhy-blog/releases) 最新标签一致 → 后端升级成功；
@@ -1426,6 +1434,41 @@ python verify_package_checksums.py
 > **v3.17.10（update.sh 清理旧 assets + 文档页代码高亮修复）升级要点**：`update.sh` 前端覆盖步骤新增「先清 `assets/` 再解压」（防止历史 hash chunk 堆积）；文档页 `/docs` 的 highlight.js 由 cdnjs 动态注入改为**本地打包**（原被 CSP 拦截、高亮从未生效）。**只需覆盖前端包**（后端仅版本号）；无迁移、无新依赖。
 > **v3.17.9（复制修复 + 后台移动端 + AI 摘要 + 社交墙独立页）升级要点**：**前后端包都要覆盖**（前端新增 `lib/clipboard.js`、`lib/social.js`、`SocialView.vue` 与路由 `/social`；后台模板改造复制调用、`admin.css` 补移动端规则、`social.html` 加平台预设）。**无迁移、无新依赖**。验证：手机端打开后台「备份配置」与「诊断助手」不再挤压/溢出；任一「复制」按钮（后台媒体库/预览链接、前台代码块/分享链接）可复制并给出提示；后台「AI 摘要」页摘要完整可读；前台导航出现「🔗 社交」，主页出现「找到我」区块，`/social` 卡片墙正常。
 > **v3.17.3（评论表情回应 + 访客来源分析）升级要点**：**前后端包都要覆盖**（后端新增 `api/reactions.py`、VisitLog 新列 `referrer` 与 `/api/stats/referrers`；前端新增评论表情条与统计页「访客来源 Top 10」）。**VisitLog 的 `referrer` 列由启动自愈自动添加**（`_migrate_visit_log_table` 幂等补列，重启即生效）——**无需手动迁移**；备用脚本 `myblog/migrate_visit_log_referrer.py`（幂等）仅当自愈失效时手动跑。表情回应计数存 Setting KV（`react_<评论id>`），零表结构变更。验证：评论区出现 👍❤️😂🎉🤔👏 表情条（点击 +1，再点取消）；统计页出现「🧭 访客来源 Top 10」卡（需积累几天外部访问数据）；后台左下角 v3.17.3。**v3.17.3 同版补全「🗺️ 访客地图」**（`/annual` 页，阿里 DataV 合规底图由后端缓存 7 天，无需任何 key；仅省级聚合、不含个人位置；底图不可用时前端自动降级为地域榜）。
+> **v5.0.0（媒体库升级为图床 + 游戏下线 + 前后台统一观感）升级要点**：**前后端包都要覆盖**。
+>
+> **① 迁移（本版有）**：新增 `media_asset` 表，Alembic head 由 `d9f1a4c7b2e8` → **`f3b7d2a91c58`**。
+> `update.sh` 会自动跑 `flask db upgrade`；**只加新表，不改任何既有表**。`game` 表**保留但代码不再读写**
+> （游戏板块整体下线），需要清空可自行操作。旧图片由 `sync_from_disk()` 幂等补登记，**升级后媒体库不会变空**。
+>
+> **② 🔴 Nginx 必加（漏了最难排查）**：
+> ```nginx
+> client_max_body_size 40m;
+> client_body_timeout 120s;
+> ```
+> 不加的后果：Nginx 默认只放行 **1 MB**，超过的上传被 413 拦在 Flask 之外 ——
+> 表现为「转圈后失败」，而**后端日志里什么都没有**。40m 是按「分块每块 8 MB + 表单开销」给的，
+> 视频总大小不受此限（走分块）。改完 `nginx -s reload`。
+>
+> **③ 目录权限**：`data/upload_tmp/`（分块临时目录）需可写，超过 24h 的残留会在每次 `chunk_init` 时自动清。
+>
+> **④ 可选环境变量**（不设则用默认值 50 / 500 / 2）：`MEDIA_IMAGE_MAX_MB`、`MEDIA_VIDEO_MAX_MB`、
+> `MEDIA_DISK_RESERVE_GB`（上传前要求剩余空间 ≥ 文件大小 + 该值，保护 SQLite 不被写满）。
+> **小盘服务器建议调低 `MEDIA_VIDEO_MAX_MB`**。
+>
+> **⑤ 可选依赖**：仅当媒体存储选「对象存储」时需要 `boto3`；未安装会在媒体库页面**明确报错**，
+> 不静默降级成本地存储（否则用户以为文件在云上，本地盘被悄悄写满）。
+>
+> **⑥ 渲染缓存失效**：`_RENDER_VERSION` 4 → 5（正文白名单新增 `video`/`source`），
+> 升级后**首次访问每篇文章会重渲染一次**（属正常，随后恢复缓存速度）。
+>
+> **⑦ 路由变化**：新增前台 `/gallery`、`/api/media/*`、`/admin/upload/chunk/*`、LLM 配置页
+> `/admin/ai-summary/llm-config`（**从已下线的「游戏收录」搬来**，AI 摘要一直在用同一套配置）；
+> 删除 `/games`、`/games/dev`、`/games/:slug` 与 `/api/games*`、`/admin/games*`。
+>
+> **⑧ 验证**：后台左下角 `v5.0.0`；后台「🖼️ 媒体库」出现云存储后端面板与分栏归档；
+> 前台导航出现「🖼️ 图库」；`flask db current` 为 `f3b7d2a91c58`；
+> `nginx -T | grep client_max_body_size` 有值；上传一张 >1 MB 的图片能成功（同时验证 ②）。
+
 > **v3.17.2（后台移动端修复 + 打印优化 + 成就徽章）升级要点**：**前后端包都要覆盖**（后端新增 `GET /api/milestones` 与 `admin.css` 移动端规则；前端含打印样式与 `/annual` 徽章区）。覆盖两包 → gunicorn「停止 → 启动」；**无迁移、无新依赖**。验证：手机端打开后台各菜单（设置 / 写文章 / 媒体库 / 统计 / MCP 服务等）无横向溢出、写文章面板变单列；浏览器打印预览正文干净（无导航/评论/分享）；`/annual` 页出现「🏅 成就徽章」区。
 > **v3.17.1（导航 CSS 选择器转义修复）升级要点**：**纯后端修复**（`app.py` 选择器去引号 + 新增回归测试；`vue-frontend/` 未动，前端包无变化、可不必覆盖）。覆盖 `myblog-backend.zip` 后「停止 → 启动」gunicorn 即生效；**无迁移、无新依赖**。验证：后台 SSR 页（如 `/admin/login`）源码中应含 **`html:not([data-theme=dark])`（无引号）**——若仍是 `html:not([data-theme=&#34;dark&#34;])` 说明未生效（该写法 CSS 非法、深色下顶部会白条）。
 > **v3.17.0（深色修复 + 动效/无障碍 + AVIF + 年度回顾 + AI 摘要）升级要点**：**前后端包都要覆盖**（前端含大量新样式/指令/新页面，务必覆盖 `vue-frontend-dist.zip` 并硬刷新；后端新增 `api/review.py`、`api/ai.py`，`utils.py` 渲染升级）。**无新表、无迁移、无新增依赖**。⚠️ `_RENDER_VERSION` 1→2 会让正文缓存整体失效——升级后**首次访问每篇文章会重新渲染一次**（属正常，随后恢复缓存速度）。AVIF：仅当服务器 Pillow 编译了 AVIF 支持时自动生成旁路文件（本机 Pillow 12.3.0 `features.check('avif')=True`），不支持则自动跳过、行为与旧版一致。AI 摘要：复用「游戏收录 → ⚙️ LLM 审计配置」的 Base/Key/Model，无需新配置；结果存 Setting（`ai_summary_<id>`），零表结构变更。验证：后台左下角 v3.17.0、**深色模式顶部不再整条白**、后台表格手机端成卡片可读全文、首页 Bento 概览卡、`/annual` 年度回顾页、文章编辑页「🤖 生成 AI 摘要」按钮、上传图片后同目录出现 `.avif`。

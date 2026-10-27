@@ -45,6 +45,28 @@
   两端 → 新增 `th.num` / `td.num` 统一右对齐并用 `width:1%+nowrap` 收窄；同源另一半：
   `≤900px` 给 `.stats-table` 的 `display:block`（为横滚）会把 `thead`/`tbody` 拆成两个
   匿名表格、列宽各自计算，改为恢复 `display:table` + 卡片级横滚。
+- **v5.0.0（2026-10-28 已发布）媒体库升级为图床**：新增视频（mp4/m4v/mov/webm，图片 50MB /
+  视频 500MB 分级上限）+ **8MB 分块上传**（绕开 gunicorn 30s timeout，500MB 单请求
+  在国内上行要 80~250 秒，必被 kill）+ 新建 `media_asset` 表承载归档元数据
+  （标题/分类/时长/封面/公开标记，不改既有表）+ 云存储外挂（OSS/COS/S3 与 WebDAV，
+  独立于备份配置，密钥 Fernet 加密）+ 后台分栏归档页与前台 `/gallery` +
+  正文 `![](x.mp4)` 自动渲染 `<video>`（`_RENDER_VERSION` 4→5）+ 上传前磁盘余量闸门。
+- **v5.0.0（2026-10-28 已发布）游戏板块下线**：删 `api/games.py` / `admin/games.py` /
+  `games_safety.py` / `tools/seed_games.py` / `Game` 模型 / 3 个模板 / 3 个前端页面
+  与全部导航入口。**保留** `games_llm_*` 设置键（AI 摘要复用），配置入口迁到
+  `/admin/ai-summary/llm-config`；`game` 表与 `data/games/` 数据不删。
+- **v5.0.0（2026-10-28 已发布）前后台统一观感（圆润风格）**：**不换配色**（语义色被 WCAG 与 `themes.py._BASE_LIGHT` 双向绑定），靠形状/动效/层级出味道 —— 卡片 22px、按钮全胶囊、系统缓动 `cubic-bezier(.32,.72,0,1)` + 按压 `scale(.96)`、1px 发丝线 + 半透明填充、顶栏毛玻璃、导航大标题。后台侧栏激活项改为填充胶囊、表格改分组圆角。新增 21 条 `--ui-*` 令牌（两份 tokens.css 取值一致，暗色反相叠白）。
+  ⚠️ **层叠顺序坑**：覆盖层必须单独 `styles/look.css` 并在 `responsive.css` **之后**导入 —— 放在 global.css 末尾会被 responsive.css:75 的 `.page-title` 压回旧值（构建通过但页面不变）。由 `tests/test_frontend_css_order.py` 锁住。
+- **v5.0.0（2026-10-28 已发布）逐页精修三轮**：① 文章卡 / 分页 / 文章页阅读排版 / 侧栏
+  ② 登录注册 / 留言墙 / 归档时间线 / 搜索结果（这些页面无 `<style scoped>`，改 `look.css` 即全站生效）
+  ③ 后台 48 个模板的**跨模板结构类**（`.card` 系 / `.field` 系 / `.stat-card` / 编辑器 `.md-*`），
+  一轮覆盖几十个模板。**命名用 `--ui-*` 与 `look.css`，不借用任何厂商产品名。**
+- **v5.0.0（2026-10-28 已发布）生态统计优化**：离线站点超过 **24 小时无心跳自动从注册表硬删**
+  （原仅 30 天「不展示」、行仍留库，导致 `total` 被早已离线的实例虚高）；
+  生态统计从「关于」页独立成 `/ecosystem` 单独页面（抽屉 + 顶栏「更多」均加入口），
+  关于页只保留本站「当前在线访客」；`stats()` 展示窗口同步收敛到 24h 并补
+  `first_seen` / 带时分时间戳。`prune_stale_sites()` 用 `exclude_self` 排除本机
+  key，保证中心站不会把自己误删。
 
 ## 三、待办
 

@@ -488,36 +488,6 @@ def hreflang_alternates(post, base):
     return out
 
 
-class Game(db.Model):
-    """原创/第三方解压小游戏（v3.15.0 游戏平台）。
-
-    游戏以 zip（manifest.json + HTML/CSS/JS/素材）经后台收录：
-    安全解包 → 静态可疑扫描 → （可选）LLM 代码审计 → 审核通过后前台沙箱内播放。
-    资源实际解压在 <instance>/games/<slug>/，DB 只存元数据与审计结论。
-    """
-    id = db.Column(db.Integer, primary_key=True)
-    slug = db.Column(db.String(90), unique=True, nullable=False)
-    title = db.Column(db.String(120), nullable=False)
-    description = db.Column(db.Text)
-    cover = db.Column(db.String(500), default="")     # 封面（可为空，前端用默认）
-    entry = db.Column(db.String(160), default="index.html")  # 入口文件名
-    author = db.Column(db.String(80), default="")     # 作者署名
-    version = db.Column(db.String(30), default="1.0")
-    status = db.Column(db.String(16), default="pending", index=True)
-    # status: pending(待审)/approved(已上架)/rejected(已驳回)/removed(已下架)
-    package_hash = db.Column(db.String(64), default="")   # zip sha256，防篡改比对
-    size = db.Column(db.Integer, default=0)               # 解压后总字节
-    file_count = db.Column(db.Integer, default=0)
-    # 审计：静态扫描 + LLM 的结论。score：None 未审 / 0-100（越低越危险）
-    audit_summary = db.Column(db.Text)
-    audit_score = db.Column(db.Integer, default=-1)
-    play_count = db.Column(db.Integer, default=0)
-    admin_note = db.Column(db.String(300), default="")
-    created_at = db.Column(db.DateTime, default=utcnow)
-    updated_at = db.Column(db.DateTime, default=utcnow, onupdate=utcnow)
-    approved_at = db.Column(db.DateTime, nullable=True)
-
-
 class SeoSubmission(db.Model):
     """主动推送收录记录（v3.19.0）——每篇 × 每引擎一行。
 
@@ -685,3 +655,68 @@ class EcosystemSite(db.Model):
     listed = db.Column(db.Boolean, default=True, nullable=False)
     first_seen = db.Column(db.DateTime, default=utcnow)
     last_seen = db.Column(db.DateTime, default=utcnow, index=True)
+
+
+class MediaAsset(db.Model):
+    """v4.14.0 媒体资源登记表：图床 / 视频归档的唯一元数据来源。
+
+    ## 为什么这次必须建表（此前媒体库刻意不建表）
+
+    v3.14.0 的媒体库是**纯文件系统扫描**（`admin/media.py:collect_media()`）：
+    列目录 → 从文件名前缀解析上传时间 → 逐个文件、逐篇文章做字符串包含判断。
+    当时够用，因为只有图片、也没有「归档」概念。要支撑「图床 + 视频 + 分类归档」，
+    这个方案有三处硬伤：
+
+    1. **没有地方存元数据**：标题、归档分类、视频时长、封面图、是否公开 ——
+       这些都不是文件名能表达的。塞进文件名会让 URL 变丑且不可改（改名 = 裂图）。
+    2. **复杂度是 O(文件数 × 文章数)**：`media_refs_for()` 对每个文件扫全部文章正文。
+       几百个视频进来后，媒体库首屏会变成秒级卡顿。
+    3. **无法分页/筛选**：目录扫描只能全量读进内存再排序，配合上面那条就是雪崩。
+
+    所以这里加**一张新表**，不改任何既有表 —— 符合「能不改表就不改表」：
+    变的是「新增一个实体」，不是「给老实体加字段」。
+
+    ## 字段口径
+
+    - `filename`：磁盘文件名（含 `<unix_ts>-` 前缀），**仅本地资源**有值；
+      外链嵌入的资源为空串。唯一索引同时充当「同一文件不重复登记」的闸门。
+    - `source`：`local`（本站磁盘）/ `embed`（外链播放器）。图床只服务前者。
+    - `url`：本地资源存站内相对路径 `/static/uploads/xxx`，外链存绝对地址。
+      两者都**只存校验后的值**（本地必须是 uploads 单层文件名，外链必须 http/https）。
+    - `kind`：`image` / `video`。用它分栏，而不是靠后缀每次现算。
+    - `folder`：归档分类（自由字符串，不做外键）—— 分类是给人看的标签，
+      不是需要引用完整性的实体，做成表只会多一次 JOIN 和一套增删改查界面。
+    - `duration` / `width` / `height`：尽力而为。图片尺寸用 Pillow 读；视频时长
+      需要 ffmpeg，**没有就留空**，绝不为了这个字段给服务器装重依赖。
+    - `is_public`：前台图库是否展示。默认 True（自建博客的图床本来就对外），
+      但私密附件可以一键关掉。
+    - `uploaded_by`：上传者 id，不设外键（用户可能被删，资源不该跟着消失）。
+    """
+    __tablename__ = "media_asset"
+
+    id = db.Column(db.Integer, primary_key=True)
+    filename = db.Column(db.String(255), default="", index=True)   # 磁盘文件名；外链为 ""
+    kind = db.Column(db.String(16), default="image", nullable=False, index=True)
+    source = db.Column(db.String(16), default="local", nullable=False)
+    # v4.14.0 `storage` 与 `source` 的区别（两个概念，别合并）：
+    #   source  = 这个资源**怎么来的**：local(上传) / embed(外链播放器)
+    #   storage = 这个资源**存在哪**：local(本站磁盘) / oss(对象存储) / webdav(网盘)
+    # 上传到 OSS 的视频是 source=local + storage=oss —— 用 source 表达就错了。
+    storage = db.Column(db.String(16), default="local", nullable=False)
+    url = db.Column(db.String(800), default="", nullable=False)
+    title = db.Column(db.String(200), default="")
+    folder = db.Column(db.String(60), default="", index=True)      # 归档分类（空=未分类）
+    mime = db.Column(db.String(80), default="")
+    size = db.Column(db.Integer, default=0)                        # 字节；外链为 0
+    width = db.Column(db.Integer, nullable=True)
+    height = db.Column(db.Integer, nullable=True)
+    duration = db.Column(db.Float, nullable=True)                  # 秒；无 ffmpeg 时为 None
+    poster = db.Column(db.String(800), default="")                 # 视频封面（站内相对路径）
+    is_public = db.Column(db.Boolean, default=True, nullable=False, index=True)
+    uploaded_by = db.Column(db.Integer, nullable=True)
+    created_at = db.Column(db.DateTime, default=utcnow, index=True)
+    updated_at = db.Column(db.DateTime, default=utcnow, onupdate=utcnow)
+
+    def __repr__(self):
+        return "<MediaAsset %s %s>" % (self.kind, self.filename or self.url)
+

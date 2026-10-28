@@ -2282,3 +2282,72 @@ R152 修的是「自更新认不出自己」；R153 修的是「自更新成功�
 - nginx 修复后线上实测：经 nginx 带 Range → **206**；三个视频
   `readyState=3`、时长 7.8 / 8.6 / 8.7 秒、分辨率 1080×1920。
 - 本版业务代码改动集中在视频卡片与文档，**全量测试通过**。
+
+## R156 · v5.2.5 打包前漏洞审查（独立复核，非增量续写）
+
+本轮不是新增改动，而是**在打包前对已定稿的 v5.2.5 做一次独立漏洞复核**，
+并**首次把「生产 nginx 配置」纳入审查范围**（前几版只审代码，没审过生产配置）。
+
+### 156.1 静态分析工具的 7 条 Critical —— 逐条回源码验证，**全部为误报**
+
+| 工具报告 | 实际 | 判定 |
+|---|---|---|
+| C-1 `backup_settings.py:25` 硬编码密钥 `BACKUP_OSS_SECRET` | 该值是**环境变量名**，映射到 Setting 键名 `backup_oss_secret`；真值走 `os.environ` / Setting 表 | 误报 |
+| C-4~C-7 `oauth.py:62/64/68/70` 硬编码 `client_secret` | 同样是**键名映射表**（`CRED_KEYS` → Setting 键，`ENV_KEYS` → 环境变量名），不是密钥值 | 误报 |
+| C-2 `migrate_visit_log_bot.py:52` SQL 注入 | `f"ALTER TABLE visit_log ADD COLUMN {col} {ddl}"` 中 `col`/`ddl` 来自**模块内写字的常量 dict**，无任何外部输入；脚本是本地一次性迁移，不接 HTTP | 误报（拼接的是常量） |
+| C-3 `migrate_visit_log_referrer.py:51` 同上 | 同上 | 误报 |
+
+**判据记录**：AST 工具的「硬编码密钥」判据是「字典值长得像密钥」，
+**无法区分「键名映射表」与「真密钥」**；「SQL 拼接」判据是「f-string 进 execute」，
+**无法区分「拼接常量」与「拼接用户输入」**。这两类必须回源码人工判读，不能直接采信。
+
+### 156.2 生产 nginx 配置（本次真正的风险面，此前从未审过）
+
+v5.2.5 改了 `/www/server/panel/vhost/nginx/html_www.llhhy.cn.conf`，新增
+`location ^~ /static/uploads/ { root /www/wwwroot/myblog; }` 让上传媒体由 nginx 直出。
+逐项复核：
+
+| 攻击面 | 实测结果 | 结论 |
+|---|---|---|
+| **路径穿越读源码** | `/static/uploads/../../config.py` → 200，但**返回的是 SPA 首页 HTML**（`<!DOCTYPE html>`，1969 字节，`grep APP_VERSION` 命中 0）；`/config.py` 本身也返回 200（前端路由 catch-all）→ 说明 nginx 已把 `..` 归一化后落到不存在的路径，最终由 Flask 当普通路由处理 | **无源码泄露** |
+| 越界读 `.env` / `requirements.txt` | 404 | 安全 |
+| 越界读 `/etc/passwd` | 400（nginx 直接拒） | 安全 |
+| **上传 SVG/HTML → 存储型 XSS** | 实测 nginx 直出 SVG 返回 `content-type: image/svg+xml`（说明**若能落盘就会被执行**）——但上传链有三道闸门：① `chunk_init` 里 `kind_of()` 按扩展名白名单拒（`png/jpg/jpeg/gif/webp` + `mp4/m4v/mov/webm`，**不含 svg/html**）② `chunk_complete` 合并后 `validate_magic()` 复核文件头魔数与后缀一致 ③ 直出补了 `X-Content-Type-Options: nosniff` | **SVG 走不进来**（白名单在**落盘前**生效，非事后清理） |
+| 目录列举 | `autoindex` 未开启，`/static/uploads/` → 403 | 安全 |
+| uploads 内是否有子目录 | 无 | 无穿越可能 |
+| 全局 `proxy.conf` 是否被误改 | **未改**（`proxy_cache cache_one;` 仍原样，只在站点 conf 的 `/static/` 里加了 `proxy_cache off`） | 其它站点不受影响 |
+| 安全头丢失 | 直出补了 `nosniff` / `SAMEORIGIN` / `Referrer-Policy`；**CSP 缺失**（Flask 侧有） | 见 156.3 |
+| 可回滚性 | 备份 `html_www.llhhy.cn.conf.bak_v5255_20261028_215636` 在位 | 有 |
+
+### 156.3 CSP 在直出资源上缺失 —— **判定为可接受，但记录在案**
+
+直出的图片/视频响应没有 `Content-Security-Policy`。**判断依据**：CSP 约束的是
+「文档上下文里允许加载什么资源 / 执行什么脚本」，而一个 `image/avif` 或 `video/mp4`
+响应**本身不是文档**，浏览器不会给它建立脚本执行上下文；结合 `nosniff` 已阻断
+MIME 混淆，缺少 CSP 不产生可利用的差异。
+
+**前提条件（若将来变化则结论失效）**：① uploads 目录里**永远只有**图片/视频；
+② 若将来允许上传 SVG/HTML，**必须**同时在 nginx 侧加
+`Content-Disposition: attachment` 或对 SVG 单独设 `Content-Type` 白名单，
+否则 SVG 内联脚本会成为存储型 XSS。**已在 `media_service.kind_of()` 的白名单处
+留下约束**（新增类型必须同时改 nginx）。
+
+### 156.4 本版代码改动的自查
+
+| 改动 | 审查结论 |
+|---|---|
+| `AlbumView.vue` 视频卡片 | `it.media.url` 走 Vue 插值绑定到 `src`（属性转义）；无 `v-html`/`innerHTML`；`playsinline` 保留（正是内联播放不接管全屏的前提）；`@click.stop` 阻止冒泡误触灯箱 |
+| 后台两处 `pointer-events:none` | 只改点击响应，不改可见性、不改数据 |
+| `tests/test_api_doc_sync.py` | 只读 `url_map` 与文档文本；不写库、不发请求；插件路由用独立探针 app，不触碰生产 app 的蓝图注册 |
+| `API.md` 全量重写 | 扫过 `secret/token/password/api_key/私钥` 与真实邮箱/内网 IP：**无真实取值**，只有字段名与占位符；唯一命中的是项目自身名字 `llhhy-blog` |
+
+### 156.5 结论
+
+**未发现需要阻断打包的漏洞。** 本版的改动（文档 + 前端视频卡片 + nginx 直出）
+在攻击面上是**收缩**而非扩张：上传链三道闸门未动、uploads 目录无子目录、
+路径穿越被 nginx 归一化、全局配置未被误改、配置可回滚。
+
+**遗留观察项（非漏洞，供后续参考）**：
+① 直出资源无 CSP（见 156.3，将来放开上传类型时须同步处理）；
+② `safe_disk_name()` 的后缀来自用户文件名，虽有白名单 + 魔数双闸，但**依赖
+`kind_of()` 白名单始终与 nginx 直出假设一致** —— 二者必须一起改。

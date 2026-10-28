@@ -132,11 +132,45 @@ nginx 启用代理缓存后，会**剥掉客户端的 `Range` 头**去拉完整�
 修了 3 处与源码不符的约定文案：CSRF 豁免白名单、分页口径（并非所有列表都支持 `per_page`）、
 限流阈值（登录/注册是 10 次/分不是 5；前台微动态 20 次/分，5 次/分的是 App 端）。
 
+### 打包前漏洞审查（R156）
+
+定稿后做了一次**独立复核**（不是增量续写），并且**首次把「生产 nginx 配置」
+纳入审查范围**（前几版只审代码，没审过生产配置）。
+
+**静态分析工具报的 7 条 Critical，逐条回源码验证后全部为误报**：
+「硬编码密钥」判据无法区分**键名映射表**与真密钥（`BACKUP_OSS_SECRET` /
+`oauth.*.client_secret` 都是键名，真值走环境变量 / Setting 表）；
+「SQL 拼接」判据无法区分**拼接常量**与拼接用户输入（两个 migrate 脚本拼的是
+模块内写死的 dict）。
+
+**真正审的是 nginx 直出的攻击面**（逐项实测，非推断）：
+
+| 攻击面 | 实测 | 结论 |
+|---|---|---|
+| 路径穿越读源码 | `/static/uploads/../../config.py` → 200，但返回的是 **SPA 首页 HTML**（`grep APP_VERSION` 命中 0）；越界读 `.env` / `requirements.txt` → 404，`/etc/passwd` → 400 | 无源码泄露 |
+| 上传 SVG → 存储型 XSS | 实测**若能落盘就会执行**（直出返回 `image/svg+xml`），但上传链三道闸门在**落盘前**拦住：① `kind_of()` 扩展名白名单（不含 svg/html）② `validate_magic()` 复核文件头 ③ `nosniff` | 走不进来 |
+| 目录列举 / 子目录 | `autoindex` 未开 → 403；uploads 内无子目录 | 安全 |
+| 误改全局配置 | 未改（全局 `proxy_cache cache_one;` 原样，只在站点 conf 加了 `proxy_cache off`） | 其它站点不受影响 |
+| 可回滚 | 备份 `html_www.llhhy.cn.conf.bak_v5255_20261028_215636` 在位 | 有 |
+
+**遗留观察项（非漏洞）**：直出资源没有 CSP（Flask 侧有）。判定可接受 ——
+CSP 约束的是文档上下文，而图片/视频响应本身不是文档；**但若将来放开 SVG/HTML
+上传，必须同步在 nginx 侧加 `Content-Disposition: attachment`**。
+
 ### 兼容性
 
 **无迁移**（head 仍 `b7c2e91a4d63`）、无新依赖、无新环境变量、无数据回填。
 除视频卡片（`AlbumView.vue` / 两个后台模板）与前台文档页文案外**无业务代码改动**。
-安全审查见 `myblog/SECURITY_AUDIT.md` R154、R155。
+安全审查见 `myblog/SECURITY_AUDIT.md` R154、R155、**R156**。
+
+### 远端分支清理（同批处理）
+
+关闭了 5 个 dependabot 自动开的依赖升级 PR（#29~#33）及其分支 —— 远端现在只剩
+`main`。逐项核实后确认关闭无实际损失：
+`cryptography` 50.0.2 **只改了 wheel 的 OpenSSL 版本、无安全修复**（CVE-2026-69247
+已被服务器上的 50.0.1 消化）；`markdown` 3.11.2 是 patch（下次扫描会重新提出）；
+`gunicorn` 22→26 / `vite` 6→8 / `vue-router` 4→5 是**未经生产验证的大版本跳跃**
+（其中 vue-router 的 CI build 还是失败的），按仓库既定策略「机器提议、人工裁决」关闭。
 
 ## v5.2.4（2026-10-28 · 属主探测把 4 个 worker 的用户名拼成一个 → 全部静默降级为 root）
 

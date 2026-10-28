@@ -78,14 +78,14 @@
     <div class="field">
       <label class="field-label" for="f-intro">行程概览</label>
       <textarea id="f-intro" name="intro" rows="5"
-                placeholder="交通怎么走、住哪、每天大致安排…（支持 Markdown 换行）">{{ album.intro }}</textarea>
+                placeholder="交通怎么走、住哪、每天大致安排…&#10;空行分段；行首写「- 」成列表；用 **文字** 加粗">{{ album.intro }}</textarea>
       <p class="field-hint">留空则前台不显示这一块 —— 纯照片相册可以整块省略</p>
     </div>
 
     <div class="field">
       <label class="field-label" for="f-tips">小提示</label>
       <textarea id="f-tips" name="tips" rows="5"
-                placeholder="门票规则、索道、停车、闭馆日这类「去了才知道」的信息">{{ album.tips }}</textarea>
+                placeholder="门票规则、索道、停车、闭馆日这类「去了才知道」的信息&#10;同样支持「- 」列表与 **粗体**">{{ album.tips }}</textarea>
     </div>
 
     <label class="checkbox-row">

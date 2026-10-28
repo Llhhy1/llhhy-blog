@@ -35,8 +35,8 @@
         <h2 class="album-block-title">{{ t("album_intro") }}</h2>
         <div class="album-prose">
           <template v-for="(b, i) in introBlocks" :key="'i' + i">
-            <ul v-if="b.type === 'ul'"><li v-for="(li, j) in b.items" :key="j">{{ li }}</li></ul>
-            <p v-else>{{ b.text }}</p>
+            <ul v-if="b.type === 'ul'"><li v-for="(li, j) in b.items" :key="j"><template v-for="(tk, k) in li" :key="k"><strong v-if="tk.bold">{{ tk.text }}</strong><span v-else>{{ tk.text }}</span></template></li></ul>
+            <p v-else><template v-for="(ln, li) in b.lines" :key="li"><br v-if="li"><template v-for="(tk, k) in ln" :key="k"><strong v-if="tk.bold">{{ tk.text }}</strong><span v-else>{{ tk.text }}</span></template></template></p>
           </template>
         </div>
       </section>
@@ -46,8 +46,8 @@
         <h2 class="album-block-title">{{ s.title || t("untitled") }}</h2>
         <div v-if="s.summary" class="album-prose album-section-note">
           <template v-for="(b, i) in blocksOf(s.summary)" :key="'s' + i">
-            <ul v-if="b.type === 'ul'"><li v-for="(li, j) in b.items" :key="j">{{ li }}</li></ul>
-            <p v-else>{{ b.text }}</p>
+            <ul v-if="b.type === 'ul'"><li v-for="(li, j) in b.items" :key="j"><template v-for="(tk, k) in li" :key="k"><strong v-if="tk.bold">{{ tk.text }}</strong><span v-else>{{ tk.text }}</span></template></li></ul>
+            <p v-else><template v-for="(ln, li) in b.lines" :key="li"><br v-if="li"><template v-for="(tk, k) in ln" :key="k"><strong v-if="tk.bold">{{ tk.text }}</strong><span v-else>{{ tk.text }}</span></template></template></p>
           </template>
         </div>
         <div class="album-media-grid">
@@ -86,8 +86,8 @@
         <h2 class="album-block-title">{{ t("album_tips") }}</h2>
         <div class="album-prose">
           <template v-for="(b, i) in tipBlocks" :key="'t' + i">
-            <ul v-if="b.type === 'ul'"><li v-for="(li, j) in b.items" :key="j">{{ li }}</li></ul>
-            <p v-else>{{ b.text }}</p>
+            <ul v-if="b.type === 'ul'"><li v-for="(li, j) in b.items" :key="j"><template v-for="(tk, k) in li" :key="k"><strong v-if="tk.bold">{{ tk.text }}</strong><span v-else>{{ tk.text }}</span></template></li></ul>
+            <p v-else><template v-for="(ln, li) in b.lines" :key="li"><br v-if="li"><template v-for="(tk, k) in ln" :key="k"><strong v-if="tk.bold">{{ tk.text }}</strong><span v-else>{{ tk.text }}</span></template></template></p>
           </template>
         </div>
       </section>
@@ -138,6 +138,24 @@ const images = computed(() => {
 
 /* 极简分段：空行分段，整段都是「- x」就渲染成列表。
    刻意不引 markdown 库、不用 v-html —— 少一个 XSS 面。 */
+/**
+ * 把一行文字按 `**粗体**` 切成片段。
+ *
+ * 为什么不直接上 markdown 库：这两块（行程概览 / 小提示）是管理员写的长文本，
+ * 但只要能分段、列表、粗体就够了。引一个解析器等于把 `v-html` 请回来，
+ * 多一个 XSS 面。token 化之后仍然走 Vue 插值，HTML 永远不会被当作标签执行。
+ *
+ * 未成对的 `**` 会被当作普通文本保留（split 后按索引奇偶判断，多余的一段
+ * 仍然有内容），不会吞掉用户写错的字符。
+ */
+function tokenizeInline(line) {
+  const out = [];
+  String(line).split("**").forEach((seg, i) => {
+    if (seg) out.push({ text: seg, bold: i % 2 === 1 });
+  });
+  return out.length ? out : [{ text: "", bold: false }];
+}
+
 function blocksOf(text) {
   const out = [];
   const paras = String(text || "").split(/\n\s*\n/);
@@ -145,9 +163,9 @@ function blocksOf(text) {
     const lines = p.split("\n").map((s) => s.trim()).filter(Boolean);
     if (!lines.length) continue;
     if (lines.every((l) => /^[-*]\s+/.test(l))) {
-      out.push({ type: "ul", items: lines.map((l) => l.replace(/^[-*]\s+/, "")) });
+      out.push({ type: "ul", items: lines.map((l) => tokenizeInline(l.replace(/^[-*]\s+/, ""))) });
     } else {
-      out.push({ type: "p", text: lines.join(" ") });
+      out.push({ type: "p", lines: lines.map((l) => tokenizeInline(l)) });
     }
   }
   return out;
@@ -245,6 +263,7 @@ onUnmounted(() => window.removeEventListener("keydown", onKey));
 .album-prose p { margin: 0 0 .85em; }
 .album-prose ul { margin: 0 0 .85em; padding-left: 1.3em; }
 .album-prose li { margin: 0 0 .35em; }
+.album-prose strong { font-weight: 600; }
 .album-section-note {
   color: var(--text-muted, #5f6368);
   font-size: 14.5px;

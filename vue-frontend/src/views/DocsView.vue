@@ -84,7 +84,7 @@
           <li>仅对<strong>写操作</strong>（POST / PUT / DELETE / PATCH）生效，GET 豁免。</li>
           <li>流程：先 <code>GET /api/csrf</code> 取 token，再在写请求头带 <code>X-CSRF-Token: &lt;token&gt;</code>。</li>
           <li>前端 <code>apiPost()</code> 已自动处理，无需手写。</li>
-          <li>豁免白名单（写操作无需 token）：<code>/api/webhook/deploy</code>、<code>/api/captcha</code>、<code>/api/captcha/verify</code>、<code>/api/stats/read</code>、<code>/api/stats/visit</code>、<code>/api/stats/search</code>。</li>
+          <li>豁免白名单（写操作无需 token）：<code>/api/webhook/deploy</code>、<code>/api/captcha</code>（前缀匹配）、<code>/api/captcha/verify</code>、<code>/api/stats/read</code>、<code>/api/stats/visit</code>、<code>/api/stats/search</code>、<code>/api/ecosystem/heartbeat</code>。</li>
           <li>缺失/错误 token 返回 <code>403 {"error":"CSRF 校验失败，请刷新页面后重试"}</code>。</li>
         </ul>
         <pre><code class="bash"># 1) 取 token
@@ -99,10 +99,10 @@ curl -X POST http://your-domain.com/api/post/my-post/like \
   -d '{}'</code></pre>
 
         <h3>分页</h3>
-        <p>列表类接口统一支持 <code>?page=&lt;页码&gt;</code>（从 1 开始）与 <code>?per_page=&lt;每页条数&gt;</code>（默认 8，最大 100）。</p>
+        <p>列表类接口大多支持 <code>?page=&lt;页码&gt;</code>（从 1 开始）与 <code>?per_page=&lt;每页条数&gt;</code>（默认 8~20，最大 100），但<strong>各接口口径不同</strong> —— 例如 <code>/api/posts</code> 的每页条数取服务端配置（不接受 <code>per_page</code> 参数）、<code>/api/moments</code> 与 <code>/api/guestbook</code> 固定每页 20 条、<code>/api/albums</code> 用的是 <code>?size=</code>。具体以 <code>myblog/API.md</code> 每条的「请求」行为准。</p>
 
         <h3>限流</h3>
-        <p>部分写接口有限流（<code>utils.rate_limit</code>），超限返回 <code>429</code>。常见阈值：登录 5 次/分、动态发布 5 次/分、评论 10 条/分、点赞 20 次/分（单篇）、搜索记录 120 次/时、阅读记录 60 次/分。</p>
+        <p>部分写接口有限流（<code>utils.rate_limit</code>），超限返回 <code>429</code>。常见阈值：登录 / 注册 10 次/分、微动态发布 20 次/分（App 端 <code>/api/mobile/moment</code> 为 5 次/分）、评论 10 次/分、点赞 20 次/分（单篇）、搜索记录 120 次/时、阅读记录 60 次/分、访客上报 30 次/分。</p>
       </div>
 
       <!-- ============ 认证 ============ -->

@@ -52,9 +52,17 @@
         </div>
         <div class="album-media-grid">
           <figure v-for="it in s.items" :key="it.id" class="album-media">
-            <div v-if="it.media.kind === 'video'" class="album-media-box">
+            <div v-if="it.media.kind === 'video'" class="album-media-box is-video">
               <video :src="it.media.url" :poster="it.media.poster || undefined"
-                     controls preload="metadata" playsinline></video>
+                     :data-video-id="it.id"
+                     preload="metadata" playsinline
+                     @click.stop="toggleVideo(it)"
+                     @ended="onVideoEnded"></video>
+              <button v-if="!playingIds.has(it.id)" class="album-video-play"
+                      type="button" aria-label="播放"
+                      @click.stop="playVideo(it)">
+                <span class="album-video-play-icon">▶</span>
+              </button>
             </div>
             <div v-else class="album-media-box is-image" @click="openLightboxByItem(it)">
               <img :src="it.media.url" :alt="capOf(it)" loading="lazy">
@@ -69,9 +77,17 @@
         <h2 v-if="album.sections && album.sections.length" class="album-block-title">{{ t("album_loose") }}</h2>
         <div class="album-media-grid">
           <figure v-for="it in album.items" :key="it.id" class="album-media">
-            <div v-if="it.media.kind === 'video'" class="album-media-box">
+            <div v-if="it.media.kind === 'video'" class="album-media-box is-video">
               <video :src="it.media.url" :poster="it.media.poster || undefined"
-                     controls preload="metadata" playsinline></video>
+                     :data-video-id="it.id"
+                     preload="metadata" playsinline
+                     @click.stop="toggleVideo(it)"
+                     @ended="onVideoEnded"></video>
+              <button v-if="!playingIds.has(it.id)" class="album-video-play"
+                      type="button" aria-label="播放"
+                      @click.stop="playVideo(it)">
+                <span class="album-video-play-icon">▶</span>
+              </button>
             </div>
             <div v-else class="album-media-box is-image" @click="openLightboxByItem(it)">
               <img :src="it.media.url" :alt="capOf(it)" loading="lazy">
@@ -194,8 +210,7 @@ function openLightboxByItem(it) {
   const idx = images.value.findIndex((x) => x.id === it.id);
   if (idx >= 0) lightbox.value = idx;
 }
-function closeLightbox() { lightbox.value = null; }
-function step(d) {
+function closeLightbox() { lightbox.value = null; }function step(d) {
   const n = images.value.length;
   if (!n) return;
   lightbox.value = (lightbox.value + d + n) % n;
@@ -206,6 +221,81 @@ function onKey(e) {
   else if (e.key === "ArrowLeft") step(-1);
   else if (e.key === "ArrowRight") step(1);
 }
+
+/* ------------------------------------------------------------------ 视频播放 */
+
+/**
+ * 视频卡片**不用原生 `controls`** —— 这是「点一下就悬浮在最上层、挡住看图片」的根因。
+ *
+ * 移动端（iOS Safari / 微信内置浏览器）里，用户点到一个带 `controls` 的 `<video>`，
+ * 系统会直接接管成**原生全屏播放器**：那是一层盖在整个页面上的系统浮层，
+ * 退出后部分浏览器还会把 video 元素留在视口顶层继续挡着内容。
+ *
+ * 改成自绘播放按钮：用户点的是**按钮**（普通 DOM），JS 再调 `video.play()`。
+ * 因为有 `playsinline`，这次调用走**内联播放**，不触发系统全屏接管。
+ * 真需要全屏时，播放中才把原生 `controls` 挂上，用户可以在控件里自己选。
+ */
+const playingIds = ref(new Set());
+
+function videoElOf(it) {
+  // 用 data-video-id 找到对应的 video 元素（模板里每个 video 带这个标记）
+  const box = document.querySelector('[data-video-id="' + it.id + '"]');
+  return box ? box.querySelector("video") : null;
+}
+
+function playVideo(it) {
+  const v = videoElOf(it);
+  if (!v) return;
+  // 播放中才给原生控件（用户可暂停 / 调音量 / 自己选全屏）
+  v.controls = true;
+  const p = v.play();
+  if (p && typeof p.catch === "function") {
+    p.catch(() => {
+      // 自动播放被拦（未静音且无用户手势等）：退回静音再试一次
+      v.muted = true;
+      v.play().catch(() => {});
+    });
+  }
+  markPlaying(it, true);
+}
+
+function toggleVideo(it) {
+  const v = videoElOf(it);
+  if (!v) return;
+  if (v.paused) {
+    playVideo(it);
+  } else {
+    v.pause();
+    v.controls = false;
+    markPlaying(it, false);
+  }
+}
+
+function markPlaying(it, on) {
+  const next = new Set(playingIds.value);
+  if (on) next.add(it.id); else next.delete(it.id);
+  playingIds.value = next;
+}
+
+function onVideoEnded(e) {
+  const box = e.target.closest('[data-video-id]');
+  if (!box) return;
+  const id = Number(box.dataset.videoId);
+  const it = allItems.value.find((x) => x.id === id);
+  if (it) markPlaying(it, false);
+  e.target.controls = false;
+}
+
+/** 相册里所有条目（章节内 + 未分组），供按 id 反查 */
+const allItems = computed(() => {
+  const out = [];
+  if (!album.value) return out;
+  for (const s of album.value.sections || []) {
+    for (const it of s.items || []) out.push(it);
+  }
+  for (const it of album.value.items || []) out.push(it);
+  return out;
+});
 
 onMounted(async () => {
   try {
@@ -299,6 +389,7 @@ onUnmounted(() => window.removeEventListener("keydown", onKey));
 }
 .album-media { margin: 0; }
 .album-media-box {
+  position: relative;          /* 自绘播放按钮要绝对定位在卡片上 */
   border-radius: var(--ui-radius-group, 14px);
   overflow: hidden;
   background: var(--ui-fill, rgba(120, 120, 128, .10));
@@ -310,7 +401,43 @@ onUnmounted(() => window.removeEventListener("keydown", onKey));
 .album-media-box.is-image { cursor: zoom-in; }
 .album-media-box img,
 .album-media-box video { width: 100%; height: 100%; object-fit: cover; display: block; }
-.album-media-box video { object-fit: contain; background: #000; }
+/* 视频：手机拍的竖屏片（1080×1920）放进 4:3 的横格里，左右必然留边。
+   纯黑 (#000) 的边看起来像「破图」，改成中性深灰 + 自绘播放按钮，
+   视觉上就是一个完整的视频卡片，而不是黑框里夹一条画面。 */
+.album-media-box.is-video video {
+  object-fit: contain;
+  background: rgba(28, 28, 30, .92);
+  cursor: pointer;
+}
+.album-video-play {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.album-video-play-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, .48);
+  color: #fff;
+  font-size: 20px;
+  line-height: 1;
+  padding-left: 4px;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, .3);
+  backdrop-filter: blur(2px);
+}
+.album-video-play:hover .album-video-play-icon { background: rgba(0, 0, 0, .62); }
 .album-caption {
   margin-top: 8px;
   font-size: 13px;

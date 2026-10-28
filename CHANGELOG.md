@@ -6,6 +6,138 @@
 > v3.22.0 ~ v3.25.16 → `docs/archive/CHANGELOG_v3.22.0-v3.25.16.md`（v4.11.0 因体积守卫触发，主文件涨到 201 KB / 上限 200 KB）。
 > 本文件从 **v4.0.0** 起。**归档不是删除** —— 查旧版本变更细节时去上述文件。
 
+## v5.2.5（2026-10-28 · API 文档全量重写 + 视频一直转圈/悬浮挡页面）
+
+> 用户反馈两条：「最近新增了很多接口，文档也要同步更新才行，现有的所有可用接口全部更新上文档」、
+> 「视频展示有问题，前台也一样，点击加载视频就一直悬浮在最上层，还会挡住我看图片」。
+
+### ① 视频一直转圈 + 点击后悬浮在最上层挡住页面
+
+**根因分两层，都实测确认：**
+
+**(a) nginx 把 `Range` 头剥掉了 → 视频没法流式播放**
+
+宝塔全局 `/www/server/nginx/conf/proxy.conf` 里有 `proxy_cache cache_one;`（**http 级，全局生效**）。
+nginx 启用代理缓存后，会**剥掉客户端的 `Range` 头**去拉完整对象。实测：
+
+| 层次 | 带 `Range: bytes=0-1023` 的结果 |
+|---|---|
+| 直连 Flask（`127.0.0.1:8686`） | **206 PARTIAL CONTENT**，`Content-Range: bytes 0-1023/17628112` ✓ |
+| 经 nginx | **200** + 整个 17MB ✗ |
+
+而这三个 mp4 的 **moov 在文件尾部**（实测 `head moov = -1`），浏览器要读到时长/首帧
+就必须拿到尾部 —— 没有 Range 就只能**把整个 17MB 下载完**。三个视频 = 一进页面 57MB。
+所以视频一直转圈、`duration` 读不出来（实测 `readyState=0`）。
+
+**修法（改生产 nginx 配置，已授权、已备份、已 reload）**：
+1. 新增 `location ^~ /static/uploads/`，用 `root` 让 **nginx 直接 serve** ——
+   Range 原生支持 + sendfile 直读，视频**不再占 gunicorn worker**（生产只有 2 核 4 worker）；
+2. 现有 `location ^~ /static/` 加 `proxy_cache off`，让 Range 正常透传给 Flask。
+
+**修复后实测**：经 nginx 带 Range → **206**；三个视频 `readyState=3`、
+时长 7.8 / 8.6 / 8.7 秒、分辨率 1080×1920 全部正常读出。
+
+**(b) 点视频触发移动端原生全屏接管 → 浮层挡住整页**
+
+`<video controls>` 在 iOS Safari / 微信内置浏览器里，用户点一下就被系统接管成
+**原生全屏播放器**（一层盖在整页上的系统浮层），退出后部分浏览器还会把 video
+元素留在视口顶层继续挡着内容 —— 这正是「悬浮在最上层、挡住看图片」。
+
+**修法（前端）**：
+- 前台相册页：**去掉原生 `controls`**，改成**自绘播放按钮**。用户点的是普通按钮，
+  JS 再调 `video.play()`；因为有 `playsinline`，这次调用走**内联播放**，不触发系统全屏接管。
+  真要全屏时，播放中才把 `controls` 挂上，用户可在控件里自己选。
+- 后台两处（媒体库缩略图、相册编排页缩略图）：`pointer-events: none` ——
+  缩略图不该可点，点了就是误触全屏。
+
+**竖屏视频的观感**：1080×1920 的竖屏片放进 4:3 横格，左右必然留边。
+原来留的是纯黑 `#000`，看着像破图；改成卡片同色的中性底 + 居中的圆形播放按钮。
+
+### ② API 文档全量重写 + 同步守卫
+
+`myblog/API.md` 停在 v3.6.0，而代码已有 166 条 `/api/*`（含插件 4 条共 176 条）
++ 17 条后台 JSON 接口，新增的十几个模块（相册/媒体/AI 摘要/生态/分享卡/表情/读者/
+回顾/主题/插件）**一条都没进文档**。改法不止是补写：
+
+1. **清单从代码枚举**，不靠人工回忆；
+2. **逐条回源码核对**鉴权级别、请求参数、返回字段、错误码，顺带纠正旧文档里
+   **10 处与源码不符**的描述（详见下方「顺手纠错」）；
+3. **写进守卫测试**（`tests/test_api_doc_sync.py`，5 条）：以后新增接口忘了写文档、
+   或者删接口忘了删文档，**测试立刻变红**。
+
+### 文档结构
+
+| 章节 | 条数 | 说明 |
+|---|---|---|
+| 通用约定 | — | 重写：补上 2FA 闸门、反爬闸门、错误信封表、分页口径差异表 |
+| 认证与验证码 /auth | 17 | 含 OAuth、两步验证、验证码 |
+| 站点信息 /site | 4 | |
+| 文章 /posts | 17 | |
+| 统计 /stats | 8 | 标注了哪几条**会写库** |
+| 社交广场 /social | 6 | |
+| 专题 /series | 2 | |
+| 留言墙 /guestbook | 3 | |
+| 邮件订阅 /subscribe | 2 | |
+| 站内通知 /notifications | 3 | |
+| 移动端管理 /mobile | 74 | 按功能分组，标出「按对象归属分权」的接口 |
+| 相册 /album | 2 | 新增 |
+| 公开媒体 /media | 3 | 新增 |
+| AI 摘要 /ai | 2 | 新增 |
+| 生态统计 /ecosystem | 2 | 新增 |
+| 分享卡与爬虫通道 /og | 4 | 新增 |
+| 列表页壳页 /og/page | 1 | 新增 |
+| 天气 /weather | 1 | 新增 |
+| 评论表情 /reactions | 2 | 新增 |
+| 读者积分 /reader | 2 | 新增 |
+| 回顾与地域 /review | 4 | 新增 |
+| 主题中心 /theme | 2 | 新增 |
+| 插件 /plugins | 4 | 新增 |
+| 系统与版本 /system | 5 | |
+| 后台 JSON 接口 /admin | 17 | 新增（含分块上传四件套） |
+
+### 顺手纠错（旧文档与源码不符的 10 处）
+
+| 接口 | 旧文档 | 源码实际 |
+|---|---|---|
+| `GET /api/posts` | 支持 `per_page` 参数 | 每页取服务端配置 `POSTS_PER_PAGE`（默认 8），**不接受该参数** |
+| `GET /api/categories` / `GET /api/tags` | 返回项含 `id` | 只有 `name / slug / count` |
+| `GET /api/hot-tags` | 裸数组 | `{"items": [...]}` |
+| `GET /api/archive` | `{"year": 2026, "months": [{"month": 1, "count": 3}]}` | `{"year": "2026", "months": [{"month": "01", "posts": [<文章卡片>...]}]}` |
+| `GET /api/post/<slug>` | `{"post": {...}, ...}` | 文章字段**平铺在顶层**，另加 `html / comments / series / translations` |
+| `GET /api/post/<slug>/related`、`/also-viewed` | 裸数组 | `{"items": [...]}` |
+| `POST /api/post/<slug>/like` | 支持 `{"unlike": true}` | **只支持加**，无取关参数 |
+| `POST /api/post/<int:post_id>/publish-now` | 鉴权「超管」 | 登录 + 对该文有编辑权（普通用户仅能操作自己的文章） |
+| `GET /api/announcements` | 裸数组 | `{"items": [...]}`（含 `level` / `dismissible`） |
+| `GET /api/captcha/config` | `global_enabled` / `pil_available` | `enabled` / `available` / `scenes` |
+
+另修：CSRF 失败文案、CSRF 豁免白名单（漏了 `/api/ecosystem/heartbeat`）、
+`/api/mobile/*` 5 条接口实际同时支持 `POST` 与 `PUT`（旧文档只写 POST）、
+分块上传的内容字段名是 `chunk`（不是裸字节）。
+
+### 守卫测试（`tests/test_api_doc_sync.py`，5 条）
+
+1. `test_所有真实接口都在文档里` —— 真实路由 ⊆ 文档条目（防**漏写**）
+2. `test_文档里没有已废弃的接口` —— 文档条目 ⊆ 真实路由（防**留残骸**）
+3. `test_文档目录锚点全部有效` —— 目录里 28 个锚点必须都指向真实章节（防死链）
+4. `test_文档版本号与代码一致` —— 文档头版本 == `APP_VERSION`
+5. `test_文档文件存在`
+
+**插件路由的特殊处理**：`load_plugins()` 在 `PLUGINS_DIR` 不存在时直接 return，
+`plugins_bp` 从未注册 —— 测试环境通常没有插件目录，光靠 `app.url_map` 会漏掉这 4 条，
+导致「文档写了接口、代码里找不到」的常态性假失败。故用**独立探针 app** 注册同一个蓝图
+取它自己的 url_map，与运行环境无关。
+
+### 前台文档页同步（`vue-frontend/src/views/DocsView.vue`）
+
+修了 3 处与源码不符的约定文案：CSRF 豁免白名单、分页口径（并非所有列表都支持 `per_page`）、
+限流阈值（登录/注册是 10 次/分不是 5；前台微动态 20 次/分，5 次/分的是 App 端）。
+
+### 兼容性
+
+**无迁移**（head 仍 `b7c2e91a4d63`）、无新依赖、无新环境变量、无数据回填。
+除视频卡片（`AlbumView.vue` / 两个后台模板）与前台文档页文案外**无业务代码改动**。
+安全审查见 `myblog/SECURITY_AUDIT.md` R154、R155。
+
 ## v5.2.4（2026-10-28 · 属主探测把 4 个 worker 的用户名拼成一个 → 全部静默降级为 root）
 
 > v5.2.3 上线后从部署日志里发现的**第二个真缺陷**：v5.2.3 修好的「探测 worker 属主」

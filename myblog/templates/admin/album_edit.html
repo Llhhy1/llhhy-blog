@@ -7,7 +7,9 @@
       {% if it.missing %}
         <span class="album-item-missing">媒体已删除</span>
       {% elif it.kind == 'video' %}
-        <video src="{{ it.url }}" muted preload="metadata" playsinline></video>
+        {# 🔴 v5.2.5：视频缩略图不可点 —— 点到 video 会触发移动端原生全屏浮层，挡住整页。 #}
+        <video src="{{ it.url }}" muted preload="metadata" playsinline
+               style="pointer-events:none;"></video>
         <span class="album-item-kind">视频</span>
       {% else %}
         <img src="{{ it.thumb }}" alt="" loading="lazy">

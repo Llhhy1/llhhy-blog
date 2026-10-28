@@ -52,8 +52,13 @@
         <div class="media-card" data-name="{{ it.name }}">
           <div class="media-thumb">
             {% if it.kind == 'video' %}
+              {# 🔴 v5.2.5：视频缩略图**不可点**（pointer-events:none）。
+                 点到 video 元素会触发移动端原生全屏播放器 —— 一层盖在整页上的
+                 系统浮层，挡住下面的内容（「点一下就悬浮在最上层」）。
+                 这里只是缩略图预览，播放请到前台相册页。 #}
               <video src="{{ it.url }}" {% if it.poster %}poster="{{ it.poster }}"{% endif %}
-                     preload="metadata" muted playsinline style="width:100%;height:100%;object-fit:cover;"></video>
+                     preload="metadata" muted playsinline
+                     style="width:100%;height:100%;object-fit:cover;pointer-events:none;"></video>
             {% else %}
               <img src="{{ it.url }}" alt="{{ it.title or it.name }}" loading="lazy">
             {% endif %}

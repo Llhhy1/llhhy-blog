@@ -106,31 +106,72 @@ def test_相册列表页能渲染(app, client):
     assert "云和梯田" in body
 
 
+def test_相册列表的封面按封面媒体id取(app, client):
+    """回归 v5.2.0：列表页把**相册 id** 当封面媒体 id 去查（`[a.id for a in rows]`），
+    而相册 id 与媒体 id 是两套自增序列 —— 除偶然相等外一定查不到，
+    于是「编排页设好封面 → 回列表还是无封面」（用户实测反馈）。
+
+    这里刻意让两者**错开**（相册 id=1，封面媒体 id=2），
+    否则「相册 id == 媒体 id」时旧代码会碰巧取到一张图，测试假通过。
+    """
+    _login_admin(app, client)
+    _media(app, "first.webp")            # 媒体 id=1，谁都别当封面
+    m2 = _media(app, "cover.webp")       # 媒体 id=2 → 相册封面
+    aid = _album(app, cover_media_id=m2)
+    with app.app_context():
+        assert aid != m2, "相册 id 与封面媒体 id 必须不同，否则测不出这个 bug"
+
+    r = client.get("/admin/albums")
+    body = r.data.decode("utf-8")
+    assert "/static/uploads/cover.webp" in body, "列表页应渲染封面图"
+    assert "无封面" not in body
+
+
+def test_相册列表_没有封面时显示占位(app, client):
+    """上一条的对照：真没封面时必须显示「无封面」，
+    否则「无封面 not in body」这种断言会因为文案改了就假通过。"""
+    _login_admin(app, client)
+    _album(app)
+    r = client.get("/admin/albums")
+    assert "无封面" in r.data.decode("utf-8")
+
+
+def test_相册编排页显示当前封面(app, client):
+    """编排页的 cover_url 与列表页取数口径必须一致（都认 cover_media_id）。"""
+    _login_admin(app, client)
+    m = _media(app, "cover.webp")
+    aid = _album(app, cover_media_id=m)
+    r = client.get("/admin/albums/%d/edit" % aid)
+    body = r.data.decode("utf-8")
+    assert "当前封面" in body
+    assert "/static/uploads/cover.webp" in body
+
+
 def test_相册编排页能渲染(app, client):
     """编辑页是最容易悄悄坏的地方：Jinja 的 Undefined 不报错，
-    页面「看起来正常但某块空白」。所以必须真的渲染一次。"""
+    页面「看起来正常但某块空白」。所以必须真的渲染一次。
+
+    v5.2.1 起每张图的输入框显示的是**素材标题**（名字只有一份），
+    不再是 album_item.caption —— 后者已冻结、不再写入。
+    """
     _login_admin(app, client)
     aid = _album(app)
-    mid = _media(app)
+    mid = _media(app, "gujie.webp")      # 素材标题 = "gujie"
     with app.app_context():
         s = AlbumSection(album_id=aid, title="D1 畲乡之窗", summary="婚嫁表演 14:30", sort=1)
         db.session.add(s)
         db.session.commit()
         sid = s.id
-        db.session.add(AlbumItem(album_id=aid, section_id=sid, media_id=mid,
-                                 caption="古街", sort=1))
-        db.session.add(AlbumItem(album_id=aid, section_id=None, media_id=mid,
-                                 caption="未分组那张", sort=2))
+        db.session.add(AlbumItem(album_id=aid, section_id=sid, media_id=mid, sort=1))
+        db.session.add(AlbumItem(album_id=aid, section_id=None, media_id=mid, sort=2))
         db.session.commit()
 
     r = client.get("/admin/albums/%d/edit" % aid)
     assert r.status_code == 200, r.data[:600]
     body = r.data.decode("utf-8")
     assert "D1 畲乡之窗" in body, "章节没渲染"
-    assert "古街" in body, "图注没渲染"
-    assert "未分组那张" in body, "未分组条目没渲染"
+    assert 'value="gujie"' in body, "素材标题没渲染进输入框"
     assert "行程概览" in body and "小提示" in body, "游记区块没渲染"
-    assert "媒体选择器" not in body or True
 
 
 # ---------------------------------------------------------------- 公开接口
@@ -452,3 +493,72 @@ def test_相册详情_图注留空时素材标题可取(app, client):
     it = d["items"][0]
     assert it["caption"] == "", "caption 应保持空（不复制素材标题）"
     assert it["media"]["title"] == "梯田晨雾", "media.title 必须带出来供前端回退"
+
+
+# ---------------------------------------------------------------- 名字只有一份（v5.2.1）
+
+def test_编排页改名写进素材标题_而不是另存副本(app, client):
+    """用户实测反馈：「相册里改了文件名称，媒体库的名称不会跟着改」。
+
+    v5.2.0 把名字拆成两处（album_item.caption 与 media_asset.title），
+    用户不认这个区分。v5.2.1 起名字只存在 media_asset.title：
+    在编排页改名 = 改媒体库标题，不允许再往 caption 里存一份副本。
+    """
+    tok = _login_admin(app, client)
+    mid = _media(app, name="orig.webp")            # 标题初始为 "orig"
+    aid = _album(app, slug="one-name")
+    with app.app_context():
+        it = AlbumItem(album_id=aid, media_id=mid, sort=1)
+        db.session.add(it)
+        db.session.commit()
+        iid = it.id
+
+    r = client.post("/admin/albums/%d/items/%d" % (aid, iid),
+                    json={"media_title": "意溪渡口"}, headers={"X-CSRF-Token": tok})
+    assert r.status_code == 200, r.data[:200]
+
+    with app.app_context():
+        m = MediaAsset.query.filter_by(id=mid).first()
+        assert m.title == "意溪渡口", "改名必须落到素材标题上（媒体库才会跟着变）"
+        assert AlbumItem.query.filter_by(id=iid).first().caption == "", "不得再存副本"
+
+
+def test_媒体库改名后编排页显示新名字(app, client):
+    """反方向也要通：媒体库改标题 → 编排页输入框跟着变。
+
+    编排页读的是 media_asset.title 本身（不是加入相册时抄的副本），
+    所以这条其实在测「没有副本」。
+    """
+    _login_admin(app, client)
+    mid = _media(app, name="reverse.webp")
+    aid = _album(app, slug="reverse-one")
+    with app.app_context():
+        db.session.add(AlbumItem(album_id=aid, media_id=mid, sort=1))
+        MediaAsset.query.filter_by(id=mid).first().title = "潮州1"
+        db.session.commit()
+
+    r = client.get("/admin/albums/%d/edit" % aid)
+    assert 'value="潮州1"' in r.data.decode("utf-8")
+
+
+def test_旧页面发caption也落到素材标题(app, client):
+    """v5.2.0 的输入框发的是 caption 字段。
+
+    浏览器缓存未过期时旧页面还会这么发 —— 不能让它在库里另存一份，
+    否则刚消灭的「两份名字」又从旧页面长回来。
+    """
+    tok = _login_admin(app, client)
+    mid = _media(app, name="legacy.webp")
+    aid = _album(app, slug="legacy-cap")
+    with app.app_context():
+        it = AlbumItem(album_id=aid, media_id=mid, sort=1)
+        db.session.add(it)
+        db.session.commit()
+        iid = it.id
+
+    r = client.post("/admin/albums/%d/items/%d" % (aid, iid),
+                    json={"caption": "小猫"}, headers={"X-CSRF-Token": tok})
+    assert r.status_code == 200, r.data[:200]
+    with app.app_context():
+        assert MediaAsset.query.filter_by(id=mid).first().title == "小猫"
+        assert AlbumItem.query.filter_by(id=iid).first().caption == ""

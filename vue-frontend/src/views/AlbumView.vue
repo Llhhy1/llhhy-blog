@@ -175,11 +175,14 @@ const introBlocks = computed(() => blocksOf(album.value && album.value.intro));
 const tipBlocks = computed(() => blocksOf(album.value && album.value.tips));
 
 /**
- * 图注取哪个：优先本相册写的 caption，留空则回退到素材在媒体库的标题。
+ * 图注 = 这张图的**名字**，只有一份，存在媒体库的 `media.title`。
  *
- * 这是「不重复填」的关键 —— 同一张图在媒体库叫「梯田晨雾」，编进相册时
- * 不必再抄一遍；只有这个相册需要不同说法时才填 caption。
- * 纯展示层回退：不写库、不复制数据，媒体库改标题这里会跟着变。
+ * v5.2.0 曾把 caption（相册语境说明）与素材标题并存，靠这里回退兜底；
+ * 实测用户不认这个区分 —— 在相册里起了名，回媒体库还是一串文件名。
+ * v5.2.1 起名字统一走 media.title，在相册编排页改名就是改它。
+ *
+ * 保留 `it.caption` 分支只为兼容尚未迁移的旧数据（此时它仍优先）；
+ * 迁移 b7c2e91a4d63 跑完后 caption 恒空，实际总是取 media.title。
  */
 function capOf(it) {
   if (!it) return "";

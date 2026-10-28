@@ -78,7 +78,10 @@ def album_list():
                    .group_by(AlbumItem.album_id).all()):
         counts[aid] = n
     covers = {}
-    ids = [a.id for a in rows if a.cover_media_id]
+    # 取的是**封面媒体的 id**（cover_media_id），不是相册自己的 id。
+    # 写成 a.id 会去查「id 恰好等于相册 id 的那个媒体」—— 相册 id 与媒体 id 是两套
+    # 自增序列，除了偶然相等之外一定查不到，列表页就永远显示「无封面」。
+    ids = [a.cover_media_id for a in rows if a.cover_media_id]
     if ids:
         for m in MediaAsset.query.filter(MediaAsset.id.in_(ids)).all():
             covers[m.id] = m.url
@@ -153,6 +156,10 @@ def album_edit(aid):
             "items": [r for sid, r in grouped if sid == s.id],
         })
 
+    # 封面只查一次：原本写成「条件里查一次、取值又查一次」，同一行读两遍数据库。
+    cover = (MediaAsset.query.filter_by(id=a.cover_media_id).first()
+             if a.cover_media_id else None)
+
     return render_template(
         "admin/album_edit.html",
         album=a,
@@ -162,9 +169,7 @@ def album_edit(aid):
         # 编排页内可直接上传（选片 → 传完自动入册），前端据此判断走单请求还是分块。
         # 与媒体库用同一个配置口径，避免两处阈值不一致。
         single_max_bytes=current_app.config.get("UPLOAD_SINGLE_SHOT_MAX", 16 * 1024 * 1024),
-        cover_url=(MediaAsset.query.filter_by(id=a.cover_media_id).first().url
-                   if a.cover_media_id and
-                   MediaAsset.query.filter_by(id=a.cover_media_id).first() else ""),
+        cover_url=(cover.url if cover else ""),
     )
 
 
@@ -173,9 +178,12 @@ def _item_json(it, m):
         "id": it.id,
         "media_id": it.media_id,
         "caption": it.caption or "",
-        # 素材在媒体库里的标题：图注**留空时前台自动显示它**，所以这里要给出来，
-        # 让编排页能提示「不填会显示什么」。不复制、不写库，只做展示层的回退。
-        "media_title": ((m.title or m.filename or "").strip() if m else ""),
+        # 名字只有一份（v5.2.1 起）：这里给的是 media_asset.title 的**真实值**，
+        # 空就是空 —— 空着不代表没法显示，前台与后台展示都会回退到文件名。
+        # 给「回退后的值」会让用户以为已经起过名，反而不知道自己在改什么。
+        "media_title": ((m.title or "").strip() if m else ""),
+        "media_filename": ((m.filename or "").strip() if m else ""),
+        "media_display": ((m.title or m.filename or "").strip() if m else ""),
         "section_id": it.section_id,
         "sort": it.sort or 0,
         "url": (m.url if m else ""),
@@ -400,13 +408,35 @@ def album_item_add(aid):
 @admin_bp.route("/albums/<int:aid>/items/<int:iid>", methods=["POST"])
 @admin_required
 def album_item_update(aid, iid):
-    """改条目的说明文字 / 所属分组 / 排序。"""
+    """改条目的**名字** / 所属分组 / 排序。
+
+    ## 为什么名字写进 media_asset.title，而不是 album_item.caption
+
+    v5.2.0 把图注（caption）设计成「相册语境的说明」，与素材标题并存 ——
+    实测下来用户不认这个区分：在相册里给照片起了名，回媒体库还是一串
+    `1000142174_1_1_7212616`，于是「改一处、另一处不动」又变成两份要维护的数据。
+
+    所以从 v5.2.1 起**名字只有一份**，就存在 `media_asset.title`：
+    在这里改 = 改媒体库标题，媒体库卡片、其他相册、前台一起变；
+    反过来在媒体库改名，这里与前台也立刻跟着变（回退读取，不是副本）。
+
+    `caption` 列保留（不改表结构），但不再写入 —— 历史值由迁移合并进 title 后清空。
+    """
     it = AlbumItem.query.filter_by(id=iid, album_id=aid).first()
     if not it:
         return _fail("条目不存在", 404)
     data = request.get_json(silent=True) or request.form
-    if "caption" in data:
-        it.caption = (data.get("caption") or "").strip()
+
+    # 新字段名是 media_title；旧页面（v5.2.0 的输入框）发的是 caption ——
+    # 两者语义已统一，都落到 media_asset.title，避免又分叉成两份。
+    key = ("media_title" if "media_title" in data
+           else ("caption" if "caption" in data else None))
+    if key:
+        name = (data.get(key) or "").strip()
+        m = MediaAsset.query.filter_by(id=it.media_id).first()
+        if m:
+            m.title = name[:200]
+        it.caption = ""          # 单一数据源：不再留相册私有的副本
     if "section_id" in data:
         sec = data.get("section_id")
         try:

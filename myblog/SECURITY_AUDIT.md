@@ -2483,3 +2483,59 @@ def album_update(aid):
 - `tests/test_album.py` **19 passed**（新增 5 条）。
 - 变异验证：`caption=""` → `caption=(m.title or "")` 后，「caption 必须留空」立即变红。
 - 跨相册章节被拒绝（400）有专门用例。
+
+## R150 · v5.2.1（相册封面 / 名字同步修复）安全审查
+
+本版改了**一个写入口的落点**（`album_item_update` 从写 `album_item.caption`
+改为写 `media_asset.title`）、修了一个查询缺陷、加了一条数据迁移。
+按「写目标变化 = 按新写入口重审」处理。
+
+### 150.1 写目标变了：`album_item_update` 现在改的是 `media_asset.title`
+
+| 检查点 | 结论 |
+|---|---|
+| 鉴权 | 不变，仍 `@admin_required` |
+| 越权改他人数据 | 不适用：blog 单作者，`media_asset` 无「归属者」语义（口径同 R145.5 / R149.1） |
+| 影响面扩大了吗 | **是，需说明**：原来只能改「本相册这一条的说明」，现在改的是**全站共享的素材标题** —— 同一张图若在多个相册，改一次全都变。这是本次设计的**目的**（名字只有一份），不是副作用 |
+| 输入校验 | 长度截断 `[:200]`（与 `media_asset.title` 列宽一致）；空值即清空标题，展示层回退文件名 |
+| 目标存在性 | 先 `MediaAsset.query.filter_by(id=it.media_id)`，媒体已删则**跳过写**，不抛错（与「删图不让相册崩」同口径） |
+| 旧字段兼容 | 旧页面发 `caption` 也落到 `title`，**不写 caption** —— 避免缓存页面把两份名字又长回来 |
+
+### 150.2 查询修复（封面）
+
+`album_list()` 由 `[a.id for a in rows]` 改为 `[a.cover_media_id for a in rows]`。
+
+- 这是**取数正确性**修复，不改变可见范围：媒体 id 来自管理员可编辑的 `cover_media_id`，
+  查询仍是 `MediaAsset.id.in_(ids)` 参数化，无注入面。
+- **没有**因此新增「私密素材泄露到公开面」的路径：这里只决定后台列表页缩略图，
+  公开接口 `/api/albums` 的封面过滤逻辑未变（R145.1 的 `is_public` 二次过滤仍在）。
+
+### 150.3 数据迁移 `b7c2e91a4d63`
+
+| 检查点 | 结论 |
+|---|---|
+| SQL 注入 | 无。全部 `sa.text(...)` + 绑定参数（`{"t": name, "m": int(mid)}`） |
+| 覆盖范围 | 只处理 `caption` 非空的 `album_item`；`mid` 为空时只清 caption 不写 title |
+| 幂等 | 判据是「caption 非空」，跑完即空 → 重复执行是空操作 |
+| 不可逆性 | `downgrade` 留空（与 `d4a7f08c2e91` 同口径）：名字已并进 `media_asset.title`，无法区分「原本就是标题」与「从 caption 合来的」，拆回去只会造出猜测数据 |
+| 数据丢失风险 | **有，已明确告知用户**：caption 会覆盖 title（生产一例 `潮州1` → `意溪渡口`）。只换不删，且换上去的是用户最后写下的名字 |
+
+### 150.4 七维复核
+
+| 维度 | 结论 |
+|---|---|
+| XSS | 无。标题走 Jinja 属性值转义 / Vue 插值；`is-synced` 只是 CSS 类名 |
+| SQL 注入 | 无（见 150.3） |
+| 越权 | 见 150.1：写目标扩大但仍在 `@admin_required` 内，且单作者口径 |
+| SSRF | 无 |
+| CSRF | 无变化，仍走全局闸门 + `X-CSRF-Token` |
+| 密钥泄露 | 无 |
+| 资源泄漏 / 限流 | 无。单行 UPDATE；封面查询由 per-album 改为一次 `in_()`（反而更少） |
+
+### 150.5 测试
+
+- `tests/test_album.py` **25 passed**（新增 6 条：3 条封面、3 条名字）。
+- 封面用例刻意让**相册 id ≠ 封面媒体 id**，并做变异验证：
+  改回 `a.id` 后 `test_相册列表的封面按封面媒体id取` 立即变红。
+- 迁移在独立临时库上真跑过 `flask db upgrade`：4 条 caption 正确合并、caption 清空、
+  `alembic_version` = `b7c2e91a4d63`。

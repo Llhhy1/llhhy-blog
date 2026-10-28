@@ -13,13 +13,14 @@
         <img src="{{ it.thumb }}" alt="" loading="lazy">
       {% endif %}
     </div>
-    {# 图注留空 → 前台自动显示素材在媒体库的标题。所以 placeholder 直接告诉用户
-       「不填会显示什么」，不必为了「别空着」再抄一遍同样的字。 #}
-    <input class="album-item-caption" type="text" value="{{ it.caption }}"
-           placeholder="{% if it.media_title %}留空即显示「{{ it.media_title }}」{% else %}图注（可选）{% endif %}"
-           aria-label="图注"
-           title="这张图在本相册里的说明。留空则显示素材在媒体库的标题，不用重复填"
-           data-role="caption">
+    {# 名字只有一份：这个框写的就是 media_asset.title。
+       改这里 = 改媒体库的标题，媒体库卡片与前台相册立刻跟着变；
+       留空则回退显示文件名，不必为了「别空着」再抄一遍。 #}
+    <input class="album-item-caption" type="text" value="{{ it.media_title }}"
+           placeholder="{% if it.media_filename %}没起名，留空即用「{{ it.media_filename }}」{% else %}给这张图起个名{% endif %}"
+           aria-label="这张图的名字"
+           title="全站只有一份名字：改这里，媒体库的标题也跟着变"
+           data-role="title">
     <div class="album-item-ops">
       <button type="button" class="btn small" data-role="up" title="上移">↑</button>
       <button type="button" class="btn small" data-role="down" title="下移">↓</button>
@@ -352,12 +353,19 @@
       }
     });
 
+    // 名字只有一份：这里发的是 media_title，后端写 media_asset.title。
+    // 成功给一下「已同步」的视觉反馈 —— 没有反馈时用户不知道这个名字
+    // 到底是只改了相册、还是真的进了媒体库（v5.2.0 就栽在「以为是两份」上）。
     document.addEventListener('change', function (ev) {
-      var input = ev.target.closest('input[data-role="caption"]');
+      var input = ev.target.closest('input[data-role="title"]');
       if (!input) return;
       var card = input.closest('.album-item');
-      post(BASE + '/' + AID + '/items/' + card.dataset.itemId, { caption: input.value })
-        .then(function (r) { if (!r.ok) fail(r); });
+      post(BASE + '/' + AID + '/items/' + card.dataset.itemId, { media_title: input.value })
+        .then(function (r) {
+          if (!r.ok) { fail(r); return; }
+          input.classList.add('is-synced');
+          setTimeout(function () { input.classList.remove('is-synced'); }, 1200);
+        });
     });
 
     document.getElementById('btn-add-section').addEventListener('click', function () {

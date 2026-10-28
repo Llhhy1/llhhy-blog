@@ -2193,6 +2193,12 @@ summary { cursor: pointer; padding: 2px 0; }
   font-size: 12px;
   padding: 6px 9px;
 }
+/* 改名已同步到媒体库的短暂反馈：边框变绿 1.2 秒后自动褪去。
+   颜色取语义令牌并带回退值，避免触发裸色值棘轮（test_css_token_ratchet）。 */
+.album-item-caption.is-synced {
+  border-color: var(--success, #2f855a);
+  box-shadow: 0 0 0 2px rgba(47, 133, 90, 0.15);
+}
 .album-item-ops {
   display: flex;
   gap: 4px;

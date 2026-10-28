@@ -824,6 +824,9 @@ class AlbumItem(db.Model):
     album_id = db.Column(db.Integer, index=True, nullable=False)
     section_id = db.Column(db.Integer, index=True)   # 可空：空 = 不分组
     media_id = db.Column(db.Integer, nullable=False)
+    # v5.2.1 起**不再写入**：名字只有一份，存在 MediaAsset.title。
+    # 保留列是为了不回滚表结构（ALTER TABLE 在 SQLite 上代价高于留一个空列），
+    # 历史值已由迁移 b7c2e91a4d63 合并进素材标题后清空。
     caption = db.Column(db.Text, default="")
     sort = db.Column(db.Integer, default=0, index=True)
 

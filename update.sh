@@ -165,21 +165,33 @@ detect_runtime() {
   #    所以优先取 **master 的子进程（worker）** 的属主；取不到再退回 master 自己。
   if [ -z "$APP_USER_FINAL" ]; then
     if [ -n "$pid" ]; then
-      APP_USER_FINAL=$(ps -o user= --ppid "$pid" 2>/dev/null | tr -d '[:space:]' | head -1 || true)
+      # 🔴 v5.2.4 修复：必须**先 head -1 再去空白**，不能反序。
+      # `ps -o user= --ppid $pid` 返回**每个子进程一行**（4 个 worker → 4 行 "www"），
+      # 而 `tr -d '[:space:]'` 会把**换行符也删掉** → 4 行拼成 "wwwwwwwwwwww"，
+      # 这个不存在的用户导致 run_as 全部降级为 root、chown 也失败。
+      # （v5.2.3 上线实测：日志出现「用户 wwwwwwwwwwww 不存在」。）
+      APP_USER_FINAL=$(ps -o user= --ppid "$pid" 2>/dev/null | head -1 | tr -d '[:space:]' || true)
       if [ -n "$APP_USER_FINAL" ]; then
-        log "  ↳ 探测到 worker 属主: $APP_USER_FINAL（master 是 $(ps -o user= -p "$pid" 2>/dev/null | tr -d '[:space:]')）"
+        log "  ↳ 探测到 worker 属主: $APP_USER_FINAL（master 是 $(ps -o user= -p "$pid" 2>/dev/null | head -1 | tr -d '[:space:]')）"
       fi
     fi
     if [ -z "$APP_USER_FINAL" ] && [ -n "$pid" ]; then
-      APP_USER_FINAL=$(ps -o user= -p "$pid" 2>/dev/null | tr -d '[:space:]' || true)
+      APP_USER_FINAL=$(ps -o user= -p "$pid" 2>/dev/null | head -1 | tr -d '[:space:]' || true)
     fi
     # 最后兜底：数据库文件的属主 —— 它才是「应该拥有 data/ 的那个用户」
     if [ -z "$APP_USER_FINAL" ] && [ -f "$APP_DIR/data/blog.db" ]; then
-      APP_USER_FINAL=$(stat -c %U "$APP_DIR/data/blog.db" 2>/dev/null | tr -d '[:space:]' || true)
+      APP_USER_FINAL=$(stat -c %U "$APP_DIR/data/blog.db" 2>/dev/null | head -1 | tr -d '[:space:]' || true)
       [ -n "$APP_USER_FINAL" ] && log "  ↳ 从 blog.db 属主推断运行用户: $APP_USER_FINAL"
     fi
     if [ -z "$APP_USER_FINAL" ]; then
-      APP_USER_FINAL=$(stat -c %U "$APP_DIR" 2>/dev/null | tr -d '[:space:]' || true)
+      APP_USER_FINAL=$(stat -c %U "$APP_DIR" 2>/dev/null | head -1 | tr -d '[:space:]' || true)
+    fi
+    # 🔴 v5.2.4 追加：探测结果必须是**真实存在的用户**，否则一律作废。
+    # 拼错的字符串会一路流进 run_as/chown，报「用户 xxx 不存在」后静默降级，
+    # 看着部署成功、实际全是 root 属主 —— 这种「静默降级」比直接失败危险得多。
+    if [ -n "$APP_USER_FINAL" ] && ! id "$APP_USER_FINAL" >/dev/null 2>&1; then
+      log "  ⚠️ 探测到的属主 '$APP_USER_FINAL' 不是有效用户，放弃该结果"
+      APP_USER_FINAL=""
     fi
     if [ -n "$APP_USER_FINAL" ] && [ "$APP_USER_FINAL" != "UNKNOWN" ]; then
       log "  ↳ 运行属主: $APP_USER_FINAL"
@@ -395,7 +407,7 @@ cleanup_stale_updates() {
   p=$$
   while [ -n "$p" ] && [ "$p" != "1" ]; do
     ancestors="$ancestors $p"
-    p=$(ps -o ppid= -p "$p" 2>/dev/null | tr -d '[:space:]' || true)
+    p=$(ps -o ppid= -p "$p" 2>/dev/null | head -1 | tr -d '[:space:]' || true)
   done
   local pids
   # 第一步用 pgrep 做粗筛（便宜）；**第二步必须精确到 argv**——否则任何命令行里
@@ -420,8 +432,8 @@ cleanup_stale_updates() {
       if [ "$base" = "update.sh" ]; then is_update=1; break; fi
     done 2>/dev/null < "/proc/$p/cmdline" || true
     [ "$is_update" = "1" ] || { scanned=$((scanned + 1)); continue; }
-    ppid=$(ps -o ppid= -p "$p" 2>/dev/null | tr -d '[:space:]' || true)
-    st=$(ps -o state= -p "$p" 2>/dev/null | tr -d '[:space:]' || true)
+    ppid=$(ps -o ppid= -p "$p" 2>/dev/null | head -1 | tr -d '[:space:]' || true)
+    st=$(ps -o state= -p "$p" 2>/dev/null | head -1 | tr -d '[:space:]' || true)
     wchan=$(cat "/proc/$p/wchan" 2>/dev/null || true)
     # 持有 $WORK / $APP_DIR 文件数：只说清判断依据，便于人工核对
     hold=$(ls -l "/proc/$p/fd" 2>/dev/null | grep -c "${WORK:-/tmp/llhhy_update}" || true)

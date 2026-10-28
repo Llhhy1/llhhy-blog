@@ -174,6 +174,44 @@ def test_脚本自更新能认出自己_相对路径调用也要行():
         "自更新仍用相对 $0 求路径 → 相对调用时永远认不出自己"
 
 
+def test_属主探测不会被多行输出拼坏():
+    """v5.2.4：`ps -o user= --ppid` 返回**每个子进程一行**，不能整段去空白。
+
+    实测事故（v5.2.3 上线时暴露）：脚本写的是
+    `ps -o user= --ppid "$pid" | tr -d '[:space:]' | head -1`。
+    `tr -d '[:space:]'` 会把**换行符也删掉** → 4 个 worker 的 4 行 "www"
+    拼成 "wwwwwwwwwwww"（13 个字符）→ 探测到一个**不存在的用户**。
+
+    后果：所有 `run_as` 调用静默降级为 root（日志刷「用户 xxx 不存在」），
+    `chown` 也全部失败 —— 部署日志显示「成功」，实际文件属主成了 root。
+    **静默降级比直接失败危险得多。**
+
+    守卫：① 多行命令（`--ppid`）必须**先 head -1 再 tr**；
+    ② 探测结果必须是真实存在的用户，否则作废。
+    """
+    s = _read(UPDATE_SH)
+
+    # ① 多行 ps 输出：必须先 head -1
+    #    判据：只看**代码行**（行首有缩进、非注释），注释里提到这串字不算。
+    for line in s.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("#") or "ps -o user= --ppid" not in line:
+            continue
+        if "head -1" not in line:
+            raise AssertionError("多行 ps 输出被整段去空白 → 会把多行拼成一个不存在的用户：%r" % line)
+    assert 'ps -o user= --ppid "$pid" 2>/dev/null | head -1 | tr -d' in s, \
+        "worker 属主探测必须先 head -1 再去空白"
+
+    # ② 探测结果必须是真实存在的用户
+    assert 'id "$APP_USER_FINAL" >/dev/null 2>&1' in s, \
+        "探测到的属主必须校验是真实用户，否则静默降级为 root"
+    assert "不是有效用户，放弃该结果" in s, "缺少「探测结果无效则作废」的明确分支"
+
+    # ③ 其余 ps 读取也统一加 head -1（单行输出，防同类问题复发）
+    for m in re.finditer(r"ps -o [a-z]+= -p \"\$[a-z]+\" 2>/dev/null \| (?!head -1)", s):
+        raise AssertionError("ps 单进程读取也应统一 head -1: %r" % m.group(0))
+
+
 def test_scripts_are_lf_only():
     """服务器上 CRLF 的 bash 脚本会直接语法报错（历史事故）。"""
     for p in (UPDATE_SH, DEPLOY_SH):

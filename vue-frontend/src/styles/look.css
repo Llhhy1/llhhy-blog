@@ -138,6 +138,36 @@ input[type=tel]:focus, select:focus, textarea:focus {
   border-radius: var(--ui-radius-card, 22px);
   border: 1px solid var(--ui-hairline, rgba(60, 60, 67, .12));
   box-shadow: var(--ui-shadow-lift, 0 2px 8px rgba(0, 0, 0, .07));
+}
+/* 🔴 这里原来写过 `overflow: hidden`（为了裁圆角），是个真事故：
+   `overflow` 是**简写**，它把 `.drawer` 与 `.notif-panel` 在 global.css 里
+   已有的 `overflow-y: auto` 一并重置成 hidden —— 移动端抽屉内容比屏幕高
+   244px 却「上下划不动」。
+   更阴的是 `overflow: hidden` 下**程序设 scrollTop 仍然生效**，只看 DOM 或
+   跑一行 el.scrollTop=N 完全看不出问题，必须读 computed overflowY。
+   圆角裁切只需要「overflow 非 visible」，纵向该滚的必须让它滚。 */
+.notif-panel {
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+/* 抽屉：外层负责裁圆角，头部与底部固定，**只让菜单区滚动**。
+   如果让整个抽屉滚（v5.0.0 之前就是这样，只是当时没被 overflow:hidden 锁死），
+   滚到底部时关闭按钮会一起滚走 —— 手机上只能点遮罩才能关，是个隐藏的可用性坑。 */
+.drawer {
+  overflow: hidden;
+}
+.drawer-head, .drawer-foot {
+  flex: 0 0 auto;
+}
+.drawer-nav {
+  flex: 1 1 auto;
+  /* flex 子项的 min-height 默认是 auto，不显式置 0 它就不会收缩，overflow 也不生效 */
+  min-height: 0;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+/* 下拉菜单没有 max-height、内容不溢出，保留裁切以免子项 hover 底色顶破圆角 */
+.toolbox-menu {
   overflow: hidden;
 }
 

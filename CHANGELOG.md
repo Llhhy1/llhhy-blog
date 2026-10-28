@@ -6,6 +6,56 @@
 > v3.22.0 ~ v3.25.16 → `docs/archive/CHANGELOG_v3.22.0-v3.25.16.md`（v4.11.0 因体积守卫触发，主文件涨到 201 KB / 上限 200 KB）。
 > 本文件从 **v4.0.0** 起。**归档不是删除** —— 查旧版本变更细节时去上述文件。
 
+## v5.1.2（2026-10-28 · 移动端抽屉菜单滚不动）
+
+> 用户报「菜单栏在移动端上下划不动」。
+
+### 根因
+
+`styles/look.css` 里有一条为圆角裁切写的共享规则：
+
+```css
+.drawer, .notif-panel, .toolbox-menu { ... overflow: hidden; }
+```
+
+**`overflow` 是简写**，它把 `.drawer` 与 `.notif-panel` 在 `global.css` 里原有的
+`overflow-y: auto` **一并重置成 hidden**。线上实测（390×844 视口）：
+
+```
+overflowY: "hidden"  scrollHeight: 1062  clientHeight: 818  → 溢出 244px
+```
+
+内容比屏幕高 244px（约 5 个菜单项），却完全划不动。
+
+**为什么之前没被发现**：`overflow: hidden` 下**程序设 `el.scrollTop` 仍然生效**
+（实测设 400 后读回 244），只看 DOM、或跑一行 `scrollTop = N` 会得出「能滚」的
+错误结论。判据必须是 **computed `overflowY`**，而且要看**用户手势路径**。
+
+### 修复
+
+- `.notif-panel` 显式恢复 `overflow-y: auto`（站内通知面板此前同样被锁死）。
+- `.drawer` 改为：**外层 `overflow: hidden` 裁圆角，`.drawer-head` / `.drawer-foot`
+  固定，只让 `.drawer-nav` 滚动**。
+  顺带修掉一个隐藏的可用性坑 —— 原来整个抽屉滚，滚到底部时关闭按钮会一起滚走，
+  手机上只能点遮罩才能关。`.drawer-nav` 必须带 `min-height: 0`
+  （flex 子项默认 `min-height: auto`，不置 0 就不会收缩，`overflow` 也不生效）。
+- `.toolbox-menu` 保留 `overflow: hidden`：它是下拉菜单，没有 `max-height`、
+  内容不溢出，需要裁掉 hover 底色顶破圆角的部分。
+
+### 影响面
+
+只改 `styles/look.css`：**无迁移、无新路由、无新依赖、无新环境变量、无后端改动**。
+
+### 验证
+
+- 修复前（线上）：`overflowY: hidden`，溢出 244px，滚不动。
+- 修复后（本地 390×844）：`.drawer` `hidden` / `.drawer-nav` `auto`，
+  `scrollHeight 737 > clientHeight 540`，可滚到底 197px。
+- 截图对照：滚到底部时标题与关闭按钮仍固定在顶部、登录/注册/主题/EN 固定在底部、
+  圆角完整无溢出。
+- 构建产物层叠顺序核对：`.drawer` 相关规则的最后一条为修复后的值
+  （`body.drawer-open-lock { overflow: hidden }` 只锁 body，不影响抽屉内部）。
+
 ## v5.1.1（2026-10-28 · 相册正文渲染修复）
 
 > v5.1.0 上线后实测发现：行程概览与小提示的纯文本渲染器只认「空行分段 + `- ` 列表」，

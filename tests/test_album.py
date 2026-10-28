@@ -34,6 +34,28 @@ def clean_albums(app):
     yield
 
 
+@pytest.fixture(autouse=True)
+def _reset_media_sync_throttle():
+    """每条测试结束后清零「磁盘同步节流」计时。
+
+    `admin.media.collect_media()` 为省 IO，60 秒内只扫一次 uploads 目录、
+    把没有表记录的历史文件补登记（`_SYNC_AT`）。本文件里
+    「媒体库页面显示素材所属相册」那条会调用 `/admin/media`，因而**消耗掉
+    这一次同步**；随后 60 秒内手工写进 uploads 的文件就不会登记进
+    `media_asset`，把 `test_api_mobile.py::test_媒体库删除需_force_且路径穿越无效`
+    打挂（实测复现：`StopIteration`，它靠真实文件断言）。
+
+    正常上传不走这条路（`media_service.save_single()` 直接登记一行），
+    所以这是**测试之间的互扰**，不是线上缺陷。谁污染谁清理。
+    """
+    yield
+    try:
+        from admin.media import _SYNC_AT
+        _SYNC_AT[0] = 0.0
+    except Exception:      # noqa: BLE001  清理失败不该让测试变红
+        pass
+
+
 def _login_admin(app, client):
     with app.app_context():
         u = User(username="al-" + secrets.token_hex(4),
@@ -342,3 +364,91 @@ def test_保存相册信息_表单校验失败也重定向(app, client):
 
     with app.app_context():
         assert Album.query.filter_by(id=aid).first().slug == "form-bad", "冲突时不该改动 slug"
+
+
+# ---------------------------------------------------------------- 媒体库 ↔ 相册
+# v5.2.0 打通两个页面。这里的断言重点不是「接口能调通」，而是
+# **不产生第二份数据** —— 相册只引用 media_id，图注留空时不复制素材标题，
+# 由前端回退显示。
+
+
+def test_媒体库页面显示素材所属相册(app, client):
+    """媒体库每行要能看出「这张图用在哪个相册」，否则只能凭记忆找。"""
+    tok = _login_admin(app, client)
+    aid = _album(app, slug="bridge-list", title="被引用的相册")
+    mid = _media(app, name="bridge.webp")
+    with app.app_context():
+        db.session.add(AlbumItem(album_id=aid, media_id=mid, sort=1))
+        db.session.commit()
+
+    r = client.get("/admin/media")
+    assert r.status_code == 200, r.data[:200]
+    body = r.get_data(as_text=True)
+    assert "被引用的相册" in body, "媒体库没有显示素材所属相册"
+    assert "media-album-tag" in body
+    assert "to-album" in body, "缺少「加入相册」入口"
+
+
+def test_媒体库加入相册_成功且图注留空(app, client):
+    """加入 = 只写一条引用。不许把素材标题抄进 caption（否则改标题不同步）。"""
+    tok = _login_admin(app, client)
+    aid = _album(app, slug="bridge-add", title="目标相册")
+    mid = _media(app, name="to-add.webp")
+    with app.app_context():
+        MediaAsset.query.filter_by(id=mid).first().title = "原素材标题"
+        db.session.commit()
+
+    r = client.post("/admin/media/%d/to-album" % mid, json={"album_id": aid},
+                    headers={"X-CSRF-Token": tok})
+    assert r.status_code == 200, r.data[:200]
+    d = r.get_json()
+    assert d["ok"] is True and d["album_id"] == aid
+    assert d["album_title"] == "目标相册"
+
+    with app.app_context():
+        it = AlbumItem.query.filter_by(album_id=aid, media_id=mid).first()
+        assert it is not None
+        assert it.caption == "", "caption 必须留空（前台回退显示素材标题，不复制）"
+
+
+def test_媒体库加入相册_章节必须属于该相册(app, client):
+    tok = _login_admin(app, client)
+    aid = _album(app, slug="bridge-sec")
+    other = _album(app, slug="bridge-other")
+    with app.app_context():
+        s = AlbumSection(album_id=other, title="别人的章节", sort=1)
+        db.session.add(s)
+        db.session.commit()
+        sid = s.id
+    mid = _media(app, name="sec.webp")
+
+    r = client.post("/admin/media/%d/to-album" % mid,
+                    json={"album_id": aid, "section_id": sid},
+                    headers={"X-CSRF-Token": tok})
+    assert r.status_code == 400, "跨相册的章节必须拒绝"
+    with app.app_context():
+        assert AlbumItem.query.filter_by(album_id=aid).count() == 0
+
+
+def test_媒体库加入相册_相册不存在(app, client):
+    tok = _login_admin(app, client)
+    mid = _media(app, name="noalbum.webp")
+    r = client.post("/admin/media/%d/to-album" % mid, json={"album_id": 999999},
+                    headers={"X-CSRF-Token": tok})
+    assert r.status_code == 404
+
+
+def test_相册详情_图注留空时素材标题可取(app, client):
+    """前端 capOf() 用 media.title 兜底，所以后端必须把标题带出来。"""
+    aid = _album(app, slug="caption-fallback", public=True)
+    mid = _media(app, name="fallback.webp")
+    with app.app_context():
+        MediaAsset.query.filter_by(id=mid).first().title = "梯田晨雾"
+        db.session.add(AlbumItem(album_id=aid, media_id=mid, caption="", sort=1))
+        db.session.commit()
+
+    d = client.get("/api/albums/caption-fallback").get_json()
+    assert len(d["items"]) == 1
+    it = d["items"][0]
+    assert it["caption"] == "", "caption 应保持空（不复制素材标题）"
+    assert it["media"]["title"] == "梯田晨雾", "media.title 必须带出来供前端回退"

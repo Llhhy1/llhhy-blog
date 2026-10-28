@@ -68,6 +68,19 @@
               {% if not it.is_public %} · 🔒 不公开{% endif %}
             </div>
             {% if it.folder %}<div class="media-meta">📁 {{ it.folder }}</div>{% endif %}
+            {# 这张素材被哪些相册用过 —— 只做引用展示，相册标题仍归相册侧维护 #}
+            {% set als = album_map.get(it.id, []) %}
+            {% if als %}
+              <div class="media-albums">
+                {% for al in als %}
+                  <a class="media-album-tag" data-album-id="{{ al.id }}"
+                     href="{{ url_for('admin.album_edit', aid=al.id) }}"
+                     title="打开这个相册">📚 {{ al.title }}</a>
+                {% endfor %}
+              </div>
+            {% else %}
+              <div class="media-meta media-unused">未加入任何相册</div>
+            {% endif %}
             {% if it.refs %}
               <div class="media-refs">
                 {% for r in it.refs %}
@@ -79,6 +92,8 @@
           </div>
           <div class="media-actions" style="flex-wrap:wrap;gap:4px;">
             <button type="button" class="link-btn copy-url" data-url="{{ it.url }}">复制 URL</button>
+            <button type="button" class="link-btn to-album"
+                    data-id="{{ it.id }}" data-name="{{ it.title or it.name }}">➕ 相册</button>
             <button type="button" class="link-btn copy-md" data-url="{{ it.url }}"
                     data-title="{{ it.title or it.name }}">复制 MD</button>
             <button type="button" class="link-btn edit-meta"
@@ -179,6 +194,36 @@
       <p class="muted">只有超级管理员可以修改存储后端。</p>
     {% endif %}
   </details>
+
+  {# 加入相册：只选相册（可选章节），**不要求填任何文字** —— 图注留空会自动显示
+     这张图在媒体库的标题，不必为了「别空着」再抄一遍。 #}
+  <div class="album-picker-mask" id="to-album-mask" hidden>
+    <div class="album-picker" style="width:min(460px,100%);">
+      <div class="album-picker-head">
+        <strong>加入相册</strong>
+        <button type="button" class="btn small" id="to-album-close">关闭</button>
+      </div>
+      <div style="padding:0 18px 8px;">
+        <p class="hint" id="to-album-which" style="margin:10px 0;"></p>
+        <label class="field-label" for="to-album-select">相册</label>
+        <select id="to-album-select" style="width:100%;margin-bottom:10px;">
+          <option value="">请选择相册…</option>
+          {% for al in album_options %}<option value="{{ al.id }}">{{ al.title }}</option>{% endfor %}
+        </select>
+        <label class="field-label" for="to-album-section">章节（可选）</label>
+        <select id="to-album-section" style="width:100%;">
+          <option value="">未分组</option>
+        </select>
+        <p class="hint" style="margin:10px 0 0;">
+          加入后不用填图注 —— 留空会自动显示这张图的标题，之后到相册里也能再调。
+        </p>
+      </div>
+      <div class="album-picker-foot">
+        <span class="hint" id="to-album-status"></span>
+        <button type="button" class="btn" id="to-album-ok">确定加入</button>
+      </div>
+    </div>
+  </div>
 
   <script>
   (function () {
@@ -296,6 +341,92 @@
           b.textContent = ok ? '已复制 ✓' : '复制失败';
           setTimeout(function () { b.textContent = '复制 MD'; }, 1600);
         });
+      });
+    });
+
+    // ---------------- 加入相册（媒体库侧的横向入口）----------------
+    //
+    // 只选相册（可选章节），**不填任何字段**。相册标题、日期、图注都在相册侧，
+    // 这里只写一条引用。图注留空时前台会自动显示这张图的标题。
+    var ALBUM_SECTIONS = {{ section_map | tojson }};
+    var EDIT_BASE = "{{ url_for('admin.album_list') }}";
+    var TO_ALBUM_URL = "{{ url_for('admin.media_to_album', mid=0) }}".replace('/0/', '/__ID__/');
+
+    var taMask = document.getElementById('to-album-mask');
+    var taSel = document.getElementById('to-album-select');
+    var taSec = document.getElementById('to-album-section');
+    var taStatus = document.getElementById('to-album-status');
+    var taWhich = document.getElementById('to-album-which');
+    var taCurId = null;
+
+    // 章节随相册变化。数据在页面加载时一次带过来，选相册不会有等待。
+    function fillSections() {
+      var list = ALBUM_SECTIONS[taSel.value] || [];
+      taSec.innerHTML = '<option value="">未分组</option>';
+      list.forEach(function (s) {
+        var o = document.createElement('option');
+        o.value = String(s.id);
+        o.textContent = s.title;
+        taSec.appendChild(o);
+      });
+    }
+
+    // 加入成功后就地补一个标签，不刷新页面 —— 方便连续给多张素材加同一个相册
+    function addAlbumTag(mid, albumId, albumTitle) {
+      var btn = document.querySelector('.to-album[data-id="' + mid + '"]');
+      if (!btn) return;
+      var info = btn.closest('.media-card').querySelector('.media-info');
+      if (!info) return;
+      var wrap = info.querySelector('.media-albums');
+      if (!wrap) {
+        wrap = document.createElement('div');
+        wrap.className = 'media-albums';
+        var unused = info.querySelector('.media-unused');
+        if (unused) unused.remove();
+        info.appendChild(wrap);
+      }
+      if (wrap.querySelector('[data-album-id="' + albumId + '"]')) return;   // 已在里面
+      var a = document.createElement('a');
+      a.className = 'media-album-tag';
+      a.dataset.albumId = albumId;
+      a.href = EDIT_BASE + '/' + albumId + '/edit';
+      a.title = '打开这个相册';
+      a.textContent = '📚 ' + albumTitle;
+      wrap.appendChild(a);
+    }
+
+    Array.prototype.forEach.call(document.querySelectorAll('.to-album'), function (b) {
+      b.addEventListener('click', function () {
+        taCurId = b.dataset.id;
+        taWhich.textContent = '素材：' + b.dataset.name;
+        taSel.value = '';
+        fillSections();
+        taStatus.textContent = '';
+        taMask.hidden = false;
+      });
+    });
+    document.getElementById('to-album-close').addEventListener('click', function () {
+      taMask.hidden = true;
+    });
+    taMask.addEventListener('click', function (ev) {
+      if (ev.target === taMask) taMask.hidden = true;      // 点遮罩关闭
+    });
+    taSel.addEventListener('change', fillSections);
+    document.getElementById('to-album-ok').addEventListener('click', function () {
+      if (!taCurId) return;
+      if (!taSel.value) { taStatus.textContent = '请先选一个相册'; return; }
+      taStatus.textContent = '加入中…';
+      fetch(TO_ALBUM_URL.replace('__ID__', taCurId), {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: headers({ 'Content-Type': 'application/json' }),
+        body: JSON.stringify({ album_id: taSel.value, section_id: taSec.value })
+      }).then(function (r) { return r.json(); }).then(function (d) {
+        if (!d.ok) { taStatus.textContent = '❌ ' + (d.msg || '加入失败'); return; }
+        addAlbumTag(taCurId, d.album_id, d.album_title);
+        taMask.hidden = true;
+      }).catch(function (e) {
+        taStatus.textContent = '❌ ' + e.message;
       });
     });
 

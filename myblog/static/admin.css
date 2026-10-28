@@ -2309,3 +2309,42 @@ summary { cursor: pointer; padding: 2px 0; }
 [hidden] {
   display: none !important;
 }
+
+/* ============================================================================
+ * v5.2.0 媒体库 ↔ 相册 打通的视觉部件
+ *
+ * 只做「引用展示」：标签指向相册编排页，相册标题仍归相册侧维护，
+ * 这里不复制、不存储任何相册字段。
+ * ==========================================================================*/
+
+.media-albums {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 4px;
+}
+
+.media-album-tag {
+  display: inline-block;
+  max-width: 100%;
+  padding: 1px 8px;
+  border-radius: var(--ui-radius-pill, 999px);
+  background: var(--ui-fill, rgba(120, 120, 128, .10));
+  color: var(--text, #2c2c2c);
+  font-size: 11px;
+  line-height: 1.6;
+  text-decoration: none;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.media-album-tag:hover {
+  background: var(--accent, #196ddd);
+  color: rgba(255, 255, 255, .96);
+}
+
+/* 「未加入任何相册」是提示而非告警，压低存在感 */
+.media-unused {
+  opacity: .55;
+}

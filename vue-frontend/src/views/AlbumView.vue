@@ -57,9 +57,9 @@
                      controls preload="metadata" playsinline></video>
             </div>
             <div v-else class="album-media-box is-image" @click="openLightboxByItem(it)">
-              <img :src="it.media.url" :alt="it.caption || ''" loading="lazy">
+              <img :src="it.media.url" :alt="capOf(it)" loading="lazy">
             </div>
-            <figcaption v-if="it.caption" class="album-caption">{{ it.caption }}</figcaption>
+            <figcaption v-if="capOf(it)" class="album-caption">{{ capOf(it) }}</figcaption>
           </figure>
         </div>
       </section>
@@ -74,9 +74,9 @@
                      controls preload="metadata" playsinline></video>
             </div>
             <div v-else class="album-media-box is-image" @click="openLightboxByItem(it)">
-              <img :src="it.media.url" :alt="it.caption || ''" loading="lazy">
+              <img :src="it.media.url" :alt="capOf(it)" loading="lazy">
             </div>
-            <figcaption v-if="it.caption" class="album-caption">{{ it.caption }}</figcaption>
+            <figcaption v-if="capOf(it)" class="album-caption">{{ capOf(it) }}</figcaption>
           </figure>
         </div>
       </section>
@@ -98,9 +98,9 @@
       <button class="lb-close" :aria-label="t('close')" @click="closeLightbox">×</button>
       <button v-if="images.length > 1" class="lb-nav lb-prev" :aria-label="t('prev')" @click="step(-1)">‹</button>
       <figure class="lb-body">
-        <img :src="images[lightbox]?.media.url" :alt="images[lightbox]?.caption || ''">
-        <figcaption v-if="images[lightbox]?.caption" class="lb-caption">
-          {{ images[lightbox].caption }}
+        <img :src="images[lightbox]?.media.url" :alt="capOf(images[lightbox])">
+        <figcaption v-if="capOf(images[lightbox])" class="lb-caption">
+          {{ capOf(images[lightbox]) }}
           <span class="lb-count">{{ lightbox + 1 }} / {{ images.length }}</span>
         </figcaption>
       </figure>
@@ -173,6 +173,18 @@ function blocksOf(text) {
 
 const introBlocks = computed(() => blocksOf(album.value && album.value.intro));
 const tipBlocks = computed(() => blocksOf(album.value && album.value.tips));
+
+/**
+ * 图注取哪个：优先本相册写的 caption，留空则回退到素材在媒体库的标题。
+ *
+ * 这是「不重复填」的关键 —— 同一张图在媒体库叫「梯田晨雾」，编进相册时
+ * 不必再抄一遍；只有这个相册需要不同说法时才填 caption。
+ * 纯展示层回退：不写库、不复制数据，媒体库改标题这里会跟着变。
+ */
+function capOf(it) {
+  if (!it) return "";
+  return it.caption || (it.media && it.media.title) || "";
+}
 
 function openLightbox(idx) { if (images.value.length) lightbox.value = idx; }
 function openLightboxByItem(it) {

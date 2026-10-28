@@ -5,7 +5,7 @@ from ._helpers import (_current_user_or_none, admin_required, log_audit,
                        login_required, admin_bp)
 from flask import current_app, flash, jsonify, redirect, render_template, request, url_for
 from sqlalchemy import or_
-from models import db, Post, MediaAsset
+from models import db, Post, MediaAsset, Album, AlbumItem, AlbumSection
 from utils import fmt_bj
 import datetime
 import os
@@ -214,14 +214,52 @@ def folders():
 @admin_bp.route("/media", methods=["GET"])
 @admin_required
 def media_lib():
-    """媒体库：图片 / 视频分栏、归档分类筛选、关键词搜索、元数据编辑。"""
+    """媒体库：图片 / 视频分栏、归档分类筛选、关键词搜索、元数据编辑。
+
+    v5.2.0 起这里也承担「素材 ↔ 相册」的横向入口：每行显示该素材被哪些相册
+    用过（可点击跳转），并提供「加入相册」。**只做引用，不复制任何字段** ——
+    相册标题、图注、日期都仍在相册侧，这里只是指向。
+    """
     u = _current_user_or_none()
     kind = (request.args.get("kind") or "").strip()
     folder = (request.args.get("folder") or "").strip()
     q = (request.args.get("q") or "").strip()
+
+    rows = collect_media(folder=folder or None, kind=kind or None, q=q or None)
+
+    # 素材归属：**一次聚合**查出「每张图属于哪些相册」，避免逐行查询（N+1）。
+    # 同一张图可以进多个相册，所以值是列表。
+    ids = [it["id"] for it in rows if it.get("id")]
+    album_map = {}
+    if ids:
+        for mid, alid, atitle in (
+            db.session.query(AlbumItem.media_id, Album.id, Album.title)
+            .join(Album, Album.id == AlbumItem.album_id)
+            .filter(AlbumItem.media_id.in_(ids))
+            .order_by(Album.id.desc())
+            .all()
+        ):
+            album_map.setdefault(mid, []).append({
+                "id": alid,
+                "title": (atitle or "").strip() or ("相册 %d" % alid),
+            })
+
+    # 「加入相册」弹窗要的数据：相册清单 + 每个相册的章节。
+    # 相册数量在本站规模下很小，一次性带过去比点一次发一次请求更省事，
+    # 也不会出现「选了相册才转圈等章节」的空窗。
+    album_options = [{"id": a.id, "title": (a.title or "").strip() or ("相册 %d" % a.id)}
+                     for a in Album.query.order_by(Album.id.desc()).all()]
+    section_map = {}
+    for s in AlbumSection.query.order_by(AlbumSection.album_id, AlbumSection.sort).all():
+        section_map.setdefault(s.album_id, []).append(
+            {"id": s.id, "title": (s.title or "").strip() or ("章节 %d" % s.id)})
+
     return render_template(
         "admin/media_lib.html",
-        items=collect_media(folder=folder or None, kind=kind or None, q=q or None),
+        items=rows,
+        album_map=album_map,
+        album_options=album_options,
+        section_map=section_map,
         folders=folders(), cur_kind=kind, cur_folder=folder, cur_q=q,
         is_super=bool(u and getattr(u, "is_super", False)),
         storage=media_storage.status(),
@@ -235,6 +273,52 @@ def media_lib():
         single_max_bytes=current_app.config.get("UPLOAD_SINGLE_SHOT_MAX", 16 * 1024 * 1024),
         chunk_bytes=current_app.config.get("UPLOAD_CHUNK_SIZE", 8 * 1024 * 1024),
     )
+
+
+@admin_bp.route("/media/<int:mid>/to-album", methods=["POST"])
+@admin_required
+def media_to_album(mid):
+    """把一张素材加入某个相册 —— 媒体库侧的横向入口（v5.2.0）。
+
+    **只建引用，不复制任何字段**：相册标题、日期、图注都在相册侧，这里只写一条
+    `album_item`。所以这个操作**不需要用户填任何东西**，选个相册就完事。
+
+    图注留空是故意的：前台会自动回退显示素材在媒体库的标题
+    （`AlbumView.vue` 的 `capOf()`），所以加进去不会是空白，也不必抄两遍。
+
+    与 `admin/album.py:album_item_add` 同口径：同一张图允许重复加入
+    （同一张照片在相册里出现两次、配不同文字是合理需求），不做去重。
+    """
+    m = db.session.get(MediaAsset, mid)
+    if not m:
+        return jsonify({"ok": False, "msg": "素材不存在"}), 404
+
+    body = request.get_json(silent=True) or request.form
+    try:
+        aid = int(body.get("album_id"))
+    except (TypeError, ValueError):
+        return jsonify({"ok": False, "msg": "请选择相册"}), 400
+
+    a = db.session.get(Album, aid)
+    if not a:
+        return jsonify({"ok": False, "msg": "相册不存在"}), 404
+
+    sec = body.get("section_id")
+    try:
+        sec = int(sec) if sec not in (None, "", 0, "0") else None
+    except (TypeError, ValueError):
+        sec = None
+    if sec and not AlbumSection.query.filter_by(id=sec, album_id=aid).first():
+        return jsonify({"ok": False, "msg": "该章节不属于这个相册"}), 400
+
+    mx = db.session.query(db.func.max(AlbumItem.sort)).filter(
+        AlbumItem.album_id == aid).scalar() or 0
+    db.session.add(AlbumItem(album_id=aid, section_id=sec, media_id=mid,
+                             caption="", sort=int(mx) + 1))
+    db.session.commit()
+    log_audit("update", "album", aid, "从媒体库加入素材 #%d" % mid, user=_uid())
+    return jsonify({"ok": True, "album_id": aid,
+                    "album_title": (a.title or "").strip() or ("相册 %d" % aid)})
 
 
 @admin_bp.route("/media/update", methods=["POST"])

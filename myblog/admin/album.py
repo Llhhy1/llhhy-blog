@@ -23,7 +23,7 @@
 """
 from ._helpers import (_current_user_or_none, admin_required, log_audit,
                        admin_bp)
-from flask import flash, jsonify, redirect, render_template, request, url_for
+from flask import current_app, flash, jsonify, redirect, render_template, request, url_for
 from _time import utcnow
 from models import (Album, AlbumItem, AlbumSection, MediaAsset, db)
 from utils import fmt_bj
@@ -159,6 +159,9 @@ def album_edit(aid):
         sections=sec_rows,
         loose_items=loose,
         event_date=a.event_date.strftime("%Y-%m-%d") if a.event_date else "",
+        # 编排页内可直接上传（选片 → 传完自动入册），前端据此判断走单请求还是分块。
+        # 与媒体库用同一个配置口径，避免两处阈值不一致。
+        single_max_bytes=current_app.config.get("UPLOAD_SINGLE_SHOT_MAX", 16 * 1024 * 1024),
         cover_url=(MediaAsset.query.filter_by(id=a.cover_media_id).first().url
                    if a.cover_media_id and
                    MediaAsset.query.filter_by(id=a.cover_media_id).first() else ""),
@@ -170,6 +173,9 @@ def _item_json(it, m):
         "id": it.id,
         "media_id": it.media_id,
         "caption": it.caption or "",
+        # 素材在媒体库里的标题：图注**留空时前台自动显示它**，所以这里要给出来，
+        # 让编排页能提示「不填会显示什么」。不复制、不写库，只做展示层的回退。
+        "media_title": ((m.title or m.filename or "").strip() if m else ""),
         "section_id": it.section_id,
         "sort": it.sort or 0,
         "url": (m.url if m else ""),

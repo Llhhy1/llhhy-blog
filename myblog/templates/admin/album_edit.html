@@ -13,8 +13,13 @@
         <img src="{{ it.thumb }}" alt="" loading="lazy">
       {% endif %}
     </div>
+    {# 图注留空 → 前台自动显示素材在媒体库的标题。所以 placeholder 直接告诉用户
+       「不填会显示什么」，不必为了「别空着」再抄一遍同样的字。 #}
     <input class="album-item-caption" type="text" value="{{ it.caption }}"
-           placeholder="图注（可选）" aria-label="图注" data-role="caption">
+           placeholder="{% if it.media_title %}留空即显示「{{ it.media_title }}」{% else %}图注（可选）{% endif %}"
+           aria-label="图注"
+           title="这张图在本相册里的说明。留空则显示素材在媒体库的标题，不用重复填"
+           data-role="caption">
     <div class="album-item-ops">
       <button type="button" class="btn small" data-role="up" title="上移">↑</button>
       <button type="button" class="btn small" data-role="down" title="下移">↓</button>
@@ -139,7 +144,7 @@
   <div class="album-picker-mask" id="picker-mask" hidden>
     <div class="album-picker">
       <div class="album-picker-head">
-        <strong>从媒体库选择</strong>
+        <strong>选已有素材，或直接上传</strong>
         <div class="admin-actions">
           <input type="search" id="picker-q" placeholder="搜索标题或文件名" aria-label="搜索素材" size="20">
           <select id="picker-kind" aria-label="素材类型">
@@ -147,9 +152,14 @@
             <option value="image">图片</option>
             <option value="video">视频</option>
           </select>
+          {# 上传完直接落到下面「加入章节」选中的位置 —— 不必先去媒体库传一遍再回来挑 #}
+          <button type="button" class="btn small" id="picker-upload">📤 上传并加入</button>
+          <input type="file" id="picker-file"
+                 accept="image/*,video/mp4,video/webm,video/quicktime" multiple hidden>
           <button type="button" class="btn small" id="picker-close">关闭</button>
         </div>
       </div>
+      <p class="hint" id="picker-upload-status" style="margin:0;padding:0 18px;"></p>
       <div class="album-picker-grid" id="picker-grid"></div>
       <div class="album-picker-foot">
         <span class="hint" id="picker-status">已选 0 项</span>
@@ -182,6 +192,106 @@
     function fail(res) {
       alert((res && res.msg) || '操作失败');
     }
+
+    // ---------------------------------------------------------------- 上传并加入
+    //
+    // 为什么放在这里：原先「上传」只存在于媒体库页，加照片的路径是
+    //   相册页 → 媒体库 → 上传 → 回相册页 → 打开选择器 → 找到刚传的 → 勾选 → 加入
+    // 上传完直接落到「加入章节」下拉选中的位置，这个来回就没了。
+    //
+    // 沿用媒体库同一套接口（单请求 + 分块三件套），阈值也取同一个配置项，
+    // 避免两处各写一套逻辑、日后一边改了另一边忘。
+
+    var SINGLE_MAX = {{ single_max_bytes }};
+    var URL_UPLOAD = "{{ url_for('admin.upload') }}";
+    var URL_CHUNK_INIT = "{{ url_for('admin.upload_chunk_init') }}";
+    var URL_CHUNK_PART = "{{ url_for('admin.upload_chunk_part') }}";
+    var URL_CHUNK_DONE = "{{ url_for('admin.upload_chunk_complete') }}";
+
+    function jsonHeaders() {
+      return { 'Content-Type': 'application/json', 'X-CSRF-Token': CSRF };
+    }
+
+    // 传一个文件，返回它的 media id（后续用它加入相册）
+    async function uploadOne(file) {
+      if (file.size <= SINGLE_MAX) {
+        var fd = new FormData();
+        fd.append('file', file);
+        var r = await fetch(URL_UPLOAD, {
+          method: 'POST', body: fd, credentials: 'same-origin',
+          headers: { 'X-CSRF-Token': CSRF }
+        });
+        var j = await r.json();
+        if (!r.ok) throw new Error(j.error || (file.name + ' 上传失败'));
+        return j.id;
+      }
+
+      // 大文件分块：绕开 gunicorn 的请求超时
+      var ir = await fetch(URL_CHUNK_INIT, {
+        method: 'POST', credentials: 'same-origin', headers: jsonHeaders(),
+        body: JSON.stringify({ filename: file.name, size: file.size })
+      });
+      var ij = await ir.json();
+      if (!ir.ok) throw new Error(ij.error || '分块初始化失败');
+      var uid = ij.upload_id, size = ij.chunk_size;
+      var total = Math.ceil(file.size / size);
+
+      for (var i = 0; i < total; i++) {
+        var blob = file.slice(i * size, Math.min(file.size, (i + 1) * size));
+        var pfd = new FormData();
+        pfd.append('upload_id', uid);
+        pfd.append('index', String(i));
+        pfd.append('chunk', blob, 'part');
+        var pr = await fetch(URL_CHUNK_PART, {
+          method: 'POST', body: pfd, credentials: 'same-origin',
+          headers: { 'X-CSRF-Token': CSRF }
+        });
+        var pj = await pr.json();
+        if (!pr.ok) throw new Error(pj.error || ('第 ' + (i + 1) + ' 块失败'));
+        setUploadStatus(file.name + '：' + (i + 1) + ' / ' + total + ' 块');
+      }
+
+      var cr = await fetch(URL_CHUNK_DONE, {
+        method: 'POST', credentials: 'same-origin', headers: jsonHeaders(),
+        body: JSON.stringify({ upload_id: uid })
+      });
+      var cj = await cr.json();
+      if (!cr.ok) throw new Error(cj.error || '合并失败');
+      return cj.id;
+    }
+
+    function setUploadStatus(text) {
+      var el = document.getElementById('picker-upload-status');
+      if (el) el.textContent = text || '';
+    }
+
+    document.getElementById('picker-upload').addEventListener('click', function () {
+      document.getElementById('picker-file').click();
+    });
+
+    document.getElementById('picker-file').addEventListener('change', async function (ev) {
+      var files = Array.prototype.slice.call(ev.target.files || []);
+      if (!files.length) return;
+      var secSel = document.getElementById('picker-section');
+      var sectionId = secSel ? secSel.value : '';
+      var ids = [];
+      try {
+        for (var i = 0; i < files.length; i++) {
+          setUploadStatus('上传 ' + (i + 1) + ' / ' + files.length + '：' + files[i].name);
+          ids.push(await uploadOne(files[i]));
+        }
+        setUploadStatus('加入相册…');
+        var res = await post(BASE + '/' + AID + '/items',
+                             { media_ids: ids.join(','), section_id: sectionId });
+        if (!res.ok) throw new Error(res.msg || '加入相册失败');
+        setUploadStatus('已加入 ' + ids.length + ' 项，正在刷新…');
+        location.reload();
+      } catch (err) {
+        setUploadStatus('❌ ' + err.message);
+      } finally {
+        ev.target.value = '';        // 允许再次选择同一个文件
+      }
+    });
 
     document.addEventListener('click', function (ev) {
       var btn = ev.target.closest('button[data-role]');

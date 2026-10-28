@@ -1765,6 +1765,43 @@ myblog/
 
 该模块源码位置：`myblog/api/system.py`
 
+### `GET /api/docs` — 完整接口文档（本站 /docs 页的数据源）
+
+- 鉴权：公开
+- 说明：把本文件（`myblog/API.md`）渲染成 HTML 返回，供前台 `/docs` 页面直接展示。
+  **这是「文档双源」问题的解法**：`/docs` 页面原先是一份独立维护的手写摘要，
+  改了本文件页面不会跟着变（v5.2.5 重写 API.md 后实际出现过「文档没更新」）。
+  现在页面直接消费本接口，与仓库文档**同源**，不再有第二份清单。
+- 请求：无
+- 成功：`200 {"available": true, "html": "<h1>llhhy-blog API 文档</h1>..."}`
+  （`html` 为 markdown 渲染并经 bleach 白名单清洗后的 HTML）
+- 失败：`200 {"available": false, "html": "", "reason": "文档文件不可用"}`
+  —— **刻意返回 200 而非 500**：文档缺失不该让页面报错
+- 备注：渲染结果按文件 `mtime + size` 做进程内缓存（128KB 文档渲染约数百毫秒，
+  不能每次请求重算）；改本文件后缓存自动失效
+
+---
+
+## SSR 页面与订阅源
+
+以下为服务端渲染（SSR）页面与标准订阅源，可直接在浏览器访问或用于 SEO / 抓取。
+它们**不是 JSON 接口**，故不在上面的 `/api/*` 清单里。
+
+| 路径 | 说明 |
+|---|---|
+| `/` | 首页 |
+| `/post/:slug` | 文章详情页（SSR，含评论表单） |
+| `/post/:slug/like`（POST） | SSR 点赞入口（同 `/api/post/:slug/like`，需 CSRF） |
+| `/category/:slug` | 分类页 |
+| `/tag/:slug` | 标签页 |
+| `/search` | 搜索页 |
+| `/archive` | 归档页 |
+| `/about` | 关于页 |
+| `/links` | 友链页 |
+| `/feed.xml` | 全站 RSS 2.0 订阅源 |
+| `/sitemap.xml` | 站点地图 |
+| `/robots.txt` | 爬虫协议 |
+
 ---
 
 ## 后台 JSON 接口 /admin

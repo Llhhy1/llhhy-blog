@@ -129,9 +129,146 @@ def render_markdown(content):
     v3.17.0：清洗后追加 AVIF <picture> 升级（存在同名 .avif 时）。
     v4.14.0：清洗**前**先把「src 指向视频」的 img 换成 video，并把 video/source
              加进白名单 —— 顺序不能反，否则 video 标签会先被剥掉。
+    v5.3.0：**相册卡片不在这里渲染**。卡片内容依赖相册当前数据（标题/封面/
+             是否公开），而本函数的产出会被 `content_html` 缓存 —— 若在这里渲染，
+             改一次相册标题就得让所有引用它的文章缓存失效，代价远大于收益。
+             卡片由 `inject_album_cards()` 在缓存**之外**注入。
     """
     raw = markdown(content or "", extensions=["fenced_code", "tables"])
     return _upgrade_img_avif(clean_html(_img_to_video(raw)))
+
+
+# ---------------------------------------------------------------- 相册卡片（v5.3.0）
+
+# 写法：正文里**独占一段**写 `@album[slug]`（前后空行），渲染成一张「打开相册」的链接卡片。
+#
+# 为什么选 `@album[slug]` 而不是 `{% album "slug" %}` 之类：
+#   * 手写成本最低 —— 只要记得 slug，8 个字符搞定，不用记属性名；
+#   * `@` + 方括号在块级位置几乎不与正常正文冲突（不像 `$` / `%` 常用于正文）；
+#   * Markdown 不会转义它（实测 `@album[xianguang]` → `<p>@album[xianguang]</p>`，
+#     方括号后面没有 `(` 所以不会被当成链接语法）。
+#
+# 🔴 判据必须匹配 **Markdown 渲染后**的形态：独占一行会被包成
+#    `<p>@album[slug]</p>`，不是裸的 `@album[slug]`。
+#    第一版只写了 `^@album[...]$`，结果**一处都匹配不到**（卡片永远不出现）。
+#    这两种形态都要认：`<p>` 包裹（正常路径）与行首（有人手写 HTML 的兜底）。
+_ALBUM_CARD_RE = re.compile(
+    r"<p>\s*@album\[\s*(?P<slug>[^\]\s]+)\s*\]\s*</p>"
+    r"|^@album\[\s*(?P<slug2>[^\]\s]+)\s*\]\s*$",
+    re.M,
+)
+
+# 卡片用到的 class 都在 `post-album-card` 命名空间下，避免与主题样式打架
+_ALBUM_CARD_TPL = (
+    '<div class="post-album-card" data-album-slug="{slug}">'
+    '{cover_html}'
+    '<div class="post-album-body">'
+    '<div class="post-album-title">{title}</div>'
+    '{summary_html}'
+    '{meta_html}'
+    '<a class="post-album-link" href="/album/{slug}">查看相册 →</a>'
+    "</div>"
+    "</div>"
+)
+
+
+def _esc(s):
+    """HTML 转义（卡片里的所有动态文本必须过这一道）。"""
+    return (str(s or "").replace("&", "&amp;").replace("<", "&lt;")
+            .replace(">", "&gt;").replace('"', "&quot;").replace("'", "&#39;"))
+
+
+def _album_card_html(album, cover_url=""):
+    """生成一张相册卡片的 HTML。**所有动态内容都转义**，不接受任何 HTML 输入。"""
+    cover_html = ""
+    if cover_url:
+        # 封面 URL 来自 media_asset.url（站内路径），仍做属性转义防引号截断
+        cover_html = ('<img class="post-album-cover" src="%s" alt="%s" loading="lazy">'
+                      % (_esc(cover_url), _esc(album.title or album.slug)))
+    summary = (album.summary or "").strip()
+    summary_html = ('<div class="post-album-summary">%s</div>' % _esc(summary[:100])
+                    if summary else "")
+    meta = []
+    if getattr(album, "event_date", None):
+        meta.append(_esc(album.event_date.isoformat()))
+    if getattr(album, "location", ""):
+        meta.append(_esc(album.location))
+    meta_html = ('<div class="post-album-meta">%s</div>' % " · ".join(meta)) if meta else ""
+    return _ALBUM_CARD_TPL.format(
+        slug=_esc(album.slug),
+        cover_html=cover_html,
+        title=_esc(album.title or album.slug),
+        summary_html=summary_html,
+        meta_html=meta_html,
+    )
+
+
+def inject_album_cards(html):
+    """把正文里的 `@album[slug]` 渲染成相册链接卡片。
+
+    ## 为什么不放在 render_markdown() 里
+
+    `render_markdown()` 的产出会被 `post.content_html` 缓存（指纹只认
+    「渲染版本 | 正文 | HTML」）。若在这里渲染卡片，改一次相册标题/封面，
+    所有引用它的文章缓存都不会失效 —— 表现为「相册改了，文章里的卡片还是旧的」。
+
+    放在缓存之外（本函数由各出口在拿到 HTML 后调用），代价是每次请求多一次
+    带索引的相册查询，换来卡片永远反映相册当前状态。文章正文的 Markdown 渲染
+    （真正的 CPU 大头）仍然命中缓存。
+
+    ## 安全
+
+    - 卡片 HTML **完全由服务端生成**，动态内容一律 `_esc()` 转义；
+    - **不经过 bleach**，也因此**不需要**扩大 `_ALLOWED_TAGS` ——
+      作者可写的标签集保持不变（这是刻意的选择：扩大白名单会让作者能写 `<div>`，
+      那是作者不该拥有的能力）；
+    - **私密相册（is_public=0）不渲染成卡片**。文章可能是公开的而相册是私密的，
+      若渲染出卡片就等于泄露「存在一个叫 X 的私密相册」。降级策略是整段移除；
+    - 相册不存在 / slug 为空 / 无 app 上下文 → 同样整段移除，不留残缺标签。
+    """
+    if not html or "@album[" not in html:
+        return html
+    try:
+        from models import Album, AlbumItem, MediaAsset, db
+    except Exception:
+        return re.sub(_ALBUM_CARD_RE, "", html)
+
+    slugs = [m.group("slug") or m.group("slug2")
+             for m in _ALBUM_CARD_RE.finditer(html)]
+    slugs = [s for s in slugs if s]
+    if not slugs:
+        return html
+    try:
+        found = {a.slug: a for a in Album.query.filter(Album.slug.in_(slugs)).all()}
+    except Exception:
+        # 查询失败（无上下文/表不存在等）：宁可不显示卡片，也不能让正文渲染失败
+        return re.sub(_ALBUM_CARD_RE, "", html)
+
+    def _repl(m):
+        slug = m.group("slug") or m.group("slug2")
+        album = found.get(slug)
+        # 私密相册：整段移除，不泄露存在性（也不写「相册不存在」之类提示）
+        if album is None or not album.is_public:
+            return ""
+        cover_url = ""
+        try:
+            if album.cover_media_id:
+                m_ = MediaAsset.query.get(album.cover_media_id)
+                if m_:
+                    cover_url = m_.url
+            if not cover_url:
+                # 没指定封面就取相册里第一张图片素材
+                first = (db.session.query(MediaAsset)
+                         .join(AlbumItem, AlbumItem.media_id == MediaAsset.id)
+                         .filter(AlbumItem.album_id == album.id,
+                                 MediaAsset.kind == "image")
+                         .order_by(AlbumItem.sort.asc()).first())
+                cover_url = first.url if first else ""
+        except Exception:
+            cover_url = ""
+        return _album_card_html(album, cover_url)
+
+    return _ALBUM_CARD_RE.sub(_repl, html)
 # ---------- 正文渲染缓存（v3.9.1）----------
 # Markdown 渲染 + bleach 清洗是 CPU 密集操作，长文单次可达数百毫秒；以前每次
 # 打开文章、每次渲染首页列表都要重算一遍。这里把结果落到 post 表的 content_html
@@ -167,11 +304,15 @@ def render_post_html(post):
       调用方尚未提交的改动一起提交；也避免读请求里出现意外的 session.commit）。
     - 写回失败（数据库锁定/列不存在/无 app 上下文等）一律静默回退：本次仍返回
       正确 HTML，只是下次还要重算，不影响正确性。
+
+    v5.3.0：**相册卡片在取到 HTML 之后才注入**（`inject_album_cards`）。
+    缓存里存的是**不含卡片**的纯 Markdown 渲染结果 —— 这样改相册标题/封面时
+    不必让引用它的文章缓存失效，卡片永远反映相册当前状态。
     """
     content = post.content or ""
     cached = getattr(post, "content_html", None)
     if cached and getattr(post, "content_hash", None) == content_digest(content, cached):
-        return cached
+        return inject_album_cards(cached)
 
     html = render_markdown(content)
     try:
@@ -199,4 +340,4 @@ def render_post_html(post):
                 conn.close()
     except Exception:  # noqa: S110  旁路/兜底路径，失败按降级处理，不影响主流程
         pass
-    return html
+    return inject_album_cards(html)

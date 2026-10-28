@@ -169,8 +169,10 @@ def autosave_post(post_id):
 def md_preview():
     """写作面板实时预览接口（v3.14.0）：与前台共用 render_markdown（同一渲染+清洗管线）。"""
     from utils import render_markdown as _render_md
+    from utils import inject_album_cards as _inject_cards
     content = request.form.get("content", "")
-    return _render_md(content)
+    # v5.3.0：预览也要渲染相册卡片，否则写作者会以为「卡片语法没生效」
+    return _inject_cards(_render_md(content))
 
 
 @admin_bp.route("/preview/<token>")

@@ -127,9 +127,16 @@
     </div>
     <div class="upload-row" style="margin-top:8px;">
       <button type="button" class="btn" id="upload-btn">📷 插入图片</button>
+      {# v5.3.0：写游记时素材大多已经在相册里排过一遍了，再走「上传」等于重来一次 #}
+      <button type="button" class="btn ghost" id="album-pick-btn">🖼 从相册选图</button>
+      <button type="button" class="btn ghost" id="album-card-btn">🔗 插入相册卡片</button>
       <span id="upload-status" class="upload-status"></span>
       <input type="file" id="image-input" accept="image/*" hidden>
     </div>
+    <p class="hint" style="margin:6px 0 0;">
+      💡 正文里<b>独占一行</b>写 <code>@album[链接后缀]</code> 会渲染成一张「打开相册」的链接卡片（读者点了直接跳相册页）；
+      点「插入相册卡片」不用手记后缀。素材优先级：先「从相册选图」→ 没有再上传。
+    </p>
 
     <div class="publish-grid">
       <div>
@@ -188,6 +195,54 @@
       <a class="btn ghost" href="{{ url_for('admin.my_posts') }}">返回文章管理</a>
     </div>
   </form>
+
+  {# v5.3.0 弹层一：从相册拉素材 —— 复用相册编排页那套 .album-picker-* 样式，
+     不新造一套，避免同一个后台出现两种「选素材」观感。 #}
+  <div class="album-picker-mask" id="amp-mask" hidden>
+    <div class="album-picker">
+      <div class="album-picker-head">
+        <div class="amp-head">
+          <label class="amp-field">
+            <span>相册</span>
+            <select id="amp-album" aria-label="选择相册">
+              <option value="">— 全部素材 —</option>
+            </select>
+          </label>
+          <label class="amp-field">
+            <span>搜索</span>
+            <input type="search" id="amp-q" placeholder="标题或文件名" aria-label="搜索素材" size="14">
+          </label>
+          <label class="amp-field">
+            <span>类型</span>
+            <select id="amp-kind" aria-label="素材类型">
+              <option value="">全部</option>
+              <option value="image">图片</option>
+              <option value="video">视频</option>
+            </select>
+          </label>
+        </div>
+        <button type="button" class="btn small" id="amp-close">完成</button>
+      </div>
+      <div class="album-picker-grid" id="amp-grid"></div>
+      <div class="album-picker-foot">
+        <span class="hint" id="amp-status">点一张即插到正文光标处，可连着点（按相册里的顺序往下排）</span>
+      </div>
+    </div>
+  </div>
+
+  {# 弹层二：插入相册卡片 —— 选的是「相册」不是素材，插进去的是 @album[slug] #}
+  <div class="album-picker-mask" id="acp-mask" hidden>
+    <div class="album-picker acp-shell">
+      <div class="album-picker-head">
+        <b>插入相册卡片</b>
+        <button type="button" class="btn small" id="acp-close">关闭</button>
+      </div>
+      <div class="album-picker-grid acp-list" id="acp-grid"></div>
+      <div class="album-picker-foot">
+        <span class="hint">🔒 私密相册插进去后<b>读者端不显示</b>（卡片只在相册公开时渲染）；等相册转公开，文章里的卡片会自动出现。</span>
+      </div>
+    </div>
+  </div>
 
   <script>
   (function () {
@@ -509,6 +564,206 @@
     count();
     if (previewPane && ta.value.trim()) schedulePreview();
     if (postId <= 0 && savedLocally === false) setAuto("新建文章：点「保存」一次后开启云端自动保存");
+  })();
+
+  /* ---------- v5.3.0 写文章页：从相册拉素材 / 插入相册卡片 ----------
+   * 两个弹层都是**只读选取**，不改任何数据 —— 与相册编排页共用
+   * `/admin/albums/media-picker`（挑素材）与 `/admin/albums/picker-list`（挑相册），
+   * 不新增写入接口，也就不存在「写文章把相册改坏」的可能。
+   */
+  (function () {
+    "use strict";
+    var ta = document.getElementById("content");
+    var PICK_URL = "{{ url_for('admin.album_media_picker') }}";
+    var LIST_URL = "{{ url_for('admin.album_picker_list') }}";
+    var albumCache = null;
+
+    function esc(s) {
+      return String(s == null ? "" : s).replace(/&/g, "&amp;").replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+    }
+    // Markdown 的 alt 里出现 ] 会把语法截断 —— 去掉方括号而不是转义（转义后仍会露出反斜杠）
+    function altText(s) { return String(s || "").replace(/[\[\]]/g, "").trim(); }
+    function flash(msg) {
+      var st = document.getElementById("upload-status");
+      if (st) st.textContent = msg;
+    }
+
+    /* 图片/视频：插在光标处，**连续点就顺着往下排**（游记是按顺序挑图的） */
+    function insertAtCursor(tag) {
+      var s = ta.selectionStart, e = ta.selectionEnd, v = ta.value;
+      ta.value = v.slice(0, s) + tag + v.slice(e);
+      var pos = s + tag.length;
+      ta.focus();
+      ta.setSelectionRange(pos, pos);
+      ta.dispatchEvent(new Event("input", { bubbles: true }));
+    }
+    /* 块级语法（@album[slug]）必须**独占一段**：渲染侧只认被 Markdown 包成
+     * <p>@album[slug]</p> 的形态，写在一行文字中间不会变成卡片。 */
+    function insertBlock(tag) {
+      var s = ta.selectionStart, e = ta.selectionEnd, v = ta.value;
+      var head = v.slice(0, s), tail = v.slice(e);
+      if (head && !/\n\s*$/.test(head)) { head += "\n\n"; }
+      else if (head && !/\n\n$/.test(head)) { head += "\n"; }
+      if (tail && !/^\n/.test(tail)) { tail = "\n\n" + tail; }
+      ta.value = head + tag + tail;
+      var pos = head.length + tag.length;
+      ta.focus();
+      ta.setSelectionRange(pos, pos);
+      ta.dispatchEvent(new Event("input", { bubbles: true }));
+    }
+
+    /* ---------------- 弹层一：从相册选图 ---------------- */
+    var ampMask = document.getElementById("amp-mask");
+    var ampAlbum = document.getElementById("amp-album");
+    var ampQ = document.getElementById("amp-q");
+    var ampKind = document.getElementById("amp-kind");
+    var ampGrid = document.getElementById("amp-grid");
+    var ampStatus = document.getElementById("amp-status");
+    var ampLoaded = false, ampInserted = 0, ampTimer = null;
+
+    function ampLoad() {
+      if (!ampGrid) return;
+      ampGrid.innerHTML = '<p class="muted" style="padding:10px;">加载中…</p>';
+      var qs = "size=48&album_id=" + encodeURIComponent(ampAlbum ? ampAlbum.value : "") +
+               "&q=" + encodeURIComponent((ampQ && ampQ.value || "").trim()) +
+               "&kind=" + encodeURIComponent(ampKind ? ampKind.value : "");
+      fetch(PICK_URL + "?" + qs, { credentials: "same-origin" })
+        .then(function (r) { return r.json(); })
+        .then(function (d) {
+          var items = (d && d.items) || [];
+          ampGrid.innerHTML = "";
+          if (!items.length) {
+            ampGrid.innerHTML = '<p class="muted" style="padding:10px;">没有匹配的素材（换个相册或清掉搜索词试试）</p>';
+            return;
+          }
+          items.forEach(function (m) {
+            var cell = document.createElement("button");
+            cell.type = "button";
+            cell.className = "album-picker-cell";
+            var name = m.title || ("素材 #" + m.id);
+            cell.title = name + (m.kind === "video" ? "（视频）" : "");
+            var thumb = m.thumb || m.url || "";
+            cell.innerHTML =
+              '<span class="album-picker-thumb">' +
+              (thumb ? '<img src="' + esc(thumb) + '" alt="">'
+                     : '<span class="album-picker-nothumb">无预览</span>') +
+              '</span><span class="album-picker-name">' + esc(name) + '</span>';
+            cell.addEventListener("click", function () {
+              // 视频也写成图片语法：渲染管线会把 src 指向 .mp4 的 <img> 换成 <video>
+              insertAtCursor("\n![" + altText(name) + "](" + m.url + ")\n");
+              ampInserted += 1;
+              if (ampStatus) ampStatus.textContent = "已插入 " + ampInserted + " 项（继续点可接着插）";
+              flash("已从相册插入 ✓");
+            });
+            ampGrid.appendChild(cell);
+          });
+        })
+        .catch(function () {
+          ampGrid.innerHTML = '<p class="muted" style="padding:10px;">加载失败，请重试</p>';
+        });
+    }
+
+    function ampFillAlbums(items) {
+      if (!ampAlbum) return;
+      var opts = '<option value="">— 全部素材 —</option>';
+      items.forEach(function (a) {
+        opts += '<option value="' + a.id + '">' + esc(a.title) + '（' + a.count + '）</option>';
+      });
+      ampAlbum.innerHTML = opts;
+    }
+
+    function ampOpen() {
+      if (!ampMask) return;
+      ampMask.hidden = false;
+      ampInserted = 0;
+      if (ampStatus) ampStatus.textContent = "点一张即插到正文光标处，可连着点（按相册里的顺序往下排）";
+      if (!ampLoaded) {
+        ampLoaded = true;
+        fetch(LIST_URL, { credentials: "same-origin" })
+          .then(function (r) { return r.json(); })
+          .then(function (d) {
+            albumCache = (d && d.items) || [];
+            ampFillAlbums(albumCache);
+            ampLoad();
+          })
+          .catch(function () { ampLoad(); });
+      } else {
+        ampLoad();
+      }
+    }
+
+    var ampBtn = document.getElementById("album-pick-btn");
+    if (ampBtn) ampBtn.addEventListener("click", ampOpen);
+    if (ampAlbum) ampAlbum.addEventListener("change", ampLoad);
+    if (ampKind) ampKind.addEventListener("change", ampLoad);
+    if (ampQ) ampQ.addEventListener("input", function () {
+      if (ampTimer) clearTimeout(ampTimer);
+      ampTimer = setTimeout(ampLoad, 300);
+    });
+    var ampClose = document.getElementById("amp-close");
+    if (ampClose) ampClose.addEventListener("click", function () { ampMask.hidden = true; });
+    if (ampMask) ampMask.addEventListener("click", function (e) {
+      if (e.target === ampMask) ampMask.hidden = true;
+    });
+
+    /* ---------------- 弹层二：插入相册卡片 ---------------- */
+    var acpMask = document.getElementById("acp-mask");
+    var acpGrid = document.getElementById("acp-grid");
+
+    function acpRender(items) {
+      if (!acpGrid) return;
+      acpGrid.innerHTML = "";
+      if (!items.length) {
+        acpGrid.innerHTML = '<p class="muted" style="padding:10px;">还没有相册 —— 先去「📚 相册」建一个再来</p>';
+        return;
+      }
+      items.forEach(function (a) {
+        var row = document.createElement("button");
+        row.type = "button";
+        row.className = "acp-row";
+        var sub = [a.event_date, a.location].filter(function (x) { return !!x; }).map(esc).join(" · ");
+        row.innerHTML =
+          '<span class="acp-cover">' + (a.cover ? '<img src="' + esc(a.cover) + '" alt="">' : '') + '</span>' +
+          '<span class="acp-body">' +
+            '<span class="acp-title">' + esc(a.title) +
+              (a.is_public ? '' : ' <b class="acp-lock">🔒 私密</b>') + '</span>' +
+            (a.summary ? '<span class="acp-sub">' + esc(a.summary) + '</span>' : '') +
+            '<span class="acp-meta">' + (sub ? esc(sub) + "　" : "") + "共 " + a.count +
+              " 项　<code>@album[" + esc(a.slug) + "]</code></span>" +
+          '</span>';
+        row.addEventListener("click", function () {
+          insertBlock("@album[" + a.slug + "]");
+          acpMask.hidden = true;
+          flash("已插入相册卡片 ✓");
+        });
+        acpGrid.appendChild(row);
+      });
+    }
+
+    var acpBtn = document.getElementById("album-card-btn");
+    if (acpBtn) acpBtn.addEventListener("click", function () {
+      if (!acpMask) return;
+      acpMask.hidden = false;
+      if (albumCache) { acpRender(albumCache); return; }
+      acpGrid.innerHTML = '<p class="muted" style="padding:10px;">加载中…</p>';
+      fetch(LIST_URL, { credentials: "same-origin" })
+        .then(function (r) { return r.json(); })
+        .then(function (d) { albumCache = (d && d.items) || []; acpRender(albumCache); })
+        .catch(function () { acpGrid.innerHTML = '<p class="muted">加载失败，请重试</p>'; });
+    });
+    var acpClose = document.getElementById("acp-close");
+    if (acpClose) acpClose.addEventListener("click", function () { acpMask.hidden = true; });
+    if (acpMask) acpMask.addEventListener("click", function (e) {
+      if (e.target === acpMask) acpMask.hidden = true;
+    });
+
+    document.addEventListener("keydown", function (e) {
+      if (e.key === "Escape") {
+        if (ampMask) ampMask.hidden = true;
+        if (acpMask) acpMask.hidden = true;
+      }
+    });
   })();
   </script>
 {% endblock %}

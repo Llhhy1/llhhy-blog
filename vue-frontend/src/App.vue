@@ -172,6 +172,12 @@
         <span class="sfo-dot" aria-hidden="true"></span>{{ t('online_count', { n: onlineCount }) }}
       </p>
       <p>{{ state.site.footer_text }}</p>
+      <!-- v5.3.0 订阅入口：页脚是全站唯一的常驻区，别人想订阅本站只会来这里找。
+           跳 /feed 页而不是直接链 /feed.xml —— 直接打开 XML 在多数浏览器里是一屏源码，
+           访客看不懂也不知道还能选 Atom。 -->
+      <p class="site-footer-rss">
+        <router-link to="/feed">{{ t('rss_entry') }}</router-link>
+      </p>
       <p v-if="state.site.beian_code">
         <a href="https://beian.miit.gov.cn" target="_blank" rel="noopener">{{ state.site.beian_code }}</a>
       </p>
@@ -520,6 +526,19 @@ router.afterEach(() => { loadNotifs(); });
   left: 0;
   outline: 2px solid #fff;
   outline-offset: -3px;
+}
+/* v5.3.0 页脚订阅入口：页脚其余文字是 #999 的说明性灰色，
+   这条是**可点入口**，要跟它们区分开 —— 用主色 + 稍大字号。 */
+.site-footer-rss {
+  margin: 8px 0 0;
+  font-size: 13px;
+}
+.site-footer-rss a {
+  color: var(--accent, #1a73e8);
+  text-decoration: none;
+}
+.site-footer-rss a:hover {
+  text-decoration: underline;
 }
 /* 主内容被脚本聚焦时不要出现整块焦点框（视觉噪音），
    但保留「确实获得焦点」这件事以利读屏。 */

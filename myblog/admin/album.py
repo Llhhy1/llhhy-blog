@@ -500,19 +500,39 @@ def album_media_picker():
     """
     kind = (request.args.get("kind") or "").strip()
     q = (request.args.get("q") or "").strip()
+    album_id = request.args.get("album_id", type=int) or 0
     page = max(1, request.args.get("page", 1, type=int) or 1)
     size = min(60, max(1, request.args.get("size", 24, type=int) or 24))
 
-    query = MediaAsset.query
-    if kind:
-        query = query.filter_by(kind=kind)
-    if q:
-        like = "%%%s%%" % q
-        query = query.filter(db.or_(MediaAsset.title.like(like),
-                                    MediaAsset.filename.like(like)))
-    total = query.count()
-    rows = (query.order_by(MediaAsset.created_at.desc())
-            .offset((page - 1) * size).limit(size).all())
+    # v5.3.0：写文章时「从相册拉素材」—— 加了 album_id 就只返回该相册内的素材，
+    # 且**按相册内的编排顺序**（sort）返回，而不是按素材创建时间。
+    # 写作者的心智模型是「我在翻某个相册」，不是「我在翻整个媒体库」，
+    # 顺序跟着相册走才不会出现「挑了第 3 张，列表里它却在第 20 位」。
+    if album_id:
+        base = (db.session.query(MediaAsset)
+                .join(AlbumItem, AlbumItem.media_id == MediaAsset.id)
+                .filter(AlbumItem.album_id == album_id))
+        order_by = (AlbumItem.section_id.asc(), AlbumItem.sort.asc(),
+                    MediaAsset.id.asc())
+        if kind:
+            base = base.filter(MediaAsset.kind == kind)
+        if q:
+            like = "%%%s%%" % q
+            base = base.filter(db.or_(MediaAsset.title.like(like),
+                                      MediaAsset.filename.like(like)))
+        total = base.count()
+        rows = base.order_by(*order_by).offset((page - 1) * size).limit(size).all()
+    else:
+        query = MediaAsset.query
+        if kind:
+            query = query.filter_by(kind=kind)
+        if q:
+            like = "%%%s%%" % q
+            query = query.filter(db.or_(MediaAsset.title.like(like),
+                                        MediaAsset.filename.like(like)))
+        total = query.count()
+        rows = (query.order_by(MediaAsset.created_at.desc())
+                .offset((page - 1) * size).limit(size).all())
     return jsonify({
         "items": [{
             "id": m.id,
@@ -524,3 +544,37 @@ def album_media_picker():
         } for m in rows],
         "page": page, "size": size, "total": total,
     })
+
+
+@admin_bp.route("/albums/picker-list")
+@admin_required
+def album_picker_list():
+    """v5.3.0：给写文章页的「插入相册卡片」用 —— 返回可选相册列表。
+
+    与 `/admin/albums/media-picker` 是两件事：
+      * 前者挑**素材**（往正文插图片/视频）
+      * 本接口挑**相册**（往正文插一张「打开相册」的链接卡片）
+
+    **包含私密相册**（is_public 全量返回）—— 后台写作者看得见自己的全部
+    相册，卡片是否对读者可见由**渲染侧**按 is_public 决定（见
+    `utils/render.py` 的 `_album_card_html`）。若在这里就过滤掉私密相册，
+    作者会遇到「我明明有这个相册，插入面板里却没有」的困惑。
+    """
+    rows = (Album.query.order_by(Album.event_date.desc(), Album.id.desc()).all())
+    covers = {}
+    ids = [a.cover_media_id for a in rows if a.cover_media_id]
+    if ids:
+        for m in MediaAsset.query.filter(MediaAsset.id.in_(ids)).all():
+            covers[m.id] = m
+    return jsonify({"items": [{
+        "id": a.id,
+        "slug": a.slug,
+        "title": a.title or a.slug,
+        "summary": (a.summary or "")[:120],
+        "is_public": bool(a.is_public),
+        "event_date": a.event_date.isoformat() if a.event_date else "",
+        "location": a.location or "",
+        # 封面：优先相册自己的 cover_media_id，没有就用相册里第一张图
+        "cover": (covers[a.cover_media_id].url if a.cover_media_id in covers else ""),
+        "count": AlbumItem.query.filter_by(album_id=a.id).count(),
+    } for a in rows]})

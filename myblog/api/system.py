@@ -7,6 +7,68 @@ from flask import request, jsonify, current_app, session
 from .common import (api_bp, db, User, _UPDATE_LOCK, _VER_CHECK_CACHE, rate_limit, client_key)
 
 
+# ---------- 完整接口文档（v5.3.0）----------
+
+# 渲染 128KB 的 API.md 是 CPU 密集操作（markdown + bleach，实测数百毫秒），
+# 绝不能每次请求都算。缓存键用**文件 mtime + 大小** —— 文档一改，mtime 就变，
+# 缓存自动失效，不需要在改文档的每一处手工清理。
+_API_DOC_CACHE = {"key": None, "html": ""}
+
+
+def _api_doc_path():
+    """定位 myblog/API.md（与 app.py 同级目录下的文档）。"""
+    here = os.path.dirname(os.path.abspath(__file__))          # myblog/api/
+    pkg = os.path.dirname(here)                                 # myblog/
+    return os.path.join(pkg, "API.md")
+
+
+@api_bp.route("/docs")
+def api_docs():
+    """完整接口文档（给前台 `/docs` 页的「完整接口清单」用）。
+
+    ## 为什么要有这个接口
+
+    `myblog/API.md` 是**唯一权威**的接口清单（v5.2.5 重写后覆盖 176 条 `/api/*`
+    + 17 条后台 JSON 接口）。但前台 `/docs` 页面原本是另一份**手写的**摘要文档 ——
+    两份独立维护，改了 API.md 页面不会跟着变（这正是 v5.2.5 之后实际遇到的问题：
+    「文档怎么没更新」）。
+
+    本接口把 API.md 渲染好交给前端，让页面直接**消费唯一数据源**，
+    而不是再维护第二份手写清单。
+
+    ## 安全
+
+    - 复用 `utils.render_markdown`（markdown → bleach 白名单清洗），
+      不新写渲染逻辑，也就不会引入与正文不同的 XSS 口径；
+    - 源文件是仓库内的 `API.md`（**不是用户输入**），且已过一遍清洗；
+    - 文件不存在 / 读取失败 → 返回 `available: false` + 空 html，
+      前端据此显示提示，**不让文档缺失变成 500**；
+    - 公开接口（文档本身公开），但**不回显文件路径**等内部细节。
+    """
+    path = _api_doc_path()
+    try:
+        st = os.stat(path)
+    except OSError:
+        return jsonify({"available": False, "html": "", "reason": "文档文件不可用"})
+
+    key = "%s|%s" % (int(st.st_mtime), st.st_size)
+    if _API_DOC_CACHE["key"] != key:
+        try:
+            with open(path, encoding="utf-8") as f:
+                raw = f.read()
+        except OSError:
+            return jsonify({"available": False, "html": "", "reason": "文档读取失败"})
+        try:
+            from utils import render_markdown
+            html = render_markdown(raw)
+        except Exception:
+            return jsonify({"available": False, "html": "",
+                            "reason": "文档渲染失败"})
+        _API_DOC_CACHE["key"] = key
+        _API_DOC_CACHE["html"] = html
+    return jsonify({"available": True, "html": _API_DOC_CACHE["html"]})
+
+
 # ---------- 存活探针（v3.20.0 新增）----------
 
 @api_bp.route("/health")

@@ -18,6 +18,12 @@
       <p v-if="subMsg" class="sub-msg" :class="subOk ? 'ok' : 'err'">{{ subMsg }}</p>
     </div>
 
+    <!-- v5.3.0：RSS 入口与邮件订阅并列，访客才知道「不想留邮箱也能订阅」 -->
+    <div class="widget">
+      <h3>{{ t('rss_entry') }}</h3>
+      <router-link class="rss-side-link" to="/feed">{{ t('rss_tip') }} →</router-link>
+    </div>
+
     <WeatherWidget />
 
     <div class="widget">

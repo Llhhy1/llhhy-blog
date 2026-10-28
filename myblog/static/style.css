@@ -341,3 +341,53 @@ button:hover, .btn:hover { background: color-mix(in srgb, var(--accent), #000 15
 .hour-bar { width: 100%; max-width: 22px; min-height: 2px; background: linear-gradient(180deg, #7cb0ff, var(--accent)); border-radius: 4px 4px 0 0; }
 .hour-label { font-size: 9px; color: #aaa; transform: rotate(-45deg); white-space: nowrap; }
 [data-theme="dark"] .hour-bar { background: linear-gradient(180deg, #4f6fa8, #2f5fa8); }
+
+/* ============================================================================
+ * v5.3.0 文章正文里的「相册链接卡片」（写 `@album[slug]` 生成）
+ *
+ * HTML 由服务端 `utils/render.py: _album_card_html()` 生成，作者写不出来
+ * （bleach 白名单没扩），所以这里不需要考虑「作者手写的 div」。
+ *
+ * 🔴 这段样式在**三处各存一份**：admin.css（后台实时预览）、本文件（未发布稿
+ *     预览页 /admin/preview/<token>）、vue-frontend/src/styles/look.css（前台）。
+ *     三份样式表互不加载，改一处必须改三处 —— tests/test_album_card_style.py 守着。
+ * ==========================================================================*/
+.post-album-card {
+  display: flex;
+  gap: 14px;
+  margin: 18px 0;
+  padding: 12px;
+  border-radius: var(--ui-radius-card, 22px);
+  border: 1px solid var(--ui-hairline, rgba(60, 60, 67, .12));
+  background: var(--surface-2, #f7f8fa);
+}
+.post-album-cover {
+  flex: 0 0 108px;
+  width: 108px;
+  height: 108px;
+  object-fit: cover;
+  border-radius: var(--ui-radius-control, 12px);
+  background: var(--ui-fill, rgba(120, 120, 128, .10));
+}
+.post-album-body {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.post-album-title { font-size: 16px; font-weight: 600; color: var(--text, #2c2c2c); }
+.post-album-summary { font-size: 13px; line-height: 1.6; color: var(--text-muted, #6a717f); }
+.post-album-meta { font-size: 12px; color: var(--text-faint, #7d838f); }
+.post-album-link {
+  margin-top: auto;
+  align-self: flex-start;
+  font-size: 13px;
+  color: var(--accent, #196ddd);
+  text-decoration: none;
+}
+.post-album-link:hover { text-decoration: underline; }
+@media (max-width: 480px) {
+  .post-album-card { flex-direction: column; }
+  .post-album-cover { flex: 0 0 auto; width: 100%; height: 180px; }
+}

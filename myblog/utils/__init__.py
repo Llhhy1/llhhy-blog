@@ -18,6 +18,7 @@ from .render import (  # noqa: F401
     _RENDER_VERSION,
     content_digest,
     render_post_html,
+    inject_album_cards,   # v5.3.0 正文相册卡片（在渲染缓存之外注入）
 )
 from .net import (  # noqa: F401
     _RATE,

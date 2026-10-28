@@ -25,6 +25,9 @@ const routes = [
   { path: "/login", name: "login", component: () => import("./views/LoginView.vue") },
   { path: "/register", name: "register", component: () => import("./views/RegisterView.vue") },
   { path: "/docs", name: "docs", component: () => import("./views/DocsView.vue") },
+  // v5.3.0 订阅入口页：/feed 是 SPA 路由（nginx 的 location / 兜底给 index.html），
+  // 而 /feed.xml / /feed.atom 是 Flask 的精确匹配 —— 两者不冲突，也不用改 nginx。
+  { path: "/feed", name: "feed", component: () => import("./views/SubscribeView.vue") },
   { path: "/:pathMatch(.*)*", redirect: "/" },
 ];
 

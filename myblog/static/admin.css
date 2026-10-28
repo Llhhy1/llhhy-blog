@@ -2405,3 +2405,141 @@ summary { cursor: pointer; padding: 2px 0; }
 .media-unused {
   opacity: .55;
 }
+
+/* ============================================================================
+ * v5.3.0 写文章页：从相册拉素材 / 插相册卡片（两个只读弹层）
+ *
+ * 复用相册编排页那套 .album-picker-* —— 同一个后台不该有第二种「选素材」观感。
+ * 这里只补两个弹层各自独有的头部与行样式。
+ * ==========================================================================*/
+
+/* --- 弹层一头部：相册下拉 + 搜索 + 类型 --- */
+.amp-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.amp-field {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  color: var(--text-muted, #6a717f);
+}
+.amp-field select,
+.amp-field input[type="search"] {
+  padding: 5px 8px;
+  border-radius: var(--ui-radius-control, 12px);
+  border: 1px solid var(--border, #ececec);
+  background: var(--surface, #ffffff);
+  color: var(--text, #2c2c2c);
+  font-size: 13px;
+}
+
+/* --- 弹层二：选相册（列表而非九宫格，所以单列 + 行式卡片） --- */
+.acp-shell { width: min(560px, 100%); }
+.acp-list {
+  /* 覆盖 .album-picker-grid 的九宫格：这里每行是一张相册，不需要等高格 */
+  grid-template-columns: 1fr;
+  grid-auto-rows: auto;
+}
+.acp-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px;
+  border: 1px solid var(--ui-hairline, rgba(60, 60, 67, .12));
+  border-radius: var(--ui-radius-control, 12px);
+  background: var(--surface, #ffffff);
+  text-align: left;
+  cursor: pointer;
+}
+.acp-row:hover { border-color: var(--accent, #196ddd); }
+.acp-cover {
+  flex: 0 0 56px;
+  width: 56px;
+  height: 56px;
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--ui-fill, rgba(120, 120, 128, .10));
+}
+.acp-cover img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.acp-body {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.acp-title { font-size: 14px; font-weight: 600; color: var(--text, #2c2c2c); }
+.acp-lock { font-weight: 400; font-size: 11px; color: var(--text-faint, #7d838f); }
+.acp-sub,
+.acp-meta {
+  font-size: 12px;
+  color: var(--text-muted, #6a717f);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.acp-meta { font-size: 11px; color: var(--text-faint, #7d838f); }
+.acp-meta code { font-size: 11px; }
+
+/* ============================================================================
+ * v5.3.0 文章正文里的「相册链接卡片」
+ *
+ * HTML 由服务端 `utils/render.py: _album_card_html()` 生成：**不经 bleach**，
+ * 也不是作者能写出来的标签（白名单没扩，作者仍然写不出 <div>）。
+ *
+ * 🔴 这段样式在**三处各存一份**：
+ *     本文件（后台实时预览面板）、style.css（未发布稿预览页 /admin/preview/<token>）、
+ *     vue-frontend/src/styles/look.css（前台 SPA）。
+ *   三份样式表互不加载，改一处必须改三处 —— 由 tests/test_album_card_style.py 守着。
+ * ==========================================================================*/
+.post-album-card {
+  display: flex;
+  gap: 14px;
+  margin: 18px 0;
+  padding: 12px;
+  border-radius: var(--ui-radius-card, 22px);
+  border: 1px solid var(--ui-hairline, rgba(60, 60, 67, .12));
+  background: var(--surface-2, #f7f8fa);
+}
+.post-album-cover {
+  flex: 0 0 108px;
+  width: 108px;
+  height: 108px;
+  object-fit: cover;
+  border-radius: var(--ui-radius-control, 12px);
+  background: var(--ui-fill, rgba(120, 120, 128, .10));
+}
+.post-album-body {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.post-album-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text, #2c2c2c);
+}
+.post-album-summary {
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--text-muted, #6a717f);
+}
+.post-album-meta { font-size: 12px; color: var(--text-faint, #7d838f); }
+.post-album-link {
+  margin-top: auto;
+  align-self: flex-start;
+  font-size: 13px;
+  color: var(--accent, #196ddd);
+  text-decoration: none;
+}
+.post-album-link:hover { text-decoration: underline; }
+@media (max-width: 480px) {
+  .post-album-card { flex-direction: column; }
+  .post-album-cover { flex: 0 0 auto; width: 100%; height: 180px; }
+}

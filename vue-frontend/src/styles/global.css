@@ -541,6 +541,13 @@ input[type=text]:focus, input[type=password]:focus, input[type=email]:focus, inp
  color: var(--success); }
 .sub-msg.err {
  color: #d93025; }
+/* v5.3.0 侧边栏 RSS 订阅入口（与邮件订阅并列）。
+   整块可点、不加边框：它只是一个「跳到订阅页」的入口，做成按钮会跟上面的
+   邮件订阅抢视觉重量，而两者是平级的两种订阅方式。 */
+.rss-side-link {
+ display: inline-block; font-size: 13px; color: var(--accent); text-decoration: none; }
+.rss-side-link:hover {
+ text-decoration: underline; }
 /* 评论（v3.4.1 精致化） */.comments {
  margin-top: 28px; background: var(--surface); border: 1px solid #eee; border-radius: var(--theme-radius, 12px); padding: 22px 24px; box-shadow: 0 1px 3px rgba(0,0,0,0.03); }
 .comments h2 {

@@ -2539,3 +2539,66 @@ def album_update(aid):
   改回 `a.id` 后 `test_相册列表的封面按封面媒体id取` 立即变红。
 - 迁移在独立临时库上真跑过 `flask db upgrade`：4 条 caption 正确合并、caption 清空、
   `alembic_version` = `b7c2e91a4d63`。
+
+## R151 · v5.2.2（编辑器样式 / 选图布局 / 分块上传错误处理）安全审查
+
+本版**没有新增路由、没有新增写入口**，改的全是样式、错误语义与部署脚本。
+按「改动是否扩大信任边界」逐项过。
+
+### 151.1 错误信息外泄面（本版唯一有安全含义的改动）
+
+`media_service.chunk_init` 新增 `except OSError`，把底层异常文本截断 80 字符后
+拼进 `MediaError` 返回给前端。
+
+| 检查点 | 结论 |
+|---|---|
+| 泄露内容 | 只含 `Permission denied` / `No space left` 这类 errno 描述 + 目录名（服务器绝对路径） |
+| 是否可被未登录用户触发 | 否，`@login_required` |
+| 路径泄露的评估 | **接受**。后台本来就是管理员专属；且报错不含文件名、不含数据库路径、不含密钥。若完全吞掉细节，管理员无法判断是权限还是磁盘满 —— 与 v5.2.1「500 HTML 让人完全看不懂」是同一种失败 |
+| 其他异常 | 仍然由 `upload` / `chunk_complete` 的 `except Exception` 兜底（`str(e)[:120]`，口径一致） |
+
+同时 `album_edit.html` 新增 `readJson()`：非 JSON 响应时把 HTML **剥标签后截 90 字符**
+作为提示。同样只对已登录管理员可见，且剥标签后不再具备可执行结构。
+
+### 151.2 前端选择器 / DOM 结构变更
+
+- 选图格子由 `<button>` 改为 `<div role="button" tabindex="0">`：
+  **键盘可达性保留**（Enter/Space 触发），点击行为不变。
+- 新增的图片名字用 `textContent` 赋值，**不拼 innerHTML** —— 素材标题里的
+  `<script>` 之类不会被解析执行。这是本版唯一涉及「用户可控文本进 DOM」的地方，
+  按最保守写法处理。
+- 未新增任何 `v-html` / `innerHTML` 拼接标题的路径。
+
+### 151.3 部署脚本 `update.sh` 的属主探测
+
+改为优先取 gunicorn **master 的子进程（worker）** 属主，并新增 `⑤c` 在迁移后
+`chown -R` `data/` 到该用户。
+
+| 检查点 | 结论 |
+|---|---|
+| 权限提升风险 | 无。`chown` 的目标用户来自**本机进程/文件属主**，不接受外部输入 |
+| 会不会把 data/ 交给错误用户 | 探测链有三重回退（worker → master → blog.db 属主），任一成功即用；全部失败则**不做 chown**（`fix_data_owner` 首行 `[ -n "$APP_USER_FINAL" ] || return 0`） |
+| 是否动内容 | 只 `chown`，不改权限位、不删文件；`find` 仅用于判断是否存在异常项 |
+| 回滚 | 属主随时可改回，无数据影响 |
+
+### 151.4 七维复核
+
+| 维度 | 结论 |
+|---|---|
+| XSS | 无新增面（见 151.2，标题走 textContent） |
+| SQL 注入 | 无 SQL 改动 |
+| 越权 | 无路由/权限改动 |
+| SSRF | 无 |
+| CSRF | 无变化 |
+| 密钥泄露 | 无。新错误文案不含 secret / token / 数据库路径 |
+| 资源泄漏 / 限流 | 无。`chunk_init` 失败时会 `shutil.rmtree(d, ignore_errors=True)` 清掉半成品目录，不留垃圾 |
+
+### 151.5 测试
+
+- `tests/test_media_asset.py` **19 passed**，新增 1 条：
+  `test_分块初始化写不进临时目录时给可读错误` —— 断言 `MediaError` 且 `status == 507`
+  （防回归到 500 HTML）。
+- `tests/test_album.py` **27 passed**，新增 2 条样式守卫：
+  ① `.view-split` 不得出现在自绘圆角的选择器里；
+  ② 选图网格必须有 `grid-auto-rows: minmax(...)`、名字层与 `readJson`。
+- 线上实测：`chown` 后 `chunk_init("probe-20mb.mp4", 20MB)` 成功建目录、abort 后清理干净。

@@ -138,16 +138,37 @@ detect_runtime() {
   if [ -z "$pid" ]; then
     pid=$(pgrep -f "gunicorn.*$APP_DIR" 2>/dev/null | head -1 || true)
   fi
-  # 2. 探测进程属主
+  # 2. 探测**真正写文件的那个用户**（不是 master 的属主）
+  #
+  # 🔴 gunicorn 的常见部署形态是：master 以 root 起，worker 降权到 www。
+  #    这时看 master 的属主会得到 root —— 而实际处理请求、写 data/ 的是 worker。
+  #    照 master 去跑 `flask db upgrade`，config.py 里 `os.makedirs(data/upload_tmp)`
+  #    就会建出 root:root 的目录，worker（www）写不进去：
+  #    >16MB 的文件走分块上传必然 500，前端只看到
+  #    「Unexpected token '<', "<!DOCTYPE "... is not valid JSON」。
+  #    （v5.0.0 起线上踩了近一个月，v5.2.1 才定位到。）
+  #
+  #    所以优先取 **master 的子进程（worker）** 的属主；取不到再退回 master 自己。
   if [ -z "$APP_USER_FINAL" ]; then
     if [ -n "$pid" ]; then
+      APP_USER_FINAL=$(ps -o user= --ppid "$pid" 2>/dev/null | tr -d '[:space:]' | head -1 || true)
+      if [ -n "$APP_USER_FINAL" ]; then
+        log "  ↳ 探测到 worker 属主: $APP_USER_FINAL（master 是 $(ps -o user= -p "$pid" 2>/dev/null | tr -d '[:space:]')）"
+      fi
+    fi
+    if [ -z "$APP_USER_FINAL" ] && [ -n "$pid" ]; then
       APP_USER_FINAL=$(ps -o user= -p "$pid" 2>/dev/null | tr -d '[:space:]' || true)
+    fi
+    # 最后兜底：数据库文件的属主 —— 它才是「应该拥有 data/ 的那个用户」
+    if [ -z "$APP_USER_FINAL" ] && [ -f "$APP_DIR/data/blog.db" ]; then
+      APP_USER_FINAL=$(stat -c %U "$APP_DIR/data/blog.db" 2>/dev/null | tr -d '[:space:]' || true)
+      [ -n "$APP_USER_FINAL" ] && log "  ↳ 从 blog.db 属主推断运行用户: $APP_USER_FINAL"
     fi
     if [ -z "$APP_USER_FINAL" ]; then
       APP_USER_FINAL=$(stat -c %U "$APP_DIR" 2>/dev/null | tr -d '[:space:]' || true)
     fi
     if [ -n "$APP_USER_FINAL" ] && [ "$APP_USER_FINAL" != "UNKNOWN" ]; then
-      log "  ↳ 自动探测到运行属主: $APP_USER_FINAL"
+      log "  ↳ 运行属主: $APP_USER_FINAL"
     else
       APP_USER_FINAL=""
     fi
@@ -744,6 +765,29 @@ apply_db_migrations() {
   fail_exit "数据库迁移失败：暂不重启，服务仍在运行旧代码。请按上方日志修复后重跑；或手动执行：cd $APP_DIR && BLOG_MIGRATE_ONLY=1 FLASK_APP=app:create_app $py -m flask db upgrade"
 }
 
+# ===== 校正 data/ 属主 =====
+#
+# 运行期会往 data/ 里写东西：
+#   · upload_tmp —— config.py 模块级 `os.makedirs()` 创建（导入即执行）
+#   · backup     —— 备份流程写
+# 只要有任何一步是以 root 跑的（迁移、手工 import、包内脚本），目录就会变成
+# root:root，而 worker 是 www → 之后**大文件分块上传**必然 500。
+# 这里每次部署后顺手校正一次：只改属主，不动内容、不动权限位。
+fix_data_owner() {
+  [ -n "$APP_USER_FINAL" ] || return 0
+  local d="$APP_DIR/data"
+  [ -d "$d" ] || return 0
+  local bad
+  bad=$(find "$d" -maxdepth 2 ! -user "$APP_USER_FINAL" 2>/dev/null | head -3)
+  if [ -n "$bad" ]; then
+    chown -R "$APP_USER_FINAL":"$APP_USER_FINAL" "$d" 2>/dev/null || true
+    log "   ↳ data/ 下有非 $APP_USER_FINAL 属主的项，已校正（否则分块上传/备份会写不进去）"
+    echo "$bad" | while read -r p; do log "      · $p"; done
+  else
+    log "   ↳ data/ 属主正常（$APP_USER_FINAL）"
+  fi
+}
+
 # ===== 可选：重建 FTS 索引（BLOG_REBUILD_FTS=1）=====
 # 默认不跑：全量重建会清空并回填 post_fts，文章多时有耗时/锁；但 FTS 写入闸门
 # 收紧后，历史库里的隐私/回收站正文行不会自己消失。故提供显式开关，在迁移成功、
@@ -1070,6 +1114,10 @@ fi
 log "⑤b 应用数据库迁移（flask db upgrade）..."
 set_status "migrating" "正在应用数据库迁移"
 apply_db_migrations
+
+# 5c. 校正 data/ 属主（root 跑过任何一步都会把新目录写成 root:root，见函数注释）
+log "⑤c 校正 data/ 属主..."
+fix_data_owner
 
 # 6. 自动重启后端
 set_status "restarting" "正在重启后端服务"

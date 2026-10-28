@@ -178,16 +178,33 @@
     var AID = {{ album.id }};
     var BASE = "{{ url_for('admin.album_list') }}";
 
+    // 后端在框架层出错时（500 / 413 / 会话过期跳登录页）返回的是 **HTML**，
+    // 直接 `r.json()` 会抛 `Unexpected token '<', "<!DOCTYPE "... is not valid JSON`
+    // —— 用户完全看不懂，也不知道该找谁（v5.2.1 线上实测：分块上传 500 就是这样）。
+    // 统一在这里翻成人话，并带上状态码，至少能对症。
+    async function readJson(r) {
+      var text = await r.text();
+      try {
+        return JSON.parse(text);
+      } catch (e) {
+        if (r.status === 413) throw new Error('文件太大，被服务器拒绝（413）');
+        if (r.status === 401 || r.status === 403) throw new Error('登录状态可能已失效，刷新页面重新登录后再试');
+        if (r.status === 502 || r.status === 504) throw new Error('服务器处理超时（' + r.status + '），请稍后重试');
+        var tip = text.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 90);
+        throw new Error('服务器返回了非预期内容（HTTP ' + r.status + '）' + (tip ? '：' + tip : ''));
+      }
+    }
+
     function post(url, data) {
       return fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': CSRF },
         body: JSON.stringify(data || {})
-      }).then(function (r) { return r.json(); });
+      }).then(readJson);
     }
 
     function api(url) {
-      return fetch(url, { headers: { 'Accept': 'application/json' } }).then(function (r) { return r.json(); });
+      return fetch(url, { headers: { 'Accept': 'application/json' } }).then(readJson);
     }
 
     function fail(res) {
@@ -222,7 +239,7 @@
           method: 'POST', body: fd, credentials: 'same-origin',
           headers: { 'X-CSRF-Token': CSRF }
         });
-        var j = await r.json();
+        var j = await readJson(r);
         if (!r.ok) throw new Error(j.error || (file.name + ' 上传失败'));
         return j.id;
       }
@@ -232,7 +249,7 @@
         method: 'POST', credentials: 'same-origin', headers: jsonHeaders(),
         body: JSON.stringify({ filename: file.name, size: file.size })
       });
-      var ij = await ir.json();
+      var ij = await readJson(ir);
       if (!ir.ok) throw new Error(ij.error || '分块初始化失败');
       var uid = ij.upload_id, size = ij.chunk_size;
       var total = Math.ceil(file.size / size);
@@ -247,7 +264,7 @@
           method: 'POST', body: pfd, credentials: 'same-origin',
           headers: { 'X-CSRF-Token': CSRF }
         });
-        var pj = await pr.json();
+        var pj = await readJson(pr);
         if (!pr.ok) throw new Error(pj.error || ('第 ' + (i + 1) + ' 块失败'));
         setUploadStatus(file.name + '：' + (i + 1) + ' / ' + total + ' 块');
       }
@@ -256,7 +273,7 @@
         method: 'POST', credentials: 'same-origin', headers: jsonHeaders(),
         body: JSON.stringify({ upload_id: uid })
       });
-      var cj = await cr.json();
+      var cj = await readJson(cr);
       if (!cr.ok) throw new Error(cj.error || '合并失败');
       return cj.id;
     }
@@ -392,17 +409,39 @@
         var grid = document.getElementById('picker-grid');
         grid.innerHTML = '';
         (res.items || []).forEach(function (m) {
-          var cell = document.createElement('button');
-          cell.type = 'button';
+          // 用 div + role=button，不用 <button>。
+          //
+          // 🔴 <button> 内部有一个匿名的内容盒，子元素的高度**不会**撑开按钮本身：
+          //    实测缩略图 span 是 147×147，外层 button 却只有 86 高，
+          //    于是每格只露出图片上半截、下半截被 overflow:hidden 裁掉 ——
+          //    手机上看起来就是「一张张图叠在一起，很容易选错」。
+          //    换成普通块级元素后，高度正常由内容决定。
+          var cell = document.createElement('div');
           cell.className = 'album-picker-cell';
+          cell.setAttribute('role', 'button');
+          cell.tabIndex = 0;
           cell.dataset.mid = m.id;
-          cell.innerHTML = m.thumb
+          // 缩略图包一层 .album-picker-thumb：1:1 由这个块级 span 撑。
+          cell.innerHTML = '<span class="album-picker-thumb">' + (m.thumb
             ? '<img src="' + m.thumb + '" alt="" loading="lazy">'
-            : '<span class="album-picker-nothumb">' + (m.kind === 'video' ? '视频' : '无预览') + '</span>';
-          cell.addEventListener('click', function () {
+            : '<span class="album-picker-nothumb">' + (m.kind === 'video' ? '视频' : '无预览') + '</span>')
+            + '</span>';
+          // 名字压在缩略图底部：手机上一屏七八张，只靠画面分不清哪张是哪张。
+          // 用 textContent 赋值（不拼 HTML 字符串），标题里的尖括号不会被当成标签。
+          if (m.title) {
+            var nm = document.createElement('span');
+            nm.className = 'album-picker-name';
+            nm.textContent = m.title;
+            cell.appendChild(nm);
+          }
+          function toggle() {
             if (pickerSel[m.id]) { delete pickerSel[m.id]; cell.classList.remove('on'); }
             else { pickerSel[m.id] = 1; cell.classList.add('on'); }
             document.getElementById('picker-status').textContent = '已选 ' + Object.keys(pickerSel).length + ' 项';
+          }
+          cell.addEventListener('click', toggle);
+          cell.addEventListener('keydown', function (ev) {
+            if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); toggle(); }
           });
           grid.appendChild(cell);
         });

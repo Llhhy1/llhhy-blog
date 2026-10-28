@@ -403,11 +403,24 @@ def chunk_init(filename, size, user_id=None, folder=""):
     cleanup_stale_chunks()
     upload_id = uuid.uuid4().hex
     d = chunk_dir(upload_id)
-    os.makedirs(d, exist_ok=True)
     meta = {"filename": filename, "size": size, "kind": kind, "user_id": user_id,
             "folder": folder or "", "created": int(time.time())}
-    with open(os.path.join(d, "meta.json"), "w", encoding="utf-8") as f:
-        json.dump(meta, f, ensure_ascii=False)
+    try:
+        os.makedirs(d, exist_ok=True)
+        with open(os.path.join(d, "meta.json"), "w", encoding="utf-8") as f:
+            json.dump(meta, f, ensure_ascii=False)
+    except OSError as e:
+        # 目录不可写 / 属主不对 / 磁盘满。
+        #
+        # 🔴 这里**必须**翻成 MediaError：任何漏出去的异常都会变成 Flask 的 500
+        # HTML 错误页，而前端是用 `r.json()` 解析的 —— 用户看到的是
+        # 「Unexpected token '<', "<!DOCTYPE "... is not valid JSON」，
+        # 完全不知道发生了什么（v5.2.1 线上实测：data/upload_tmp 属主是 root，
+        # worker 是 www，>16MB 的视频走分块必炸，图片却正常）。
+        shutil.rmtree(d, ignore_errors=True)
+        raise MediaError(
+            "服务器无法写入上传临时目录（%s）。请检查 %s 的属主与权限是否与运行用户一致"
+            % (str(e)[:80], os.path.dirname(d.rstrip("/")) or d), 507)
     return {"upload_id": upload_id, "chunk_size": int(_cfg("UPLOAD_CHUNK_SIZE", 8 * 1024 * 1024)),
             "received": 0}
 

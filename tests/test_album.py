@@ -562,3 +562,58 @@ def test_旧页面发caption也落到素材标题(app, client):
     with app.app_context():
         assert MediaAsset.query.filter_by(id=mid).first().title == "小猫"
         assert AlbumItem.query.filter_by(id=iid).first().caption == ""
+
+
+# ---------------------------------------------------------------- 样式回归守卫（v5.2.2）
+#
+# 这两条防的都是「看着像 CSS 小改，实际把功能裁掉」的事故 —— 页面上不报错，
+# 只是某些元素看不见，靠肉眼看截图很难复现，所以钉死在测试里。
+
+import io as _io            # noqa: E402
+import os as _os            # noqa: E402
+import re as _re            # noqa: E402
+
+_CSS = _os.path.join(_os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))),
+                     "myblog", "static", "admin.css")
+_TPL = _os.path.join(_os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))),
+                     "myblog", "templates", "admin", "album_edit.html")
+
+
+def test_编辑器容器不能被药丸圆角命中(app):
+    """`.md-stage` 的 class 是 `md-stage view-split` —— `view-split` 是**视图状态**。
+
+    v5.2.0 的观感层把 `.view-split` 和按钮类 `.md-vw` 并列写成一条
+    `border-radius: 999px` 规则，于是整个 62vh 高的编辑器容器被设成药丸圆角：
+    浏览器把半径压到高度的一半，工具栏左右各几百 px 落进圆角裁切区，
+    「B」「粗体」和右侧的视图切换按钮全部看不见（用户实测「编辑功能显示不全」）。
+
+    守卫：`view-split` 只能作为后代选择器的前缀出现在 `view-*` 状态规则里，
+    不能出现在任何给自身画圆角/边框的选择器列表中。
+    """
+    css = _io.open(_CSS, encoding="utf-8").read()
+    assert ".view-split, .md-vw" not in css, "view-split 是 md-stage 的状态类，不能混进按钮选择器"
+    # 只允许 `.view-split .xxx` 这种后代写法，不允许 `.view-split {` / `.view-split,`
+    bad = _re.findall(r"\.view-split\s*[,{]", css)
+    assert not bad, "发现把 .view-split 当元素本身选择的地方：%r" % bad
+
+
+def test_选图格子有行高兜底与名字(app):
+    """手机端「已上传的图片堆叠在一起、很容易选错」的回归守卫。
+
+    实测根因：`.album-picker-grid` 的 `grid-auto-rows: auto` 按 min-content 算高度，
+    而格子高度来自 `aspect-ratio`（min-content 里算不出），四行被均分容器后
+    每行只剩 85px，图片被 `overflow:hidden` 裁成一条条。
+
+    两道防线缺一不可：
+      1. `grid-auto-rows: minmax(96px, auto)` —— 不依赖比例的确定下限；
+      2. 每格压一条名字（`.album-picker-name`）—— 一屏七八张缩略图，
+         只靠画面分不清哪张是哪张。
+    """
+    css = _io.open(_CSS, encoding="utf-8").read()
+    assert "grid-auto-rows: minmax(" in css, "选图网格必须给行高下限，否则会被压扁"
+    assert ".album-picker-name" in css, "选图格子必须有名字层"
+
+    tpl = _io.open(_TPL, encoding="utf-8").read()
+    assert "album-picker-thumb" in tpl, "缩略图要包一层 thumb，比例与裁切由它负责"
+    assert "album-picker-name" in tpl, "渲染逻辑要输出名字"
+    assert "readJson" in tpl, "上传链路必须用 readJson，否则 500/413 会抛 Unexpected token '<'"

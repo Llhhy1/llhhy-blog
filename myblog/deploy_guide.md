@@ -1434,6 +1434,26 @@ python verify_package_checksums.py
 > **v3.17.10（update.sh 清理旧 assets + 文档页代码高亮修复）升级要点**：`update.sh` 前端覆盖步骤新增「先清 `assets/` 再解压」（防止历史 hash chunk 堆积）；文档页 `/docs` 的 highlight.js 由 cdnjs 动态注入改为**本地打包**（原被 CSP 拦截、高亮从未生效）。**只需覆盖前端包**（后端仅版本号）；无迁移、无新依赖。
 > **v3.17.9（复制修复 + 后台移动端 + AI 摘要 + 社交墙独立页）升级要点**：**前后端包都要覆盖**（前端新增 `lib/clipboard.js`、`lib/social.js`、`SocialView.vue` 与路由 `/social`；后台模板改造复制调用、`admin.css` 补移动端规则、`social.html` 加平台预设）。**无迁移、无新依赖**。验证：手机端打开后台「备份配置」与「诊断助手」不再挤压/溢出；任一「复制」按钮（后台媒体库/预览链接、前台代码块/分享链接）可复制并给出提示；后台「AI 摘要」页摘要完整可读；前台导航出现「🔗 社交」，主页出现「找到我」区块，`/social` 卡片墙正常。
 > **v3.17.3（评论表情回应 + 访客来源分析）升级要点**：**前后端包都要覆盖**（后端新增 `api/reactions.py`、VisitLog 新列 `referrer` 与 `/api/stats/referrers`；前端新增评论表情条与统计页「访客来源 Top 10」）。**VisitLog 的 `referrer` 列由启动自愈自动添加**（`_migrate_visit_log_table` 幂等补列，重启即生效）——**无需手动迁移**；备用脚本 `myblog/migrate_visit_log_referrer.py`（幂等）仅当自愈失效时手动跑。表情回应计数存 Setting KV（`react_<评论id>`），零表结构变更。验证：评论区出现 👍❤️😂🎉🤔👏 表情条（点击 +1，再点取消）；统计页出现「🧭 访客来源 Top 10」卡（需积累几天外部访问数据）；后台左下角 v3.17.3。**v3.17.3 同版补全「🗺️ 访客地图」**（`/annual` 页，阿里 DataV 合规底图由后端缓存 7 天，无需任何 key；仅省级聚合、不含个人位置；底图不可用时前端自动降级为地域榜）。
+> **v5.2.2（编辑器圆角裁切 / 选图格子压扁 / 大文件上传 500）升级要点**：**只需覆盖后端包**（`static/admin.css`、`templates/admin/album_edit.html`、`media_service.py`）；前端包无改动，但会重出。
+>
+> **① 无迁移**：head 仍 **`b7c2e91a4d63`**。**② 无新依赖、无新环境变量。**
+>
+> **③ ⚠️ `update.sh` 本身有改动** —— 它靠下载 raw.githubusercontent.com 自更新，而该域名在服务器上**直连被重置**，所以本次部署**必须设 `GH_MIRROR`**（例：`GH_MIRROR=https://gh-proxy.com/`），否则脚本自更新会被跳过、改动不生效（不影响本次代码部署）。
+>
+> **④ 修了什么**：
+> - 写文章页的编辑器工具栏两端按钮被 999px 圆角裁掉（`view-split` 被当成按钮类）；
+> - 手机端选图弹层的格子被压到 85px、图片被裁成一条条（grid 行高按 min-content 算）；现在还把每张图的**名字**压在缩略图上，一屏七八张也能分清；
+> - **>16MB 的文件走分块上传必然 500**（响应是 HTML，前端报 `Unexpected token '<'`）。根因是 `data/upload_tmp` 属主成了 root。
+>
+> **⑤ 部署后必须做的一步（只需一次）**：确认分块临时目录属主与 worker 一致
+> ```bash
+> ls -ld /www/wwwroot/myblog/data/upload_tmp     # 应为 www:www
+> chown -R www:www /www/wwwroot/myblog/data/upload_tmp   # 不是就改
+> ```
+> 本版 `update.sh` 已加 `⑤c 校正 data/ 属主`，以后会自动纠；但**当前线上是靠手工 chown 恢复的**，升级时留意日志里 ⑤c 那行是否显示「属主正常」。
+>
+> **⑥ 验证**：后台 → 写文章 → 编辑器工具栏左右两端的按钮都在（不缺角）；手机打开相册编排页 → 添加照片 → 格子是正方形、有间距、每张底部有名字；在编排页「📤 上传并加入」选一个 **>16MB 的视频 + 几张小图** → 应全部成功入册，失败时提示是中文而不是 `Unexpected token '<'`。
+
 > **v5.2.1（相册封面 / 名字同步修复）升级要点**：**前后端包都要覆盖**（后端 `admin/album.py`、`templates/admin/album_edit.html`、`static/admin.css` + 新迁移；前端 `AlbumView.vue` 只改注释，但包会重出）。
 >
 > **① 有数据迁移**：head 由 `a1c9e4f72b38` → **`b7c2e91a4d63`**（仅数据，**不改表结构**）。`update.sh` 会自动 `flask db upgrade`。

@@ -265,3 +265,25 @@ def test_后台媒体库页面能渲染(app, client, media_dirs):
     body = r.data.decode("utf-8")
     assert "媒体库" in body
     assert "云存储后端" in body, "存储设置面板没渲染出来"
+
+
+def test_分块初始化写不进临时目录时给可读错误(app, media_dirs, monkeypatch):
+    """回归 v5.2.1：`data/upload_tmp` 属主是 root、worker 是 www 时，
+    `os.makedirs` 抛 PermissionError。
+
+    若这个异常漏出去，Flask 会返回 **500 HTML**，而前端用 `r.json()` 解析，
+    用户看到的是「Unexpected token '<', "<!DOCTYPE "... is not valid JSON」——
+    完全不知道发生了什么，也不知道该找谁。
+
+    所以这里断言的是「必须翻成带 507 状态码的 MediaError」，
+    而不是断言某个具体文案。
+    """
+    def _deny(*a, **kw):
+        raise PermissionError(13, "Permission denied")
+
+    monkeypatch.setattr(media_service.os, "makedirs", _deny)
+    with app.app_context():
+        with pytest.raises(media_service.MediaError) as ei:
+            _init(app, "clip.mp4", 20 * 1024 * 1024)
+        assert ei.value.status == 507, "写不进临时目录应当返回 507 而不是 500"
+        assert "无法写入上传临时目录" in ei.value.message

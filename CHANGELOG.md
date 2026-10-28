@@ -6,6 +6,66 @@
 > v3.22.0 ~ v3.25.16 → `docs/archive/CHANGELOG_v3.22.0-v3.25.16.md`（v4.11.0 因体积守卫触发，主文件涨到 201 KB / 上限 200 KB）。
 > 本文件从 **v4.0.0** 起。**归档不是删除** —— 查旧版本变更细节时去上述文件。
 
+## v5.2.2（2026-10-28 · 编辑器被圆角裁掉 / 选图格子被压扁 / 大文件上传 500）
+
+> 用户反馈三条：「倒圆角之后写文章页编辑功能显示不全」、
+> 「手机端上传和选图时已上传的图片堆叠在一起，很容易选错」、
+> 「视频和图片一起上传会报 `Unexpected token '<', "<!DOCTYPE "... is not valid JSON`」。
+
+### ① 编辑器工具栏被裁掉：状态类被当成按钮类
+
+观感层里有一条给视图切换按钮加药丸圆角的规则：
+
+```css
+.view-split, .md-vw { border-radius: 999px; overflow: hidden; }
+```
+
+而编辑器的容器 class 是 **`md-stage view-split`** —— `view-split` 是**视图状态**，
+不是按钮。于是整个 62vh 高的编辑器被设成 999px 圆角，浏览器把半径压到高度的一半，
+工具栏左右各几百 px 落进圆角裁切区，「B」「粗体」和右侧的「分栏/仅编辑/仅预览」
+全部看不见。
+
+修法：这条规则只留给 `.md-vw`；`view-*` 只做后代选择器（`.view-edit .md-body`）。
+
+### ② 选图格子被压扁：grid 行高按 min-content 算
+
+手机端选图弹层一屏 8 张，每张只露出上半截、下半截被裁掉，看起来「叠在一起」。
+
+根因不在 `aspect-ratio` 本身，而在 **行高**：
+`.album-picker-grid` 用 `grid-auto-rows: auto`，而格子高度来自 `aspect-ratio`——
+它在 min-content 计算里算不出值，四行于是均分容器、每行只剩 **85px**（实测），
+`overflow: hidden` 把图裁成一条条。改 `aspect-ratio`、把 button 换成 div，全都没用。
+
+修法三道：`grid-auto-rows: minmax(96px, auto)` 给不依赖比例的确定下限；
+`gap` 8→10px 拉开间距；**每格压一条名字**（`media.title`），
+因为一屏七八张风景照只靠画面根本分不清哪张是哪张 —— 这才是「容易选错」的正解。
+
+### ③ 大文件上传 500：`data/upload_tmp` 属主是 root
+
+`>16MB` 的文件走分块上传，要写 `data/upload_tmp`。这个目录由 `config.py` 在
+**import 时** `os.makedirs()` 创建；而 `update.sh` 探测运行属主时看的是 gunicorn
+**master**（root），可实际接请求、写文件的是**worker**（www）。
+于是目录建成 `root:root 755`，www 写不进去 → `PermissionError` → Flask 返回 **500 HTML**
+→ 前端 `r.json()` 抛 `Unexpected token '<'`。图片（≤16MB 走单请求）一切正常，
+唯独视频必炸 —— 这就是「视频和图片一起上传才触发」的原因。
+
+四处一起改：
+
+1. **线上立即恢复**：`chown -R www:www data/upload_tmp`（已执行并实测分块初始化通过）；
+2. `media_service.chunk_init` 把 `OSError` 翻成 `MediaError(507)`，前端拿到的是
+   「服务器无法写入上传临时目录…」而不是 500 HTML；
+3. `album_edit.html` 的上传链路统一走 `readJson()`，非 JSON 响应翻成人话
+   （413 / 会话失效 / 502 分别提示），不再把 `Unexpected token '<'` 甩给用户；
+4. `update.sh`：属主探测改为**取 master 的子进程（worker）**，取不到再退回
+   blog.db 属主；并在迁移后新增 `⑤c 校正 data/ 属主`，每次部署顺手纠一次 —— 只改属主，
+   不动内容与权限位。
+
+### 影响面
+
+- **无表结构变更**：Alembic head 仍 `b7c2e91a4d63`。
+- 无新依赖、无新环境变量。
+- `update.sh` 有改动 → 本次部署需设 `GH_MIRROR`（服务器直连 `raw.githubusercontent.com` 被重置，脚本自更新会跳过）。
+
 ## v5.2.1（2026-10-28 · 相册封面与名字同步修复）
 
 > 用户反馈两条：「相册里改了文件名称之后呢，媒体库的名称不会跟着改」、

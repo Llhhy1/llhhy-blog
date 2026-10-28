@@ -2373,3 +2373,53 @@ v5.1.1 把 `intro` / `tips` 的渲染从「整段纯文本」升级为「按行 
 （`input[type=file]` 与 `.wp-lib`），它们本来就该隐藏，行为不变。
 
 **残留风险**：无新增。
+
+## R148 · v5.1.4（`album_update` 双模式返回）安全审查
+
+本轮在一个已鉴权的写接口里加「按请求类型分支返回」，涉及两个需要确认的点：
+**鉴权有没有被绕过**、**flash 里会不会带出未转义内容**。
+
+### 148.1 鉴权未被绕过
+
+`form_mode` 只在函数体内决定**返回值形态**，位置在 `@admin_required` 之后：
+
+```python
+@admin_bp.route("/albums/<int:aid>/update", methods=["POST"])
+@admin_required
+def album_update(aid):
+    form_mode = not request.is_json   # ← 装饰器已先行拦截未登录/非管理员
+```
+
+`request.is_json` 判断的是 `Content-Type`，客户端可以自由伪造 —— 但伪造的结果
+只是「拿到 JSON 而不是重定向」，**不改变权限判定，也不改变写入行为**。
+即：有权限的人两种方式都能写；没权限的人两种方式都被 `@admin_required` 拦在门外。
+
+### 148.2 归属校验仍然存在
+
+`_album_or_404(aid)` 只按 id 查，理论上是「知道 id 就能改任何相册」——
+但本站在此之前就是这样，且 `album` 没有作者概念（单作者博客）。
+多作者场景才需按 `uploaded_by` 收窄，与 R145.5 记录的口径一致，本轮无变化。
+
+### 148.3 flash 内容不含用户输入
+
+所有 `flash()` 的文案都是**常量**（「相册信息已保存」「标题不能为空」
+「slug 已被其他相册占用」「日期格式应为 YYYY-MM-DD」），没有拼接 `request` 里的值。
+即便将来拼接，`base.html:153` 用的是 `{{ m }}` 插值（Jinja 自动转义），
+不会形成 XSS 面。
+
+### 148.4 七维复核
+
+| 维度 | 结论 |
+|---|---|
+| XSS | 无。flash 全常量，模板走自动转义 |
+| SQL 注入 | 无。不新增查询，SQLAlchemy 参数化 |
+| 越权 | 无。`@admin_required` 前置，分支只改返回格式 |
+| SSRF | 无 |
+| CSRF | 无变化。表单带 `csrf_input()` 隐藏域，fetch 带 `X-CSRF-Token` 头 |
+| 密钥泄露 | 无 |
+| 资源泄漏 / 限流 | 无 |
+
+### 148.5 测试
+
+- `tests/test_album.py` **14 passed**（新增 3 条覆盖双模式契约）。
+- 变异验证：`form_mode = False` 恒定 → 2 条变红，报错内容与线上现象逐字一致。

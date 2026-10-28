@@ -268,3 +268,77 @@ def test_删除相册不删媒体文件(app, client):
         assert Album.query.filter_by(id=aid).first() is None
         assert MediaAsset.query.filter_by(id=mid).first() is not None, "媒体不该被连带删除"
         assert AlbumItem.query.filter_by(album_id=aid).count() == 0, "条目应随相册清掉"
+
+
+# ---------------------------------------------------------------- 保存端点双模式
+# v5.1.3 上线后实测：编排页「保存相册信息」是**传统表单提交**，而 album_update
+# 当时无条件返回 JSON —— 浏览器把响应体当页面渲染，用户看到一串
+# {"ok":true,"slug":"album-1793152410"}，既没返回入口也不知道成没成。
+# 下面三条锁住「表单走重定向、fetch 走 JSON」这个契约。
+
+
+def test_保存相册信息_表单提交应重定向而不是返回JSON(app, client):
+    """浏览器表单提交（非 JSON 请求）必须 302 回编排页，不能把 JSON 当页面。"""
+    tok = _login_admin(app, client)
+    aid = _album(app, slug="form-mode")
+
+    r = client.post("/admin/albums/%d/update" % aid,
+                    data={"title": "改过的标题", "slug": "form-mode", "summary": "新摘要"},
+                    headers={"X-CSRF-Token": tok})
+
+    assert r.status_code == 302, "表单提交应重定向，实际 %d（%s）" % (
+        r.status_code, r.data[:120])
+    assert "/admin/albums/%d/edit" % aid in r.headers.get("Location", ""), \
+        "重定向应回到编排页，实际 Location=%s" % r.headers.get("Location")
+    assert b'"ok"' not in r.data, "响应体不该是 JSON"
+
+    with app.app_context():
+        a = Album.query.filter_by(id=aid).first()
+        assert a.title == "改过的标题", "标题没保存进去"
+        assert a.summary == "新摘要"
+
+    # 跟随重定向：用户必须看到「已保存」的反馈，否则点完不知道成没成
+    r2 = client.get(r.headers["Location"])
+    assert r2.status_code == 200, r2.data[:200]
+    body = r2.get_data(as_text=True)
+    assert "相册信息已保存" in body, "重定向后的页面没有渲染出保存提示"
+    assert 'class="flash"' in body, "flash 容器没出现"
+
+
+def test_保存相册信息_JSON提交仍返回JSON(app, client):
+    """编排页其余操作走 fetch（application/json），契约不能改坏。"""
+    tok = _login_admin(app, client)
+    aid = _album(app, slug="json-mode")
+
+    r = client.post("/admin/albums/%d/update" % aid,
+                    json={"title": "fetch 存的", "slug": "json-mode"},
+                    headers={"X-CSRF-Token": tok})
+
+    assert r.status_code == 200, r.data[:200]
+    d = r.get_json()
+    assert d["ok"] is True
+    assert d["slug"] == "json-mode"
+    with app.app_context():
+        assert Album.query.filter_by(id=aid).first().title == "fetch 存的"
+
+
+def test_保存相册信息_表单校验失败也重定向(app, client):
+    """校验失败时同样不能返回 JSON——否则用户看到 {"ok":false,...} 卡在那。"""
+    tok = _login_admin(app, client)
+    aid = _album(app, slug="form-bad")
+
+    # 标题为空
+    r = client.post("/admin/albums/%d/update" % aid, data={"title": "  "},
+                    headers={"X-CSRF-Token": tok})
+    assert r.status_code == 302, "校验失败也应重定向，实际 %d" % r.status_code
+    assert b'"ok"' not in r.data
+
+    # slug 被别的相册占用
+    _album(app, slug="taken-slug")
+    r = client.post("/admin/albums/%d/update" % aid,
+                    data={"title": "正常标题", "slug": "taken-slug"},
+                    headers={"X-CSRF-Token": tok})
+    assert r.status_code == 302, "slug 冲突也应重定向，实际 %d" % r.status_code
+
+    with app.app_context():
+        assert Album.query.filter_by(id=aid).first().slug == "form-bad", "冲突时不该改动 slug"

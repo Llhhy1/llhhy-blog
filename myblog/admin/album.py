@@ -185,23 +185,42 @@ def _item_json(it, m):
 @admin_bp.route("/albums/<int:aid>/update", methods=["POST"])
 @admin_required
 def album_update(aid):
-    """保存相册元信息（标题 / slug / 摘要 / 日期 / 地点 / 公开 / 封面）。"""
+    """保存相册元信息（标题 / slug / 摘要 / 日期 / 地点 / 公开 / 封面）。
+
+    **两种提交方式共用一个端点**，靠请求类型区分：
+
+    - 编排页其余操作（章节 / 条目 / 排序 / 设封面）都是 fetch，返回 JSON；
+    - 「保存相册信息」是传统表单提交，**必须回跳并提示** ——
+      否则浏览器会把 JSON 当页面渲染，用户看到一串
+      `{"ok":true,"slug":"..."}`，既没有返回入口也不知道成没成
+      （v5.1.3 上线后实测踩到）。
+
+    判据用 `request.is_json` 而不是「谁调的」：顺带让无 JS 环境也能保存。
+    """
+    form_mode = not request.is_json
+
+    def fail(msg, code=400):
+        if form_mode:
+            flash(msg)
+            return redirect(url_for("admin.album_edit", aid=aid))
+        return _fail(msg, code)
+
     a = _album_or_404(aid)
     if not a:
-        return _fail("相册不存在", 404)
+        return fail("相册不存在", 404)
     data = request.get_json(silent=True) or request.form
 
     title = (data.get("title") or "").strip()
     if not title:
-        return _fail("标题不能为空")
+        return fail("标题不能为空")
 
     slug = (data.get("slug") or "").strip()
     if slug:
         if not _SLUG_RE.match(slug):
-            return _fail("slug 只能包含中英文、数字、下划线和连字符")
+            return fail("slug 只能包含中英文、数字、下划线和连字符")
         other = Album.query.filter(Album.slug == slug, Album.id != aid).first()
         if other:
-            return _fail("slug 已被其他相册占用")
+            return fail("slug 已被其他相册占用")
         a.slug = slug
 
     a.title = title[:200]
@@ -218,7 +237,7 @@ def album_update(aid):
         try:
             a.event_date = datetime.datetime.strptime(d[:10], "%Y-%m-%d").date()
         except ValueError:
-            return _fail("日期格式应为 YYYY-MM-DD")
+            return fail("日期格式应为 YYYY-MM-DD")
     else:
         a.event_date = None
 
@@ -232,6 +251,9 @@ def album_update(aid):
     a.updated_at = utcnow()
     db.session.commit()
     log_audit("update", "album", a.id, "编辑相册：%s" % a.title[:60], user=_uid())
+    if form_mode:
+        flash("相册信息已保存")
+        return redirect(url_for("admin.album_edit", aid=a.id))
     return _ok(slug=a.slug)
 
 

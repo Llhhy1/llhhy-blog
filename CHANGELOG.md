@@ -6,6 +6,67 @@
 > v3.22.0 ~ v3.25.16 → `docs/archive/CHANGELOG_v3.22.0-v3.25.16.md`（v4.11.0 因体积守卫触发，主文件涨到 201 KB / 上限 200 KB）。
 > 本文件从 **v4.0.0** 起。**归档不是删除** —— 查旧版本变更细节时去上述文件。
 
+## v5.1.4（2026-10-28 · 保存相册信息后页面变成一串 JSON）
+
+> 用户报：编好相册点「保存相册信息」，页面直接显示 `{"ok":true,"slug":"album-1793152410"}`，
+> 既回不去也不知道到底存没存。
+
+### 根因：同一个端点，两种提交方式，只有一种返回值
+
+编排页的「保存相册信息」是**传统表单提交**：
+
+```html
+<form method="post" action="{{ url_for('admin.album_update', aid=album.id) }}">
+```
+
+而 `album_update` 是按 JSON API 写的，末尾无条件 `return _ok(slug=a.slug)`。
+浏览器提交表单后会**导航到 POST 的响应体**——于是把 JSON 当页面渲染了。
+既没有 `Location` 可跳转，页面上也没有任何链接，用户就「卡」在那串 JSON 上。
+
+同页其余操作（章节增删、条目增删、排序、设封面）都是 `fetch` + JSON，
+所以只有这一处踩到——**契约不一致，不是逻辑写错**。
+
+### 修复：按请求类型分支，一个端点服务两种调用
+
+```python
+form_mode = not request.is_json
+
+def fail(msg, code=400):
+    if form_mode:
+        flash(msg)
+        return redirect(url_for("admin.album_edit", aid=aid))
+    return _fail(msg, code)
+```
+
+- **表单提交** → `flash` + 302 回编排页（成功提示「相册信息已保存」）；
+  校验失败（标题空 / slug 冲突 / 日期格式错）同样 flash + 回跳，不会把
+  `{"ok":false,...}` 甩在页面上。
+- **fetch 调用** → 仍返回 JSON，现有 JS 一行不用改。
+- 判据用 `request.is_json` 而不是「谁调的」：**顺带让无 JS 环境也能保存**。
+
+### 顺带做的一次全量排查
+
+把后台 **107 处 POST 表单**全部对了一遍「对应的路由函数返回什么」：
+只有 `album_update` 一处属于「只返回 JSON」。另有 5 处（`mcp_services_*`）
+的 `jsonify` 只出现在「id 不存在」的错误分支，成功路径是 flash + redirect，
+属既有正常写法，不在本次范围。
+
+### 影响面
+
+只改 `myblog/admin/album.py`（一个函数）+ `tests/test_album.py`（新增 3 条）。
+**无迁移、无前端包改动、无新路由、无新依赖。**
+
+### 验证
+
+- 新增 3 条回归测试（**共 14 passed**）：表单提交必须 302 且响应体不是 JSON、
+  跟随重定向后页面出现「相册信息已保存」、JSON 提交仍返回 `{"ok":true,...}`、
+  校验失败也走重定向。
+- **变异验证**：把 `form_mode` 恒定为 `False`（退回旧行为）→ 测试立即变红，
+  且报错信息正是 `AssertionError: 表单提交应重定向，实际 200（b'{"ok":true,"slug":"form-mode"}'）`
+  —— 与用户看到的现象逐字一致。
+- 端到端核对六个字段（title / summary / trip_days / intro / location / is_public）
+  全部正确落库：**用户的修改在修复前其实已经存进去了**，只是页面显示错了。
+
 ## v5.1.3（2026-10-28 · 媒体选择器弹层关不掉）
 
 > 用户报：相册编排页点「从媒体库添加图片」，没选图就点关闭，**点了没反应**，

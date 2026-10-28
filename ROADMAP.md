@@ -45,7 +45,7 @@
   两端 → 新增 `th.num` / `td.num` 统一右对齐并用 `width:1%+nowrap` 收窄；同源另一半：
   `≤900px` 给 `.stats-table` 的 `display:block`（为横滚）会把 `thead`/`tbody` 拆成两个
   匿名表格、列宽各自计算，改为恢复 `display:table` + 卡片级横滚。
-- **v5.1.3（2026-10-28 已发布）媒体选择器弹层关不掉**：`hidden` 属性被 `.album-picker-mask { display: flex }` 盖掉（UA 样式表优先级最低），弹层常显且「点关闭没响应」。加 `[hidden] { display: none !important }` 兜底 + 4 条守卫测试。
+- **v5.1.4（2026-10-28 已发布）保存相册信息后页面变成 JSON**：表单提交 vs JSON 返回的契约不一致。改为按 `request.is_json` 分支（表单走 flash + 302，fetch 仍收 JSON），并全量排查后台 107 处 POST 表单确认无同类问题。\n- **v5.1.3（2026-10-28 已发布）媒体选择器弹层关不掉**：`hidden` 属性被 `.album-picker-mask { display: flex }` 盖掉（UA 样式表优先级最低），弹层常显且「点关闭没响应」。加 `[hidden] { display: none !important }` 兜底 + 4 条守卫测试。
 - **v5.1.2（2026-10-28 已发布）移动端抽屉滚动修复**：`overflow: hidden` 是简写，把抽屉与通知面板原有的 `overflow-y: auto` 一起重置，导致移动端菜单溢出 244px 却划不动。改为外层裁切 + 头尾固定 + 菜单区滚动（`min-height: 0`）。
 - **v5.1.1（2026-10-28 已发布）相册正文渲染修复**：`**粗体**` 不再露出星号、段内换行保留 `<br>`（token 化 + 插值，仍不走 `v-html`）；后台 placeholder 改为明确列出支持的语法。
 - **v5.1.0（2026-10-28 已发布）相册（媒体编排层）**：`media_asset` 回答「我有什么素材」，相册回答「这些素材怎么讲一个故事」—— 只引用 media_id，不复制文件。三张新表 `album` / `album_section`（可选章节）/ `album_item`；后台 `/admin/albums` 列表 + 编排页（章节增删改、媒体选择器搜索多选、图注、排序、设封面）；前台 `/gallery` 改为相册卡片墙，新增 `/album/<slug>` 游记页（封面大图、行程概览、章节图文、小提示、灯箱左右键翻页）。行程概览/小提示用「空行分段 + `- ` 转列表」纯文本解析，不引 markdown 库、不用 `v-html`。

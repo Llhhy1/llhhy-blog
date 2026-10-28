@@ -2284,3 +2284,28 @@ summary { cursor: pointer; padding: 2px 0; }
   border-top: 1px solid var(--ui-hairline, rgba(60, 60, 67, .12));
 }
 .album-picker-foot #picker-status { margin-right: auto; }
+
+/* ============================================================================
+ * v5.1.3 基础兜底：让 HTML 的 `hidden` 属性真正生效
+ *
+ * `hidden` 属性只是浏览器默认样式表里的一条 `[hidden] { display: none }`，
+ * 而 **UA 样式表的优先级低于任何作者样式** —— 只要 CSS 里给同一个元素写了
+ * 任何 `display`，`hidden` 属性就完全失效（与特异性无关，是来源顺序问题）。
+ *
+ * 实际事故（v5.1.0 引入）：相册编排页的媒体选择器写成
+ *   <div class="album-picker-mask" id="picker-mask" hidden>
+ * 而本文件里 `.album-picker-mask { display: flex }` —— 于是弹层从页面加载起
+ * 就一直显示：
+ *   · 点「关闭」执行 `el.hidden = true`，属性确实设上了，但视觉毫无变化
+ *     → 用户看到的是「点关闭没响应」
+ *   · 刷新页面同样带 hidden 属性重新渲染，仍然被 display:flex 盖掉
+ *     → 用户看到的是「刷新后还是这个弹窗」
+ * 排查时容易被误判成「JS 报错没绑上事件」，实际 JS 完全正常。
+ *
+ * 用 !important 是必要的：同特异性下 `[hidden]` 与 `.某某类` 打平，
+ * 后写的 display 仍会赢。加 !important 后语义变成「带 hidden 就一定隐藏」，
+ * 这正是该属性的本意。
+ * ==========================================================================*/
+[hidden] {
+  display: none !important;
+}

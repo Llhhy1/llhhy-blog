@@ -2351,3 +2351,25 @@ v5.1.1 把 `intro` / `tips` 的渲染从「整段纯文本」升级为「按行 
 
 **残留风险**：无新增。`overflow: hidden` 的简写陷阱属于**可用性缺陷**而非安全问题，
 已记录在 CHANGELOG 与代码注释中（判据是 computed `overflowY`，不是 `scrollTop`）。
+
+## R147 · v5.1.3（`hidden` 属性兜底）安全审查
+
+本轮只改 `myblog/static/admin.css` 追加一条 `[hidden] { display: none !important; }`，
+并新增 `tests/test_hidden_attribute_guard.py` 4 条守卫测试。
+
+| 维度 | 结论 |
+|---|---|
+| XSS | 无。CSS 不承载内容，未新增 `content` 属性 |
+| SQL 注入 / 越权 / SSRF / CSRF | 无。不涉及请求、路由、权限 |
+| 密钥泄露 | 无 |
+| 资源泄漏 / 限流 | 无 |
+
+**一条必须点明的边界**：这条兜底是**全局 `!important`**，会覆盖任何带 `hidden`
+属性的元素的 `display`。这不会造成越权 —— `hidden` 的语义就是「不显示」，
+强制它生效只会让元素更隐蔽，不会让本不该出现的东西暴露出来。
+
+反方向的副作用（某元素本该显示却被 `hidden` 属性误藏）属于**功能缺陷**而非安全问题，
+且会在页面上直接看出来；本轮也顺带核对了后台模板里另外 6 处用 `hidden` 的元素
+（`input[type=file]` 与 `.wp-lib`），它们本来就该隐藏，行为不变。
+
+**残留风险**：无新增。

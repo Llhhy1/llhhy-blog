@@ -6,6 +6,68 @@
 > v3.22.0 ~ v3.25.16 → `docs/archive/CHANGELOG_v3.22.0-v3.25.16.md`（v4.11.0 因体积守卫触发，主文件涨到 201 KB / 上限 200 KB）。
 > 本文件从 **v4.0.0** 起。**归档不是删除** —— 查旧版本变更细节时去上述文件。
 
+## v5.1.3（2026-10-28 · 媒体选择器弹层关不掉）
+
+> 用户报：相册编排页点「从媒体库添加图片」，没选图就点关闭，**点了没反应**，
+> **刷新后弹窗还在**。
+
+### 根因：`hidden` 属性被 `display` 覆盖
+
+模板靠 HTML 的 `hidden` 属性隐藏弹层：
+
+```html
+<div class="album-picker-mask" id="picker-mask" hidden>
+```
+
+而 `admin.css` 里 `.album-picker-mask { display: flex }`。
+
+`hidden` 属性只是浏览器默认样式表里的一条 `[hidden] { display: none }`，
+而 **UA 样式表的优先级低于任何作者样式** —— 只要 CSS 给同一元素写了 `display`，
+`hidden` 就彻底失效（这与特异性无关，是**来源顺序**问题）。
+
+于是：
+
+- 弹层从页面加载起就一直显示；
+- 点「关闭」执行 `el.hidden = true`，属性确实设上了，但视觉毫无变化
+  → 用户看到的是「点关闭没响应」；
+- 刷新后仍然带着 `hidden` 属性重新渲染，还是被 `display: flex` 盖掉
+  → 用户看到的是「刷新后还是这个弹窗」。
+
+**排查陷阱**：这个症状极易被误判成「JS 报错、事件没绑上」。本次先抽出模板脚本
+跑 `node --check` 确认语法 OK（`picker-close` 的绑定在顶层、会执行到），
+才把矛头转向 CSS。
+
+### 修复
+
+`admin.css` 末尾加基础兜底：
+
+```css
+[hidden] { display: none !important; }
+```
+
+`!important` 是必要的：同特异性下 `[hidden]` 与 `.某类` 打平，后写的 `display` 仍会赢。
+加上之后语义变成「带 `hidden` 就一定隐藏」，这正是该属性的本意。
+同时防住未来所有同类写法（后台模板里还有 6 处用 `hidden` 属性隐藏 `input[type=file]`
+与 `.wp-lib`，此前只是碰巧没有 `display` 冲突）。
+
+### 验证
+
+隔离验证（最小 HTML + 真实 `admin.css`，本地 HTTP）：
+
+| 操作 | computed `display` |
+|---|---|
+| 带 `hidden` 属性 | `none` |
+| `el.hidden = false` | `flex` |
+| `el.hidden = true` | `none` |
+| **删掉兜底规则后**（反证） | **`flex`** ← 证明是这条规则在起作用 |
+
+新增 `tests/test_hidden_attribute_guard.py` **4 条**并做变异验证：
+把 `!important` 去掉 → 立即变红；恢复 → 4 passed。
+
+### 影响面
+
+只改 `myblog/static/admin.css`（后端包）+ 新增测试。
+**无迁移、无路由变更、无依赖变更、前端包无改动。**
 ## v5.1.2（2026-10-28 · 移动端抽屉菜单滚不动）
 
 > 用户报「菜单栏在移动端上下划不动」。

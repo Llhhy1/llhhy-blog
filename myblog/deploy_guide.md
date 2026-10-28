@@ -565,7 +565,9 @@ sha256sum /tmp/og.png /www/wwwroot/你的站点根/og-default.png
 | 公告 | 后台新建一条公告 | 前台每个页面顶部出现横幅 |
 | 订阅 | 前台侧边栏填邮箱提交 | 提示订阅成功；后台「✉️ 订阅者」能看到该邮箱，并支持删除 / 启用停用 |
 | 搜索 | 前台搜索关键词 | 返回结果（接口 `engine` 字段为 `fts5` 或 `like`） |
-| RSS | `https://你的域名/feed.xml` | 显示 XML |
+| RSS | `https://你的域名/feed.xml`、`https://你的域名/feed.atom` | 两者都显示 XML，条目一致 |
+| RSS 订阅页 | `https://你的域名/feed` | 列出 RSS 2.0 与 Atom 两个地址；页脚 / 侧栏有「📡 RSS 订阅」入口 |
+| 接口文档 | `https://你的域名/docs` | 「完整接口清单」来自 `/api/docs`，内容与 `myblog/API.md` 一致 |
 | API | `https://你的域名/api/site` | 返回 JSON |
 
 ---

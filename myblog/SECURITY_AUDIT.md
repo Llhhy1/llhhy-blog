@@ -2415,3 +2415,77 @@ MIME 混淆，缺少 CSP 不产生可利用的差异。
 | CSRF | 无 |
 | 密钥泄露 | 无 |
 | 资源泄漏 / 限流 | 无。`videoEls` 是 `Map`，条目移除/组件卸载时自动清理，条目数受相册条目数限制 |
+
+---
+
+## R158 · v5.3.0（RSS 订阅入口 / 写文章相册素材 / /docs 单源）安全审查
+
+**范围**：新增 `GET /api/docs`（`api/system.py`）；`/admin/albums/media-picker` 的 `album_id`
+参数与新增 `/admin/albums/picker-list`（`admin/album.py`）；`utils/render.py` 的
+`inject_album_cards()`；`admin/post_editor.py` 实时预览注入；`templates/admin/edit_post.html`
+两个只读弹层；`vue-frontend/src/views/SubscribeView.vue` 与页脚 / 侧栏入口。
+无表结构变更、无迁移（head 仍 `b7c2e91a4d63`）。
+
+### 158.1 XSS
+
+- `inject_album_cards()` 生成的卡片 HTML **完全服务端拼装**，所有动态值
+  （slug / 标题 / 摘要 / 日期 / 地点 / 封面 URL）都过 `_esc()`（`& < > " '` 全转义）；
+- 卡片**不进 bleach**，也**不扩 `_ALLOWED_TAGS`** —— 作者可写的标签集保持不变，
+  不给作者新增写 `<div>` 等能力；
+- 编辑页弹层的 `innerHTML` 拼接全部对服务端数据走 `esc()`；`@album[slug]` 的落点是
+  textarea 的 `.value`（纯文本上下文，不按 HTML 解析）；
+- `/api/docs` 的 HTML 复用 `render_markdown`（markdown → bleach 白名单），与正文同一口径；
+- 订阅页无用户输入，Vue 插值自动转义，无 `v-html`。
+
+### 158.2 SQL 注入
+
+- `album_id` 经 `request.args.get(..., type=int)` 强转，查询走 SQLAlchemy 表达式；
+- `q` 的 `like` 模式由 Python 拼 `%q%` 后作为**绑定参数**传给 `.like()`，不拼进 SQL 文本；
+- `/api/docs` 不查库。
+
+### 158.3 越权 / 信息泄露
+
+| 路径 | 鉴权 | 判定 |
+|---|---|---|
+| `/admin/albums/media-picker` | `@admin_required` | 后台，可接受 |
+| `/admin/albums/picker-list` | `@admin_required` | 返回**含私密相册**的列表；调用者是管理员本人，且渲染侧按 `is_public` 过滤 → 不构成对读者泄露 |
+| `/api/docs` | 公开（无鉴权） | 文档本身公开；源文件是仓库内 `API.md`，非用户输入 |
+
+- 私密相册在**渲染侧**整段移除（不留「相册不存在」提示），公开文章引用私密相册不泄露其存在性；
+- `/api/docs` 失败文案只有「文档文件不可用 / 读取失败 / 渲染失败」，**不含路径**；
+- 编辑页「插入相册卡片」返回私密相册的 slug / title 属**管理员可见范围**，不新增对外暴露面。
+
+### 158.4 SSRF / CSRF / 密钥
+
+- SSRF：无新增出网请求。`/api/docs` 只读本地文件；`render_markdown` 的
+  `_upgrade_img_avif` 只处理 `/static/*.webp` 且 `os.path.isfile` 本地判定。
+- CSRF：两个弹层的数据接口是 **GET 只读**；写操作仍走既有后台 CSRF 闸，无新增写路由。
+- 密钥：无新增密钥 / 凭据；`/api/docs` 不回显配置。
+
+### 158.5 资源 / 限流
+
+- `/api/docs` 按 **mtime + size** 缓存渲染结果（128KB 文档渲染数百毫秒，不能每请求重算）；
+- `inject_album_cards` 只对含 `@album[` 的 HTML 触发，一次 `IN` 查询取全部 slug，
+  封面 / 首图查询在 try 内失败降级为空封面；卡片数量受正文长度限制；
+- 订阅页只调一次公开 `/api/posts`（服务端固定 per_page）。
+
+### 158.6 守卫与变异验证
+
+- `test_post_album_card.py`（13）：卡片渲染 / 行内不渲染 / 私密 slug 不得出现在公开 HTML /
+  不存在 slug 整段移除 / 标题 HTML 转义 / **缓存不得吞掉卡片** / 预览页与前台一致；
+- `test_album_card_style.py`（23）：三份样式表必须都含 `.post-album-*`；
+- `test_feed_entry.py`（7）：`/feed` 路由、页脚 / 侧栏入口、双源并列、**同源拼接（禁写死域名）**、
+  中英文案齐全、两个源都活着且条目数一致；
+- 变异验证：去掉 `is_public` 过滤、缓存命中路径不注入卡片 → 对应守卫均变红。
+
+### 158.7 七维复核
+
+| 维度 | 结论 |
+|---|---|
+| XSS | 无（见 158.1） |
+| SQL 注入 | 无（见 158.2） |
+| 越权 | 无（见 158.3） |
+| SSRF | 无（见 158.4） |
+| CSRF | 无（只读 GET，写路径不变） |
+| 密钥泄露 | 无 |
+| 资源泄漏 / 限流 | `/api/docs` 有 mtime+size 缓存；无新增无限流公开写接口 |

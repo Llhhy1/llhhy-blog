@@ -55,6 +55,7 @@
             <div v-if="it.media.kind === 'video'" class="album-media-box is-video">
               <video :src="it.media.url" :poster="it.media.poster || undefined"
                      :data-video-id="it.id"
+                     :ref="(el) => bindVideo(it.id, el)"
                      preload="metadata" playsinline
                      @click.stop="toggleVideo(it)"
                      @ended="onVideoEnded"></video>
@@ -80,6 +81,7 @@
             <div v-if="it.media.kind === 'video'" class="album-media-box is-video">
               <video :src="it.media.url" :poster="it.media.poster || undefined"
                      :data-video-id="it.id"
+                     :ref="(el) => bindVideo(it.id, el)"
                      preload="metadata" playsinline
                      @click.stop="toggleVideo(it)"
                      @ended="onVideoEnded"></video>
@@ -237,10 +239,26 @@ function onKey(e) {
  */
 const playingIds = ref(new Set());
 
+/**
+ * video 元素登记表：条目 id → HTMLVideoElement。
+ *
+ * 🔴 v5.2.5 首版用 `document.querySelector('[data-video-id="X"]')` 找元素，
+ * 再 `box.querySelector("video")` 取 —— 但 `data-video-id` 是挂在 **`<video>` 自己**
+ * 上的（不是它的容器），所以 video 元素内部**没有** video 子节点，
+ * `querySelector("video")` 恒为 `null` → 点播放按钮**毫无反应**。
+ *
+ * 改用 Vue 的**函数式 ref** 直接持有元素：模板里 `:ref="(el) => bindVideo(it.id, el)"`，
+ * 元素挂载时登记、卸载时注销。既不依赖 DOM 层级假设，也不受同名元素干扰。
+ */
+const videoEls = new Map();
+
+function bindVideo(id, el) {
+  if (el) videoEls.set(id, el);
+  else videoEls.delete(id);
+}
+
 function videoElOf(it) {
-  // 用 data-video-id 找到对应的 video 元素（模板里每个 video 带这个标记）
-  const box = document.querySelector('[data-video-id="' + it.id + '"]');
-  return box ? box.querySelector("video") : null;
+  return videoEls.get(it.id) || null;
 }
 
 function playVideo(it) {
@@ -278,9 +296,8 @@ function markPlaying(it, on) {
 }
 
 function onVideoEnded(e) {
-  const box = e.target.closest('[data-video-id]');
-  if (!box) return;
-  const id = Number(box.dataset.videoId);
+  // e.target 就是那个 <video>（data-video-id 挂在它自己身上）
+  const id = Number(e.target.dataset.videoId);
   const it = allItems.value.find((x) => x.id === id);
   if (it) markPlaying(it, false);
   e.target.controls = false;

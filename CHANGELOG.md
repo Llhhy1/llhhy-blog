@@ -6,6 +6,80 @@
 > v3.22.0 ~ v3.25.16 → `docs/archive/CHANGELOG_v3.22.0-v3.25.16.md`（v4.11.0 因体积守卫触发，主文件涨到 201 KB / 上限 200 KB）。
 > 本文件从 **v4.0.0** 起。**归档不是删除** —— 查旧版本变更细节时去上述文件。
 
+## v5.2.6（2026-10-28 · v5.2.5 的视频播放按钮点不动 —— 元素查找写错）
+
+> v5.2.5 上线后浏览器实测发现的**真 bug**：视频能正常加载（`readyState=4`、时长 7.8/8.6/8.7 秒
+> 全部秒出），但**点播放按钮毫无反应** —— 不播、按钮不消失、原生控件也不出现。
+
+### 根因：元素查找依赖了错误的 DOM 层级假设
+
+```js
+// ❌ v5.2.5 首版
+function videoElOf(it) {
+  const box = document.querySelector('[data-video-id="' + it.id + '"]');
+  return box ? box.querySelector("video") : null;   // ← 恒为 null
+}
+```
+
+模板里 `data-video-id` 挂在 **`<video>` 自己**身上：
+
+```html
+<video :data-video-id="it.id" ...></video>
+```
+
+所以 `querySelector('[data-video-id="7"]')` 命中的**就是那个 video 元素本身**，
+它内部没有 video 子节点 → `box.querySelector("video")` **恒为 `null`** →
+`playVideo()` 第一行 `if (!v) return;` 直接返回 → **点了没反应**。
+
+### 修法：用 Vue 的函数式 ref 直接持有元素
+
+```js
+const videoEls = new Map();
+function bindVideo(id, el) {
+  if (el) videoEls.set(id, el);
+  else videoEls.delete(id);
+}
+function videoElOf(it) {
+  return videoEls.get(it.id) || null;
+}
+```
+
+模板里 `:ref="(el) => bindVideo(it.id, el)"`（章节内 + 未分组两处都加）。
+不再依赖 DOM 层级假设，也不受同名元素干扰。
+
+### 为什么这个 bug 能溜过去（教训）
+
+它的特征是**静默失败**：构建通过、测试全绿、页面能渲染、**视频甚至能正常加载**
+（`readyState=4`、时长正确），**只有「点击播放」这一下没反应**。
+
+🔴 **根因是我自己的验证方法有缺陷**：修复后我用一个**手写的探针页**验证，
+把 `data-video-id` 挂在了**容器**上（`<div data-video-id><video></video></div>`）——
+而真实组件挂在 `<video>` 自己身上。**探针页结构与真实组件不一致，掩盖了这个 bug。**
+
+→ **通用教训**：验证前端交互必须用**真实组件**（或从真实组件产物派生的探针），
+不能用「手写等价物」—— 后者的结构差异会让验证结果失真。
+（同源教训：`tests/test_update_chain_contract.py` 里匹配 `cd "$WORK"` 时命中了
+注释里的同名字样 → 判据必须**跳过注释行**。）
+
+### 守卫（`tests/test_album_video_ref.py`，6 条）
+
+1. 禁止「先按 `data-video-id` 找元素、再在它内部 `querySelector('video')`」的嵌套写法
+2. 必须用函数式 ref 登记 video 元素
+3. 两处 video 卡片（章节内 + 未分组）**都要**绑定 —— 漏一处那处就点不动
+4. 不允许用 `querySelector('[data-video-id...]')` 定位元素
+5. 播放按钮与 video 元素绑定**同一个** id 键
+6. `videoElOf` 函数体内**不得出现任何 DOM 查询**（`querySelector` / `getElementById` /
+   `closest` / `document.`）—— 它是所有播放逻辑的唯一入口
+
+**变异验证**：把 `videoElOf` 改回旧写法 → 第 6 条变红；
+改成 `document.getElementById` → 第 6 条变红；恢复后全绿。
+
+### 兼容性
+
+**无迁移**（head 仍 `b7c2e91a4d63`）、无新依赖、无新环境变量、无数据回填、
+无后端业务代码改动（仅版本号）。**后端包与前端包都要覆盖**（本版改的是前端）。
+安全审查见 `myblog/SECURITY_AUDIT.md` R157。
+
 ## v5.2.5（2026-10-28 · API 文档全量重写 + 视频一直转圈/悬浮挡页面）
 
 > 用户反馈两条：「最近新增了很多接口，文档也要同步更新才行，现有的所有可用接口全部更新上文档」、

@@ -1434,6 +1434,8 @@ python verify_package_checksums.py
 > **v3.17.10（update.sh 清理旧 assets + 文档页代码高亮修复）升级要点**：`update.sh` 前端覆盖步骤新增「先清 `assets/` 再解压」（防止历史 hash chunk 堆积）；文档页 `/docs` 的 highlight.js 由 cdnjs 动态注入改为**本地打包**（原被 CSP 拦截、高亮从未生效）。**只需覆盖前端包**（后端仅版本号）；无迁移、无新依赖。
 > **v3.17.9（复制修复 + 后台移动端 + AI 摘要 + 社交墙独立页）升级要点**：**前后端包都要覆盖**（前端新增 `lib/clipboard.js`、`lib/social.js`、`SocialView.vue` 与路由 `/social`；后台模板改造复制调用、`admin.css` 补移动端规则、`social.html` 加平台预设）。**无迁移、无新依赖**。验证：手机端打开后台「备份配置」与「诊断助手」不再挤压/溢出；任一「复制」按钮（后台媒体库/预览链接、前台代码块/分享链接）可复制并给出提示；后台「AI 摘要」页摘要完整可读；前台导航出现「🔗 社交」，主页出现「找到我」区块，`/social` 卡片墙正常。
 > **v3.17.3（评论表情回应 + 访客来源分析）升级要点**：**前后端包都要覆盖**（后端新增 `api/reactions.py`、VisitLog 新列 `referrer` 与 `/api/stats/referrers`；前端新增评论表情条与统计页「访客来源 Top 10」）。**VisitLog 的 `referrer` 列由启动自愈自动添加**（`_migrate_visit_log_table` 幂等补列，重启即生效）——**无需手动迁移**；备用脚本 `myblog/migrate_visit_log_referrer.py`（幂等）仅当自愈失效时手动跑。表情回应计数存 Setting KV（`react_<评论id>`），零表结构变更。验证：评论区出现 👍❤️😂🎉🤔👏 表情条（点击 +1，再点取消）；统计页出现「🧭 访客来源 Top 10」卡（需积累几天外部访问数据）；后台左下角 v3.17.3。**v3.17.3 同版补全「🗺️ 访客地图」**（`/annual` 页，阿里 DataV 合规底图由后端缓存 7 天，无需任何 key；仅省级聚合、不含个人位置；底图不可用时前端自动降级为地域榜）。
+> **v5.2.6（视频播放按钮点不动）升级要点**：**前后端包都要覆盖**（本版改的是前端 `vue-frontend/src/views/AlbumView.vue` 的元素查找方式；后端包仅版本号变化，但**版本号变了就必须覆盖**）。
+> **v5.2.5（API 文档全量重写 + 视频 Range/全屏浮层两修）升级要点**：**前后端包都要覆盖**（前端改 `AlbumView.vue` 视频卡片与 `DocsView.vue` 文案；后端改两个后台模板的 `pointer-events` 与 `API.md`）。另需确认**生产 nginx 配置**：新增 `location ^~ /static/uploads/` 用 root 直出（Range 原生支持）、`/static/` 加 `proxy_cache off`；改前备份 conf，改完 `nginx -t` → `nginx -s reload`（不 restart）。
 > **v5.2.2（编辑器圆角裁切 / 选图格子压扁 / 大文件上传 500）升级要点**：**只需覆盖后端包**（`static/admin.css`、`templates/admin/album_edit.html`、`media_service.py`）；前端包无改动，但会重出。
 >
 > **① 无迁移**：head 仍 **`b7c2e91a4d63`**。**② 无新依赖、无新环境变量。**

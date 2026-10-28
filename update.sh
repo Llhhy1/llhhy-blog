@@ -74,6 +74,20 @@ ALLOW_DOWNGRADE="${ALLOW_DOWNGRADE:-0}"
 WORK="/tmp/llhhy_update"
 TS=$(date +%Y%m%d_%H%M%S)
 mkdir -p "$WORK"
+
+# 🔴 v5.2.3 修复：**必须在 cd "$WORK" 之前**记住脚本自身的绝对路径。
+#
+# 根因（v5.2.2 部署实测）：脚本第 80 行 `cd "$WORK"` 把工作目录切到
+# /tmp/llhhy_update，而 self_update_check() 里用 `readlink -f "$0"` 算自身路径。
+# 当用**相对路径**调用（`cd /www/wwwroot/myblog && bash update.sh`）时，
+# $0 = "update.sh"，readlink -f 在**当时的 cwd**（已被 cd 改成 $WORK）下解析
+# → 得到 "/tmp/llhhy_update/update.sh"，与规范路径 "$APP_DIR/update.sh" 不等
+# → 自更新误判「当前运行的不是规范文件」而**拒绝替换**，
+# 于是线上 update.sh 永远停在旧版（本版「属主探测改看 worker」就是这么没上线的）。
+#
+# 修法：在任何 cd 之前先把 $0 解析成绝对路径存起来，后面一律用它。
+SELF_PATH_ABS="$(readlink -f "$0" 2>/dev/null || echo "$0")"
+
 cd "$WORK"
 # 清理历史残留解压目录（尽力而为；v3.4.4 起解压目录带 $TS 唯一后缀，不再复用固定名）
 rm -rf "$WORK"/backend_extract "$WORK"/frontend_extract \
@@ -460,7 +474,9 @@ self_update_check() {
   [ "${SELF_UPDATE_DONE:-0}" = "1" ] && return 0      # 防重入环
   [ -n "${TAG:-}" ] || return 0
   local canon="$APP_DIR/update.sh" self_path cur_hash new_hash
-  self_path=$(readlink -f "$0" 2>/dev/null || echo "$0")
+  # 用脚本启动时记下的绝对路径，而不是此刻的 `readlink -f "$0"`
+  #（此刻 cwd 已被切到 $WORK，相对 $0 会解析成 /tmp/llhhy_update/update.sh）。
+  self_path="${SELF_PATH_ABS:-$(readlink -f "$0" 2>/dev/null || echo "$0")}"
   [ -f "$canon" ] || { log "   ℹ️ 未找到 $canon，跳过脚本自更新检查"; return 0; }
   cur_hash=$(sha256sum "$canon" 2>/dev/null | awk '{print $1}')
   log "   脚本自检：本地 update.sh sha256=${cur_hash:0:16}…"
@@ -777,14 +793,23 @@ fix_data_owner() {
   [ -n "$APP_USER_FINAL" ] || return 0
   local d="$APP_DIR/data"
   [ -d "$d" ] || return 0
+  # 只校正**业务目录**（应用运行时会写入的那些），不动 backup/。
+  # backup/ 里是历次部署留下的备份副本（含 root 属主的旧文件），改写它们
+  # 既没必要也会破坏「回滚时按原属主还原」的前提。
   local bad
-  bad=$(find "$d" -maxdepth 2 ! -user "$APP_USER_FINAL" 2>/dev/null | head -3)
+  bad=$(find "$d" -maxdepth 2 ! -user "$APP_USER_FINAL" \
+          ! -path "$d/backup" ! -path "$d/backup/*" 2>/dev/null | head -3)
   if [ -n "$bad" ]; then
-    chown -R "$APP_USER_FINAL":"$APP_USER_FINAL" "$d" 2>/dev/null || true
+    while read -r p; do
+      [ -n "$p" ] || continue
+      chown -R "$APP_USER_FINAL":"$APP_USER_FINAL" "$p" 2>/dev/null || true
+    done <<EOF
+$bad
+EOF
     log "   ↳ data/ 下有非 $APP_USER_FINAL 属主的项，已校正（否则分块上传/备份会写不进去）"
     echo "$bad" | while read -r p; do log "      · $p"; done
   else
-    log "   ↳ data/ 属主正常（$APP_USER_FINAL）"
+    log "   ↳ data/ 属主正常（$APP_USER_FINAL，backup/ 不校正）"
   fi
 }
 

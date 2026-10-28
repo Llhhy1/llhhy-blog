@@ -134,6 +134,46 @@ def test_版本号解析不再强绑字面格式():
     assert s.count("$(read_app_version)") >= 2, "版本号读取调用点没全部换成 read_app_version()"
 
 
+def test_脚本自更新能认出自己_相对路径调用也要行():
+    """v5.2.3：自更新的「我是不是规范文件」判据必须用**启动时的绝对路径**。
+
+    实测事故（v5.2.2 部署时暴露）：脚本第 80 行 `cd "$WORK"` 把 cwd 切到
+    /tmp/llhhy_update，而 self_update_check() 用 `readlink -f "$0"` 算自身路径。
+    用**相对路径**调用（`cd /www/wwwroot/myblog && bash update.sh`）时，
+    $0="update.sh" 在**已被切走的 cwd** 下解析 → "/tmp/llhhy_update/update.sh"
+    ≠ 规范路径 → 自更新误判「不是同一个文件」而拒绝替换。
+
+    后果：线上 update.sh 永远停在旧版，**脚本类改动永远送不到服务器**
+    （v5.2.2 的「属主探测改看 worker」就是这么没上线的，日志里只有一句
+    「请手动更新该文件」，不盯着看会以为已经更新了）。
+
+    守卫：绝对路径必须在任何 `cd` 之前捕获，且自更新判据必须用它。
+    """
+    s = _read(UPDATE_SH)
+
+    # 1) 必须存在启动时捕获绝对路径的语句
+    assert "SELF_PATH_ABS=" in s, "缺少启动时捕获脚本绝对路径的变量 SELF_PATH_ABS"
+    cap = re.search(r"SELF_PATH_ABS=\"\$\(readlink -f \"\$0\"[^\n]*\n", s)
+    assert cap, "SELF_PATH_ABS 必须由 readlink -f \"$0\" 得到"
+
+    # 2) 捕获点必须在 cd "$WORK" 之前（顺序是这条守卫的全部意义）
+    #    只认**行首独立命令**，不能匹配注释里提到的 `cd "$WORK"` 字样。
+    i_cap = s.index("SELF_PATH_ABS=")
+    m_cd = re.search(r"^cd \"\$WORK\"$", s, re.M)
+    assert m_cd, "找不到行首的 cd \"$WORK\" 命令"
+    assert i_cap < m_cd.start(), \
+        "SELF_PATH_ABS 必须在 cd \"$WORK\" 之前捕获（否则相对 $0 会解析到别处）"
+
+    # 3) 自更新判据必须用这个变量，不能再用此刻的 readlink -f "$0"
+    m = re.search(r"self_path=\"\$\{SELF_PATH_ABS:-(.*?)\}\"", s, re.S)
+    assert m, "self_update_check 的 self_path 必须优先用 SELF_PATH_ABS"
+    assert 'readlink -f "$0"' in m.group(1), "兜底分支仍应保留 readlink -f \"$0\""
+
+    # 4) 反向断言：不允许再出现「裸的 self_path=$(readlink -f "$0")」
+    assert 'self_path=$(readlink -f "$0"' not in s, \
+        "自更新仍用相对 $0 求路径 → 相对调用时永远认不出自己"
+
+
 def test_scripts_are_lf_only():
     """服务器上 CRLF 的 bash 脚本会直接语法报错（历史事故）。"""
     for p in (UPDATE_SH, DEPLOY_SH):

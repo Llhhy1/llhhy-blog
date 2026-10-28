@@ -45,6 +45,7 @@
   两端 → 新增 `th.num` / `td.num` 统一右对齐并用 `width:1%+nowrap` 收窄；同源另一半：
   `≤900px` 给 `.stats-table` 的 `display:block`（为横滚）会把 `thead`/`tbody` 拆成两个
   匿名表格、列宽各自计算，改为恢复 `display:table` + 卡片级横滚。
+- **v5.2.3（2026-10-28 已发布）部署脚本自更新认不出自己**：v5.2.2 部署日志暴露 —— `update.sh` 在 `cd "$WORK"` 之后才用 `readlink -f "$0"` 算自身路径，相对路径调用时解析成 `/tmp/llhhy_update/update.sh` ≠ 规范路径 → 自更新误判「不是同一个文件」而拒绝替换 → **线上 update.sh 永远停在旧版，所有脚本类改动都送不到服务器**（v5.2.2 承诺的「属主探测改看 worker」「⑤c 校正 data 属主」就是这么没上线的）。改为在任何 `cd` 之前捕获 `SELF_PATH_ABS`，判据一律用它；顺带把 `fix_data_owner` 的 `chown -R` 收窄到业务目录（不再改写 `data/backup/` 里的历史备份）。新增契约测试锁死捕获顺序。无迁移，head 仍 `b7c2e91a4d63`。
 - **v5.2.2（2026-10-28 已发布）编辑器被圆角裁掉 / 选图格子被压扁 / 大文件上传 500**：① 观感层把状态类 `view-split` 混进按钮规则，整个编辑器被设 999px 圆角、工具栏两端按钮被裁（只留 `.md-vw`）；② 选图网格 `grid-auto-rows: auto` 按 min-content 算高度，`aspect-ratio` 在 min-content 里算不出 → 每行只剩 85px、图片被裁成一条条（改 `minmax(96px, auto)` + 每格加名字）；③ `data/upload_tmp` 属主成了 root（`update.sh` 看 master 而非 worker），>16MB 分块上传必 500 返回 HTML → 前端报 `Unexpected token '<'`（线上 chown 恢复 + 后端翻 MediaError 507 + 前端 readJson + 部署脚本探测 worker 属主并 ⑤c 校正）。无迁移，head 仍 `b7c2e91a4d63`。
 - **v5.2.1（2026-10-28 已发布）相册封面与名字同步修复**：① 相册列表永远显示「无封面」—— 取封面时写成 `[a.id for a in rows]`，拿**相册 id** 去查媒体表（两套自增序列，除偶然相等外必然查不到），改为 `cover_media_id`；② 名字只有一份 —— 编排页改名直接写 `media_asset.title`，v5.2.0 的 `album_item.caption` 冻结不再写入，迁移 `b7c2e91a4d63` 把历史图注合并进素材标题后清空。无表结构变更。
 - **v5.2.0（2026-10-28 已发布）媒体库与相册双向打通**：相册编排页可直接上传并入册；媒体库每张素材可「加入相册」并显示所属相册标签（一次聚合查询，无 N+1）；图注留空自动回退显示素材标题（不复制、不写库，改标题会跟着变）。无迁移，head 仍 `a1c9e4f72b38`。

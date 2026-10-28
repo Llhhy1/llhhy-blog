@@ -999,7 +999,7 @@ sha256sum /tmp/og.png /www/wwwroot/你的站点根/og-default.png
 > ```
 > 重建失败只告警、不回滚站点（搜索可能暂时不含新索引），可稍后手动重跑。不设该变量时 `update.sh` 行为与旧版完全一致。
 
-> **v3.25.16（4.0 前全量安全审计修复 · 审计轮 R114+R115）升级要点**：
+> **v3.25.16（4.0 前全量安全审计修复 · 审计轮 R114+R115）升级要点**（R114~R120 已归档至 `docs/archive/SECURITY_AUDIT_r111-r120.md`）：
 >
 > - **无表结构变更、无迁移**（head 仍 `c7a2f19b4d30`）、无新增依赖、无新增**必填**环境变量。
 >   纯后端改动，**前端产物无变化**。
@@ -1453,6 +1453,25 @@ python verify_package_checksums.py
 > 本版 `update.sh` 已加 `⑤c 校正 data/ 属主`，以后会自动纠；但**当前线上是靠手工 chown 恢复的**，升级时留意日志里 ⑤c 那行是否显示「属主正常」。
 >
 > **⑥ 验证**：后台 → 写文章 → 编辑器工具栏左右两端的按钮都在（不缺角）；手机打开相册编排页 → 添加照片 → 格子是正方形、有间距、每张底部有名字；在编排页「📤 上传并加入」选一个 **>16MB 的视频 + 几张小图** → 应全部成功入册，失败时提示是中文而不是 `Unexpected token '<'`。
+
+> **v5.2.3（部署脚本自更新修复）升级要点**：**只改 `update.sh`**（后端包内容与 v5.2.2 相同，但版本号变了，**后端包仍要覆盖**）。
+>
+> **① `update.sh` 不在发布 zip 里** —— 它靠「自更新」从同 tag 的 raw 文件拉取。
+> 本版修的就是自更新本身：用**相对路径**调用（`cd /www/wwwroot/myblog && bash update.sh`）时，
+> 脚本在 `cd "$WORK"` 之后才 `readlink -f "$0"`，会把自身误判成 `/tmp/llhhy_update/update.sh`，
+> 于是拒绝替换 → 线上 update.sh 永远停在旧版，**所有脚本类改动都送不到服务器**。
+>
+> **② 升级后确认脚本真的换掉了**（这一步别省）：
+> ```bash
+> sha256sum /www/wwwroot/myblog/update.sh    # 应与本仓库 update.sh 的哈希一致
+> grep -c "SELF_PATH_ABS=" /www/wwwroot/myblog/update.sh   # 应 ≥ 1
+> ```
+> 部署日志里出现「✅ 脚本已是最新（与 v5.2.3 一致）」即说明自更新正常。
+>
+> **③ 备份目录不校正属主**：`⑤c 校正 data/ 属主` 现在只改业务目录，**不动 `data/backup/`**。
+>
+> **④ 验证**：在服务器上 `bash /www/wwwroot/myblog/update.sh`（**绝对路径**）跑一次，
+> 日志应出现「↳ 探测到 worker 属主: www」与「↳ data/ 属主正常（www，backup/ 不校正）」。
 
 > **v5.2.1（相册封面 / 名字同步修复）升级要点**：**前后端包都要覆盖**（后端 `admin/album.py`、`templates/admin/album_edit.html`、`static/admin.css` + 新迁移；前端 `AlbumView.vue` 只改注释，但包会重出）。
 >

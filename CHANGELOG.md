@@ -6,6 +6,32 @@
 > v3.22.0 ~ v3.25.16 → `docs/archive/CHANGELOG_v3.22.0-v3.25.16.md`（v4.11.0 因体积守卫触发，主文件涨到 201 KB / 上限 200 KB）。
 > 本文件从 **v4.0.0** 起。**归档不是删除** —— 查旧版本变更细节时去上述文件。
 
+## v5.3.2（待发布 · /docs 代码块重做：语言标签栏 + 复制按钮 + 真高亮）
+
+> v5.3.1 修好搜索/目录后，/docs 的代码块仍是「无设计 + 不高亮」：围栏没有语言标签、复制按钮漂浮在右上角、且因异步时序 bug，highlight.js 装饰的是空容器，真正的代码块从未被高亮。本次把代码块做成统一的「语言标签栏 + 复制按钮」深色块，并修好高亮时机。
+
+### 改动内容
+
+- **`vue-frontend/src/views/DocsView.vue`**：
+  - 新增 `decorateCodeBlocks()`：在 `/api/docs` 内容注入 DOM 后，把每个 `<pre>` 包装成 `.code-block`（圆角深色容器 → `.code-block__bar` 语言标签 + 复制按钮 + `pre`），并真正调用 `hljs.highlightElement` 高亮。
+  - **修时序 bug**：原 `tryHl()` 在 `onMounted` 立即跑，此时异步内容未到、装饰的是空容器；内容到达后 `v-html` 重建出新的 `<pre>`，再没人高亮 → 高亮形同虚设。现改由 `loadFullList()` 在 `buildToc()` 之后统一调用。
+  - **修误上色**：无语言标注的围栏（目录树）显式标 `language-plaintext`，避免 highlight.js 退化成自动探测把目录树误判成 bash/python。新增 `plaintext`/`text` 语言注册。
+  - 复制按钮从 `onMounted` 漂浮式改为落在标签栏内，样式走 `:deep()` 命中动态创建节点（同旧 `.copy-btn` 的坑）。
+  - `API.md` 两处目录树围栏补 `text` 语言标注（原裸 ``` 无语言）。
+- **`myblog/config.py` / `myblog/API.md`**：`APP_VERSION` 与文档头部版本号同步到 `v5.3.2`（守卫 `test_api_doc_sync.py` 强制一致）。
+
+### 设计要点（为何如此）
+
+- 代码块**刻意保持深底**不随明暗模式翻转：highlight.js 的 github-dark 主题要求深底，落在浅底上几乎不可读；统一深底是「文档代码块」最稳的观感。
+- 标签栏显示的语言名取自后端 markdown 渲染出的 `class="language-xxx"`（fenced_code 扩展产物），与文档同源、无需前端硬编码。
+
+### 实证（发版前本地验证）
+
+- `npm run build` 通过；`tests/test_docs_codeblock_design.py` 守卫通过（含「源码含 `decorateCodeBlocks` + `.code-block` 结构」「`API.md` 无裸 ``` 围栏」变异验证）。
+- 用真实 `render_markdown(API.md)` 产出 HTML，确认 `python`/`text` 围栏均带 `language-*` class；`decorateCodeBlocks` 命中后每个 `pre` 被包进 `.code-block`、标签栏显示正确语言名、复制按钮可用。
+
+---
+
 ## v5.3.1（2026-10-30 · 修复 /docs 搜索与目录失效 + API.md 版本头补 bump）
 
 > v5.3.0 把 `/docs` 改成渲染 `API.md` 后，搜索框和左侧目录同时失效：输入任何关键词都「没找到」、左栏空空、右侧「本节内容」也空。根因是建树逻辑写错，不是布局方向问题（BigModel 那种三栏范式本来就对）。

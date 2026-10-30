@@ -2439,6 +2439,27 @@ MIME 混淆，缺少 CSP 不产生可利用的差异。
 - v5.3.0 的 `/docs` 搜索/目录失效属**功能缺陷**而非安全漏洞，本次修复不涉及安全边界收紧或放松。
 - `test_api_doc_sync.py` 版本断言由「子串 `vX.Y.Z` in doc」升级为严格头部 `> 版本：**vX.Y.Z**` 匹配，仅提升文档一致性，不影响运行时安全。
 
+## R160 · v5.3.2（/docs 代码块重做：语言标签栏 + 复制按钮 + 真高亮）安全审查
+
+**范围**：`vue-frontend/src/views/DocsView.vue` 新增 `decorateCodeBlocks()`（对 `/api/docs` 注入的 `<pre>` 包成 `.code-block` 并调用 `hljs.highlightElement`）；`highlight.js` 注册表新增 `plaintext`/`text`；`API.md` 两处目录树围栏补 `text` 语言；`APP_VERSION` 与文档头同步到 `v5.3.2`。**无后端代码改动、无新路由、无表结构变更。**
+
+### 160.1 逐维复核
+
+| 维度 | 结论 | 说明 |
+|---|---|---|
+| XSS | 安全 | `decorateCodeBlocks` 用 `document.createElement` + `textContent` + `appendChild` 构建标签栏，**不拼接任何 `innerHTML`**；语言名来自后端渲染出的 `class="language-*"`（本仓库 `API.md`，非用户输入），仅作 `textContent` 展示，无注入面。`hljs.highlightElement` 处理的也是同一份后端已 bleach 清洗的 HTML，未引入新的 `innerHTML` 写入点。 |
+| SQL 注入 | 安全 | 本次未新增任何 DB 查询。 |
+| 越权 | 安全 | 无新接口；`/api/docs` 为既有公开 GET，权限模型未变。 |
+| SSRF | 安全 | 无外发请求。 |
+| CSRF | 安全 | 纯前端 SPA 渲染，无新增改状态调用；复制按钮只读写 `code.innerText`。 |
+| 密钥 | 安全 | 无密钥/凭证改动。 |
+| 资源泄漏 / 限流 | 安全 | `decorateCodeBlocks` 在 `loadFullList` 内容到达后跑一次（受文档体积上限约束）；复制按钮监听随 `pre` 被 DOM 回收而释放，不与路由组件生命周期耦合，无新泄漏。 |
+
+### 160.2 回归点
+
+- 复制按钮沿用 v3.17.9 的三层兜底 `copyText`（`Clipboard API → execCommand → 手动弹窗`），与现有文章正文复制同一实现，无新增复制面。
+- `:deep()` 命中动态节点是既有模式（旧 `.copy-btn`），本次仅将选择器从 `pre :deep(.copy-btn)` 改为 `.doc-full-body :deep(.code-block__*)`，未改变「动态节点须用 `:deep()`」的正确性前提。
+
 ## R158 · v5.3.0（RSS 订阅入口 / 写文章相册素材 / /docs 单源）安全审查
 
 **范围**：新增 `GET /api/docs`（`api/system.py`）；`/admin/albums/media-picker` 的 `album_id`

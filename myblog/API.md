@@ -1,6 +1,6 @@
 # llhhy-blog API 文档
 
-> 版本：**v5.3.1**（2026-10-30 同步：覆盖全部真实路由，文档即接口；与 `APP_VERSION` 一致）
+> 版本：**v5.3.2**（2026-10-30 同步：覆盖全部真实路由，文档即接口；与 `APP_VERSION` 一致）
 >
 > 本文档描述 llhhy-blog 的全部 JSON 接口（`/api/*`，共 **176 条**）与后台页面调用的
 > JSON 接口（`/admin/*`，共 **17 条**）。前端（`vue-frontend/src/lib/api.js`）与本站页面
@@ -135,7 +135,7 @@
 
 API 从单文件 `api.py` 解耦为按功能组织的包：
 
-```
+```text
 myblog/
 ├── api/
 │   ├── __init__.py      # api_bp 聚合导出（from api import api_bp 兼容）
@@ -162,7 +162,7 @@ myblog/
 │   ├── review.py        # 年度回顾 / 里程碑 / 访客地域
 │   ├── theme.py         # 主题预设与应用
 │   └── system.py        # 健康探针/版本更新/部署 webhook
-```
+```text
 
 - 新增一个功能时：新建 `myblog/api/xxx.py`，从 `common.py` 按需导入，
   在 `__init__.py` 的导入清单中加一行即可，无需改动其他任何文件。

@@ -96,13 +96,19 @@ import lBash from "highlight.js/lib/languages/bash";
 import lJson from "highlight.js/lib/languages/json";
 import lPython from "highlight.js/lib/languages/python";
 import lJs from "highlight.js/lib/languages/javascript";
+import lPlain from "highlight.js/lib/languages/plaintext";
 hljs.registerLanguage("bash", lBash);
 hljs.registerLanguage("shell", lBash);
 hljs.registerLanguage("json", lJson);
 hljs.registerLanguage("python", lPython);
 hljs.registerLanguage("js", lJs);
 hljs.registerLanguage("javascript", lJs);
-// 既有 tryHl 轮询逻辑依赖 window.hljs，这里直接就绪（轮询保留以兼容时序）
+// 无语言标注的围栏（目录树等）显式标 plaintext，避免 highlight.js 退化成自动探测
+// （会把目录树误判成 bash/python 乱上色）。text 作为 plaintext 的别名一并注册。
+hljs.registerLanguage("plaintext", lPlain);
+hljs.registerLanguage("text", lPlain);
+// 既有 tryHl 轮询逻辑依赖 window.hljs，这里直接就绪（v5.3.2 起时机改由
+// decorateCodeBlocks() 在内容注入 DOM 后统一处理，见下方说明）。
 window.hljs = hljs;
 
 // 章节树：[{ id, label, subs: [{id, text}] }]
@@ -147,6 +153,8 @@ async function loadFullList() {
     // 内容注入后 DOM 才完整 —— 必须重建 TOC，否则左栏/右栏不收录任何章节
     await new Promise((res) => requestAnimationFrame(() => res()));
     buildToc();
+    // v5.3.2：内容已在 DOM，现在统一给代码块加语言标签栏 + 复制按钮 + 真高亮
+    decorateCodeBlocks();
   } catch (e) {
     fullState.value = "error";
   }
@@ -312,6 +320,65 @@ function buildToc() {
   sectionText.value = idx;
 }
 
+// v5.3.2：把 .doc-full-body 里的每个 <pre> 包装成「语言标签栏 + 复制按钮」的代码块，
+// 并真正调用 highlight.js 高亮。必须在内容注入 DOM 之后调用（见 loadFullList 末尾）。
+//
+// 关键修复（原 /docs 代码块「无设计 + 不高亮」两个根因）：
+//   ① 原 tryHl 在 onMounted 立即跑，此时 /api/docs 的异步内容还没到，装饰的是空容器；
+//      内容到达后 v-html 重建出新的 <pre>，再也没人高亮 → 高亮形同虚设。
+//   ② 无语言标注的围栏（目录树）若不显式标 plaintext，highlight.js 会退化成自动探测，
+//      把目录树误判成 bash/python 乱上色。
+//
+// 语言名取自后端 markdown 渲染出的 class="language-xxx"（fenced_code 扩展产物）；
+// 复制按钮是 createElement 生成的，拿不到 scoped 的 data-v，样式须用 :deep() 命中
+// （同旧 .copy-btn 的坑：裸写 .code-block__copy 会编译成带 [data-v-xxx] 的选择器，永不命中）。
+function decorateCodeBlocks() {
+  const root = document.querySelector(".docs-main .doc-full-body");
+  if (!root) return;
+  root.querySelectorAll("pre").forEach((pre) => {
+    if (pre.parentElement && pre.parentElement.classList.contains("code-block")) return; // 已包装，跳过
+
+    const code = pre.querySelector("code");
+    let lang = "text";
+    const cls = (code && code.className) || "";
+    const m = cls.match(/language-([\w-]+)/);
+    if (m) lang = m[1];
+    else if (code) code.classList.add("language-plaintext"); // 避免自动探测误上色
+
+    // 高亮必须在包装前对 code 调：highlightElement 会改写 code 内部 DOM
+    if (window.hljs && code) {
+      try { window.hljs.highlightElement(code); } catch (e) { /* ignore */ }
+    }
+
+    // 包装结构：.code-block > (.code-block__bar + pre)
+    const wrap = document.createElement("div");
+    wrap.className = "code-block";
+    const bar = document.createElement("div");
+    bar.className = "code-block__bar";
+    const langEl = document.createElement("span");
+    langEl.className = "code-block__lang";
+    langEl.textContent = lang; // 纯文本，无 XSS 风险
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "code-block__copy";
+    btn.textContent = "复制";
+    btn.addEventListener("click", () => {
+      const text = (pre.querySelector("code") || pre).innerText;
+      // v3.17.9：三层兜底复制（Clipboard API → execCommand → 手动弹窗提示）
+      copyText(text).then((ok) => {
+        btn.textContent = ok ? "已复制" : "已弹窗，请手动复制";
+        setTimeout(() => { btn.textContent = "复制"; }, 1800);
+      });
+    });
+    bar.appendChild(langEl);
+    bar.appendChild(btn);
+    // 先把 wrap 插到 pre 之前（此时 pre 还在原父节点），再把 pre 移进 wrap
+    pre.parentNode.insertBefore(wrap, pre);
+    wrap.appendChild(bar);
+    wrap.appendChild(pre);
+  });
+}
+
 // v3.17.9：复制统一走 lib/clipboard.js 的三层兜底（原 fallbackCopy 已被其覆盖）
 
 onMounted(() => {
@@ -341,36 +408,9 @@ onMounted(() => {
   window.addEventListener("scroll", _topHandler, { passive: true });
   _topHandler();
 
-  // highlight.js 通过 CDN 异步加载，挂载后轮询初始化，确保代码块高亮生效
-  let n = 0;
-  const tryHl = () => {
-    if (window.hljs) {
-      document.querySelectorAll(".docs-main pre code").forEach((b) => {
-        try { window.hljs.highlightElement(b); } catch (e) { /* ignore */ }
-      });
-    } else if (n < 40) {
-      n += 1;
-      setTimeout(tryHl, 100);
-    }
-  };
-  tryHl();
-
-  // 给每个代码块加「复制」按钮（仿 API 文档站）
-  document.querySelectorAll(".docs-main pre").forEach((pre) => {
-    if (pre.querySelector(".copy-btn")) return;
-    const btn = document.createElement("button");
-    btn.type = "button";
-    btn.className = "copy-btn";
-    btn.textContent = "复制";
-    btn.addEventListener("click", () => {
-      const code = pre.querySelector("code");
-      if (!code) return;
-      const done = () => { btn.textContent = "已复制"; setTimeout(() => { btn.textContent = "复制"; }, 1500); };
-      // v3.17.9：三层兜底复制（Clipboard API → execCommand → 手动提示）
-      copyText(code.innerText).then((ok) => { if (ok) done(); });
-    });
-    pre.appendChild(btn);
-  });
+  // 代码块的高亮 + 语言标签栏 + 复制按钮，改由 loadFullList() 在内容注入 DOM 后
+  // 统一调用 decorateCodeBlocks() 完成（v5.3.2 修复：原 tryHl 在挂载时跑、此时
+  // /api/docs 的异步内容还没到，装饰的是空容器，真正的代码块永远没被高亮）。
 
   // 右侧「本节内容」随滚动高亮：改为在 scroll 里按位置算当前章节 + 当前小节。
   // 不用 IntersectionObserver 是因为它的回调只给出「谁进入了窄带」，而这里需要的
@@ -540,11 +580,13 @@ onBeforeUnmount(() => {
   border-radius: 5px;
   background: var(--surface-3, rgba(127, 127, 127, .16));
 }
+/* 兜底：decorateCodeBlocks 把 pre 包进 .code-block 之前，pre 短暂以深底呈现，
+   避免内容刚注入那一刻闪一下浅底。包好后由 .code-block pre 接管样式。 */
 .doc-full-body :deep(pre) {
+  background: #1f2937;
+  color: #f3f4f6;
   overflow-x: auto;
-  padding: 10px 12px;
-  border-radius: var(--ui-radius-group, 10px);
-  background: var(--surface-2, rgba(127, 127, 127, .1));
+  border-radius: var(--ui-radius-group, 12px);
 }
 .doc-full-body :deep(pre code) { background: none; padding: 0; }
 .doc-full-body :deep(table) {
@@ -740,26 +782,68 @@ onBeforeUnmount(() => {
 .params-table td { color: var(--text-muted); }
 .params-table tbody tr:hover td { background: var(--surface-2); }
 
-/* ── 代码块 ───────────────────────────────────────────────────── */
-/* 代码块刻意保持深底（highlight.js github-dark 主题就要求深底），
-   不随明暗模式翻转 —— 这是唯一不跟 token 的地方。 */
-pre {
-  background: #1f2937;
-  color: #f3f4f6;
-  padding: 14px 16px;
-  border-radius: var(--radius-sm);
-  overflow-x: auto;
+/* ── 代码块（v5.3.2 重做：语言标签栏 + 复制按钮 + 真高亮）──────────────
+   代码块刻意保持深底 —— highlight.js 的 github-dark 主题要求深底，且「文档代码块」
+   统一深底观感比跟随明暗模式更不容易出错（github-dark 落在浅底上几乎不可读）。
+   结构：.code-block（圆角容器）→ .code-block__bar（语言标签 + 复制）+ pre。
+   标签栏 / 复制按钮由 decorateCodeBlocks() 在内容注入后用 createElement 生成，
+   **拿不到 scoped 的 data-v**，故全用 :deep() 命中（同旧 .copy-btn 的坑）。 */
+.doc-full-body :deep(.code-block) {
   margin: var(--space-4) 0;
-  position: relative;
+  border: 1px solid #0b1220;
+  border-radius: var(--ui-radius-group, 12px);
+  overflow: hidden;
+  background: #1f2937;
+  box-shadow: var(--ui-shadow-card);
+}
+.doc-full-body :deep(.code-block__bar) {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: 7px 12px;
+  background: #111827;
+  border-bottom: 1px solid #0b1220;
+}
+.doc-full-body :deep(.code-block__lang) {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  color: #8b98a9;
+}
+.doc-full-body :deep(.code-block__copy) {
+  flex: 0 0 auto;
+  font-size: 11px;
+  line-height: 1.5;
+  padding: 2px 10px;
+  color: #cbd5e1;
+  background: rgba(255, 255, 255, .06);
+  border: 1px solid rgba(255, 255, 255, .12);
+  border-radius: var(--radius-xs);
+  cursor: pointer;
+  opacity: .6;
+  transition: opacity var(--transition), background var(--transition);
+}
+.doc-full-body :deep(.code-block__copy:hover),
+.doc-full-body :deep(.code-block__copy:focus-visible) {
+  opacity: 1;
+  background: rgba(255, 255, 255, .16);
+}
+.doc-full-body :deep(.code-block pre) {
+  margin: 0;
+  padding: 14px 16px;
+  background: #1f2937;
+  overflow-x: auto;
   line-height: 1.7;
 }
-/* 复制按钮压在右上角，而 pre 的 padding 只有 16px ——
-   给 code 加右侧留白，长代码首行就不会被按钮盖住（原实现的首行总被遮）。 */
-pre code {
+.doc-full-body :deep(.code-block pre code) {
+  display: block;
+  padding: 0;
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size: 12.8px;
-  display: block;
-  padding-right: 58px;
+  background: none;
 }
 
 code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12.8px; }
@@ -772,31 +856,6 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; fo
   font-size: 12.5px;
   border: 1px solid var(--border);
 }
-
-/* ⚠️ 必须用 :deep() —— 这个按钮是 onMounted 里 document.createElement 出来的，
-   **拿不到 scoped 的 data-v 属性**，所以裸写 `.copy-btn { … }` 编译成
-   `.copy-btn[data-v-xxx]` 永远不匹配。原实现正是如此：按钮从上线起一直是
-   一段没样式的裸文字，糊在代码块左下角（靠截图才看出来）。
-   `pre :deep(.copy-btn)` 编译成 `pre[data-v-xxx] .copy-btn`，而 pre 在模板里，
-   带 data-v，于是能命中动态插入的子节点。 */
-pre :deep(.copy-btn) {
-  position: absolute;
-  top: 7px;
-  right: 7px;
-  background: rgba(255, 255, 255, .10);
-  color: #d7dde5;
-  border: 1px solid rgba(255, 255, 255, .18);
-  border-radius: var(--radius-xs);
-  font-size: 11px;
-  line-height: 1.6;
-  padding: 2px 9px;
-  cursor: pointer;
-  opacity: .45;
-  transition: opacity var(--transition), background var(--transition);
-}
-pre:hover :deep(.copy-btn) { opacity: 1; }
-pre :deep(.copy-btn):hover,
-pre :deep(.copy-btn):focus-visible { background: rgba(255, 255, 255, .22); opacity: 1; }
 
 /* ── 右：本页目录 ─────────────────────────────────────────────── */
 .docs-toc {

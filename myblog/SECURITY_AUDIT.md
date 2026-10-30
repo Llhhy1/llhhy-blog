@@ -2460,6 +2460,27 @@ MIME 混淆，缺少 CSP 不产生可利用的差异。
 - 复制按钮沿用 v3.17.9 的三层兜底 `copyText`（`Clipboard API → execCommand → 手动弹窗`），与现有文章正文复制同一实现，无新增复制面。
 - `:deep()` 命中动态节点是既有模式（旧 `.copy-btn`），本次仅将选择器从 `pre :deep(.copy-btn)` 改为 `.doc-full-body :deep(.code-block__*)`，未改变「动态节点须用 `:deep()`」的正确性前提。
 
+## R161 · v5.3.3（热修 /docs 代码块整体失效：API.md 闭合围栏写错）安全审查
+
+**范围**：`myblog/API.md` 围栏修正（闭合围栏 ` ```text ` → ` ``` `；`python` 示例从有序列表内提到列表之后顶格）；`tests/test_docs_codeblock_design.py` 守卫升级（静态校验 + 真实渲染断言）。`APP_VERSION` 与文档头同步到 `v5.3.3`。**无后端代码改动、无前端改动、无新路由、无表结构变更。**
+
+### 161.1 逐维复核
+
+| 维度 | 结论 | 说明 |
+|---|---|---|
+| XSS | 安全 | 改的是 Markdown 源码的围栏位置与语言标注，渲染仍走 `render_markdown` → `clean_html`（bleach 白名单）；`<pre>` / `<code class="language-*">` 本就在白名单内，未扩大允许标签或属性。代码块内容为仓库 `API.md` 自身，非用户输入。 |
+| SQL 注入 | 安全 | 未新增任何 DB 查询。 |
+| 越权 | 安全 | 无新接口；`/api/docs` 为既有公开 GET，权限模型未变。 |
+| SSRF | 安全 | 无外发请求。 |
+| CSRF | 安全 | 纯文档内容修复，无状态变更调用。 |
+| 密钥 | 安全 | 无密钥/凭证改动。 |
+| 资源泄漏 / 限流 | 安全 | 围栏修正后 `/api/docs` 仍按 mtime+size 缓存；单次渲染体积不变，无新增泄漏面。 |
+
+### 161.2 回归点
+
+- 守卫新增「闭合围栏必须是纯 ` ``` `」「围栏必须顶格」「真实渲染 `<pre>` 数 == 围栏块数」三条判据，并已变异验证 —— 防止「源码看着对、渲染却失败」的同类问题再次静默上线。
+- 本次修复不改变 `render_markdown` 的渲染口径，也不改 bleach 白名单，历史文章缓存无需失效。
+
 ## R158 · v5.3.0（RSS 订阅入口 / 写文章相册素材 / /docs 单源）安全审查
 
 **范围**：新增 `GET /api/docs`（`api/system.py`）；`/admin/albums/media-picker` 的 `album_id`

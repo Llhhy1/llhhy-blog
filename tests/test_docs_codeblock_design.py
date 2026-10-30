@@ -77,29 +77,69 @@ def test_docsview_高亮在内容注入后调用():
         "若改回 onMounted 立即调用，又回到「装饰空容器、真正代码块永不高亮」的坑。")
 
 
-def test_apimd_每个开口围栏都带语言():
-    md = _read(API_MD)
-    in_fence = False
-    opens = 0
-    langs = set()
-    for line in md.splitlines():
-        stripped = line.strip()
-        if stripped.startswith("```"):
+def _parse_fences(md):
+    """解析围栏，返回 [(开行号, 语言, 闭行号)]，并校验合法性。
+
+    ⚠️ v5.3.2 踩过的两个「源码看着没问题、渲染却全坏」的坑，本守卫就是为它们补的：
+    - **闭合围栏带了 info string**（写成 ```` ```text ````）→ markdown 认为块永不闭合，
+      整篇代码块退化成行内 `<code>`，`/docs` 语言标签栏/复制按钮/高亮全部不出现；
+    - **围栏缩进在列表项里**（如 `   ```python`）→ Python-Markdown 3.8 的
+      `fenced_code` 不支持，同样不产出 `<pre>`。
+    两者都只有真正渲染才暴露，所以必须同时做静态校验 + 渲染校验（见下个测试）。
+    """
+    blocks = []
+    cur_open = None
+    for no, line in enumerate(md.splitlines(), 1):
+        if line.lstrip().startswith("```"):
+            stripped = line.strip()
             fence = stripped[3:].strip()
-            if not in_fence:
-                opens += 1
+            assert line == line.lstrip(), (
+                "API.md 第 %d 行围栏有前导缩进 %r —— Python-Markdown 的 fenced_code "
+                "不支持缩进围栏（尤其列表项内），会静默不渲染成 <pre>。请顶格。" % (no, line))
+            if cur_open is None:
                 assert fence, (
-                    "API.md 存在无语言的开口围栏 ``` —— 既会让 /docs 标签栏空白，"
-                    "又会让 highlight.js 自动探测把目录树染成 bash/python。请补语言（目录树用 text）。")
-                langs.add(fence)
-                in_fence = True
+                    "API.md 第 %d 行开口围栏没有语言标注 —— /docs 标签栏会空白，"
+                    "highlight.js 还会自动探测把目录树染错色。请补语言（目录树用 text）。" % no)
+                cur_open = (no, fence)
             else:
-                in_fence = False
-    assert opens > 0, "API.md 应至少有一个代码围栏，守卫不应空跑"
-    assert in_fence is False, "API.md 存在未闭合的围栏（开口数 != 闭口数）"
+                assert fence == "", (
+                    "API.md 第 %d 行闭合围栏带了多余内容 %r —— 闭合围栏必须是纯 ```，"
+                    "否则代码块永不闭合，整篇退化成行内 <code>（v5.3.2 真实故障）。"
+                    % (no, fence))
+                blocks.append((cur_open[0], cur_open[1], no))
+                cur_open = None
+    assert cur_open is None, "API.md 第 %d 行的围栏没有闭合" % cur_open[0]
+    return blocks
+
+
+def test_apimd_围栏合法且成对():
+    blocks = _parse_fences(_read(API_MD))
+    assert blocks, "API.md 应至少有一个代码围栏，守卫不应空跑"
+    langs = {b[1] for b in blocks}
     # 目录树用 text，示例用 python —— 至少出现过这两种语言即说明标注体系生效
     assert "text" in langs or "python" in langs, (
         "API.md 围栏语言标注异常：期望至少包含 text/python，实际 %r" % sorted(langs))
+
+
+def test_apimd_真实渲染必须产出pre代码块():
+    """最强判据：拿真实 API.md 走生产渲染管线，必须真的产出 <pre>。
+
+    只查源码文本会漏掉「闭合围栏带语言」「围栏缩进在列表内」这类**源码看着对、
+    渲染却失败**的坑（v5.3.2 两个都踩了，`/docs` 代码块设计整体失效）。
+    """
+    from myblog.utils.render import render_markdown
+
+    md = _read(API_MD)
+    expected = len(_parse_fences(md))
+    out = render_markdown(md)
+    got = out.count("<pre")
+    assert got == expected, (
+        "API.md 有 %d 个围栏，但真实渲染只产出 %d 个 <pre> —— 说明围栏没被 markdown 识别"
+        "（闭合围栏带语言 / 围栏缩进在列表内 / 围栏不配对），/docs 的代码块设计会整体失效。"
+        % (expected, got))
+    langs = set(re.findall(r"language-([\w-]+)", out))
+    assert "text" in langs and "python" in langs, (
+        "渲染后的代码块语言标注异常：期望 text + python，实际 %r" % sorted(langs))
 
 
 def test_版本号_api_md_与_config_一致():

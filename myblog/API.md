@@ -1,6 +1,6 @@
 # llhhy-blog API 文档
 
-> 版本：**v5.3.2**（2026-10-30 同步：覆盖全部真实路由，文档即接口；与 `APP_VERSION` 一致）
+> 版本：**v5.3.3**（2026-10-30 同步：覆盖全部真实路由，文档即接口；与 `APP_VERSION` 一致）
 >
 > 本文档描述 llhhy-blog 的全部 JSON 接口（`/api/*`，共 **176 条**）与后台页面调用的
 > JSON 接口（`/admin/*`，共 **17 条**）。前端（`vue-frontend/src/lib/api.js`）与本站页面
@@ -162,7 +162,7 @@ myblog/
 │   ├── review.py        # 年度回顾 / 里程碑 / 访客地域
 │   ├── theme.py         # 主题预设与应用
 │   └── system.py        # 健康探针/版本更新/部署 webhook
-```text
+```
 
 - 新增一个功能时：新建 `myblog/api/xxx.py`，从 `common.py` 按需导入，
   在 `__init__.py` 的导入清单中加一行即可，无需改动其他任何文件。
@@ -1963,21 +1963,7 @@ myblog/
 
 1. **新建模块文件**（或加到已有模块）：`myblog/api/xxx.py`
 2. **在 `myblog/api/__init__.py` 的导入清单加一行**（`from .xxx import xxx_bp` 之类）
-3. **写路由**，用 `api_bp` 装饰器：
-
-   ```python
-   from api.common import _current_user
-   from flask import jsonify, request
-
-   @api_bp.route("/xxx", methods=["GET"])
-   def xxx_list():
-       user = _current_user()
-       if not user:
-           return jsonify({"error": "请先登录"}), 401
-       ...
-       return jsonify({"items": [...]})
-   ```
-
+3. **写路由**，用 `api_bp` 装饰器（写法见本节末尾示例）
 4. **鉴权按需选**：
    - 公开 → 不判断
    - 登录 → `if not _current_user(): return jsonify({"error": "请先登录"}), 401`
@@ -1987,6 +1973,21 @@ myblog/
    豁免清单里加路径（**谨慎**：豁免意味着该接口可被跨站触发）。
 6. **限流**用 `utils.rate_limit` + `client_key`，见 `myblog/api/posts.py` 的写法。
 7. **同步本文档**：在对应模块章节加一条，写明方法、路径、鉴权、请求参数、返回字段、错误码。
+
+第 3 步的路由写法示例：
+
+```python
+from api.common import _current_user
+from flask import jsonify, request
+
+@api_bp.route("/xxx", methods=["GET"])
+def xxx_list():
+    user = _current_user()
+    if not user:
+        return jsonify({"error": "请先登录"}), 401
+    ...
+    return jsonify({"items": [...]})
+```
 
 ### 模块间约定的硬规则
 

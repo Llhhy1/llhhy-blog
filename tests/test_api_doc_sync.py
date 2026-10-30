@@ -151,8 +151,19 @@ def test_文档目录锚点全部有效():
 
 
 def test_文档版本号与代码一致():
-    """文档头写的版本要跟 APP_VERSION 对得上，否则读者不知道文档描述的是哪一版。"""
+    """文档头写的版本要跟 APP_VERSION 对得上，否则读者不知道文档描述的是哪一版。
+
+    v5.3.0 的教训：旧断言只查 `"v"+APP_VERSION in doc`，而文档示例 JSON 里
+    到处都是版本号字符串，于是「头部其实还写着 v5.2.6、但示例里出现 v5.3.0」
+    也能假通过。这里改成**只认头部那一行** `> 版本：**vX.Y.Z**`，
+    且必须整段相等，杜绝子串误判。
+    """
     import config
     doc = _read_doc()
-    assert ("v" + config.APP_VERSION) in doc, (
-        "API.md 头部没有当前版本号 v%s" % config.APP_VERSION)
+    header_re = re.compile(r"^> 版本：\*\*v([\d.]+)\*\*", re.M)
+    m = header_re.search(doc)
+    assert m, "API.md 头部没有 `> 版本：**vX.Y.Z**` 这一行"
+    assert m.group(1) == config.APP_VERSION, (
+        "API.md 头部版本 v%s 与 APP_VERSION v%s 不一致（发版忘记 bump 文档头）"
+        % (m.group(1), config.APP_VERSION)
+    )

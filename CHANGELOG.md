@@ -6,6 +6,32 @@
 > v3.22.0 ~ v3.25.16 → `docs/archive/CHANGELOG_v3.22.0-v3.25.16.md`（v4.11.0 因体积守卫触发，主文件涨到 201 KB / 上限 200 KB）。
 > 本文件从 **v4.0.0** 起。**归档不是删除** —— 查旧版本变更细节时去上述文件。
 
+## v5.3.1（2026-10-30 · 修复 /docs 搜索与目录失效 + API.md 版本头补 bump）
+
+> v5.3.0 把 `/docs` 改成渲染 `API.md` 后，搜索框和左侧目录同时失效：输入任何关键词都「没找到」、左栏空空、右侧「本节内容」也空。根因是建树逻辑写错，不是布局方向问题（BigModel 那种三栏范式本来就对）。
+
+### 修复内容
+
+- **`DocsView.vue` 建树逻辑（`buildToc`/`syncActive`）**：
+  - 原实现在 h2 分支只 `subs.push`、**漏了 `links.push`** → 左栏接口链接数组恒空、搜索 `visibleSections` 永远 0 命中（即「没找到」）；
+  - `sectionText` 的 key 错挂成 h2 id，而搜索查的是 h3 的 link id → 正文匹配也永远不中；
+  - `syncActive()` 把 `activeId` 设成 `.doc-section` 容器 id（`full-list`）而非 h2 模块 id → 右栏「本节内容」恒空、左栏无高亮。
+  - 修法：h2 分支 `subs`/`links` 都 push 同一组 h3；`sectionText` 改为 key=h3 link id、value=该模块整段正文；`syncActive` 改为跟踪 h2；左栏当前模块加 `.nav-section-active` 高亮。
+- **`myblog/API.md` 头部版本号**：v5.3.0 发版时漏 bump，仍写 `v5.2.6`（被弱断言假通过）。本次补为 `v5.3.1`，并把版本断言收紧。
+- **`tests/test_api_doc_sync.py`**：版本断言由「子串 `vX.Y.Z` in doc」升级为严格匹配头部 `> 版本：**vX.Y.Z**` 整段，杜绝假通过（v5.3.0 的坑）。
+
+### 实证（发版前本地验证）
+
+- `npm run build` 通过；`test_api_doc_sync.py` 5 passed；
+- 用真实 `render_markdown(API.md)` 产出 HTML 忠实复刻建树：**30 模块 / 198 端点条目**，links/subs 非空；搜索 `mobile`→81、`/api/auth/me`→24、`rollback`→74、`slug`→140、`订阅`→112 命中。
+
+### 新增发版纪律（已自动把关）
+
+> 每次发版凡新增/修改接口，`API.md` 与前端 `/docs`（消费 API.md）必须同步；`API.md` 头部版本号须 bump。此纪律已由 `tests/test_api_doc_sync.py` 在发版全量 pytest 阶段强制（路由表 ↔ 文档条目 + 版本头双重断言），漏写会在测试阶段直接红。
+
+无表结构变更、无迁移（alembic head 仍为 `b7c2e91a4d63`）。
+
+
 ## v5.3.0（2026-10-29 · RSS 订阅入口 + 写文章相册素材 + /docs 单源）
 
 > 三个彼此独立的能力，统一进本次发版：① 给访客一个**明确的 RSS 订阅入口**；

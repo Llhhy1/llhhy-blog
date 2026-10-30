@@ -21,7 +21,7 @@
       </div>
 
       <nav class="sidebar-nav">
-        <div v-for="sec in visibleSections" :key="sec.title" class="nav-section">
+        <div v-for="sec in visibleSections" :key="sec.title" class="nav-section" :class="{ 'nav-section-active': activeId === sec.id }">
           <div class="nav-section-title">{{ sec.title }}</div>
           <a
             v-for="l in sec.links"
@@ -201,37 +201,58 @@ function toTop() {
 const ACTIVE_LINE = 96;
 
 function syncActive() {
-  const secs = document.querySelectorAll(".docs-main .doc-section");
-  if (!secs.length) return;
-  let cur = secs[0];
-  for (const s of secs) {
-    if (s.getBoundingClientRect().top <= ACTIVE_LINE) cur = s;
+  // 当前模块 = 最靠上且已越过判定线的 h2（与 tocSections 的 node.id 对齐）。
+  // v5.3.0 的 bug：这里把 activeId 设成了 `.doc-section` 容器（id=full-list），
+  // 它永远不等于任何 h2 节点 → currentSection 找不到 → 右栏「本节内容」恒空、
+  // 左栏也无高亮。改成跟踪 h2。
+  const h2s = Array.from(document.querySelectorAll(".docs-main .doc-section h2"));
+  if (!h2s.length) return;
+  let cur = h2s[0];
+  for (const h of h2s) {
+    if (h.getBoundingClientRect().top <= ACTIVE_LINE) cur = h;
     else break;
   }
   activeId.value = cur.id;
+  // 当前小节 = 当前模块下、已越过判定线的最后一个 h3
+  const sec = tocSections.value.find((s) => s.id === cur.id);
   let sub = "";
-  for (const h of cur.querySelectorAll("h3")) {
-    if (h.getBoundingClientRect().top <= ACTIVE_LINE) sub = h.id;
-    else break;
+  if (sec) {
+    for (const s of sec.subs) {
+      const el = document.getElementById(s.id);
+      if (el && el.getBoundingClientRect().top <= ACTIVE_LINE) sub = s.id;
+      else break;
+    }
   }
   activeSub.value = sub;
 }
 
 function buildToc() {
-  // 按「章节 → 该章的小节」建树，而不是把 h1 / h3 混成一个平铺列表。
+  // 按「模块(h2) → 接口(h3)」建树：
+  //   * links → 左栏导航 + 搜索（visibleSections 用）
+  //   * subs  → 右栏「本节内容」（currentSection 用）
+  // 两者指向同一组 h3，缺一不可。v5.3.0 的 bug 就是只填了 subs 没填 links，
+  // 导致左栏没有可点的接口、搜索永远「没找到」、右栏也空。
   const sections = [];
-  let cur = null;
   let n = 0;
+
+  // 先算每个 h2 模块的整段正文（h2 到下一个 h2 之前），作为该模块下所有接口的搜索语料
+  const h2Arr = Array.from(document.querySelectorAll(".docs-main .doc-section h2"));
+  const modText = {};
+  h2Arr.forEach((h2, i) => {
+    if (!h2.id) h2.id = "doc-h2-" + n++;
+    let txt = (h2.textContent || "") + " ";
+    let el = h2.nextElementSibling;
+    const stop = h2Arr[i + 1];
+    while (el && el !== stop) {
+      txt += (el.textContent || "") + " ";
+      el = el.nextElementSibling;
+    }
+    modText[h2.id] = txt.toLowerCase();
+  });
+
   document.querySelectorAll(".docs-main .doc-section").forEach((sec) => {
     const h1 = sec.querySelector("h1");
     if (!sec.id) sec.id = "doc-sec-" + sections.length;
-    // v5.3.0：API.md 渲染后的内容**只有一个** .doc-section（整页一块），
-    // 若按原来的「一块 = 一个章节」建树，左栏就只剩一条，等于没有目录。
-    // 改为按 h2（模块章节）+ h3（接口条目）建树，目录才有导航价值。
-    //
-    // 字段同时给两套消费方：
-    //   * `label` / `subs` —— 右栏「当前章节的小节」（currentSection 用）
-    //   * `title` / `links` —— 左栏与搜索（visibleSections 用）
     const h2s = sec.querySelectorAll("h2");
     if (h2s.length) {
       h2s.forEach((h2) => {
@@ -243,12 +264,14 @@ function buildToc() {
           subs: [],
           links: [],
         };
-        // 收集该 h2 到下一个 h2 之间的 h3
+        // 收集该 h2 到下一个 h2 之间的 h3（接口条目）
         let el = h2.nextElementSibling;
         while (el && el.tagName !== "H2") {
           if (el.tagName === "H3") {
             if (!el.id) el.id = "doc-h-" + n++;
-            node.subs.push({ id: el.id, text: el.textContent.trim() });
+            const text = el.textContent.trim();
+            node.subs.push({ id: el.id, text });
+            node.links.push({ id: el.id, label: text });
           }
           el = el.nextElementSibling;
         }
@@ -256,38 +279,35 @@ function buildToc() {
       });
       return;
     }
-    cur = {
+    // 没有 h2 的兜底（理论上 API.md 全篇都是 h2 模块，这里只是保险）
+    const fallback = {
       id: sec.id,
       label: h1 ? h1.textContent.trim() : sec.id,
       title: h1 ? h1.textContent.trim() : sec.id,
       subs: [],
       links: [],
     };
-    sections.push(cur);
+    sections.push(fallback);
     sec.querySelectorAll("h3").forEach((h3) => {
       if (!h3.id) h3.id = "doc-h-" + n++;
-      cur.subs.push({ id: h3.id, text: h3.textContent.trim() });
+      const text = h3.textContent.trim();
+      fallback.subs.push({ id: h3.id, text });
+      fallback.links.push({ id: h3.id, label: text });
     });
   });
   tocSections.value = sections;
   // 初始定位到第一节，否则首屏右栏是空的（观察器要等滚动才触发）
   if (sections.length && !activeId.value) activeId.value = sections[0].id;
 
-  // 同时建立「节 id → 正文小写」索引，供搜索使用。
-  // v5.3.0：整页只有一个 .doc-section，若仍按 section 建索引，搜索永远只能
-  // 命中「全文档」一个大块。改为按 h2 小节切片（h2 到下一个 h2 之前）。
+  // 搜索语料：把模块正文挂到该模块下每个接口(link) id 上，
+  // 这样输入正文里出现的端点路径 / 字段名也能命中（不止匹配标题）。
+  // 关键：key 必须是 h3 的 link id —— visibleSections 里 `sectionText.value[l.id]`
+  // 查的就是它；v5.3.0 原来 key 成 h2 id，和查询端的 h3 id 对不上，搜索正文永远不命中。
   const idx = {};
-  const h2s = Array.from(document.querySelectorAll(".docs-main h2"));
-  h2s.forEach((h2, i) => {
-    if (!h2.id) return;
-    let text = "";
-    let el = h2.nextElementSibling;
-    const stop = h2s[i + 1];
-    while (el && el !== stop) {
-      text += " " + (el.textContent || "");
-      el = el.nextElementSibling;
-    }
-    idx[h2.id] = (h2.textContent + " " + text).toLowerCase();
+  h2Arr.forEach((h2) => {
+    const sec = sections.find((s) => s.id === h2.id);
+    if (!sec) return;
+    for (const l of sec.links) idx[l.id] = modText[h2.id] || "";
   });
   sectionText.value = idx;
 }
@@ -549,6 +569,8 @@ onBeforeUnmount(() => {
 .doc-full-body :deep(a) { color: var(--accent, #4c6ef5); }
 
 .nav-section { margin-bottom: var(--space-4); }
+/* 当前所在模块：左栏高亮当前章节标题（activeId 现在指向 h2 模块 id） */
+.nav-section-active .nav-section-title { color: var(--accent); }
 
 .nav-section-title {
   font-size: 11px;

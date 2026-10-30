@@ -1,6 +1,6 @@
 # llhhy-blog API 文档
 
-> 版本：**v5.2.6**（2026-10-28 全量重写：按 Flask `url_map` 枚举真实路由，逐条回源码核对）
+> 版本：**v5.3.1**（2026-10-30 同步：覆盖全部真实路由，文档即接口；与 `APP_VERSION` 一致）
 >
 > 本文档描述 llhhy-blog 的全部 JSON 接口（`/api/*`，共 **176 条**）与后台页面调用的
 > JSON 接口（`/admin/*`，共 **17 条**）。前端（`vue-frontend/src/lib/api.js`）与本站页面

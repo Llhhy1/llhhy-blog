@@ -567,7 +567,7 @@ sha256sum /tmp/og.png /www/wwwroot/你的站点根/og-default.png
 | 搜索 | 前台搜索关键词 | 返回结果（接口 `engine` 字段为 `fts5` 或 `like`） |
 | RSS | `https://你的域名/feed.xml`、`https://你的域名/feed.atom` | 两者都显示 XML，条目一致 |
 | RSS 订阅页 | `https://你的域名/feed` | 列出 RSS 2.0 与 Atom 两个地址；页脚 / 侧栏有「📡 RSS 订阅」入口 |
-| 接口文档 | `https://你的域名/docs` | 「完整接口清单」来自 `/api/docs`，内容与 `myblog/API.md` 一致 |
+| 接口文档 | `https://你的域名/docs` | 「完整接口清单」来自 `/api/docs`，内容与 `myblog/API.md` 一致；搜索框输入 `mobile` / `slug` 能命中接口、左侧目录可点、右侧「本节内容」随滚动高亮（v5.3.1 修复搜索/目录失效） |
 | API | `https://你的域名/api/site` | 返回 JSON |
 
 ---

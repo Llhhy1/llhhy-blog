@@ -2418,6 +2418,27 @@ MIME 混淆，缺少 CSP 不产生可利用的差异。
 
 ---
 
+## R159 · v5.3.1（修复 /docs 搜索与目录失效 + API.md 版本头补 bump）安全审查
+
+**范围**：`vue-frontend/src/views/DocsView.vue` 的建树/搜索逻辑（`buildToc` / `syncActive` / `sectionText`）；`myblog/API.md` 版本头文案；`tests/test_api_doc_sync.py` 版本断言收紧。**无后端代码改动、无新路由、无表结构变更。**
+
+### 159.1 逐维复核
+
+| 维度 | 结论 | 说明 |
+|---|---|---|
+| XSS | 安全 | `v-html="fullHtml"` 的数据源是 `GET /api/docs`（后端用 `render_markdown` → `clean_html` 过 bleach 白名单，剥 `script/style/on*`），内容为本仓库 `API.md` 而非用户输入；前端 JS 仅 `getElementById` + 读 `textContent` 建树，无 `eval`、无对用户输入的 `innerHTML`。 |
+| SQL 注入 | 安全 | 本次未新增任何 DB 查询。 |
+| 越权 | 安全 | 无新接口；`/api/docs` 为既有公开 GET，失败返 `available:false`，权限模型未变。 |
+| SSRF | 安全 | 无外发请求。 |
+| CSRF | 安全 | 纯前端 SPA 渲染，无新增改状态调用。 |
+| 密钥 | 安全 | 无密钥/凭证改动。 |
+| 资源泄漏 / 限流 | 安全 | `buildToc` 在挂载后对**已加载 DOM** 跑一次（受文档体积上限约束）；`sectionText` 仅切片缓存；`scroll` 监听沿用既有实现并在 `onBeforeUnmount` 摘除，无新泄漏。 |
+
+### 159.2 回归点
+
+- v5.3.0 的 `/docs` 搜索/目录失效属**功能缺陷**而非安全漏洞，本次修复不涉及安全边界收紧或放松。
+- `test_api_doc_sync.py` 版本断言由「子串 `vX.Y.Z` in doc」升级为严格头部 `> 版本：**vX.Y.Z**` 匹配，仅提升文档一致性，不影响运行时安全。
+
 ## R158 · v5.3.0（RSS 订阅入口 / 写文章相册素材 / /docs 单源）安全审查
 
 **范围**：新增 `GET /api/docs`（`api/system.py`）；`/admin/albums/media-picker` 的 `album_id`

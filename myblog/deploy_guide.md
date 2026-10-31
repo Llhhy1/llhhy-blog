@@ -568,6 +568,7 @@ sha256sum /tmp/og.png /www/wwwroot/你的站点根/og-default.png
 | RSS | `https://你的域名/feed.xml`、`https://你的域名/feed.atom` | 两者都显示 XML，条目一致 |
 | RSS 订阅页 | `https://你的域名/feed` | 列出 RSS 2.0 与 Atom 两个地址；页脚 / 侧栏有「📡 RSS 订阅」入口 |
 | 分类/标签地址 | `https://你的域名/tag/agent-security` | 纯 ASCII 地址 200；旧中文地址（`/tag/智能体安全`）爬虫拿到 301、真人自动把地址栏换成新地址；后台「标签管理」slug 列无中文（v5.4.0） |
+| 部署脚本 | 服务器执行一次更新后看日志 + `sha256sum /www/wwwroot/myblog/update.sh` | 日志出现「脚本已自更新到 v5.4.1（旧版备份：…），重新执行…」，且服务器 `update.sh` 的 sha256 与仓库同 tag 一致；本版起 venv 属 root 时新增依赖会自动以 root 安装（`umask 022`），日志会写「以 root 写入 venv」（v5.4.1） |
 | 接口文档 | `https://你的域名/docs` | 「完整接口清单」来自 `/api/docs`，内容与 `myblog/API.md` 一致；搜索框输入 `mobile` / `slug` 能命中接口、左侧目录可点、右侧「本节内容」随滚动高亮（v5.3.1 修复搜索/目录失效）；代码块带「语言标签栏 + 复制按钮」且语法高亮生效（v5.3.2 重做，v5.3.3 修好 API.md 围栏；注意高亮在 `/api/docs` 内容到达后才跑，首屏需等文档加载完）；v5.3.4 起默认品牌色为 `#196ddd`、元信息 14px |
 | API | `https://你的域名/api/site` | 返回 JSON |
 
@@ -1026,6 +1027,11 @@ sha256sum /tmp/og.png /www/wwwroot/你的站点根/og-default.png
 >   自带 Bearer 鉴权、非会话）。若你的 MCP 客户端此前一直在报 403，升级后即恢复。
 > - 全量报告：`docs/audit/2026-10-07-full-audit-report.md`。
 
+> **v5.4.1（部署脚本热修：venv 属 root 时装不上新依赖）升级要点**：本版**只改部署脚本与守卫测试**，业务代码与前端零改动（两个 zip 与 v5.4.0 等价，仍按常规覆盖即可）。
+> - `update.sh` **不在发布 zip 里**：它靠 `self_update_check()` 从**同 tag 的 raw** 自更新，替换后 `exec bash` 重跑。判据是日志里出现「脚本已自更新到 v5.4.1（旧版备份：…），重新执行…」；没出现就拿 `sha256sum /www/wwwroot/myblog/update.sh` 与仓库同 tag 比对。
+> - 自更新只替换**规范路径** `$APP_DIR/update.sh`：若手工跑的是 `/tmp` 里的副本，它会明确拒绝替换（这是设计，防止半覆盖）。
+> - 本版起，新增 Python 依赖时若 venv 属 root（宝塔默认如此），会自动以 root 安装并 `umask 022`，**不需要再手工补装**；失败时日志会明确写「与网络无关」，别再去查镜像。
+>
 > **v5.4.0（分类/标签/系列 slug 可读化）升级要点**：**两个包都要覆盖**；后端 `requirements.txt` 新增 `pypinyin`，`update.sh` 会自动 `pip install` 装好，无需手工操作。
 > - **顺序不可颠倒**：先部署本版代码（此时 slug 仍是中文，旧地址靠 `name` 反查照常可用）→ **再**执行一次性迁移把 slug 改成 ASCII。反序会让旧代码 404。
 > - 迁移脚本属于**一次性运维脚本，不进发布包**；执行前先跑默认 dry-run 看「旧 → 新」清单，确认无误再加 `--apply`。

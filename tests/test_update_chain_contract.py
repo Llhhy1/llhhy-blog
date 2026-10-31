@@ -219,3 +219,45 @@ def test_scripts_are_lf_only():
             b = f.read()
         assert b.count(b"\r\n") == 0, "%s 含 CRLF 行尾" % os.path.basename(p)
         assert b.count(b"\r") == 0, "%s 含孤立 CR" % os.path.basename(p)
+
+
+def _func_body(src, name):
+    """取 `name() {` 到首个行首 `}` 之间的函数体。
+
+    只在这一段里断言，避免「别处也有一句 umask 022」把守卫喂饱（守卫太松等于没有）。
+    """
+    start = src.index("%s() {" % name)
+    end = src.index("\n}\n", start)
+    return src[start:end]
+
+
+def test_依赖安装_venv属root时要能自动兜底():
+    """宝塔「Python 项目」的 venv 属 root，以 www 身份 pip install 写 site-packages 会 Errno 13。
+
+    v5.4.0 首次真的新增依赖（pypinyin）才踩到，而且是**下载完 840 kB 之后才 OSError**
+    （`Permission denied: .../site-packages/pypinyin`）——日志看起来极像镜像/网络问题。
+    此前每次都是「依赖已满足」，pip 从不写盘，所以这个坑潜伏了很久。
+
+    三条不变量缺一不可：
+      ① 先判断 site-packages 对运行身份可不可写 —— 不可写就别白下载一遍；
+      ② www 身份失败后必须有 root 兜底 —— 否则新依赖永远装不上，站点悄悄退化；
+      ③ root 安装必须显式 `umask 022` —— root 默认 umask 可能是 077，会装出 www 读不到的包，
+         变成「部署日志全绿、运行时 ModuleNotFoundError」，比装不上更难查。
+    """
+    body = _func_body(_read(UPDATE_SH), "install_deps")
+    i_probe = body.find("sysconfig.get_paths()")
+    i_www = body.find('run_as timeout 300 "$py" -m pip install')
+    i_root = body.find("umask 022")
+    assert i_probe != -1, "install_deps 缺少 site-packages 可写性预判（会白下载一遍再报权限错）"
+    assert i_www != -1, "install_deps 不再以运行身份安装依赖（装出来的属主会漂）"
+    assert i_root != -1, "install_deps 缺少 root 兜底 + umask 022（venv 属 root 时依赖装不上）"
+    assert i_probe < i_www < i_root, "顺序应为「预判可写性 → 运行身份安装 → root 兜底」"
+    # 实际调用次数，不能用日志文案凑数（log 行里也有 `-m pip install` 字样）
+    calls = re.findall(r'timeout 300 "\$py" -m pip install', body)
+    assert len(calls) >= 4, (
+        "install_deps 的 pip 实际调用只有 %d 次（期望 www×2 + root×2），root 兜底可能被删" % len(calls))
+    assert "( umask 022;" in body, (
+        "root 安装必须包在 `( umask 022; … )` 子壳里，否则装出的包可能对运行身份不可读")
+    seg = body[i_www:]
+    assert '[ "$(id -u)" = "0" ]' in seg, "root 兜底必须受「当前是 root 且运行身份不是 root」约束"
+    assert 'timeout 300 "$py" -m pip install' in seg, "root 兜底应复用同一个解释器，不能另起一个 python"

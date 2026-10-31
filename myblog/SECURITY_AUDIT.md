@@ -983,6 +983,27 @@ MIME 混淆，缺少 CSP 不产生可利用的差异。
 - 守卫新增「闭合围栏必须是纯 ` ``` `」「围栏必须顶格」「真实渲染 `<pre>` 数 == 围栏块数」三条判据，并已变异验证 —— 防止「源码看着对、渲染却失败」的同类问题再次静默上线。
 - 本次修复不改变 `render_markdown` 的渲染口径，也不改 bleach 白名单，历史文章缓存无需失效。
 
+## R164 · v5.4.1（部署脚本：venv 属 root 时装不上依赖）安全审查
+
+**范围**：仅 `update.sh::install_deps()` 与 `tests/test_update_chain_contract.py`。**无业务代码、无路由、无模板、无表结构变更**。
+
+### 164.1 逐维复核
+
+| 维度 | 结论 | 说明 |
+|---|---|---|
+| 提权面（本轮唯一新增风险点） | 可控，**无新信任边界** | 新增「以 root 执行 pip install」分支。root 执行的前提是脚本本身已由 root 运行（一键更新历来如此），且 `requirements.txt` 只来自**已验签的发布 zip**（`sha256.txt.sig` → Ed25519 → 内置公钥），与其后同样以 root 执行的 `flask db upgrade` 属同一信任层。能篡改 `requirements.txt` 的攻击者本来就能改 `myblog/**/*.py` 并被执行 —— 攻击面未扩大。 |
+| 文件权限 | 收紧而非放开 | root 安装包在 `( umask 022; … )` 子壳内执行，产物 `755/644`，运行身份可读；**不 chown venv**（面板自建自管，改属主破坏面更大）。反向风险（装出 700 目录 → 运行期 `ModuleNotFoundError`）已被 umask + 守卫钉住。 |
+| 命令注入 | 安全 | `$py` 来自 `GUNICORN_BIN` 解析或 `command -v python3`，`$APP_DIR` 为脚本自定；`purelib` 由目标解释器的 `sysconfig` 输出，只用于 `test -w` 与日志。**无任何外部输入拼接进命令行**。 |
+| 失败语义 | 保持 fail-visible | 四次尝试全失败仍打印 pip 日志末 8 行 + 手工命令，**不静默跳过安装**（否则会变成「部署成功但依赖缺失」）。 |
+| 幂等 / 重复执行 | 安全 | 分支只决定「用哪个身份跑 pip」，不改变安装内容；重复执行结果一致。 |
+| 越权 / CSRF / SSRF / XSS / SQLi / 限流 | 不适用 | 本版未触及任何 HTTP 入口、模板与数据库查询。 |
+
+### 164.2 回归点
+
+- **行为变更**：venv 属 root 且确有新增依赖时，包由 root 安装（此前是直接失败、只留一行告警）。日志会写明「以 root 写入 venv」，便于运维识别。
+- **未改 venv 属主**：若将来把 venv 迁到 www 名下，`can_write=1` 分支会自动回到「以运行身份安装」，脚本无需改动。
+- **守卫**：`test_依赖安装_venv属root时要能自动兜底` 钉住三条不变量（可写性预判 → 运行身份安装 → root 兜底 + umask 022），已做变异验证。
+
 ## R163 · v5.4.0（分类/标签/系列 slug 可读化）安全审查
 
 **范围**：`utils.slug.ascii_slug()`（pypinyin 转写）、`utils.taxonomy_slug.resolve_taxonomy()`（旧 slug 四路解析）、`/api/tag|category|series/<slug>` 的 `moved` 标记、`/api/rss/*` 与 `/api/og/page/*` 的 301、后台建/改 slug 入口、`requirements.txt` 新增 `pypinyin`。**无新表、无 schema 变更**（只改 `slug` 列的值）。

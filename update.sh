@@ -722,16 +722,52 @@ install_deps() {
   mkdir -p "$WORK" 2>/dev/null || true
   local mirror="https://mirrors.aliyun.com/pypi/simple/"
   local plog="$WORK/pip_install_${TS:-$(date +%s)}.log"
-  log "   自动安装依赖: $py -m pip install -i $mirror -r requirements.txt （总超时 300s）..."
-  if run_as timeout 300 "$py" -m pip install --timeout 30 -i "$mirror" -r "$APP_DIR/requirements.txt" >"$plog" 2>&1; then
-    log "   ✅ Python 依赖已安装/已满足（阿里云镜像）。"
-    rm -f "$plog"; return 0
+  # v5.4.1：先判断 venv 的 site-packages 对「运行身份」可不可写。
+  # 宝塔「Python 项目」的 venv 属 **root**，以 www 身份 pip install 写 site-packages 会
+  # [Errno 13] Permission denied。历史上一直没暴露，是因为每次都是「依赖已满足」、
+  # pip 根本不写盘；v5.4.0 首次真的新增依赖（pypinyin）才踩到，且是「下载完 840 kB
+  # 之后才 OSError」，看日志很像网络问题，实际与网络无关。
+  # 不 chown venv：该 venv 由宝塔面板创建与管理，改属主可能影响面板自身；改为 root 安装。
+  local purelib="" can_write=1
+  purelib=$("$py" -c "import sysconfig;print(sysconfig.get_paths()['purelib'])" 2>/dev/null | head -1 || true)
+  if [ -n "$purelib" ] && [ "$(id -u)" = "0" ] && [ -n "$APP_USER_FINAL" ] && [ "$APP_USER_FINAL" != "root" ]; then
+    run_as test -w "$purelib" 2>/dev/null || can_write=0
   fi
-  log "   ⚠️ 镜像安装失败或超时（总超时 300s），改用官方 PyPI 重试..."
-  if run_as timeout 300 "$py" -m pip install --timeout 30 -r "$APP_DIR/requirements.txt" >>"$plog" 2>&1; then
-    log "   ✅ Python 依赖已安装/已满足（官方 PyPI）。"
-    rm -f "$plog"; return 0
+
+  if [ "$can_write" = "1" ]; then
+    log "   自动安装依赖: $py -m pip install -i $mirror -r requirements.txt （总超时 300s）..."
+    if run_as timeout 300 "$py" -m pip install --timeout 30 -i "$mirror" -r "$APP_DIR/requirements.txt" >"$plog" 2>&1; then
+      log "   ✅ Python 依赖已安装/已满足（阿里云镜像）。"
+      rm -f "$plog"; return 0
+    fi
+    log "   ⚠️ 镜像安装失败或超时（总超时 300s），改用官方 PyPI 重试..."
+    if run_as timeout 300 "$py" -m pip install --timeout 30 -r "$APP_DIR/requirements.txt" >>"$plog" 2>&1; then
+      log "   ✅ Python 依赖已安装/已满足（官方 PyPI）。"
+      rm -f "$plog"; return 0
+    fi
+    if grep -qE "Errno 13|Permission denied" "$plog" 2>/dev/null; then
+      log "   ℹ️ 判定原因：pip 对 $purelib 无写权限（venv 属 root），与网络无关。"
+    fi
+  else
+    log "   ℹ️ $purelib 对 $APP_USER_FINAL 不可写（venv 属 root），跳过该身份，直接用 root 装依赖..."
   fi
+
+  # root 兜底：www 身份装不上时，只有「当前是 root 且运行身份不是 root」才有这一手。
+  # umask 022 必须显式给：root 默认 umask 可能是 077，那样装出来的包 www 读不到，
+  # 会变成「部署日志显示成功、运行时 ModuleNotFoundError」——比装不上更难查。
+  if [ "$(id -u)" = "0" ] && [ -n "$APP_USER_FINAL" ] && [ "$APP_USER_FINAL" != "root" ]; then
+    log "   以 root 安装依赖: $py -m pip install -i $mirror -r requirements.txt （umask 022）..."
+    if ( umask 022; timeout 300 "$py" -m pip install --timeout 30 -i "$mirror" -r "$APP_DIR/requirements.txt" ) >>"$plog" 2>&1; then
+      log "   ✅ Python 依赖已安装（以 root 写入 venv；文件按 umask 022 生成，运行身份可读）。"
+      rm -f "$plog"; return 0
+    fi
+    log "   ⚠️ 以 root 走镜像也失败，改用官方 PyPI 重试..."
+    if ( umask 022; timeout 300 "$py" -m pip install --timeout 30 -r "$APP_DIR/requirements.txt" ) >>"$plog" 2>&1; then
+      log "   ✅ Python 依赖已安装（root + 官方 PyPI）。"
+      rm -f "$plog"; return 0
+    fi
+  fi
+
   log "   ⚠️ 依赖安装失败，pip 输出最后 8 行："
   tail -8 "$plog" 2>/dev/null | while read -r l; do log "     $l"; done
   rm -f "$plog"

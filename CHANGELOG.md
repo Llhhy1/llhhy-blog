@@ -7,6 +7,34 @@
 > v4.0.0 ~ v4.3.0 → `docs/archive/CHANGELOG_v4.0.0-v4.3.0.md`（v5.3.4 因体积守卫触发，主文件涨到 200 KB / 上限 200 KB）。
 > 本文件从 **v4.3.1** 起。**归档不是删除** —— 查旧版本变更细节时去上述文件。
 
+## v5.4.1（2026-11-01 · 部署脚本热修：venv 属 root 时装不上新依赖）
+
+> 起因：v5.4.0 首次真的新增 Python 依赖（`pypinyin`），部署时暴露 `update.sh` 的一个潜伏缺陷 —— ④b 用运行身份（www）跑 `pip install`，而宝塔「Python 项目」的 venv 属 **root**：
+
+```text
+ERROR: Could not install packages due to an OSError: [Errno 13] Permission denied:
+'/www/server/pyporject_evn/blog_env/lib/python3.13/site-packages/pypinyin'
+```
+
+**为什么潜伏这么久**：此前每一版都是「依赖已满足」，pip 从不写盘，这条路径从未真正执行过；而且报错发生在 `Downloading pypinyin-0.55.0 … 840 kB` **之后**，看起来极像镜像/网络失败（本次一度按网络查，实测三个镜像索引都返回 200）。
+
+### A. 修复 `update.sh::install_deps`
+
+- **可写性预判**：先用 `sysconfig.get_paths()['purelib']` 取 site-packages，再以运行身份 `test -w`；不可写就跳过该身份，不再「下载完才报权限错」。
+- **root 兜底**：仅当 `id -u == 0` 且运行身份不是 root 时，先镜像、再官方 PyPI 各装一次。
+- **`( umask 022; … )`**：root 默认 umask 可能是 077，否则会装出运行身份读不到的包 —— 表现为「部署日志全绿、运行期 `ModuleNotFoundError`」，比装不上更难查。
+- **失败原因判定**：pip 日志命中 `Errno 13|Permission denied` 时明写「与网络无关」，避免下次又被下载日志误导。
+
+**没有改 venv 属主**：该 venv 由宝塔面板创建与管理，改属主可能影响面板自身；由 root 安装更安全，且产物按 umask 022 生成、运行身份可读。
+
+### B. 生效方式与验证
+
+- `update.sh` **不在发布 zip 里**，靠同 tag 的 raw 自更新：`self_update_check()` 末尾 `exec bash "$canon"` —— 本次部署会先自更新再重跑，**本次部署即用上新逻辑**，不需要手工覆盖生产文件。
+- 验证：`bash -n` 通过；把 `install_deps()` 真实抽出配 stub 跑 4 个分支（www 全失败 → 4 次调用且落到 root／www 第 2 次成功 → 不触发 root／预判不可写 → 只 2 次 root 调用／root 首次成功）；新增守卫 `test_依赖安装_venv属root时要能自动兜底` 并做**变异验证**（`umask 022`→`077` 立刻变红）；全量 pytest 全绿、`ruff check .` 通过。
+- 服务器只读确认：`purelib` 属 `root:root`、以 www `test -w` 为假 → 修复后的脚本会走 root 分支（与预判一致）。
+
+无数据库迁移，head 仍 `b7c2e91a4d63`。
+
 ## v5.4.0（2026-11-01 · 分类/标签/系列 slug 可读化：中文名转 ASCII，旧地址自动跳转）
 
 > 起因：中文标签的访问日志与分享链接是 `%e6%99%ba%e8%83%bd%e4%bd%93%e5%ae%89%e5%85%a8`。查明是 RFC 3986 的标准百分号编码 —— `make_slug()` 保留汉字，46 个标签的 slug 就是中文，本身不是故障，但可读性差、也不利于英文关键词匹配。

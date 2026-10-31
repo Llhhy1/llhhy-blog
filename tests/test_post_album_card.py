@@ -211,7 +211,7 @@ def test_实时预览也渲染卡片(app, client):
     _login_admin(app, client)
     with app.app_context():
         _album(app, slug="yunhe", title="云和梯田")
-    with client.session_transaction() as sess:
+    with client.session_transaction():
         pass
     r = client.post("/admin/md-preview",
                     data={"content": "@album[yunhe]\n"},
@@ -234,7 +234,7 @@ def test_相册列表接口包含私密相册并给出条目数(app, client):
     _login_admin(app, client)
     with app.app_context():
         aid = _album(app, slug="pub", public=True)
-        sid = _album(app, slug="priv", title="私密的", public=False)
+        _album(app, slug="priv", title="私密的", public=False)
         m = _media(app, "a.webp")
         db.session.add(AlbumItem(album_id=aid, media_id=m, sort=1))
         db.session.commit()

@@ -43,8 +43,7 @@ def _strip_comments(src):
     # 先剥块注释 /* ... */
     src = re.sub(r"/\*.*?\*/", "", src, flags=re.S)
     # 再剥行注释 //，但保留 http:// / https:// 里的 //
-    src = re.sub(r"(?<!:)//[^\n]*", "", src)
-    return src
+    return re.sub(r"(?<!:)//[^\n]*", "", src)
 
 
 def test_docsview_定义_decorateCodeBlocks():

@@ -388,7 +388,7 @@ def chunk_init(filename, size, user_id=None, folder=""):
     try:
         size = int(size)
     except (TypeError, ValueError):
-        raise MediaError("文件大小不合法")
+        raise MediaError("文件大小不合法") from None
     if size <= 0:
         raise MediaError("文件大小不合法")
     limit = max_bytes_for(kind)
@@ -420,7 +420,7 @@ def chunk_init(filename, size, user_id=None, folder=""):
         shutil.rmtree(d, ignore_errors=True)
         raise MediaError(
             "服务器无法写入上传临时目录（%s）。请检查 %s 的属主与权限是否与运行用户一致"
-            % (str(e)[:80], os.path.dirname(d.rstrip("/")) or d), 507)
+            % (str(e)[:80], os.path.dirname(d.rstrip("/")) or d), 507) from e
     return {"upload_id": upload_id, "chunk_size": int(_cfg("UPLOAD_CHUNK_SIZE", 8 * 1024 * 1024)),
             "received": 0}
 
@@ -433,7 +433,7 @@ def _read_meta(d):
         with open(path, encoding="utf-8") as f:
             return json.load(f)
     except (OSError, ValueError):
-        raise MediaError("上传会话已损坏，请重新选择文件", 410)
+        raise MediaError("上传会话已损坏，请重新选择文件", 410) from None
 
 
 def chunk_save(upload_id, index, data):
@@ -447,7 +447,7 @@ def chunk_save(upload_id, index, data):
     try:
         index = int(index)
     except (TypeError, ValueError):
-        raise MediaError("分块序号不合法")
+        raise MediaError("分块序号不合法") from None
     if index < 0 or index > 9999:
         raise MediaError("分块序号不合法")
     chunk_size = int(_cfg("UPLOAD_CHUNK_SIZE", 8 * 1024 * 1024))

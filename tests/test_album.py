@@ -415,7 +415,7 @@ def test_保存相册信息_表单校验失败也重定向(app, client):
 
 def test_媒体库页面显示素材所属相册(app, client):
     """媒体库每行要能看出「这张图用在哪个相册」，否则只能凭记忆找。"""
-    tok = _login_admin(app, client)
+    _login_admin(app, client)
     aid = _album(app, slug="bridge-list", title="被引用的相册")
     mid = _media(app, name="bridge.webp")
     with app.app_context():

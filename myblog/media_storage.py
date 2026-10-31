@@ -166,8 +166,8 @@ def _put_oss(local_path, key, c, mime):
     except Exception:
         return False, "服务器未安装 boto3，无法上传到对象存储（pip install boto3）"
     try:
-        kw = dict(aws_access_key_id=c["key"], aws_secret_access_key=c["secret"],
-                  config=BotoConfig(signature_version="s3v4", retries={"max_attempts": 2}))
+        kw = {"aws_access_key_id": c["key"], "aws_secret_access_key": c["secret"],
+              "config": BotoConfig(signature_version="s3v4", retries={"max_attempts": 2})}
         if c["region"]:
             kw["region_name"] = c["region"]
         if c["endpoint"]:
@@ -238,8 +238,8 @@ def delete_remote(filename, storage=None):
         if storage == "oss":
             import boto3
             from botocore.config import Config as BotoConfig
-            kw = dict(aws_access_key_id=c["key"], aws_secret_access_key=c["secret"],
-                      config=BotoConfig(signature_version="s3v4", retries={"max_attempts": 2}))
+            kw = {"aws_access_key_id": c["key"], "aws_secret_access_key": c["secret"],
+                  "config": BotoConfig(signature_version="s3v4", retries={"max_attempts": 2})}
             if c["region"]:
                 kw["region_name"] = c["region"]
             if c["endpoint"]:

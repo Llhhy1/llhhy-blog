@@ -17,7 +17,7 @@ import json
 from flask import request, jsonify
 
 from .common import api_bp
-from models import db, Comment, visible_posts_query
+from models import db, Comment, Post, visible_posts_query
 from utils import rate_limit, client_key
 
 ALLOWED = ["\U0001F44D", "\u2764\uFE0F", "\U0001F602", "\U0001F389", "\U0001F914", "\U0001F44F"]
@@ -74,8 +74,19 @@ def comment_reactions_get():
     items = {}
     if cids:
         rows = Comment.query.filter(Comment.id.in_(cids)).all()
-        mp = {c.id: c.reactions for c in rows}
+        # v5.3.3 审计：GET 也必须校验评论所属文章可见 —— 否则私密/草稿/回收站
+        # 文章下的评论表情计数会泄露「这些评论存在」以及可被读取。
+        post_ids = {c.post_id for c in rows if c.post_id is not None}
+        visible_ids = set()
+        if post_ids:
+            visible_ids = {
+                pid for (pid,) in visible_posts_query()
+                .with_entities(Post.id).filter(Post.id.in_(post_ids)).all()
+            }
+        mp = {c.id: c.reactions for c in rows if c.post_id in visible_ids}
         for c in cids:
+            if c not in mp:
+                continue          # 评论不存在或所属文章不可见：不回显存在性
             v = mp.get(c) or ""
             try:
                 items[str(c)] = json.loads(v) if v else {}

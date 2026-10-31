@@ -4,7 +4,7 @@
 import re as _re
 from flask import request, jsonify
 
-from .common import (api_bp, db, Post, Category, Tag, Comment, FriendLink, LinkApplication, Announcement, visible_posts_query, _settings_map, clean_html, render_markdown, rate_limit, client_key)
+from .common import (api_bp, db, Post, Category, Tag, PostTag, Comment, FriendLink, LinkApplication, Announcement, visible_posts_query, _settings_map, clean_html, render_markdown, rate_limit, client_key)
 from themes import current_theme
 # v4.5.0 首页壁纸。单向依赖（theme 不引用 site），不构成包级循环。
 from .theme import _wallpaper
@@ -92,6 +92,12 @@ def _site_since(s):
 @api_bp.route("/site")
 def site():
     s = _settings_map()
+    # 标签计数只算前台可见文章（与 /api/tags 同口径），避免匿名反推隐藏文章数量。
+    tag_counts = dict(
+        visible_posts_query().join(PostTag, PostTag.post_id == Post.id)
+        .with_entities(PostTag.tag_id, db.func.count(db.distinct(PostTag.post_id)))
+        .group_by(PostTag.tag_id).all()
+    )
     return jsonify({
         "site_name": s.get("site_name") or s.get("site_title", "我的博客"),
         "site_title": s.get("site_title", "我的博客"),
@@ -129,7 +135,7 @@ def site():
             for c in Category.query.order_by(Category.id).all()
         ],
         "tags": [
-            {"name": t.name, "slug": t.slug, "count": len(t.posts)}
+            {"name": t.name, "slug": t.slug, "count": tag_counts.get(t.id, 0)}
             for t in Tag.query.order_by(Tag.id).all()
         ],
         "links": [
@@ -138,8 +144,14 @@ def site():
         ],
         "stats": {
             "posts": visible_posts_query().count(),
-            "views": db.session.query(db.func.sum(Post.views)).scalar() or 0,
-            "comments": Comment.query.count(),
+            # v5.3.3 审计：统计口径必须与可见文章一致，否则匿名访客能通过
+            # 总阅读量/评论数反推私密、草稿、回收站文章的存在与体量。
+            "views": visible_posts_query().with_entities(
+                db.func.coalesce(db.func.sum(Post.views), 0)).scalar() or 0,
+            "comments": Comment.query.filter(
+                Comment.post_id.in_(
+                    visible_posts_query().with_entities(Post.id).scalar_subquery()
+                )).count(),
         },
     })
 

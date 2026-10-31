@@ -96,7 +96,8 @@ def post_detail(slug):
     data["translation_group"] = p.translation_group or ""
     data["translations"] = (
         [{"lang": m.lang, "slug": m.slug, "title": m.title}
-         for m in Post.in_group(p.translation_group) if m.id != p.id]
+         for m in Post.in_group(p.translation_group, visible_posts_query(user=_u))
+         if m.id != p.id]
         if p.translation_group else []
     )
     resp = jsonify(data)
@@ -146,8 +147,9 @@ def categories():
 def tags():
     if not rate_limit(client_key("api_tags"), limit=_LIST_RATE[0], window=_LIST_RATE[1]):
         return jsonify({"error": "请求过于频繁，请稍后再试"}), 429
-    # 口径沿用历史行为：`len(t.posts)` 统计的是**全部**文章（含回收站/隐私）。
-    counts = {tid: n for tid, (n, _v) in _count_by(PostTag.tag_id, visible_only=False).items()}
+    # v5.3.3 审计：标签计数也必须只统计前台可见文章 —— 原 `visible_only=False`
+    # 让匿名访客能反推私密/回收站/草稿的文章数量。
+    counts = {tid: n for tid, (n, _v) in _count_by(PostTag.tag_id, visible_only=True).items()}
     return jsonify([
         {"name": t.name, "slug": t.slug, "count": counts.get(t.id, 0)}
         for t in Tag.query.order_by(Tag.id).all()

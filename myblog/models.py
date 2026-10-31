@@ -77,11 +77,18 @@ class Post(db.Model):
     )
 
     @classmethod
-    def in_group(cls, group):
-        """返回同 translation_group 的全部文章（含各语言），用于 hreflang 生成。"""
+    def in_group(cls, group, base_query=None):
+        """返回同 translation_group 的全部文章（含各语言），用于 hreflang / 译文入口。
+
+        v5.3.3 审计：默认必须走 ``visible_posts_query()`` —— 原实现直接
+        ``cls.query.filter_by(...)``，把私密/草稿/回收站译文的标题与 slug
+        通过 `/api/post/<slug>`、sitemap、RSS、OG 壳页吐给匿名访客。
+        需要更高可见范围（如超管查看自己的隐私文章）时由调用方显式传 base_query。
+        """
         if not group:
             return []
-        return cls.query.filter_by(translation_group=group).all()
+        q = base_query if base_query is not None else visible_posts_query()
+        return q.filter_by(translation_group=group).all()
 
     def counterpart(self, lang, base_query=None):
         """返回同组指定语言的文章（经 base_query 控制可见性）；无则 None。"""
@@ -464,18 +471,26 @@ def visible_posts_query(user=None):
     return q
 
 
-def hreflang_alternates(post, base):
+def hreflang_alternates(post, base, base_query=None):
     """生成 [(hreflang, url)] 列表（含 x-default），供 sitemap / OG / feed 互链防重复内容。
 
     - 独立文章（无 translation_group）：仅 x-default 指向自身。
     - 同组译文：列出每个语言版本 URL，并追加 x-default（优先 zh，否则首个成员）。
     调用方需传入站点 base（如 https://www.llhhy.cn，不含末尾斜杠）。
+
+    v5.3.3 审计：成员列表默认经 ``visible_posts_query()`` 过滤；否则同组的
+    私密/草稿译文的 slug 会随 sitemap / RSS / OG 壳页公开。传 base_query 可
+    放宽到调用方自己的可见范围（例如超管会话）。
     """
     if post is None:
         return []
     if not post.translation_group:
         return [("x-default", f"{base}/post/{post.slug}")]
-    members = Post.in_group(post.translation_group)
+    members = Post.in_group(post.translation_group, base_query)
+    if not members:
+        # 当前文章本身不可见（如超管预览隐私稿）且同组无公开成员：
+        # 只回自身，避免 members[0] 抛 IndexError。
+        return [("x-default", f"{base}/post/{post.slug}")]
     out = []
     seen = set()
     for m in members:

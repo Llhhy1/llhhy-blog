@@ -983,6 +983,28 @@ MIME 混淆，缺少 CSP 不产生可利用的差异。
 - 守卫新增「闭合围栏必须是纯 ` ``` `」「围栏必须顶格」「真实渲染 `<pre>` 数 == 围栏块数」三条判据，并已变异验证 —— 防止「源码看着对、渲染却失败」的同类问题再次静默上线。
 - 本次修复不改变 `render_markdown` 的渲染口径，也不改 bleach 白名单，历史文章缓存无需失效。
 
+## R163 · v5.4.0（分类/标签/系列 slug 可读化）安全审查
+
+**范围**：`utils.slug.ascii_slug()`（pypinyin 转写）、`utils.taxonomy_slug.resolve_taxonomy()`（旧 slug 四路解析）、`/api/tag|category|series/<slug>` 的 `moved` 标记、`/api/rss/*` 与 `/api/og/page/*` 的 301、后台建/改 slug 入口、`requirements.txt` 新增 `pypinyin`。**无新表、无 schema 变更**（只改 `slug` 列的值）。
+
+### 163.1 逐维复核
+
+| 维度 | 结论 | 说明 |
+|---|---|---|
+| XSS | 安全 | slug 只进 URL 与 `<a href>`；前端 `TagView`/`CategoryView` 用插值渲染 `name`（无 `v-html` 新增点）。壳页 `_render()` 对所有字段走 `html.escape`。 |
+| SQL 注入 | 安全 | 解析一律走 ORM（`filter_by` / `func.lower(col) == param`），参数由 SQLAlchemy 绑定，无字符串拼接。 |
+| 越权 / 信息泄露 | 安全 | `resolve_taxonomy()` 只读分类/标签/系列本身（这些名字本来就由 `/api/tags`、`/api/series` 全量公开）；文章列表仍走 `visible_posts_query()`，旧 slug 不构成可见性旁路。 |
+| 开放重定向 | 安全 | 301 目标由服务端拼成固定前缀 `"/<kind>/" + obj.slug`，**不接受任何用户提供的 `next`/`url` 参数**；`obj.slug` 来自库且已被 `ascii_slug` 规范化为 `[a-z0-9-]`，无法构造 `//evil.com`。 |
+| CSRF | 安全 | 新增的「改标签地址」走后台 POST 表单 + `csrf_input()`（与既有后台表单同闸）；移动端走既有 `_role(admin=True)` 鉴权 + `taxonomy_write` 限流。 |
+| 依赖安全 | 可控 | `pypinyin` 为纯 Python（无二进制/无扩展），版本上限 `<1.0`；仅转写本地字符串，不联网、不执行外部输入。未安装时 `ascii_slug` 降级剔汉字，不阻断启动。 |
+| 资源 / 限流 | 可控 | 未命中的旧 slug 会做一次全表拼音比对：标签 56 行、分类 4 行、系列 1 行，成本可忽略；相关端点已有 120 次/分钟限流，壳页对非搜索引擎 120 次/分钟。 |
+
+### 163.2 回归点
+
+- **行为契约变更**：改名不再自动重算 slug（此前会静默换地址、让外链 404）。`tests/test_api_mobile.py` 两条改名用例已按新契约改写：不带 `slug` 时 `note` 为空且地址不变，带 `slug` 才换并提示「旧 → 新」。**这是契约修正，不是放宽断言。**
+- **迁移顺序是硬约束**：先部署代码 → 再跑数据迁移。反序时旧代码按 `slug` 精确查中文值会 404。
+- 旧地址解析只覆盖「中文名 / 忽略大小写 / 自动拼音」三种历史形态；**手动改过的历史 slug 无别名表，不保证可回跳**（已在后台提示中写明）。
+
 ## R162 · v5.3.4（v5.3.3 审计修复：lint / 2FA / 可见性 / 限流 / 设计系统）安全审查
 
 **范围**：E. lint 门禁归零（`ruff` 固定 0.16.8 + 重设 `tools/lint_debt_baseline.json`，修复 10 条错误）；A. 会话与 2FA（三处 logout `session.clear()`、登录/注册/首次设密复位 `twofa_ok`、`/admin/logout` 进放行清单、`/admin/login` 限流）；B. 可见性收口（`visible_posts_query()` 统一口径、`translations[]` 不泄露、`/api/comments/reactions` 校验、`/api/tags`+`/api/site` 计数只算可见）；C. 限流与出站（`client_key` strict IP、`/api/feed/circle` 刷新限流）；F. 设计系统（`--accent` 自引用清理、品牌色 `#196ddd`、代码块主题、对比度与暗色 token 化）。**无新路由、无表结构变更**。

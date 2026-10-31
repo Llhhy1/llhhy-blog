@@ -7,6 +7,32 @@
 > v4.0.0 ~ v4.3.0 → `docs/archive/CHANGELOG_v4.0.0-v4.3.0.md`（v5.3.4 因体积守卫触发，主文件涨到 200 KB / 上限 200 KB）。
 > 本文件从 **v4.3.1** 起。**归档不是删除** —— 查旧版本变更细节时去上述文件。
 
+## v5.4.0（2026-11-01 · 分类/标签/系列 slug 可读化：中文名转 ASCII，旧地址自动跳转）
+
+> 起因：中文标签的访问日志与分享链接是 `%e6%99%ba%e8%83%bd%e4%bd%93%e5%ae%89%e5%85%a8`。查明是 RFC 3986 的标准百分号编码 —— `make_slug()` 保留汉字，46 个标签的 slug 就是中文，本身不是故障，但可读性差、也不利于英文关键词匹配。
+
+### A. 纯 ASCII slug
+- 新增 `utils.slug.ascii_slug()`：ASCII 小写保留、符号转 `-`、汉字走 `pypinyin.lazy_pinyin`（**惰性导入**，缺库时降级剔汉字而非崩站）、超长截断。
+- `unique_model_slug()` 统一改走它，并新增 `explicit=` 显式 slug 参数。
+- `requirements.txt` 增 `pypinyin>=0.53,<1.0`（纯 Python，无二进制依赖）。
+
+### B. 后台可读可改
+- 建标签/分类/系列可选填「地址 slug」，留空按名字自动转拼音（`智能体安全` → `zhi-neng-ti-an-quan`）。
+- 标签管理页每行可直接改地址（`set_tag_slug_core`）；分类/系列编辑表单新增「地址」栏。
+- **行为变更**：改名不再自动重算 slug。slug 是对外地址，改名顺带换地址会让已发链接 404；现在只有显式填「地址」才改，并提示「旧 → 新」。
+
+### C. 旧地址兼容
+- `utils.taxonomy_slug.resolve_taxonomy()` 四路兜底：精确 → 忽略大小写 → `name`（历史中文 slug）→ `ascii_slug(name)`（旧自动拼音）。
+- `/api/tag|category|series/<旧slug>`：200 + `"moved": true` + 新 `slug`，前端 `router.replace` 换地址栏（数据不重取）。
+- `/api/rss/tag|category/<旧slug>` 与爬虫壳页 `/api/og/page/*` 对旧地址发 **301**（nginx 的爬虫通道已存在，无需改配置）。
+- 壳页 canonical 一律用解析后的新 slug，避免同一内容出现两个可索引地址。
+
+### D. 数据迁移（上线后执行）
+- 一次性脚本把 **56 个标签 / 4 个分类 / 1 个系列**的中文 slug 改成 ASCII（品牌用官方名如 `qwen`/`hunyuan`，通用词用英文如 `cybersecurity`/`fields-medal`）。
+- **顺序不可颠倒**：先发代码（旧地址靠 `name` 反查仍可用）→ 再跑迁移；反序会让旧代码 404。
+
+**实证**：新增 `tests/test_slug_ascii.py` **16 条**；全量 pytest **1333 passed**；`ruff check .` 全绿；`vite build` 通过。无 schema 变更，head 仍 `b7c2e91a4d63`。
+
 ## v5.3.4（2026-10-31 · v5.3.3 审计修复 + 设计系统收口 + lint 门禁归零）
 
 > 基于 v5.3.3（`669f749`）的审计结果，按 **E → A → B → C → F** 五批执行修复。完整审计与主题系统评估见 `docs/audit/2026-10-31-v5.3.3-audit-and-theme.md`。

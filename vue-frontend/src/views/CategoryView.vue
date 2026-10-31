@@ -11,13 +11,14 @@
 
 <script setup>
 import { onMounted, ref, watch } from "vue";
-import { useRoute } from "vue-router";
+import { useRoute, useRouter } from "vue-router";
 import { apiGet } from "../lib/api.js";
 import { state } from "../store.js";
 import PostCard from "../components/PostCard.vue";
 import Sidebar from "../components/Sidebar.vue";
 
 const route = useRoute();
+const router = useRouter();
 const items = ref([]);
 const name = ref("");
 
@@ -27,6 +28,10 @@ async function load() {
     const data = await apiGet(`/api/category/${encodeURIComponent(slug)}`, { lang: state.contentLang });
     items.value = data.items || [];
     name.value = data.name ? data.name : slug;
+    // v5.4.0：旧地址（中文 slug / 旧大小写写法）→ 地址栏换成新 slug
+    if (data.moved && data.slug && data.slug !== slug) {
+      router.replace({ name: "category", params: { slug: data.slug } });
+    }
   } catch (e) { items.value = []; name.value = slug; }
 }
 onMounted(load);

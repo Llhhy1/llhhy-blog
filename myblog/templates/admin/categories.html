@@ -5,9 +5,10 @@
   <form method="post" action="{{ url_for('admin.categories') }}" class="inline-form">
         {{ csrf_input() }}
     <input aria-label="新分类名称" type="text" name="name" placeholder="新分类名称" required>
+    <input aria-label="地址 slug（可选）" type="text" name="slug" placeholder="地址 slug（可选，留空自动转拼音）">
     <button type="submit" class="btn">添加</button>
   </form>
-  <p class="hint">改名后 URL（slug）会自动重算并保持唯一；删除时可以把文章先转移到其它分类，避免文章变「无分类」。</p>
+  <p class="hint">地址（slug）一律是纯 ASCII：中文名自动转拼音（如 <code>随笔</code> → <code>sui-bi</code>），也可手填英文。改名<b>不会</b>自动改地址 —— 只有把下面「地址」栏改成新值才会换，避免已发出去的链接失效。</p>
   <table class="admin-table" id="cat-table">
     <thead><tr><th>名称</th><th>文章数</th><th>操作</th></tr></thead>
     <tbody>
@@ -27,8 +28,10 @@
           <td colspan="3" class="row-editor-cell">
             <form method="post" action="{{ url_for('admin.rename_category', cid=c.id) }}" class="editor-form">
                   {{ csrf_input() }}
-              <label class="qc-label" for="cat-rename-{{ c.id }}">改名（slug 自动重算）</label>
+              <label class="qc-label" for="cat-rename-{{ c.id }}">改名（不影响地址）</label>
               <input type="text" id="cat-rename-{{ c.id }}" name="name" value="{{ c.name }}" required>
+              <label class="qc-label" for="cat-slug-{{ c.id }}">地址 /category/</label>
+              <input type="text" id="cat-slug-{{ c.id }}" name="slug" value="{{ c.slug }}">
               <button type="submit" class="btn small">保存改名</button>
             </form>
             <form method="post" action="{{ url_for('admin.delete_category', cid=c.id) }}" class="editor-form merge-form">

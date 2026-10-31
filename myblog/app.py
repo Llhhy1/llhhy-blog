@@ -11,7 +11,7 @@ from flask import (Flask, render_template, request, session, jsonify,
 
 from models import (db, Post, Category, Tag, Comment, FriendLink, Setting, User,
                    visible_posts_query)
-from utils import make_slug, safe_redirect
+from utils import make_slug, ascii_slug, safe_redirect
 from routes import main_bp
 from admin import admin_bp
 from api import api_bp
@@ -716,10 +716,10 @@ def _register_cli(app):
         if Post.query.count() > 0:
             logger.info("已有文章，跳过示例数据。")
             return
-        cat = Category(name="随笔", slug=make_slug("随笔"))
+        cat = Category(name="随笔", slug=ascii_slug("随笔"))
         db.session.add(cat)
         db.session.flush()
-        tag = Tag(name="生活", slug=make_slug("生活"))
+        tag = Tag(name="生活", slug=ascii_slug("生活"))
         db.session.add(tag)
         db.session.flush()
         post = Post(

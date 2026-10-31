@@ -1405,7 +1405,7 @@ def mobile_category_create():
     if blocked:
         return blocked
     from admin.taxonomy import create_category_core
-    cid, err = create_category_core((_body().get("name") or ""))
+    cid, err = create_category_core((_body().get("name") or ""), (_body().get("slug") or ""))
     if err:
         return jsonify({"error": err}), 400
     cat = db.session.get(Category, cid)
@@ -1415,11 +1415,10 @@ def mobile_category_create():
 
 @api_bp.route("/mobile/category/<int:cid>", methods=["POST", "PUT"])
 def mobile_category_rename(cid):
-    """分类改名（管理员），走 `rename_category_core`：`{"name": "…"}`。
+    """分类改名（管理员），走 `rename_category_core`：`{"name": "…", "slug": "…"}`。
 
-    ⚠️ 返回里的 `note` 会说「地址已由 /category/旧 改为 /category/新，此前发出去的旧链接会失效」。
-    这是**沿用后台既有行为**（改名无条件重算 slug），本次没有改判据，只是把结果如实回传，
-    让 App 能在提交前把它显示出来。站点没有 slug 别名表也没有 301，所以这条提醒不是客套话。
+    v5.4.0：**改名不再自动换 slug**（slug 是对外地址，换它会让已发出的链接失效）；
+    只有 body 里显式给了 `slug` 才动地址，此时 `note` 会说明「旧 → 新」。
     """
     user, deny = _role(admin=True)
     if deny:
@@ -1431,7 +1430,7 @@ def mobile_category_rename(cid):
     if cat is None:
         return jsonify({"error": "分类不存在"}), 404
     from admin.taxonomy import rename_category_core
-    err, note = rename_category_core(cat, (_body().get("name") or ""))
+    err, note = rename_category_core(cat, (_body().get("name") or ""), _body().get("slug"))
     if err:
         return jsonify({"error": err}), 400
     log_audit("mobile_cat_rename", "category", cid, f"移动端分类改名：{cat.name}｜{note}", user=user)
@@ -1506,7 +1505,7 @@ def mobile_tag_create():
     if blocked:
         return blocked
     from admin.taxonomy import create_tag_core
-    tid, err = create_tag_core((_body().get("name") or ""))
+    tid, err = create_tag_core((_body().get("name") or ""), (_body().get("slug") or ""))
     if err:
         return jsonify({"error": err}), 400
     tag = db.session.get(Tag, tid)
@@ -1600,7 +1599,7 @@ def mobile_series_update(sid):
     「给了才改」是后台原行为，移动端整单回传时等于全量覆盖；只想改简介就别带 `cover`
     以外的字段？—— 不必小心翼翼：本接口的缺省语义就是「保持原值」，与 `/mobile/post/<id>`
     的「缺省即清空」**相反**，两个接口的表单语义不同，写客户端时别看串行。
-    改名同样会换 slug 并在 `note` 里说明旧链接失效。
+    改名不再自动换 slug（v5.4.0）；只有 body 显式给了 `slug` 才会改地址，`note` 会说明「旧 → 新」。
     """
     user, deny = _role(admin=True)
     if deny:

@@ -32,6 +32,7 @@ from .net import (  # noqa: F401
 )
 from .slug import (  # noqa: F401
     make_slug,
+    ascii_slug,
     normalize_tag_key,
     split_tag_input,
     SLUG_TEMPLATE_TOKENS,

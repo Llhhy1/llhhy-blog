@@ -11,13 +11,14 @@
 
 <script setup>
 import { onMounted, ref, watch } from "vue";
-import { useRoute } from "vue-router";
+import { useRoute, useRouter } from "vue-router";
 import { apiGet } from "../lib/api.js";
 import { state } from "../store.js";
 import PostCard from "../components/PostCard.vue";
 import Sidebar from "../components/Sidebar.vue";
 
 const route = useRoute();
+const router = useRouter();
 const items = ref([]);
 const name = ref("");
 
@@ -27,6 +28,12 @@ async function load() {
     const data = await apiGet(`/api/tag/${encodeURIComponent(slug)}`, { lang: state.contentLang });
     items.value = data.items || [];
     name.value = data.name ? data.name : slug;
+    // v5.4.0：旧地址（中文 slug / 旧大小写写法）仍能打开，但要把地址栏换成新 slug。
+    // replace 会触发下面 watch 再拉一次（仅旧地址命中时发生一次，可接受 —— 换来的是
+    // 地址栏与内容严格一致）。
+    if (data.moved && data.slug && data.slug !== slug) {
+      router.replace({ name: "tag", params: { slug: data.slug } });
+    }
   } catch (e) { items.value = []; name.value = slug; }
 }
 onMounted(load);

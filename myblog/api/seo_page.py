@@ -29,11 +29,12 @@ v3.18.9 已经给**文章页**开了服务端通道（`/api/og/post/<slug>?seo=1
 import html
 import json
 
-from flask import Response
+from flask import Response, redirect
 
 from models import (Category, FriendLink, Post, PostTag, Series, Tag,
                     visible_posts_query)
 from utils import get_setting
+from utils.taxonomy_slug import resolve_taxonomy
 
 from .common import api_bp
 from .og import _shell_gate, _shell_headers, _varied
@@ -140,16 +141,26 @@ def page_meta(raw_path):
 
     label = ""
     extra = ""
+    redirect_to = ""
     if kind == "category":
-        c = Category.query.filter_by(slug=slug).first()
+        c, legacy = resolve_taxonomy(Category, slug)
         label = c.name if c else slug
+        if legacy:
+            slug, redirect_to = c.slug, "/category/" + c.slug
     elif kind == "tag":
-        t = Tag.query.filter_by(slug=slug).first()
+        t, legacy = resolve_taxonomy(Tag, slug)
         label = t.name if t else slug
+        if legacy:
+            slug, redirect_to = t.slug, "/tag/" + t.slug
     elif kind == "series":
-        s = Series.query.filter_by(slug=slug).first()
-        label = s.name if s else slug
-        extra = (s.description or "") if s else ""
+        s, legacy = resolve_taxonomy(Series, slug)
+        if s is not None:
+            label = s.name
+            extra = s.description or ""
+            if legacy:
+                slug, redirect_to = s.slug, "/series/" + s.slug
+        else:
+            label = slug
 
     q, why = _posts_for(kind, slug)
     if q is None:
@@ -164,6 +175,8 @@ def page_meta(raw_path):
     desc = (extra.strip() or ("%s「%s」下的全部文章，共 %d 篇。"
                               % (kind_cn, label, total)))
     heading = "%s：%s" % (kind_cn, label)
+    # v5.4.0：canonical 用**解析后的** slug（旧中文/大小写旧写法不再产生第二个可索引地址）
+    canon = "/%s/%s" % (kind, slug)
     return {
         "title": title,
         "desc": desc,
@@ -172,6 +185,7 @@ def page_meta(raw_path):
         "items": items,
         "kind": kind,
         "total": total,
+        "redirect": redirect_to,
     }
 
 
@@ -220,6 +234,12 @@ def og_page(page_path):
         # 不认识的路径 → 404 + noindex。绝不给通用兜底页（会产生大量重复内容）。
         return Response(_render_404(site_name), 404,
                         _shell_headers(extra_noindex=True))
+
+    # v5.4.0：旧地址（中文 slug / 大小写旧写法）→ 301 到新地址。
+    # 这是真正的 HTTP 301：nginx 的爬虫通道 rewrite 到这里，搜索引擎拿到的是跳转指令，
+    # 而不是「200 页面里用 canonical 暗示」。
+    if meta.get("redirect"):
+        return redirect(meta["redirect"], code=301)
 
     resp, indexable = _shell_gate(_abs(meta["canonical"]), site_name)
     if resp is not None:

@@ -1,6 +1,6 @@
 # llhhy-blog API 文档
 
-> 版本：**v5.3.4**（2026-10-31 同步：覆盖全部真实路由，文档即接口；与 `APP_VERSION` 一致）
+> 版本：**v5.4.0**（2026-11-01 同步：覆盖全部真实路由，文档即接口；与 `APP_VERSION` 一致）
 >
 > 本文档描述 llhhy-blog 的全部 JSON 接口（`/api/*`，共 **176 条**）与后台页面调用的
 > JSON 接口（`/admin/*`，共 **17 条**）。前端（`vue-frontend/src/lib/api.js`）与本站页面
@@ -591,16 +591,18 @@ myblog/
 
 - 鉴权：公开
 - 说明：列出该分类下全部前台可见文章（不分页），可按语言去重；限流 120 次/分钟
+- 路径参数：`slug` 是**纯 ASCII** 地址（v5.4.0 起，中文名自动转拼音）。旧地址（中文名 / 旧大写写法）仍可访问，此时响应多一个 `"moved": true`，前端据此把地址栏换成 `slug` 返回的新地址
 - 请求：`?lang=zh`（可选，用于同组多语言去重）
-- 成功：`200 {"name": "...", "slug": "...", "items": [<文章卡片>...]}`
+- 成功：`200 {"name": "...", "slug": "...", "moved": true, "items": [<文章卡片>...]}`（`moved` 仅在命中旧地址时出现）
 - 失败：`404 {"error": "页面或资源不存在"}`；`429 {"error": "请求过于频繁，请稍后再试"}`
 
 ### `GET /api/tag/<slug>` — 标签下的文章
 
 - 鉴权：公开
 - 说明：列出带该标签的全部前台可见文章（不分页），可按语言去重；限流 120 次/分钟
+- 路径参数：`slug` 是**纯 ASCII** 地址（v5.4.0 起）。旧中文地址（如 `智能体安全`）仍返回 200，并带 `"moved": true` 与新 `slug`
 - 请求：`?lang=zh`（可选）
-- 成功：`200 {"name": "...", "slug": "...", "items": [<文章卡片>...]}`
+- 成功：`200 {"name": "...", "slug": "...", "moved": true, "items": [<文章卡片>...]}`
 - 失败：`404 {"error": "页面或资源不存在"}`；`429 {"error": "请求过于频繁，请稍后再试"}`
 
 ### `GET /api/rss/category/<slug>` — 分类 RSS
@@ -609,6 +611,7 @@ myblog/
 - 说明：该分类下前台可见文章的 RSS 2.0 订阅源，最多 20 篇（置顶优先）；含作者/分类元数据与译文组 hreflang 互链
 - 请求：无
 - 成功：`200`，`Content-Type: application/rss+xml`
+- 旧地址：`301` 到新 slug 的同一 RSS（v5.4.0 起）
 - 失败：`404 {"error": "页面或资源不存在"}`
 
 ### `GET /api/rss/tag/<slug>` — 标签 RSS
@@ -617,6 +620,7 @@ myblog/
 - 说明：带该标签的前台可见文章的 RSS 2.0 订阅源，最多 20 篇（置顶优先）
 - 请求：无
 - 成功：`200`，`Content-Type: application/rss+xml`
+- 旧地址：`301` 到新 slug 的同一 RSS（v5.4.0 起）
 - 失败：`404 {"error": "页面或资源不存在"}`
 
 ### `GET /api/archive` — 归档时间线（按年月分组）
@@ -781,8 +785,9 @@ myblog/
 
 - 鉴权：公开
 - 说明：返回系列元信息与该系列下全部前台可见文章（按创建时间正序，不分页）
+- 路径参数：`slug` 是纯 ASCII 地址（v5.4.0 起）；旧地址命中时返回 `"moved": true` + 新 `slug`
 - 请求：无
-- 成功：`200 {"slug": "...", "name": "...", "description": "...", "cover": "...", "posts": [<文章卡片>...]}`
+- 成功：`200 {"slug": "...", "name": "...", "description": "...", "cover": "...", "moved": true, "posts": [<文章卡片>...]}`
 - 失败：`404 {"error": "页面或资源不存在"}`
 
 该模块源码位置：`myblog/api/series.py`
@@ -1711,6 +1716,7 @@ myblog/
 - 说明：SPA 列表路径（`archive` / `about` / `links` / `category/<slug>` / `tag/<slug>` / `series/<slug>`）的服务端 SEO 壳页，输出 title/description/canonical/OG + `CollectionPage` JSON-LD + 文章链接列表（每页最多 50 条）。**只服务认识的路径**，不认识 → 404 + noindex，绝不给通用兜底页
 - 请求：路径参数 `page_path`（如 `category/tech`，`path` 转换器可含 `/`）；无 query 参数
 - 成功：`200 text/html`（`Cache-Control: no-store` + `Vary: User-Agent, Sec-Fetch-Mode, Accept, Referer`；友链页外链带 `nofollow noopener`）
+- 旧地址：`301` 到 `/<kind>/<新slug>`（v5.4.0 起；仅当路径里的 slug 是历史写法 —— 中文名 / 旧大写 / 旧自动拼音。canonical 始终指向新地址）
 - 失败：`404 text/html`（`noindex,nofollow`，标题「页面不存在」）、`429`（纯文本 `too many requests`，非搜索引擎每分钟 120 次，搜索引擎 UA 豁免）
 
 该模块源码位置：`myblog/api/seo_page.py`

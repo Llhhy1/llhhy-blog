@@ -14,6 +14,40 @@ def make_slug(text):
     return s or "post"
 
 
+_CJK_RE = re.compile(r"[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]")
+
+
+def ascii_slug(text, max_len=80, fallback="item"):
+    """把任意名称转成**纯 ASCII** 的 URL 短名（v5.4.0 分类/标签/系列可读化）。
+
+    与 `make_slug` 的区别：`make_slug` **保留汉字**（历史上标签/分类 slug 因此是
+    `智能体安全` 这种，浏览器请求时被百分号编码成 `%e6%99%ba...`，日志与分享链接都难读）；
+    这里一律转 ASCII：
+
+    - ASCII 字母数字：小写保留；其它符号 → `-`
+    - 汉字：`pypinyin.lazy_pinyin` 逐字转拼音（`智能体安全` → `zhi-neng-ti-an-quan`）
+    - 连续分隔符折叠、首尾去 `-`、超长截断到 `max_len`
+
+    ⚠️ pypinyin **惰性导入**：只有真的遇到汉字才 import。不装也能跑（汉字剔除、
+    ASCII 部分保留），但那样中文名会退化成 `item`，所以它仍是 requirements 里的正式依赖。
+    """
+    s = (text or "").strip()
+    if not s:
+        return fallback
+    if _CJK_RE.search(s):
+        try:
+            from pypinyin import lazy_pinyin
+        except ImportError:                      # 极端情况下不炸整站，只降级
+            s = _CJK_RE.sub("-", s)
+        else:
+            # lazy_pinyin 对非汉字（字母/数字/符号）原样返回，拼起来再统一清洗
+            s = "-".join(lazy_pinyin(s))
+    s = re.sub(r"[^a-z0-9]+", "-", s.lower()).strip("-")
+    if len(s) > max_len:
+        s = s[:max_len].rstrip("-")
+    return s or fallback
+
+
 def normalize_tag_key(name):
     """标签归一化键（v3.15.0 标签治理）：去首尾/内部空白 + 统一小写。
 

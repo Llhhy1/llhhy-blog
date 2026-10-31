@@ -1076,13 +1076,12 @@ def test_留言_ip_只给超管_删除是硬删且不留档(app, client):
             _drop(uids=[admin.id, super_u.id])
 
 
-def test_分类改名回传_slug_变化_删除分转移与留空两种(app, client):
-    """改名**沿用后台行为**（无条件重算 slug），但必须把「旧 → 新」如实回传。
+def test_分类改名不换地址_显式给slug才换(app, client):
+    """v5.4.0：改名**不再自动重算 slug**，只有显式传 `slug` 才换地址并回传「旧 → 新」。
 
-    站点没有 slug 别名表也没有 301，改名等于让外发链接 404 —— UI 要能在动手前显示这条
-    提醒，而提醒的内容只能由服务端给（客户端自己算不出 unique_model_slug 的结果）。
-    删除分两条路：给 `move_to` 是转移，不给是文章变「无分类」，两者都必须可区分（
-    `affected` / `moved`），并且非法 `move_to` 要报错而不是静默退化成无分类。
+    理由：slug 是对外地址、名字是给人看的；改名顺带换地址会让所有已发出的链接 404
+    （本站没有别名表）。删除分两条路：给 `move_to` 是转移，不给是文章变「无分类」，
+    两者都必须可区分（`affected` / `moved`），并且非法 `move_to` 要报错而不是静默退化成无分类。
     """
     with app.app_context():
         admin = _mkuser(ROLE_ADMIN)
@@ -1104,12 +1103,20 @@ def test_分类改名回传_slug_变化_删除分转移与留空两种(app, clie
                 "category_id": src["item"]["id"]}).get_json()["id"]
             pids.append(pid)
 
+            old_slug = src["item"]["slug"]
             rename = _req(client, "put", f"/api/mobile/category/{src['item']['id']}", tok=tok,
                           payload={"name": "改名后" + uid})
             assert rename.status_code == 200, rename.get_json()
-            note = rename.get_json()["note"]
-            assert "失效" in note and src["item"]["slug"] in note, note
-            assert db.session.get(Category, src["item"]["id"]).slug == rename.get_json()["item"]["slug"]
+            assert rename.get_json()["note"] == "", "改名不动地址就不该提示旧链接失效"
+            assert rename.get_json()["item"]["slug"] == old_slug, "改名不应改动对外地址"
+
+            new_slug = "renamed-" + uid
+            rename2 = _req(client, "put", f"/api/mobile/category/{src['item']['id']}", tok=tok,
+                           payload={"name": "改名后" + uid, "slug": new_slug})
+            assert rename2.status_code == 200, rename2.get_json()
+            note = rename2.get_json()["note"]
+            assert "失效" in note and old_slug in note and new_slug in note, note
+            assert db.session.get(Category, src["item"]["id"]).slug == new_slug
 
             bad = _req(client, "post", "/api/mobile/category/%d/delete" % dst["item"]["id"],
                        tok=tok, payload={"move_to": 999999})
@@ -1210,8 +1217,11 @@ def test_标签在用拒删_变体经一键整理合并(app, client):
             _drop(uids=[admin.id])
 
 
-def test_系列改名换_slug_删除可选转移到另一系列(app, client):
-    """系列与分类的两点差异都要覆盖：`name` 不唯一（重名不拒）、删除新增 `move_to`。"""
+def test_系列改名不换地址_删除可选转移到另一系列(app, client):
+    """系列与分类的两点差异都要覆盖：`name` 不唯一（重名不拒）、删除新增 `move_to`。
+
+    v5.4.0：改名同样不再自动换 slug，只有显式给 `slug` 才改并回传提醒。
+    """
     with app.app_context():
         admin = _mkuser(ROLE_ADMIN)
         tok = _auth(client, admin.id)
@@ -1228,12 +1238,22 @@ def test_系列改名换_slug_删除可选转移到另一系列(app, client):
                 "series_id": src["item"]["id"]}).get_json()["id"]
             pids.append(pid)
 
+            old_ser_slug = src["item"]["slug"]
             edit = _req(client, "put", f"/api/mobile/series/{src['item']['id']}", tok=tok,
                         payload={"name": "系列改名" + uid, "description": "新简介"})
             assert edit.status_code == 200, edit.get_json()
             eb = edit.get_json()
-            assert "失效" in eb["note"] and eb["item"]["description"] == "新简介"
+            assert eb["note"] == "", "改名不动地址就不该提示旧链接失效"
+            assert eb["item"]["slug"] == old_ser_slug
+            assert eb["item"]["description"] == "新简介"
             assert eb["item"]["cover"] == "", "整单回传时没带的字段按后台语义覆盖为空"
+
+            new_ser_slug = "renamed-series-" + uid
+            edit2 = _req(client, "put", f"/api/mobile/series/{src['item']['id']}", tok=tok,
+                         payload={"name": "系列改名" + uid, "slug": new_ser_slug})
+            assert edit2.status_code == 200, edit2.get_json()
+            assert "失效" in edit2.get_json()["note"]
+            assert edit2.get_json()["item"]["slug"] == new_ser_slug
 
             # move_to 指向自身 / 指向不存在的行：`_resolve_target` 本来会静默返回 None
             # （等于「不转移」），但客户端以为自己转移了 —— 这种静默退化必须在 API 层挡住。

@@ -5,8 +5,10 @@
   <form method="post" action="{{ url_for('admin.tags') }}" class="inline-form">
         {{ csrf_input() }}
     <input aria-label="新标签名称" type="text" name="name" placeholder="新标签名称" required>
+    <input aria-label="地址 slug（可选）" type="text" name="slug" placeholder="地址 slug（可选，留空自动转拼音）">
     <button type="submit" class="btn">添加</button>
   </form>
+  <p class="hint">地址（slug）一律纯 ASCII：中文名自动转拼音（如 <code>智能体安全</code> → <code>zhi-neng-ti-an-quan</code>），可手填英文改成 <code>agent-security</code> 这种更好读的形式。旧的中文地址访问时会自动跳转。</p>
   <form method="post" action="{{ url_for('admin.tags') }}" class="inline-form" style="margin-top:10px;">
         {{ csrf_input() }}
     <input type="hidden" name="action" value="merge">
@@ -21,7 +23,15 @@
       {% for t, used in tags %}
         <tr{% if used == 0 %} style="opacity:.55"{% endif %}>
           <td data-label="名称">{{ t.name }}</td>
-          <td data-label="slug">{{ t.slug }}</td>
+          <td data-label="slug">
+            <form method="post" action="{{ url_for('admin.tags') }}" class="inline-form">
+                  {{ csrf_input() }}
+              <input type="hidden" name="action" value="setslug">
+              <input type="hidden" name="tid" value="{{ t.id }}">
+              <input type="text" name="slug" value="{{ t.slug }}" aria-label="标签地址" style="width:190px;">
+              <button type="submit" class="link-btn">保存</button>
+            </form>
+          </td>
           <td data-label="文章数">{{ used }}</td>
           <td data-label="操作">
             <form method="post" action="{{ url_for('admin.delete_tag', tid=t.id) }}" class="inline-form" onsubmit="return confirm('确定删除？');">

@@ -567,6 +567,7 @@ sha256sum /tmp/og.png /www/wwwroot/你的站点根/og-default.png
 | 搜索 | 前台搜索关键词 | 返回结果（接口 `engine` 字段为 `fts5` 或 `like`） |
 | RSS | `https://你的域名/feed.xml`、`https://你的域名/feed.atom` | 两者都显示 XML，条目一致 |
 | RSS 订阅页 | `https://你的域名/feed` | 列出 RSS 2.0 与 Atom 两个地址；页脚 / 侧栏有「📡 RSS 订阅」入口 |
+| 分类/标签地址 | `https://你的域名/tag/agent-security` | 纯 ASCII 地址 200；旧中文地址（`/tag/智能体安全`）爬虫拿到 301、真人自动把地址栏换成新地址；后台「标签管理」slug 列无中文（v5.4.0） |
 | 接口文档 | `https://你的域名/docs` | 「完整接口清单」来自 `/api/docs`，内容与 `myblog/API.md` 一致；搜索框输入 `mobile` / `slug` 能命中接口、左侧目录可点、右侧「本节内容」随滚动高亮（v5.3.1 修复搜索/目录失效）；代码块带「语言标签栏 + 复制按钮」且语法高亮生效（v5.3.2 重做，v5.3.3 修好 API.md 围栏；注意高亮在 `/api/docs` 内容到达后才跑，首屏需等文档加载完）；v5.3.4 起默认品牌色为 `#196ddd`、元信息 14px |
 | API | `https://你的域名/api/site` | 返回 JSON |
 
@@ -1025,6 +1026,11 @@ sha256sum /tmp/og.png /www/wwwroot/你的站点根/og-default.png
 >   自带 Bearer 鉴权、非会话）。若你的 MCP 客户端此前一直在报 403，升级后即恢复。
 > - 全量报告：`docs/audit/2026-10-07-full-audit-report.md`。
 
+> **v5.4.0（分类/标签/系列 slug 可读化）升级要点**：**两个包都要覆盖**；后端 `requirements.txt` 新增 `pypinyin`，`update.sh` 会自动 `pip install` 装好，无需手工操作。
+> - **顺序不可颠倒**：先部署本版代码（此时 slug 仍是中文，旧地址靠 `name` 反查照常可用）→ **再**执行一次性迁移把 slug 改成 ASCII。反序会让旧代码 404。
+> - 迁移脚本属于**一次性运维脚本，不进发布包**；执行前先跑默认 dry-run 看「旧 → 新」清单，确认无误再加 `--apply`。
+> - **升级后核验**：①`/tag/agent-security` 返回 200；②`/tag/智能体安全` 在爬虫 UA 下是 301、真人访问时地址栏自动换成新地址；③后台「标签管理」slug 列全为 ASCII。
+>
 > **v5.3.4（v5.3.3 审计修复：lint / 2FA / 可见性 / 限流 / 设计系统）升级要点**：**后端与前端都改了 → 两个包都要覆盖**（`myblog-backend.zip` + `vue-frontend-dist.zip`；本版动了 `vue-frontend/src/styles/tokens.css`、`global.css`、`look.css`、`App.vue`、`store.js` 等多个前端文件）。
 >
 > - ⚠️ **改了前端源码就必须重新 `vite build` 再打包** —— `package.py` 打的是 `vue-frontend/_vite_build30`，不是 `src`；只改源码不 build，线上看到的仍是旧产物，且 `package.py` 不会报错。

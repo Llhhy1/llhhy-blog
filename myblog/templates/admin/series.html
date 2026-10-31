@@ -2,10 +2,11 @@
 {% block title %}系列管理{% endblock %}
 {% block content %}
   <h1 class="page-title">系列 / 专栏管理</h1>
-  <p class="hint">把多篇文章归到一个系列，前台会显示专栏页与上下篇导航。改名后 URL（slug）自动重算并保持唯一。</p>
+  <p class="hint">把多篇文章归到一个系列，前台会显示专栏页与上下篇导航。地址（slug）始终是纯 ASCII：中文名自动转拼音，也可手填英文；改名<b>不会</b>自动改地址。</p>
   <form method="post" action="{{ url_for('admin.manage_series') }}" class="link-form">
         {{ csrf_input() }}
     <input aria-label="系列名称" type="text" name="name" placeholder="系列名称" required>
+    <input aria-label="地址 slug（可选）" type="text" name="slug" placeholder="地址 slug（可选，留空自动转拼音）">
     <input aria-label="简介" type="text" name="description" placeholder="简介（可选）">
     <input aria-label="封面图 URL" type="text" name="cover" placeholder="封面图 URL（可选）">
     <input type="number" name="sort" value="0" title="排序，越小越靠前">
@@ -31,8 +32,10 @@
           <td colspan="4" class="row-editor-cell">
             <form method="post" action="{{ url_for('admin.rename_series', sid=s.id) }}" class="editor-form editor-form-grid">
                   {{ csrf_input() }}
-              <label class="qc-label" for="ser-name-{{ s.id }}">名称（slug 自动重算）</label>
+              <label class="qc-label" for="ser-name-{{ s.id }}">名称（不影响地址）</label>
               <input type="text" id="ser-name-{{ s.id }}" name="name" value="{{ s.name }}" required>
+              <label class="qc-label" for="ser-slug-{{ s.id }}">地址 /series/</label>
+              <input type="text" id="ser-slug-{{ s.id }}" name="slug" value="{{ s.slug }}">
               <label class="qc-label" for="ser-desc-{{ s.id }}">简介</label>
               <input type="text" id="ser-desc-{{ s.id }}" name="description" value="{{ s.description or '' }}">
               <label class="qc-label" for="ser-cover-{{ s.id }}">封面 URL</label>

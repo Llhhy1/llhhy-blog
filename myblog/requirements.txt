@@ -27,4 +27,7 @@ cryptography>=50.0.0,<51.0.0
 # v3.16.0 分享卡重做：纯 Python 二维码生成（零二进制依赖），微信扫码分享用。
 # /api/qr 使用；未安装时该接口 404，不影响其他功能（降级范式）。
 segno>=1.6.6,<2.0.0
+# v5.4.0 分类/标签/系列 slug 可读化：中文名转纯 ASCII 拼音（智能体安全 → zhi-neng-ti-an-quan）。
+# 纯 Python、无二进制依赖；未安装时 ascii_slug 会降级（剔汉字保 ASCII），不会导致启动失败。
+pypinyin>=0.53,<1.0
 Flask-Migrate==4.1.0

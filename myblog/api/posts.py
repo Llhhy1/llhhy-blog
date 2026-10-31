@@ -4,7 +4,7 @@
 import hashlib
 import logging
 import re as _re
-from flask import request, jsonify, current_app, session, Response
+from flask import request, jsonify, current_app, session, Response, abort, redirect, url_for
 from markupsafe import escape
 
 logger = logging.getLogger(__name__)
@@ -15,6 +15,7 @@ from .common import (api_bp, db, Post, PostTag, Category, Tag, Comment, ReadLog,
 from models import hreflang_alternates
 import stats  # myblog/stats.py：client_ip / cached_region（浏览量去重与评论归属地）
 from utils import fmt_bj, site_base
+from utils.taxonomy_slug import resolve_taxonomy
 
 # ---------- 文章列表（分页 + 搜索）----------
 # v4.0.0：匿名列表接口限流（审计【低危 7】）。此前首页列表**匿名且无限流**，
@@ -192,26 +193,37 @@ def hot_tags():
 def posts_by_category(slug):
     if not rate_limit(client_key("api_by_category"), limit=_LIST_RATE[0], window=_LIST_RATE[1]):
         return jsonify({"error": "请求过于频繁，请稍后再试"}), 429
-    c = Category.query.filter_by(slug=slug).first_or_404()
+    c, legacy = resolve_taxonomy(Category, slug)
+    if c is None:
+        abort(404)
     # 分类页语义就是「列出该分类全部文章」，不做分页；物化量由分类自身规模封顶。
     items = visible_posts_query().filter_by(category_id=c.id)\
         .order_by(*_DISPLAY_ORDER).all()
     lang = (request.args.get("lang") or "").strip()
     items = lang_dedup(items, lang)
-    return jsonify({"name": c.name, "slug": c.slug,
-                    "items": [_post_summary(p) for p in items]})
+    payload = {"name": c.name, "slug": c.slug,
+               "items": [_post_summary(p) for p in items]}
+    if legacy:
+        # 旧地址（中文 / 大小写变体）仍能取到数据，前端据此把地址栏换成新 slug
+        payload["moved"] = True
+    return jsonify(payload)
 
 
 @api_bp.route("/tag/<slug>")
 def posts_by_tag(slug):
     if not rate_limit(client_key("api_by_tag"), limit=_LIST_RATE[0], window=_LIST_RATE[1]):
         return jsonify({"error": "请求过于频繁，请稍后再试"}), 429
-    t = Tag.query.filter_by(slug=slug).first_or_404()
+    t, legacy = resolve_taxonomy(Tag, slug)
+    if t is None:
+        abort(404)
     items = visible_posts_query().filter(Post.tags.any(id=t.id)).order_by(*_DISPLAY_ORDER).all()
     lang = (request.args.get("lang") or "").strip()
     items = lang_dedup(items, lang)
-    return jsonify({"name": t.name, "slug": t.slug,
-                    "items": [_post_summary(p) for p in items]})
+    payload = {"name": t.name, "slug": t.slug,
+               "items": [_post_summary(p) for p in items]}
+    if legacy:
+        payload["moved"] = True
+    return jsonify(payload)
 
 # ---------- RSS 按分类 / 标签订阅（v3.0.0 功能10）----------
 def _rss_xml(posts, title, desc, base):
@@ -260,8 +272,12 @@ def _rss_xml(posts, title, desc, base):
 
 @api_bp.route("/rss/category/<slug>")
 def rss_category(slug):
-    """分类 RSS：该分类下已发布文章的订阅源。"""
-    c = Category.query.filter_by(slug=slug).first_or_404()
+    """分类 RSS：该分类下已发布文章的订阅源。旧地址 301 到新地址。"""
+    c, legacy = resolve_taxonomy(Category, slug)
+    if c is None:
+        abort(404)
+    if legacy:
+        return redirect(url_for("api.rss_category", slug=c.slug), code=301)
     posts = visible_posts_query().filter_by(category_id=c.id)\
         .order_by(Post.is_pinned.desc(), Post.created_at.desc()).limit(20).all()
     base = site_base()
@@ -270,8 +286,12 @@ def rss_category(slug):
 
 @api_bp.route("/rss/tag/<slug>")
 def rss_tag(slug):
-    """标签 RSS：带该标签的已发布文章的订阅源。"""
-    t = Tag.query.filter_by(slug=slug).first_or_404()
+    """标签 RSS：带该标签的已发布文章的订阅源。旧地址 301 到新地址。"""
+    t, legacy = resolve_taxonomy(Tag, slug)
+    if t is None:
+        abort(404)
+    if legacy:
+        return redirect(url_for("api.rss_tag", slug=t.slug), code=301)
     posts = visible_posts_query().filter(Post.tags.any(id=t.id))\
         .order_by(Post.is_pinned.desc(), Post.created_at.desc()).limit(20).all()
     base = site_base()

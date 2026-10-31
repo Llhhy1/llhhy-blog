@@ -20,7 +20,7 @@ def categories():
         # 与移动端 `/api/mobile/category` 走同一份代码（同名判据不能有两套）。
         from .taxonomy import create_category_core
         name = (request.form.get("name") or "").strip()
-        new_id, err = create_category_core(name)
+        new_id, err = create_category_core(name, (request.form.get("slug") or ""))
         if err:
             flash(err)
         else:
@@ -34,17 +34,16 @@ def categories():
 @admin_bp.route("/category/<int:cid>/rename", methods=["POST"])
 @admin_required
 def rename_category(cid):
-    """分类编辑（v3.14.0）：改名（slug 自动重算并保持唯一）。
+    """分类编辑（v5.4.0：改名不再自动换 slug，只有填了「地址 slug」才改）。
 
     v4.4.0：判据搬到 `admin.taxonomy.rename_category_core`，移动端改名共用同一份；
-    改名会换 slug 且站点没有 301，所以把「旧 → 新」显示出来（原实现静默改，
-    用户不知道外发链接已经失效）。
+    换地址会让已发出的链接失效，所以把「旧 → 新」显示出来。
     """
     from .taxonomy import rename_category_core
     cat = Category.query.get_or_404(cid)
     name = (request.form.get("name") or "").strip()
     old_slug = cat.slug
-    err, note = rename_category_core(cat, name)
+    err, note = rename_category_core(cat, name, request.form.get("slug"))
     if err:
         flash(err)
     else:

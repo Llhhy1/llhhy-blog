@@ -7,7 +7,7 @@ from flask import (Blueprint, request, redirect, url_for,
 
 from models import (db, Post, Tag, Comment, User, Guestbook, AuditLog, PostHistory, RecycleBin,
                     Announcement, FriendLink)
-from utils import (make_slug, count_words, validate_password, apply_slug_template,
+from utils import (make_slug, ascii_slug, count_words, validate_password, apply_slug_template,
                    BEIJING_TZ, safe_redirect)
 from config import APP_VERSION
 import audit as _audit
@@ -688,14 +688,18 @@ def rollback_post_core(post, hist, user):
     return ""
 
 
-def unique_model_slug(model, base, exclude_id=None, max_len=80):
+def unique_model_slug(model, base, exclude_id=None, max_len=80, explicit=""):
     """通用 slug 唯一化（Category / Series / Tag 等 Post 以外的表，v3.14.0）。
 
     与 post 的 unique_slug 同思路：基础 slug 冲突（可排除自身）时追加 -2/-3。
     额外做长度截断：这些表的 slug 列是 String(90/110)，中文短名一般没问题，
     但超长输入会超出列宽（SQLite 不强制、Postgres 会报错），截断到 max_len 以内最稳。
+
+    v5.4.0：base 统一走 `ascii_slug`（汉字转拼音），产出纯 ASCII slug；
+    后台若显式填了 `explicit`（英文/拼音），优先用它 —— 同样过 ascii_slug 规范化，
+    所以填 `Agent-Security`、`智能体安全` 都等价安全。
     """
-    b = make_slug(base)
+    b = ascii_slug(explicit or base, max_len=max_len)
     if len(b) > max_len:
         b = b[:max_len]
     slug = b or "item"

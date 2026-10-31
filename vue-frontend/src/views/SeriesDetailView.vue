@@ -41,12 +41,13 @@
 
 <script setup>
 import { ref, computed, onMounted, watch } from "vue";
-import { useRoute } from "vue-router";
+import { useRoute, useRouter } from "vue-router";
 import { apiGet } from "../lib/api.js";
 import PostCard from "../components/PostCard.vue";
 import Sidebar from "../components/Sidebar.vue";
 
 const route = useRoute();
+const router = useRouter();
 const series = ref(null);
 const notFound = ref(false);
 
@@ -81,6 +82,10 @@ async function load() {
   try {
     const d = await apiGet(`/api/series/${route.params.slug}`);
     series.value = d;
+    // v5.4.0：旧地址（中文 slug / 旧大小写写法）→ 地址栏换成新 slug
+    if (d.moved && d.slug && d.slug !== route.params.slug) {
+      router.replace({ name: "series-detail", params: { slug: d.slug } });
+    }
   } catch (e) {
     notFound.value = true;
   }

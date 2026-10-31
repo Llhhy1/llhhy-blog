@@ -24,30 +24,33 @@ def _sort_of(form, default=0):
         return default
 
 
-def create_category_core(name):
+def create_category_core(name, slug=""):
     """新建分类 → `(id, "")`；校验不过 → `(None, 错误文案)`。
 
     判据与后台原实现逐字一致：`Category.name` 唯一，**精确同名**拒绝。
     （`_ensure_category_by_name` 也是精确名 —— 两处同判据才不会「App 建一个、
     编辑器再建一个」双胞胎。）
+
+    v5.4.0：`slug` 可选；留空则由名字自动转 ASCII（汉字转拼音）。
     """
     name = (name or "").strip()
     if not name:
         return None, "分类名称不能为空"
     if Category.query.filter_by(name=name).first():
         return None, f"已存在同名分类「{name}」，请勿重复添加"
-    cat = Category(name=name, slug=unique_model_slug(Category, name, max_len=80))
+    cat = Category(name=name, slug=unique_model_slug(Category, name, max_len=80, explicit=slug))
     db.session.add(cat)
     db.session.commit()
     return cat.id, ""
 
 
-def rename_category_core(cat, name):
+def rename_category_core(cat, name, slug=None):
     """分类改名 → `(错误文案, slug 变化说明)`。错误文案非空即未改动。
 
-    ⚠️ 沿用既有行为：**改名会无条件重算 slug**，而站点没有 slug 别名表、没有 301。
-    也就是说改名会让已经发出去的 `/category/<旧slug>` 链接 404。这里把「旧 → 新」
-    作为说明返回，就是为了让 UI（后台页面与手机 App）在动手前把它显示出来。
+    v5.4.0 起**改名不再自动重算 slug**。slug 是对外地址、名字是给人看的；
+    改名顺带换地址会让所有已发出去的 `/category/<旧slug>` 直接 404（本站没有别名表）。
+    因此只有显式传 `slug`（后台表单的「地址 slug」输入框）才会改地址，
+    返回的说明会告诉 UI「旧链接会失效」。
     """
     name = (name or "").strip()
     if not name:
@@ -56,11 +59,10 @@ def rename_category_core(cat, name):
     if dup:
         return (f"已存在同名分类「{name}」，未修改"
                 "（如需合并：删除本分类并把文章转移到目标分类）"), ""
-    old = cat.slug
     cat.name = name
-    cat.slug = unique_model_slug(Category, name, exclude_id=cat.id, max_len=80)
+    note = _apply_slug_change(cat, Category, slug, 80, "/category")
     db.session.commit()
-    return "", _slug_note("/category", old, cat.slug)
+    return "", note
 
 
 def delete_category_core(cat, move_to=None):
@@ -93,11 +95,14 @@ def tag_usage_counts():
     return dict(rows)   # 每行是 (tag_id, count) 二元组，直接喂 dict() 即可
 
 
-def create_tag_core(name):
+def create_tag_core(name, slug=""):
     """新建标签 → `(id, "")`；校验不过 → `(None, 错误文案)`。
 
     查重用 `normalize_tag_key`（小写 + 去所有空白）扫全表 —— 与后台一致，
     否则 `AI` / `ai` / `a i` 会加成三个标签，前台标签页出现近似重复项。
+
+    v5.4.0：`slug` 可选。留空则由名字自动转纯 ASCII（汉字走 pypinyin），
+    所以新建「智能体安全」默认得到 `zhi-neng-ti-an-quan`，而不是中文地址。
     """
     from utils import normalize_tag_key
     name = (name or "").strip()
@@ -107,10 +112,28 @@ def create_tag_core(name):
     exists = next((t for t in Tag.query.all() if normalize_tag_key(t.name) == key), None)
     if exists:
         return None, f"标签「{exists.name}」已存在（含大小写/空白变体），未重复添加"
-    tag = Tag(name=name, slug=unique_model_slug(Tag, name, max_len=90))
+    tag = Tag(name=name, slug=unique_model_slug(Tag, name, max_len=90, explicit=slug))
     db.session.add(tag)
     db.session.commit()
     return tag.id, ""
+
+
+def set_tag_slug_core(tag, slug):
+    """改标签地址 → `(错误文案, 说明)`；成功时错误文案为 ""。
+
+    标签没有「改名」入口（改名等于换个标签，用合并/删除更清楚），
+    这里只解决「中文 slug 想换成更可读的英文」。旧地址仍会被
+    `/api/tag/<旧slug>` 按 `name` 反查并跳转，所以换 slug 不会立刻打死外链。
+    """
+    raw = (slug or "").strip()
+    if not raw:
+        return "地址不能为空", ""
+    old = tag.slug
+    tag.slug = unique_model_slug(Tag, tag.name, exclude_id=tag.id, max_len=90, explicit=raw)
+    db.session.commit()
+    if tag.slug == old:
+        return "", ""
+    return "", f"地址已由 /tag/{old} 改为 /tag/{tag.slug}（旧地址会自动跳转）"
 
 
 def delete_tag_core(tag):
@@ -140,7 +163,8 @@ def create_series_core(form):
     if not name:
         return None, "系列名称不能为空"
     ser = Series(
-        name=name, slug=unique_model_slug(Series, name, max_len=100),
+        name=name, slug=unique_model_slug(Series, name, max_len=100,
+                                          explicit=(form.get("slug") or "")),
         description=(form.get("description") or "").strip(),
         cover=(form.get("cover") or "").strip(), sort=_sort_of(form),
     )
@@ -154,14 +178,16 @@ def rename_series_core(ser, form):
 
     与后台原实现一致：`name` 为空则整次拒绝；`description/cover/sort` **给了才改**
     （移动端编辑器载入过全量字段，所以总是会给；后台表单缺字段时保持原值，
-    避免「只想改简介却把封面清空」）。改名同样会换 slug、同样没有 301。
+    避免「只想改简介却把封面清空」）。
+
+    v5.4.0：**改名不再自动重算 slug**，只有表单显式给了 `slug` 才改地址
+    （理由同 `rename_category_core`：换地址会让已发出的链接 404）。
     """
     name = (form.get("name") or "").strip()
     if not name:
         return "系列名称不能为空", ""
-    old = ser.slug
     ser.name = name
-    ser.slug = unique_model_slug(Series, name, exclude_id=ser.id, max_len=100)
+    note = _apply_slug_change(ser, Series, form.get("slug"), 100, "/series")
     if form.get("description") is not None:
         ser.description = (form.get("description") or "").strip()
     if form.get("cover") is not None:
@@ -169,7 +195,7 @@ def rename_series_core(ser, form):
     if form.get("sort") is not None:
         ser.sort = _sort_of(form, ser.sort or 0)
     db.session.commit()
-    return "", _slug_note("/series", old, ser.slug)
+    return "", note
 
 
 def delete_series_core(ser, move_to=None):
@@ -202,11 +228,28 @@ def _resolve_target(model, self_id, move_to):
     return db.session.get(model, tid)
 
 
+def _apply_slug_change(obj, model, raw_slug, max_len, prefix):
+    """显式给了 `raw_slug` 才改地址；空/未给 → 保持原 slug。返回「旧→新」提示。
+
+    v5.4.0 起「改名不再自动换地址」，所有换地址的入口都收敛到这里：
+    只有表单里那个可留空的「地址 slug」输入框真的填了东西才动。
+    """
+    raw = (raw_slug or "").strip()
+    if not raw:
+        return ""
+    old = obj.slug
+    obj.slug = unique_model_slug(model, obj.name, exclude_id=obj.id,
+                                 max_len=max_len, explicit=raw)
+    return _slug_note(prefix, old, obj.slug)
+
+
 def _slug_note(prefix, old, new):
     """slug 变了的提示文案；没变返回 ""。"""
     if old == new:
         return ""
-    return f"地址已由 {prefix}/{old} 改为 {prefix}/{new}，此前发出去的旧链接会失效"
+    return (f"地址已由 {prefix}/{old} 改为 {prefix}/{new}。"
+            "旧地址若是中文名或自动拼音会自动跳转；自己改过的历史地址会失效，"
+            "请确认没有外部引用")
 
 
 # ---------------------------------------------------------------- 后台路由
@@ -235,7 +278,17 @@ def tags():
             flash(f"标签整理完成：合并重复 {merged} 个，清理 0 使用 {cleaned} 个")
             log_audit("merge", "tag", 0, f"合并重复 {merged} + 清理未使用 {cleaned}", user=_current_user_or_none())
             return redirect(url_for("admin.tags"))
-        tid, err = create_tag_core(request.form.get("name"))
+        if action == "setslug":
+            tid = request.form.get("tid", type=int)
+            tag = Tag.query.get_or_404(tid)
+            err, note = set_tag_slug_core(tag, request.form.get("slug"))
+            if err:
+                flash(err)
+            else:
+                flash(note or f"「{tag.name}」的地址未变：/tag/{tag.slug}")
+                log_audit("update", "tag", tid, f"改标签地址：{tag.slug}", user=_current_user_or_none())
+            return redirect(url_for("admin.tags"))
+        tid, err = create_tag_core(request.form.get("name"), (request.form.get("slug") or ""))
         if err:
             flash(err)
         else:

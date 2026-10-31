@@ -28,7 +28,11 @@ jobs:
       - name: Install ruff
         run: |
           python -m pip install --upgrade pip
-          pip install ruff
+          # 固定版本：lint 债务基线（tools/lint_debt_baseline.json）是按该版本
+          # 的命中数生成的。ruff 升级会改变规则命中量，导致「基线漂移」把
+          # 无关 PR 全部判红（v5.3.3 实测：0.16.8 下同一快照 F401/SIM 等
+          # 基线为 0 的项实际有 3/7 条）。升级 ruff 时必须同步 --update 基线。
+          pip install "ruff==0.16.8"
 
       - name: Ruff（阻断规则集，配置见 pyproject.toml）
         run: python -m ruff check .

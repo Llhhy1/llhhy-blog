@@ -166,10 +166,8 @@ def get_client_ip(strict=False):
     #    安全门禁只由密钥提供：配了 EO_AUTH_KEY 就要求 X-EO-Auth 完全匹配（不可伪造）；
     #    没配密钥时统计仍采纳（换取准确性），但 strict 档（限流）一律拒绝。
     eo_key = _eo_auth_key()
-    if eo_key:
-        eo_trusted = request.headers.get(EO_AUTH_HEADER, "") == eo_key
-    else:
-        eo_trusted = not strict
+    # 配了密钥：以 X-EO-Auth 是否匹配为准；没配密钥：只有非 strict（统计）档才采纳。
+    eo_trusted = (request.headers.get(EO_AUTH_HEADER, "") == eo_key) if eo_key else (not strict)
     if eo_trusted:
         for _h in EO_CLIENT_IP_HEADERS:
             eo_ip = _clean_ip(request.headers.get(_h, ""))

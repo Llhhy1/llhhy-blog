@@ -107,3 +107,17 @@ def test_cover_subtitle_stays_white_on_image():
     m = re.search(r"\.home-cover-sub\s*\{([^}]*)\}", css)
     assert m and "rgba(255, 255, 255" in m.group(1), \
         ".home-cover-sub 又变成灰字（压在图片/渐变上会糊掉）"
+
+
+def test_no_undefined_text_soft_token():
+    """`--text-soft` 从未在 tokens.css 定义，只会落到写死的亮色 fallback，
+    暗色模式下不可读。统一用已定义的 --text-muted。"""
+    root = ROOT / "vue-frontend" / "src"
+    hits = []
+    for p in root.rglob("*"):
+        if p.suffix not in {".vue", ".css", ".js"}:
+            continue
+        text = p.read_text(encoding="utf-8")
+        if "var(--text-soft" in text:
+            hits.append(str(p.relative_to(ROOT)))
+    assert not hits, "仍有未定义 token：%r" % hits

@@ -127,7 +127,7 @@ onMounted(async () => {
   border: 1px solid var(--border, #ececec);
   border-radius: 10px;
 }
-.eco-note b { color: var(--text-soft, #5f6368); }
+.eco-note b { color: var(--text-muted); }
 
 @media (max-width: 560px) {
   .eco-time { margin-left: 0; width: 100%; }

@@ -387,16 +387,21 @@ def test_categories_endpoint_matches_naive(client, world):
 
 
 def test_tags_endpoint_matches_naive(client, world):
-    """`/api/tags` 沿用历史口径：统计**全部**文章（含回收站/隐私）。"""
+    """`/api/tags` 只统计**前台可见**文章（v5.3.3 审计后）。
+
+    此前这里刻意锁的是「含回收站/隐私」的历史口径 —— 那正是匿名可反推隐藏
+    文章数量的泄露点。契约改为与 `visible_posts_query()` 同口径。
+    """
     _clear_rate()
     try:
         got = {t["slug"]: t["count"] for t in client.get("/api/tags").get_json()}
     finally:
         _clear_rate()
     with client.application.app_context():
-        want = {}
-        for t in Tag.query.all():
-            want[t.slug] = len(t.posts)
+        want = {
+            t.slug: visible_posts_query().filter(Post.tags.any(Tag.id == t.id)).count()
+            for t in Tag.query.all()
+        }
     assert got == want
 
 

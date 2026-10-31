@@ -408,7 +408,7 @@ watch(() => route.params.slug, () => {
 
 /* v3.21.0 内容多语言：译文切换器 */
 .lang-switcher { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin: 6px 0 16px; font-size: 13px; }
-.lang-switcher-label { color: var(--text-soft, #888); }
+.lang-switcher-label { color: var(--text-muted); }
 .lang-opt { text-decoration: none; padding: 3px 11px; border: 1px solid var(--border, #e2e2e2); border-radius: 999px; color: var(--text); background: var(--surface-2, #f4f6f8); transition: border-color .15s ease, color .15s ease; }
 .lang-opt:hover { border-color: var(--accent, #196ddd); color: var(--accent, #196ddd); }
 .lang-opt.active { background: var(--accent, #196ddd); color: #fff; border-color: var(--accent, #196ddd); }

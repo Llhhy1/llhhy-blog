@@ -115,8 +115,8 @@ def _count_by(assoc_col, visible_only):
     且 `hot-tags` 还会在 Python 里把每篇文章的 ORM 对象都摊开求和。
 
     `assoc_col` 传 `PostTag.tag_id`；`visible_only=True` 时只统计前台可见文章
-    （与 `visible_posts_query()` 同口径），False 则统计全部（含回收站/隐私，
-    用于 `/api/tags` 保持其历史口径）。
+    （与 `visible_posts_query()` 同口径），False 则统计全部（含回收站/隐私）。
+    v5.3.3 审计后 `/api/tags` 也改用 True —— 对外接口不应泄露隐藏文章数量。
     """
     q = db.session.query(
         assoc_col.label("tid"),

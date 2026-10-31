@@ -1,8 +1,9 @@
 /* 简约清爽风格 · 全局样式 */
 * { box-sizing: border-box; margin: 0; padding: 0; }
 
-/* 站点主题色（可被后台设置覆盖，见 base.html 注入的 --accent） */
-:root { --accent: var(--accent); }
+/* 站点主题色由后台注入 / tokens.css 提供；这里**不要**再写
+   `--accent: var(--accent)` —— 自定义属性自引用会形成循环，计算值变成
+   guaranteed-invalid，所有 var(--accent) 在注入完成前直接失效。 */
 
 body {
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",

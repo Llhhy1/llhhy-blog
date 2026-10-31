@@ -106,7 +106,7 @@ def site():
         "about_content": clean_html(s.get("about_content", "")),
         "footer_text": s.get("footer_text", ""),
         "beian_code": s.get("beian_code", ""),
-        "accent_color": s.get("accent_color", "#1a73e8"),
+        "accent_color": s.get("accent_color", "#196ddd"),
         "weather_city": s.get("weather_city", "北京"),
         "weather_lat": s.get("weather_lat", "39.9042"),
         "weather_lon": s.get("weather_lon", "116.4074"),

@@ -4,7 +4,7 @@ import { apiGet, apiPost, setCsrfToken, clearCsrfToken } from "./lib/api.js";
 
 export const state = reactive({
   site: { site_name: "我的博客", site_title: "我的博客", site_note: "",
-          site_description: "", accent_color: "#1a73e8",
+          site_description: "", accent_color: "#196ddd",
           footer_text: "", beian_code: "", about_content: "",
           theme_mode: "system", theme_radius: "md", theme_font: "md",
           nav_style: "light", custom_css: "", site_lang: "zh" },
@@ -298,7 +298,7 @@ export async function initSite() {
     const s = await apiGet("/api/site");
     Object.assign(state.site, s);
     // 主题色注入
-    document.documentElement.style.setProperty("--accent", s.accent_color || "#1a73e8");
+    document.documentElement.style.setProperty("--accent", s.accent_color || "#196ddd");
     applyThemeVars(s);
     applyDefaultTheme(s);
     // v3.16.0 主题中心：若有完整主题包，整体换肤（亮/暗按当前模式）

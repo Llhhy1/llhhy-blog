@@ -3,7 +3,6 @@
  box-sizing: border-box; margin: 0; padding: 0; }
 :root {
 
-  --accent: var(--accent);
   --theme-radius: 12px;   /* 后台「主题美化」可调 */
   --theme-font-size: 15px;
   --nav-bg: var(--surface);
@@ -38,7 +37,7 @@ body {
 .site-header nav a:hover {
  color: var(--accent); }
 .nav-user {
- margin-left: 22px; color: #666; font-size: 14px; white-space: nowrap; }
+ margin-left: 22px; color: var(--text-muted); font-size: 14px; white-space: nowrap; }
 .nav-user a {
  color: var(--accent); text-decoration: none; }
 /* v2.6.0 mobile 汉堡按钮 + 抽屉（桌面默认隐藏） */.hamburger {
@@ -52,27 +51,27 @@ body {
 .nav-bell .bell-badge {
  position: absolute; top: -6px; right: -10px; background: var(--danger); color: var(--on-accent); font-size: 10px; min-width: 16px; height: 16px; line-height: 16px; border-radius: 8px; padding: 0 4px; text-align: center; }
 .notif-panel {
- position: absolute; top: 32px; right: -40px; width: 300px; max-height: 400px; overflow-y: auto; background: var(--surface); border: 1px solid #eee; border-radius: 10px; box-shadow: 0 8px 28px rgba(0,0,0,.14); z-index: 1000; }
+ position: absolute; top: 32px; right: -40px; width: 300px; max-height: 400px; overflow-y: auto; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; box-shadow: var(--shadow-md); z-index: 1000; }
 .notif-head {
- display: flex; justify-content: space-between; align-items: center; padding: 10px 14px; border-bottom: 1px solid #f0f0f0; font-size: 13px; color: #666; }
+ display: flex; justify-content: space-between; align-items: center; padding: 10px 14px; border-bottom: 1px solid var(--border); font-size: var(--type-sm); color: var(--text-muted); }
 .notif-head a {
- color: var(--accent); font-size: 12px; text-decoration: none; }
+ color: var(--accent); font-size: var(--type-xs); text-decoration: none; }
 .notif-list {
  padding: 4px 0; }
 .notif-item {
- display: block; padding: 9px 14px; border-bottom: 1px solid #f5f5f5; text-decoration: none; color: #444; }
+ display: block; padding: 9px 14px; border-bottom: 1px solid var(--border); text-decoration: none; color: var(--text); }
 .notif-item:last-child {
  border-bottom: none; }
 .notif-item.unread {
- background: #f0f6ff; }
+ background: var(--accent-soft); }
 .notif-item:hover {
- background: #f7f9fc; }
+ background: var(--surface-2); }
 .notif-time {
- font-size: 11px; color: #999; display: block; margin-bottom: 2px; }
+ font-size: var(--type-2xs); color: var(--text-faint); display: block; margin-bottom: 2px; }
 .notif-text {
- font-size: 13px; line-height: 1.4; }
+ font-size: var(--type-sm); line-height: 1.4; }
 .notif-empty {
- padding: 24px; text-align: center; color: #aaa; font-size: 13px; }
+ padding: 24px; text-align: center; color: var(--text-faint); font-size: var(--type-sm); }
 [data-theme="dark"] .notif-panel {
  background: var(--surface); border-color: var(--border); box-shadow: 0 8px 28px rgba(0,0,0,.4); }
 [data-theme="dark"] .notif-item {
@@ -169,7 +168,7 @@ body {
   padding: 56px 24px;
   margin-bottom: 6px;
   text-align: center;
-  background: linear-gradient(120deg, var(--accent, #1a73e8) 0%, #6aa9ff 100%);
+  background: linear-gradient(120deg, var(--accent, #196ddd) 0%, #6aa9ff 100%);
   color: #fff;
 }
 .home-cover.has-wall {
@@ -335,10 +334,10 @@ body {
 /* ===== 首页渐变横幅（v3.4.1：与后台 hero-card 同款设计语言） ===== */.home-hero {
 
   position: relative; overflow: hidden;
-  background: linear-gradient(120deg, var(--accent, var(--accent)) 0%, #6aa9ff 100%);
+  background: linear-gradient(120deg, var(--accent) 0%, #6aa9ff 100%);
   color: var(--on-accent); border-radius: var(--theme-radius, 12px);
   padding: 30px 34px; margin-bottom: 6px;
-  box-shadow: 0 8px 24px rgba(26, 115, 232, 0.25);
+  box-shadow: 0 8px 24px rgba(25, 109, 221, 0.25);
 }
 .home-hero::before {
 
@@ -367,7 +366,7 @@ body {
 
   content: ""; position: absolute; left: 0; top: 50%; transform: translateY(-50%);
   width: 4px; height: 22px; border-radius: 2px;
-  background: linear-gradient(180deg, var(--accent, var(--accent)), rgba(26,115,232,.35));
+  background: linear-gradient(180deg, var(--accent), rgba(25,109,221,.35));
 }
 /* 空态（v3.4.1：虚线卡片 + 居中提示，替换朴素文字） */.empty {
 
@@ -390,7 +389,7 @@ body {
 .pin-badge {
  font-size: 15px; margin-right: 4px; vertical-align: -1px; }
 .post-meta {
- color: #999; font-size: 13px; margin: 8px 0; }
+ color: var(--text-muted); font-size: var(--type-meta); margin: 8px 0; }
 .post-meta a {
  color: var(--accent); text-decoration: none; }
 .post-meta a:hover {
@@ -431,18 +430,18 @@ body {
 .post-body p {
  margin: 12px 0; }
 .post-body code {
- background: #f0f0f0; padding: 2px 6px; border-radius: 4px; font-size: 14px; }
+ background: var(--surface-2); color: var(--text); padding: 2px 6px; border-radius: 4px; font-size: var(--type-meta); }
 .post-body pre {
- background: #2d2d2d; color: #f5f5f5; padding: 14px; border-radius: 8px; overflow-x: auto; margin: 14px 0;
+ background: #0d1117; color: #f5f5f5; padding: 14px; border-radius: 8px; overflow-x: auto; margin: 14px 0;
  /* 代码块保持整行不折行，靠横向滚动查看（不被上面的 break-word 影响） */white-space: pre; word-break: normal; overflow-wrap: normal; }
 .post-body pre code {
- background: none; padding: 0; }
+ background: none; }
 .post-body blockquote {
- border-left: 4px solid var(--accent); padding-left: 14px; color: #666; margin: 14px 0; }
+ border-left: 4px solid var(--accent); padding-left: 14px; color: var(--text-muted); margin: 14px 0; }
 .post-body table {
  border-collapse: collapse; width: 100%; margin: 14px 0; }
 .post-body th, .post-body td {
- border: 1px solid #ddd; padding: 8px 10px; }
+ border: 1px solid var(--border-strong); padding: 8px 10px; }
 /* v3.15.0 移动端溢出加固（置顶/新文章仍会超屏的第二类元凶：宽图/宽表/iframe）：
    图片不缩放会撑破视口；宽表改块级+横向滚动；媒体最大宽=容器。 */
 .post-body img {
@@ -470,7 +469,7 @@ body {
 .widget::before {
 
   content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 3px;
-  background: linear-gradient(180deg, var(--accent, var(--accent)), transparent);
+  background: linear-gradient(180deg, var(--accent), transparent);
   border-radius: 0 0 3px 3px; opacity: .55;
 }
 .widget h3 {
@@ -486,7 +485,7 @@ body {
 .search-box input:focus, .sub-box input[type=email]:focus, .comment-form input:focus, .comment-form textarea:focus,
 input[type=text]:focus, input[type=password]:focus, input[type=email]:focus, input[type=number]:focus, select:focus, textarea:focus {
 
-  outline: none; border-color: var(--accent, var(--accent)); box-shadow: 0 0 0 3px rgba(26,115,232,0.12);
+  outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px rgba(25,109,221,0.12);
 }
 .search-box button, .widget button {
  padding: 8px 12px; border: none; background: var(--accent); color: var(--on-accent); border-radius: 6px; cursor: pointer; transition: filter .15s; }
@@ -508,11 +507,11 @@ input[type=text]:focus, input[type=password]:focus, input[type=email]:focus, inp
 
   display: inline-flex; align-items: center; gap: 6px; text-decoration: none;
   background: var(--surface); border: 1px solid #e6e8eb; border-radius: 999px;
-  padding: 8px 16px; font-weight: 600; color: var(--accent, var(--accent));
+  padding: 8px 16px; font-weight: 600; color: var(--accent);
   transition: all .18s; line-height: 1.2;
 }
 .hot-tag:hover {
- transform: translateY(-2px); box-shadow: 0 4px 14px rgba(26,115,232,.18); border-color: var(--accent, var(--accent)); }
+ transform: translateY(-2px); box-shadow: 0 4px 14px rgba(25,109,221,.18); border-color: var(--accent); }
 .hot-tag-count {
  font-size: 12px; font-weight: 400; color: #999; background: #f4f6f9; border-radius: 999px; padding: 1px 8px; }
 [data-theme="dark"] .hot-tag:hover {
@@ -522,7 +521,7 @@ input[type=text]:focus, input[type=password]:focus, input[type=email]:focus, inp
 /* 通用提示（v3.4.1：留言墙/登录页等复用） */.hint {
  color: #8a8f99; font-size: 12px; margin: 4px 0 0; line-height: 1.6; }
 .hint a {
- color: var(--accent, var(--accent)); text-decoration: none; }
+ color: var(--accent); text-decoration: none; }
 .hint a:hover {
  text-decoration: underline; }
 /* 侧边栏邮件订阅 */.sub-tip {
@@ -589,7 +588,7 @@ button:hover, .btn:hover {
 /* v3.4.1 ghost 按钮（与后台 btn.ghost 同款：浅底描边） */.btn.ghost, button.ghost {
  background: var(--surface); color: var(--nav-fg); border: 1px solid #e0e4ea; }
 .btn.ghost:hover, button.ghost:hover {
- border-color: var(--accent, var(--accent)); color: var(--accent, var(--accent)); background: var(--surface); filter: none; }
+ border-color: var(--accent); color: var(--accent); background: var(--surface); filter: none; }
 .btn.danger, button.danger {
  background: var(--danger); }
 .btn.small, button.small {
@@ -644,8 +643,8 @@ button:hover, .btn:hover {
 /* 汉堡按钮：与后台 .admin-hamburger 视觉同步（实心强调色胶囊 + 阴影） */.hamburger {
  display: flex; align-items: center; justify-content: center;
     width: 44px; height: 44px; border-radius: 12px; border: none;
-    background: var(--accent, var(--accent)); color: var(--on-accent); font-size: 22px; line-height: 1;
-    box-shadow: 0 6px 18px rgba(26,115,232,.4); cursor: pointer; margin-right: 8px;
+    background: var(--accent); color: var(--on-accent); font-size: 22px; line-height: 1;
+    box-shadow: 0 6px 18px rgba(25,109,221,.4); cursor: pointer; margin-right: 8px;
     transition: transform .2s ease, filter .2s ease; }
 .hamburger:hover {
  filter: brightness(1.08); transform: scale(1.05); }
@@ -684,7 +683,7 @@ button:hover, .btn:hover {
     border-left: 3px solid transparent; transition: all .15s;
     display: flex; align-items: center; gap: 10px; }
 .drawer-nav a:hover {
- background: rgba(26,115,232,.08); border-left-color: var(--accent); color: var(--accent); }
+ background: rgba(25,109,221,.08); border-left-color: var(--accent); color: var(--accent); }
 /* v3.17.13：前台导航统一图标（与后台 .side-nav .nav-emoji 视觉一致，手机抽屉 / 桌面顶栏同步） */
 .nav-emoji { display: inline-block; width: 20px; text-align: center; flex-shrink: 0; font-size: 16px; line-height: 1; }
 .site-header nav a { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
@@ -694,7 +693,7 @@ button:hover, .btn:hover {
 .drawer-user {
  color: var(--nav-fg); opacity: .7; font-size: 13px; padding: 4px 0; }
 .drawer-link {
- padding: 10px 12px; border-radius: 8px; background: rgba(26,115,232,.06);
+ padding: 10px 12px; border-radius: 8px; background: rgba(25,109,221,.06);
     color: var(--nav-fg); text-decoration: none; font-size: 14px; border: none; text-align: left; cursor: pointer; }
 .drawer-theme {
  font-size: 14px; }
@@ -712,9 +711,9 @@ button:hover, .btn:hover {
  width: 100%; }
 }
 /* 主题切换 */.theme-toggle {
- background: none !important; border: 1px solid #ddd; border-radius: 6px; padding: 4px 9px; font-size: 16px; line-height: 1; margin-left: 16px; color: var(--nav-fg); }
+ background: transparent; border: 1px solid var(--border-strong); border-radius: var(--radius-pill); padding: 4px 9px; font-size: 16px; line-height: 1; margin-left: 16px; color: var(--nav-fg); }
 .theme-toggle:hover {
- background: #f0f0f0 !important; }
+ background: var(--surface-2); }
 /* 暗色模式 */[data-theme="dark"] {
 
   --nav-bg: var(--surface);
@@ -850,7 +849,7 @@ button:hover, .btn:hover {
 .weather-widget .w-actions {
  display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
 .weather-widget .w-btn {
- padding: 5px 12px; border: 1px solid #ddd; background: none; color: var(--nav-fg); border-radius: 6px; cursor: pointer; font-size: 13px; transition: all .15s; }
+ padding: 5px 12px; border: 1px solid var(--border-strong); background: none; color: var(--nav-fg); border-radius: var(--radius-pill); cursor: pointer; font-size: var(--type-sm); transition: all .15s; }
 .weather-widget .w-btn:hover {
  border-color: var(--accent); color: var(--accent); }
 .weather-widget .w-btn.primary {
@@ -921,7 +920,7 @@ button:hover, .btn:hover {
  transform: translateY(-3px); box-shadow: 0 8px 20px rgba(20,30,50,0.10); }
 .stats-big-card::after {
  content: ""; position: absolute; right: -18px; top: -18px; width: 64px; height: 64px;
-  border-radius: 50%; background: linear-gradient(135deg, rgba(26,115,232,.10), transparent); }
+  border-radius: 50%; background: linear-gradient(135deg, rgba(25,109,221,.10), transparent); }
 .stat-big-num {
  font-size: 34px; font-weight: 800; color: var(--accent); line-height: 1.1; }
 .stat-big-label {

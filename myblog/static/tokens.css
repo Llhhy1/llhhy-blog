@@ -41,6 +41,19 @@
   --radius-lg: 20px;
   --radius-pill: 999px;
 
+  /* 字号尺度（v5.3.4 审计）：与前端 tokens.css 同值；新代码不再写字面量。 */
+  --type-2xs: 11px;
+  --type-xs: 12px;
+  --type-sm: 13px;
+  --type-meta: 14px;
+  --type-base: 15px;
+  --type-md: 16px;
+  --type-lg: 18px;
+  --type-xl: 22px;
+  --type-2xl: 28px;
+  --leading-tight: 1.3;
+  --leading-relaxed: 1.85;
+
   --shadow-sm: 0 1px 3px rgba(0, 0, 0, .03);
   --shadow-md: 0 6px 18px rgba(20, 30, 50, .08);
   --shadow-lg: 0 16px 48px rgba(0, 0, 0, .20);

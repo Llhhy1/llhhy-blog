@@ -315,8 +315,8 @@ async function submit() {
   transition: transform 120ms ease, border-color 120ms ease, background 120ms ease;
 }
 .react-btn em { font-style: normal; font-size: 11px; color: var(--text-muted, #6b7280); margin-left: 3px; }
-.react-btn:hover { transform: translateY(-1px); border-color: var(--accent, #1a73e8); }
-.react-btn.active { border-color: var(--accent, #1a73e8); background: var(--accent-soft, rgba(26, 115, 232, .1)); }
+.react-btn:hover { transform: translateY(-1px); border-color: var(--accent, #196ddd); }
+.react-btn.active { border-color: var(--accent, #196ddd); background: var(--accent-soft, rgba(25, 109, 221, .1)); }
 
 /* ===== v3.25.2：排序切换条 ===== */
 /* 颜色全部走 token —— 上一轮刚治理完深色模式对比度，这里**不能再写死颜色**，
@@ -336,10 +336,10 @@ async function submit() {
   color: var(--text-muted, #6b7280);
   transition: border-color 120ms ease, color 120ms ease, background 120ms ease;
 }
-.comment-sort-btn:hover { border-color: var(--accent, #1a73e8); color: var(--accent, #1a73e8); }
+.comment-sort-btn:hover { border-color: var(--accent, #196ddd); color: var(--accent, #196ddd); }
 .comment-sort-btn.active {
-  border-color: var(--accent, #1a73e8);
-  background: var(--accent-soft, rgba(26, 115, 232, .1));
-  color: var(--accent, #1a73e8); font-weight: 500;
+  border-color: var(--accent, #196ddd);
+  background: var(--accent-soft, rgba(25, 109, 221, .1));
+  color: var(--accent, #196ddd); font-weight: 500;
 }
 </style>

@@ -21,14 +21,14 @@
 /* ===== 访客统计页美化（作用域限定 .stats-page，不影响其他后台页） ===== */
 .stats-page{max-width:1180px;margin:0 auto;}
 .stats-page .page-title{display:flex;align-items:baseline;flex-wrap:wrap;padding-bottom:12px;
-  border-bottom:2px solid transparent;border-image:linear-gradient(90deg,var(--accent,#1a73e8),transparent) 1;}
+  border-bottom:2px solid transparent;border-image:linear-gradient(90deg,var(--accent,#196ddd),transparent) 1;}
 /* 卡片：柔和阴影 + hover 上浮 + 顶部渐变描边 */
 .stats-page .stats-card{position:relative;overflow:hidden;background:var(--surface,#fff);
   border:1px solid var(--border,#ececec);border-radius:var(--theme-radius,12px);
   box-shadow:0 1px 3px rgba(20,30,50,.04),0 6px 18px rgba(20,30,50,.05);
   transition:transform .18s ease,box-shadow .18s ease;}
 .stats-page .stats-card::before{content:"";position:absolute;left:0;right:0;top:0;height:3px;
-  background:linear-gradient(90deg,var(--accent,#1a73e8),#8ec5ff);opacity:.9;}
+  background:linear-gradient(90deg,var(--accent,#196ddd),#8ec5ff);opacity:.9;}
 .stats-page .stats-card:hover{transform:translateY(-2px);box-shadow:0 4px 10px rgba(20,30,50,.06),0 14px 30px rgba(20,30,50,.10);}
 .stats-page .stats-card h3{font-size:15px;font-weight:700;color:var(--text,#222);letter-spacing:.2px;
   padding-bottom:10px;margin-bottom:14px;border-bottom:1px solid var(--border,#eee);}
@@ -46,32 +46,32 @@
   border-radius:var(--theme-radius,12px);box-shadow:0 1px 3px rgba(20,30,50,.04),0 6px 18px rgba(20,30,50,.05);
   padding:18px 18px 16px;}
 .stats-page .stat-card .stat-num{font-size:26px;font-weight:800;line-height:1.1;
-  background:linear-gradient(120deg,var(--accent,#1a73e8),#6aa9ff);-webkit-background-clip:text;
+  background:linear-gradient(120deg,var(--accent,#196ddd),#6aa9ff);-webkit-background-clip:text;
   background-clip:text;color:transparent;}
 /* 横向条形图（区域/热读/Bot） */
-.stats-page .bar-track{height:10px;background:#eef1f5;background:color-mix(in srgb,var(--accent,#1a73e8),#f0f0f0 88%);
+.stats-page .bar-track{height:10px;background:#eef1f5;background:color-mix(in srgb,var(--accent,#196ddd),#f0f0f0 88%);
   border-radius:999px;overflow:hidden;}
 .stats-page .bar-fill{height:100%;border-radius:999px;min-width:3px;
-  background:linear-gradient(90deg,#8ec5ff,var(--accent,#1a73e8));
-  box-shadow:0 0 6px rgba(26,115,232,.35);transition:width .5s ease;}
+  background:linear-gradient(90deg,#8ec5ff,var(--accent,#196ddd));
+  box-shadow:0 0 6px rgba(25,109,221,.35);transition:width .5s ease;}
 .stats-page .bar-accent{background:linear-gradient(90deg,#ffd08a,#ff7a59);box-shadow:0 0 6px rgba(255,122,89,.4);}
 .stats-page .bar-bot{background:linear-gradient(90deg,#b794f6,#667eea);box-shadow:0 0 6px rgba(102,126,234,.4);}
 /* 24h 柱状图 */
 .stats-page .hour-bars{gap:4px;}
 .stats-page .hour-bar{width:100%;max-width:20px;min-height:3px;
-  background:linear-gradient(180deg,#9ec5ff,var(--accent,#1a73e8));border-radius:5px 5px 2px 2px;
+  background:linear-gradient(180deg,#9ec5ff,var(--accent,#196ddd));border-radius:5px 5px 2px 2px;
   transition:transform .15s ease,filter .15s ease;}
 .stats-page .hour-col:hover .hour-bar{transform:scaleY(1.06);filter:brightness(1.12);}
 /* 常搜词汇标签 */
-.stats-page .search-tag{background:#f3f7ff;background:color-mix(in srgb,var(--accent,#1a73e8),#f3f7ff 86%);
-  border:1px solid #dbe7fb;border-color:color-mix(in srgb,var(--accent,#1a73e8),#ffffff 70%);
+.stats-page .search-tag{background:#f3f7ff;background:color-mix(in srgb,var(--accent,#196ddd),#f3f7ff 86%);
+  border:1px solid #dbe7fb;border-color:color-mix(in srgb,var(--accent,#196ddd),#ffffff 70%);
   border-radius:999px;padding:7px 14px;font-size:13px;transition:transform .15s ease,box-shadow .15s ease;}
 .stats-page .search-tag:hover{transform:translateY(-2px);box-shadow:0 4px 10px rgba(20,30,50,.08);}
 .stats-page .search-tag a{color:var(--text,#333);font-weight:600;}
-.stats-page .search-count{color:var(--accent,#1a73e8);font-weight:700;margin-left:6px;}
+.stats-page .search-count{color:var(--accent,#196ddd);font-weight:700;margin-left:6px;}
 /* 表格行 hover */
 .stats-page .rank-table tbody tr{transition:background .12s ease;}
-.stats-page .rank-table tbody tr:hover td{background:#f5f8ff;background:color-mix(in srgb,var(--accent,#1a73e8),#fff 94%);}
+.stats-page .rank-table tbody tr:hover td{background:#f5f8ff;background:color-mix(in srgb,var(--accent,#196ddd),#fff 94%);}
 /* 数据表格（区间访客数据 / 热门路径 / 属地 / 来源 / 环比 / 来源渠道 TOP）统一美化 */
 .stats-page .stats-table{width:100%;border-collapse:collapse;font-size:14px;}
 .stats-page .stats-table th{text-align:left;font-size:12px;font-weight:600;letter-spacing:.3px;
@@ -80,7 +80,7 @@
   vertical-align:middle;color:var(--text,#333);}
 .stats-page .stats-table tbody tr:last-child td{border-bottom:none;}
 .stats-page .stats-table tbody tr{transition:background .12s ease;}
-.stats-page .stats-table tbody tr:hover td{background:color-mix(in srgb,var(--accent,#1a73e8),#fff 94%);}
+.stats-page .stats-table tbody tr:hover td{background:color-mix(in srgb,var(--accent,#196ddd),#fff 94%);}
 /* v4.12.1：中间数值列（如「来源 | 次数 | 占比」的次数）表头与数据同对齐。
    原来 <th>次数</th> 继承的是 .stats-table th 的 text-align:left，而 td 用了
    .rank-count 的 text-align:right —— 表格是 table-layout:auto，这一列一被拉宽，
@@ -95,10 +95,10 @@
 /* 数值列：右对齐 + 等宽数字 + 强调色 */
 .stats-page .stats-table th:last-child{text-align:right;}
 .stats-page .stats-table td:last-child{text-align:right;font-variant-numeric:tabular-nums;
-  font-weight:700;color:var(--accent,#1a73e8);}
+  font-weight:700;color:var(--accent,#196ddd);}
 /* 区间访客数据：指标数值放大渐变突出 */
 .stats-page .stats-table.metrics td:last-child{font-size:18px;font-weight:800;
-  background:linear-gradient(120deg,var(--accent,#1a73e8),#6aa9ff);-webkit-background-clip:text;
+  background:linear-gradient(120deg,var(--accent,#196ddd),#6aa9ff);-webkit-background-clip:text;
   background-clip:text;color:transparent;}
 /* 环比涨跌徽章（此前全局未定义，故裸文字） */
 .stats-page .tag-up{background:rgba(72,187,120,.15);color:#2f9e63;padding:2px 9px;border-radius:8px;font-weight:700;font-size:12px;}
@@ -106,8 +106,8 @@
 .stats-page .tag-flat{background:rgba(160,174,192,.18);color:#718096;padding:2px 9px;border-radius:8px;font-weight:700;font-size:12px;}
 /* 区间切换按钮 */
 .stats-page .range-switch .btn{border-radius:999px;padding:5px 14px;}
-.stats-page .range-switch .btn-active{background:linear-gradient(120deg,var(--accent,#1a73e8),#6aa9ff);
-  color:#fff;border-color:transparent;box-shadow:0 4px 12px rgba(26,115,232,.25);}
+.stats-page .range-switch .btn-active{background:linear-gradient(120deg,var(--accent,#196ddd),#6aa9ff);
+  color:#fff;border-color:transparent;box-shadow:0 4px 12px rgba(25,109,221,.25);}
 /* v4.12.1：≤900px 时 admin.css 给 .stats-table 设了 display:block 来做横滚，
    但 display:block 会让 thead / tbody 各自成为「匿名表格」—— 列宽分别计算，
    表头与数据必然对不齐（手机上本页所有表格都中招，且不易察觉是布局而非数据问题）。
@@ -124,7 +124,7 @@
 [data-theme="dark"] .stats-page .search-tag{background:rgba(255,255,255,.08);border-color:rgba(255,255,255,.14);}
 [data-theme="dark"] .stats-page .search-tag a{color:#e6e8eb;}
 [data-theme="dark"] .stats-page .search-count{color:#8ec5ff;}
-[data-theme="dark"] .stats-page .range-switch .btn-active{background:linear-gradient(120deg,var(--accent,#1a73e8),#5b9dff);}
+[data-theme="dark"] .stats-page .range-switch .btn-active{background:linear-gradient(120deg,var(--accent,#196ddd),#5b9dff);}
 [data-theme="dark"] .stats-page .rank-table tbody tr:hover td{background:rgba(255,255,255,.05);}
 [data-theme="dark"] .stats-page .stats-card::before{opacity:.75;}
 [data-theme="dark"] .stats-page .stats-table th{color:#8b94a3;border-color:rgba(255,255,255,.12);}

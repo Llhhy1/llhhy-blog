@@ -225,10 +225,12 @@ input[type=tel]:focus, select:focus, textarea:focus {
 }
 .cover-wrap:hover img { transform: scale(1.02); }
 
-/* 元信息 / 摘要：次级文字靠灰阶与字距，不靠下划线 */
+/* 元信息 / 摘要：次级文字靠灰阶与字距，不靠下划线。
+ * v5.3.4：13px + --text-faint 压白底只有 3.81:1；提到 14px + --text-muted
+ * （白底 4.9:1、surface-2 上 4.53:1），并对齐 --type-meta 尺度。 */
 .post-meta {
-  color: var(--text-faint, #7d838f);
-  font-size: 13px;
+  color: var(--text-muted, #6a717f);
+  font-size: var(--type-meta, 14px);
   margin: 6px 0 10px;
 }
 .post-meta a { text-decoration: none; }
@@ -309,8 +311,10 @@ input[type=tel]:focus, select:focus, textarea:focus {
   line-height: 1.2;
 }
 .home-cover-sub {
-  color: var(--text-muted, #6a717f);
-  font-size: 16px;
+  /* 压在渐变/照片上：用白色 + 阴影，不跟随正文灰阶（灰字在图上会糊掉）。 */
+  color: rgba(255, 255, 255, .96);
+  text-shadow: 0 1px 10px rgba(0, 0, 0, .35);
+  font-size: var(--type-md, 16px);
   line-height: 1.6;
 }
 .hcs-item {
@@ -527,8 +531,10 @@ input[type=tel]:focus, select:focus, textarea:focus {
   padding: 5px 12px;
   border-radius: var(--ui-radius-pill, 999px);
   background: var(--ui-fill, rgba(120, 120, 128, .10));
-  color: var(--text-muted, #6a717f);
-  font-size: 13px;
+  /* v5.3.4：--text-muted 在 10% 填充底上只有 4.38:1；标签是 13px 正文档，
+   * 改用 --text（随主题深浅自动翻转），实测 5.1:1 以上。 */
+  color: var(--text, #2c2c2c);
+  font-size: var(--type-sm, 13px);
   line-height: 1.4;
   text-decoration: none;
   transition: background-color var(--ui-dur-fast, 180ms) ease,

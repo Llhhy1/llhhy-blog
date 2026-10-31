@@ -6,7 +6,7 @@
   <title>{% block title %}后台管理{% endblock %} · {{ settings.site_name or settings.site_title or '博客后台' }}</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='admin.css') }}?v={{ admin_css_v }}">
   <style>
-    :root { --accent: {{ settings.accent_color or '#1a73e8' }}; {{ theme_css }} }
+    :root { --accent: {{ settings.accent_color or '#196ddd' }}; {{ theme_css }} }
     {{ theme_nav_css }}
   </style>
   {% if custom_css %}<style id="site-custom-css">{{ custom_css | safe }}</style>{% endif %}
@@ -200,10 +200,10 @@
   <script src="{{ url_for('static', filename='script.js') }}?v={{ admin_css_v }}"></script>
   {% if current_user and current_user.is_admin_role %}
   <!-- 后台在线更新（v2.5.1）：检测新版本 → 确认 → 静默更新 → 完成提醒 -->
-  <div id="update-banner" style="display:none;position:fixed;left:0;right:0;bottom:0;z-index:9999;background:linear-gradient(90deg,#1a73e8,#5b8def);color:#fff;padding:12px 20px;font-size:14px;box-shadow:0 -4px 20px rgba(0,0,0,.15);">
+  <div id="update-banner" style="display:none;position:fixed;left:0;right:0;bottom:0;z-index:9999;background:linear-gradient(90deg,#196ddd,#5b8def);color:#fff;padding:12px 20px;font-size:14px;box-shadow:0 -4px 20px rgba(0,0,0,.15);">
     <span id="update-msg"></span>
     <span style="float:right;">
-      <button id="update-yes" style="background:#fff;color:#1a73e8;border:none;padding:6px 16px;border-radius:6px;cursor:pointer;font-size:13px;margin-left:10px;">立即更新</button>
+      <button id="update-yes" style="background:#fff;color:#196ddd;border:none;padding:6px 16px;border-radius:6px;cursor:pointer;font-size:13px;margin-left:10px;">立即更新</button>
       <button id="update-no" style="background:rgba(255,255,255,.2);color:#fff;border:1px solid rgba(255,255,255,.6);padding:6px 14px;border-radius:6px;cursor:pointer;font-size:13px;margin-left:8px;">暂不</button>
     </span>
   </div>

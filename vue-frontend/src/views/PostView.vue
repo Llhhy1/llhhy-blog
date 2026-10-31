@@ -116,7 +116,7 @@ import { apiGet, apiPost } from "../lib/api.js";
 import { copyText } from "../lib/clipboard.js";
 import { state, setContentLang } from "../store.js";
 import hljs from "highlight.js/lib/core";
-import "highlight.js/styles/github.css";
+import "highlight.js/styles/github-dark.css";
 import bash from "highlight.js/lib/languages/bash";
 import css from "highlight.js/lib/languages/css";
 import javascript from "highlight.js/lib/languages/javascript";
@@ -404,14 +404,14 @@ watch(() => route.params.slug, () => {
 .ai-badge { display: inline-block; font-size: 12px; font-weight: 600; color: var(--accent); margin-bottom: 6px; }
 .ai-summary-text { margin: 0; font-size: 14px; line-height: 1.75; color: var(--text); }
 .ai-tags { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
-.ai-tag { font-size: 12px; color: var(--accent); text-decoration: none; background: var(--accent-soft, rgba(26,115,232,.1)); border-radius: 999px; padding: 2px 10px; }
+.ai-tag { font-size: 12px; color: var(--accent); text-decoration: none; background: var(--accent-soft, rgba(25,109,221,.1)); border-radius: 999px; padding: 2px 10px; }
 
 /* v3.21.0 内容多语言：译文切换器 */
 .lang-switcher { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin: 6px 0 16px; font-size: 13px; }
 .lang-switcher-label { color: var(--text-soft, #888); }
 .lang-opt { text-decoration: none; padding: 3px 11px; border: 1px solid var(--border, #e2e2e2); border-radius: 999px; color: var(--text); background: var(--surface-2, #f4f6f8); transition: border-color .15s ease, color .15s ease; }
-.lang-opt:hover { border-color: var(--accent, #1a73e8); color: var(--accent, #1a73e8); }
-.lang-opt.active { background: var(--accent, #1a73e8); color: #fff; border-color: var(--accent, #1a73e8); }
+.lang-opt:hover { border-color: var(--accent, #196ddd); color: var(--accent, #196ddd); }
+.lang-opt.active { background: var(--accent, #196ddd); color: #fff; border-color: var(--accent, #196ddd); }
 
 /* v3.21.0 gamification：读者积分/勋章条 */
 .reader-points { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin: 4px 0 16px; font-size: 13px; }
@@ -432,7 +432,7 @@ watch(() => route.params.slug, () => {
   opacity: .82; transition: opacity .18s ease, color .18s ease, border-color .18s ease;
 }
 .post-body :deep(pre):hover .code-copy-btn { opacity: 1; }
-.post-body :deep(.code-copy-btn:hover) { color: var(--accent, #1a73e8); border-color: var(--accent, #1a73e8); }
+.post-body :deep(.code-copy-btn:hover) { color: var(--accent, #196ddd); border-color: var(--accent, #196ddd); }
 
 /* v3.16.0 图片灯箱（模板内元素，scoped 正常生效） */
 .lightbox {

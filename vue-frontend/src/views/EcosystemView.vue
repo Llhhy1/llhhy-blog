@@ -81,7 +81,7 @@ onMounted(async () => {
   font-size: 30px;
   font-weight: 800;
   line-height: 1.1;
-  color: var(--accent, #1a73e8);
+  color: var(--accent, #196ddd);
   letter-spacing: -.5px;
 }
 .eco-label { font-size: 13px; color: var(--text-muted, #8a8f98); }
@@ -104,7 +104,7 @@ onMounted(async () => {
   border-bottom: 1px dotted var(--border, #d5d5d5);
   word-break: break-all;
 }
-.eco-url:hover { color: var(--accent, #1a73e8); }
+.eco-url:hover { color: var(--accent, #196ddd); }
 .eco-anon { border-bottom: none; color: var(--text-muted, #9aa0a6); font-style: italic; }
 .eco-tag {
   font-size: 11px;

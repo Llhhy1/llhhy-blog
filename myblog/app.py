@@ -91,7 +91,7 @@ def _ensure_settings(app):
         "weather_lat": "39.9042",   # 默认北京纬度
         "weather_lon": "116.4074",  # 默认北京经度
         "weather_city": "北京",     # 天气组件默认显示的城市名
-        "accent_color": "#1a73e8",  # 站点主题色（导航高亮、按钮、链接等）
+        "accent_color": "#196ddd",  # 站点主题色（导航高亮、按钮、链接等）
         # ===== 主题美化系统 =====
         "theme_mode": "system",     # 前台默认主题：light / dark / system（跟随系统）
         "theme_radius": "md",       # 圆角风格：sm / md / lg

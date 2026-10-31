@@ -516,7 +516,7 @@ router.afterEach(() => { loadNotifs(); });
   top: 0;
   z-index: 9999;
   padding: 10px 16px;
-  background: var(--accent, #1a73e8);
+  background: var(--accent, #196ddd);
   color: #fff;
   border-radius: 0 0 8px 0;
   font-size: 14px;
@@ -534,7 +534,7 @@ router.afterEach(() => { loadNotifs(); });
   font-size: 13px;
 }
 .site-footer-rss a {
-  color: var(--accent, #1a73e8);
+  color: var(--accent, #196ddd);
   text-decoration: none;
 }
 .site-footer-rss a:hover {
@@ -543,7 +543,7 @@ router.afterEach(() => { loadNotifs(); });
 /* 主内容被脚本聚焦时不要出现整块焦点框（视觉噪音），
    但保留「确实获得焦点」这件事以利读屏。 */
 #main-content:focus { outline: none; }
-#main-content:focus-visible { outline: 2px solid var(--accent, #1a73e8); outline-offset: 2px; }
+#main-content:focus-visible { outline: 2px solid var(--accent, #196ddd); outline-offset: 2px; }
 
 .site-frame-body { display: block; }
 .site-frame-body.has-sidebar { display: flex; gap: 24px; align-items: flex-start; }
@@ -557,13 +557,13 @@ router.afterEach(() => { loadNotifs(); });
   align-self: flex-start;
 }
 .plugin-sidebar-title { margin: 0 0 8px; font-size: 13px; color: var(--muted, #888); font-weight: 600; }
-.plugin-sidebar-link { display: block; padding: 6px 0; color: var(--link, #1a73e8); text-decoration: none; font-size: 14px; }
+.plugin-sidebar-link { display: block; padding: 6px 0; color: var(--link, #196ddd); text-decoration: none; font-size: 14px; }
 .plugin-sidebar-link:hover { text-decoration: underline; }
 .plugin-html { margin-top: 10px; font-size: 13px; }
-.plugin-html :deep(a) { color: var(--link, #1a73e8); }
+.plugin-html :deep(a) { color: var(--link, #196ddd); }
 .plugin-remote-badge {
   display: inline-block; margin: 8px 0 0; padding: 6px 14px;
-  background: var(--accent, #1a73e8); color: #fff; border-radius: 20px;
+  background: var(--accent, #196ddd); color: #fff; border-radius: 20px;
   text-decoration: none; font-size: 13px;
 }
 .plugin-nav-link { /* 视觉由全局导航样式兜底 */ }
@@ -598,7 +598,7 @@ router.afterEach(() => { loadNotifs(); });
   color: var(--nav-fg); text-decoration: none; font-size: 14px; white-space: nowrap;
   border-left: 0 !important;
 }
-.toolbox-menu .site-entry-link:hover { background: rgba(26, 115, 232, .08); color: var(--accent); }
+.toolbox-menu .site-entry-link:hover { background: rgba(25, 109, 221, .08); color: var(--accent); }
 /* v4.7.0「⋯ 更多」里的**站内**链接。刻意不与 .site-entry-link 共用类名：
  * 后者带 target=_blank + rel=noopener，语义是「外域链接」，
  * 混用会让 tests/test_nav_entries_v4_1.py 的外链守卫判为不合规。 */
@@ -609,7 +609,7 @@ router.afterEach(() => { loadNotifs(); });
   border-left: 0 !important;
 }
 .toolbox-menu .more-link:hover,
-.toolbox-menu .more-link.router-link-active { background: rgba(26, 115, 232, .08); color: var(--accent); }
+.toolbox-menu .more-link.router-link-active { background: rgba(25, 109, 221, .08); color: var(--accent); }
 /* 抽屉里不做浮层：跟随抽屉本身的纵向堆叠，避免二级浮层遮住菜单 */
 .nav-toolbox--drawer .toolbox-menu {
   position: static; margin: 0; min-width: 0; padding: 0 0 0 18px;

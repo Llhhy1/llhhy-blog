@@ -123,6 +123,23 @@ PAIRS = [
         # 主文件里若还留着 R111 的标题，说明只是「复制一份」而非真搬走
         "## R111 · v3.25.13",
     ),
+    # v5.3.4 追加：写进 R162（v5.3.3 审计修复）后 SECURITY 主文件涨到 162 KB
+    # （上限 160 KB），CHANGELOG 涨到 200 KB（上限 200 KB）。同一个循环：新增写主文件，
+    # 撑满再把最老的一批搬走 —— 本轮搬走最早的 12 轮（R121~R132）与最早的 4 个版本段。
+    (
+        "SECURITY_AUDIT_r121-r132.md",
+        "myblog/SECURITY_AUDIT.md",
+        "docs/archive/SECURITY_AUDIT_r121-r132.md",
+        "## R132 · v4.13.0",  # 归档件的第一条（R132）
+        None,
+    ),
+    (
+        "CHANGELOG_v4.0.0-v4.3.0.md",
+        "CHANGELOG.md",
+        "docs/archive/CHANGELOG_v4.0.0-v4.3.0.md",
+        "## v4.3.0",   # 归档件的第一条（v4.3.0）
+        None,
+    ),
 ]
 
 # 整份搬走的快照（一次性审查报告）

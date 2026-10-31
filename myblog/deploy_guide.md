@@ -567,7 +567,7 @@ sha256sum /tmp/og.png /www/wwwroot/你的站点根/og-default.png
 | 搜索 | 前台搜索关键词 | 返回结果（接口 `engine` 字段为 `fts5` 或 `like`） |
 | RSS | `https://你的域名/feed.xml`、`https://你的域名/feed.atom` | 两者都显示 XML，条目一致 |
 | RSS 订阅页 | `https://你的域名/feed` | 列出 RSS 2.0 与 Atom 两个地址；页脚 / 侧栏有「📡 RSS 订阅」入口 |
-| 接口文档 | `https://你的域名/docs` | 「完整接口清单」来自 `/api/docs`，内容与 `myblog/API.md` 一致；搜索框输入 `mobile` / `slug` 能命中接口、左侧目录可点、右侧「本节内容」随滚动高亮（v5.3.1 修复搜索/目录失效）；代码块带「语言标签栏 + 复制按钮」且语法高亮生效（v5.3.2 重做，v5.3.3 修好 API.md 围栏；注意高亮在 `/api/docs` 内容到达后才跑，首屏需等文档加载完） |
+| 接口文档 | `https://你的域名/docs` | 「完整接口清单」来自 `/api/docs`，内容与 `myblog/API.md` 一致；搜索框输入 `mobile` / `slug` 能命中接口、左侧目录可点、右侧「本节内容」随滚动高亮（v5.3.1 修复搜索/目录失效）；代码块带「语言标签栏 + 复制按钮」且语法高亮生效（v5.3.2 重做，v5.3.3 修好 API.md 围栏；注意高亮在 `/api/docs` 内容到达后才跑，首屏需等文档加载完）；v5.3.4 起默认品牌色为 `#196ddd`、元信息 14px |
 | API | `https://你的域名/api/site` | 返回 JSON |
 
 ---
@@ -1024,6 +1024,14 @@ sha256sum /tmp/og.png /www/wwwroot/你的站点根/og-default.png
 >   POST 会被全局 CSRF 拦成 **403**，等于该端点不可用；现已豁免（与 `/mcp` 同理：
 >   自带 Bearer 鉴权、非会话）。若你的 MCP 客户端此前一直在报 403，升级后即恢复。
 > - 全量报告：`docs/audit/2026-10-07-full-audit-report.md`。
+
+> **v5.3.4（v5.3.3 审计修复：lint / 2FA / 可见性 / 限流 / 设计系统）升级要点**：**后端与前端都改了 → 两个包都要覆盖**（`myblog-backend.zip` + `vue-frontend-dist.zip`；本版动了 `vue-frontend/src/styles/tokens.css`、`global.css`、`look.css`、`App.vue`、`store.js` 等多个前端文件）。
+>
+> - ⚠️ **改了前端源码就必须重新 `vite build` 再打包** —— `package.py` 打的是 `vue-frontend/_vite_build30`，不是 `src`；只改源码不 build，线上看到的仍是旧产物，且 `package.py` 不会报错。
+> - **⚠️ 行为变化（预期内）**：① 登出改为 `session.clear()`，CSRF token 一并清空（前端 `logout()` 已调 `clearCsrfToken()`，下次请求自动重新获取）；② `/admin/login` 新增 **10 次/60 秒**限流与失败延迟，自动化脚本 / 压测可能受影响；③ 未配 `EO_AUTH_KEY` 时限流键不再采信 `EO-Client-IP`，改按 `remote_addr` 聚合（统计/属地行为不变）——若线上依赖「无密钥也按真实客户端 IP 限流」，需先配置该密钥；④ 博客圈匿名强制刷新限为 **1 次/5 分钟**，超出静默回落缓存。
+> - **视觉变化（预期内）**：默认蓝色 `#1a73e8 → #196ddd`、代码块改用 `github-dark.css`（`pre` 背景 `#0d1117`）、元信息字号 13→14px（对比度 3.81:1 → 4.9:1）。
+> - **升级后核验**：登录后台确认左下角版本号为 **v5.3.4**；`/docs` 代码块有语言标签栏与复制按钮且高亮生效（需等文档加载完）。
+> - **安全提示**：本版审计报告 `docs/audit/2026-10-31-v5.3.3-audit-and-theme.md` 含漏洞细节（2FA 绕过条件、可见性泄露路径），仓库公开 —— **升级即完成闭环**，请尽快部署。
 
 > **v3.25.15（让 `GH_MIRROR` 真的用上 · 镜像优先）升级要点**：
 >

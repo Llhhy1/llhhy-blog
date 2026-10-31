@@ -95,12 +95,27 @@ def feed_circle():
     - feedparser_ok：feedparser 是否安装
     - fetched / skipped：成功抓取 / 跳过的源数
     - notes：每条友链的具体原因（安全校验未过 / 抓取失败 / 解析 0 条等）
+
+    v5.3.3 审计：`?refresh=1` 此前对匿名完全开放，可反复绕过 15 分钟缓存、
+    同步抓全部友链（单源最长 12 秒），既占 gunicorn worker，又替站主去压友链。
+    现改为：管理员可随时强制刷新；匿名每 5 分钟最多 1 次，超出则静默回落到
+    缓存（不返回 429，避免前台「刷新聚合」按钮把页面清空）。
     """
     try:
         import feed_agg
         force = request.args.get("refresh") == "1"
+        throttled = False
+        if force:
+            user = _current_user()
+            is_admin = bool(user and getattr(user, "is_admin_role", False))
+            if not is_admin and not rate_limit(
+                    client_key("feed_circle_refresh"), limit=1, window=300):
+                force = False
+                throttled = True
         items = feed_agg.get_circle_feed(force=force)
         debug = feed_agg.get_last_diag()
+        if throttled:
+            debug["refresh_throttled"] = True
     except Exception as e:
         # v3.8.4：不再静默——异常栈落日志（gunicorn.log 可查）
         import traceback

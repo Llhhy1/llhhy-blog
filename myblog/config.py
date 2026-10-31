@@ -127,7 +127,8 @@ class Config:
     #
     # ⚠️ EO_AUTH_KEY 是部署侧机密：**不要写进仓库/前端代码/任何公开位置**，
     #    只在宝塔「项目环境变量」里配（与 SECRET_KEY 同一处）。
-    # 留空 = 不启用 EO 还原，get_client_ip() 走原有「可信代理 + XFF」逻辑（零风险）。
+    # 留空 = 不启用 EO 还原的**限流信任**（client_key 走 strict 档，不采信该头）；
+    # 统计/属地仍会读取内置头以保准确度（见 utils/net.py，失真优于丢失）。
     EO_AUTH_KEY = os.environ.get("EO_AUTH_KEY", "")
 
     # 可选加固：拒绝绕过 CDN 直连源站（无正确 X-EO-Auth 的请求 → 403）。

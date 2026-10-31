@@ -103,9 +103,12 @@ def _is_trusted_proxy(ip, trusted):
 #      公网攻击者能伪造 ① 的头，但猜不到这个密钥；密钥不匹配就整个分支不生效。
 #
 # ⚠️ 安全含义（重要）：只开 ① 而没配 ② 时，`EO-Client-IP` 是可被直连源站者伪造的
-#   （谁都能给自己的请求加这个头）。此时本函数仍会采纳它 —— 换取统计准确性，
-#   代价是限流可被轮换假 IP 绕过。若在意，见 app.py 的 EO_BLOCK_DIRECT
-#   （拒绝直连源站）或让 Nginx 只对 EO 回源段透传该头。
+#   （谁都能给自己的请求加这个头）。v5.3.3 审计后分两档：
+#   - **限流键（client_key）走 strict=True**：没配密钥就完全不采纳该头，攻击者
+#     无法靠轮换假头绕过登录/2FA/评论/上传额度；
+#   - **统计/属地走默认宽松档**：仍采纳该头换取归属地准确性（失真优于丢失）。
+#   若在意统计被伪造，见 app.py 的 EO_BLOCK_DIRECT（拒绝直连源站）或让 Nginx
+#   只对 EO 回源段透传该头。
 EO_CLIENT_IP_HEADERS = ("EO-Client-IP", "X-EO-Client-IP")
 EO_AUTH_HEADER = "X-EO-Auth"
 
@@ -139,15 +142,16 @@ def _clean_ip(raw):
         return ""
 
 
-def get_client_ip():
+def get_client_ip(strict=False):
     """取客户端真实 IP（服务端统一收口，杜绝伪造 XFF 绕过限流/埋点/属地）。
 
     安全模型（v4.8.5 起分三级，优先级从高到低）：
     0. **EdgeOne 真实 IP 头**（`EO-Client-IP`，EdgeOne 内置，控制台开关打开即有）：
        - 配了 `EO_AUTH_KEY` 时，还要求 `X-EO-Auth` 完全匹配才采纳 —— 公网攻击者
          能伪造前者但猜不到后者，**这一级不可伪造**；
-       - 没配密钥时也采纳内置头（换取统计准确性），但此时直连源站者可伪造该头，
-         限流可被轮换假 IP 绕过 —— 风险与取舍见模块顶部注释。
+       - 没配密钥时：`strict=True` **完全不采纳**（限流等安全判据必须用这一档，
+         否则轮换假头即可绕过所有按 IP 的额度）；`strict=False` 仍采纳，只用于
+         统计/属地这类「失真优于丢失」的场景。
     1. X-Forwarded-For 仅在「TCP 直连对端 remote_addr 是可信代理」时才可被采纳；
        公网直连的请求一律忽略 XFF，直接使用不可伪造的 remote_addr——
        攻击者即便伪造任意公网 XFF 也会被丢弃，无法轮换 IP 绕过限流。
@@ -160,10 +164,13 @@ def get_client_ip():
         return ""
     # 0) EdgeOne 真实 IP 头（EO-Client-IP 为 EdgeOne 内置；X-EO-Client-IP 为备选自定义名）
     #    安全门禁只由密钥提供：配了 EO_AUTH_KEY 就要求 X-EO-Auth 完全匹配（不可伪造）；
-    #    没配密钥时无条件采纳 —— 两个头在无密钥时**同样可被直连源站者伪造**，
-    #    区别只在「哪个是 EdgeOne 真会发的」。此处选择保统计准确性，风险见顶部注释。
+    #    没配密钥时统计仍采纳（换取准确性），但 strict 档（限流）一律拒绝。
     eo_key = _eo_auth_key()
-    if (not eo_key) or request.headers.get(EO_AUTH_HEADER, "") == eo_key:
+    if eo_key:
+        eo_trusted = request.headers.get(EO_AUTH_HEADER, "") == eo_key
+    else:
+        eo_trusted = not strict
+    if eo_trusted:
         for _h in EO_CLIENT_IP_HEADERS:
             eo_ip = _clean_ip(request.headers.get(_h, ""))
             if eo_ip:
@@ -190,6 +197,11 @@ def get_client_ip():
 
 
 def client_key(prefix):
-    """基于客户端真实 IP 生成限流 key（服务端统一收口，防伪造 XFF 绕过限流）。"""
-    ip = get_client_ip() or "unknown"
+    """基于客户端真实 IP 生成限流 key（服务端统一收口，防伪造 XFF 绕过限流）。
+
+    v5.3.3 审计：必须用 `strict=True` —— 未签名时 `EO-Client-IP` 可被直连源站者
+    轮换伪造，用它做限流 key 等于所有按 IP 的额度（登录/2FA/评论/上传）都可绕过。
+    统计与属地仍走默认的宽松档，不影响「失真优于丢失」的展示口径。
+    """
+    ip = get_client_ip(strict=True) or "unknown"
     return f"{prefix}:{ip}"

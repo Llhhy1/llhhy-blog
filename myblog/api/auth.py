@@ -85,7 +85,9 @@ def auth_login():
 
 @api_bp.route("/auth/logout", methods=["POST"])
 def auth_logout():
-    session.pop("user_id", None)
+    # 登出清整份会话：只 pop user_id 会把 twofa_ok=True 留在 Cookie 里，
+    # 下一次仅凭密码登录即被闸门误判为「已过第二因素」。
+    session.clear()
     return jsonify({"ok": True})
 
 

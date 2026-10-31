@@ -3,6 +3,16 @@
 from ._helpers import _weak_password, log_login_attempt, login_required, super_required, admin_bp     # 同一蓝图对象
 from flask import abort, flash, redirect, render_template, request, session, url_for
 from models import User, db
+from utils import client_key, rate_limit
+
+
+def _needs_second_factor(user):
+    """该账号当前是否需要第二因素（全局开关打开且已确认绑定）。"""
+    from utils import flag_bool
+    import twofa
+    return bool(flag_bool("twofa_enabled", "TWOFA_ENABLED", False)
+                and twofa.is_active(user.id))
+
 
 @admin_bp.route("/login", methods=["GET", "POST"])
 def login():
@@ -20,19 +30,31 @@ def login():
             return redirect(url_for("admin.dashboard") if u.is_admin_role
                             else url_for("admin.new_post"))
     if request.method == "POST":
+        # 与前台 /login 同额度：同 IP 60 秒最多 10 次，防暴力破解。
+        # 此前该入口完全没有限流，等于绕开前台的保护直接猜密码。
+        if not rate_limit(client_key("admin_login"), limit=10, window=60):
+            flash("尝试过于频繁，请稍后再试")
+            return render_template("admin/login.html"), 429
         username = request.form.get("username", "")
         password = request.form.get("password", "")
         user = User.query.filter_by(username=username).first()
         if user and user.check_password(password):
-            log_login_attempt(username, True)
             session["user_id"] = user.id
             session["session_version"] = user.session_version or 0  # v3.1.6：会话版本绑定
+            # 建立登录态必须显式复位第二因素标记：否则上一轮会话残留的
+            # twofa_ok=True 会让「只知道密码」的会话直接跳过 TOTP。
+            session["twofa_ok"] = False
+            if not _needs_second_factor(user):
+                log_login_attempt(username, True)
             if user.is_super and user.must_change_password:
                 return redirect(url_for("admin.setup"))
             # 按角色分流
             return redirect(url_for("admin.dashboard") if user.is_admin_role
                             else url_for("admin.new_post"))
         log_login_attempt(username, False)
+        # 与前台一致的失败延迟：消除用户名存在性时序侧信道
+        from api.common import _login_delay
+        _login_delay()
         flash("用户名或密码错误")
         return render_template("admin/login.html")
     # GET 未登录：跳转到前台统一登录页（同一会话，登录后按权限自动回到对应页面）
@@ -71,14 +93,16 @@ def setup():
                 # 重新登录：用新密码建立新会话（旧会话版本已失效）
                 session["user_id"] = user.id
                 session["session_version"] = user.session_version
+                session["twofa_ok"] = False
                 flash("账号设置完成，欢迎使用后台！")
                 return redirect(url_for("admin.dashboard"))
     return render_template("admin/setup.html", user=user)
 
 @admin_bp.route("/logout", methods=["GET", "POST"])
 def logout():
-    session.pop("user_id", None)
-    session.pop("admin", None)
+    # 登出必须连第二因素标记一起清：只 pop user_id 会留下 twofa_ok=True，
+    # 下一次仅凭密码登录时闸门会误判「已过第二因素」。
+    session.clear()
     return redirect(url_for("main.index"))
 
 @admin_bp.route("/password", methods=["GET", "POST"])

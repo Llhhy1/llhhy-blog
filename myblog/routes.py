@@ -103,10 +103,19 @@ def register():
             # 下一个请求即被判失效（旧实现只在后台 admin/auth.py 里写了这一项）。
             session["user_id"] = u.id
             session["session_version"] = u.session_version or 0
+            session["twofa_ok"] = False
             flash("注册成功，欢迎你！")
             return redirect(url_for("main.index"))
     return render_template("register.html",
                            captcha_on=_captcha_required("register"))
+
+
+def _needs_second_factor(user):
+    """该账号当前是否需要第二因素（全局开关打开且已确认绑定）。"""
+    from utils import flag_bool
+    import twofa
+    return bool(flag_bool("twofa_enabled", "TWOFA_ENABLED", False)
+                and twofa.is_active(user.id))
 
 
 @main_bp.route("/login", methods=["GET", "POST"])
@@ -123,10 +132,13 @@ def login():
         password = request.form.get("password", "")
         u = User.query.filter_by(username=username).first()
         if u and u.check_password(password):
-            log_login_attempt(username, True)
             # v3.18.5：同注册——前台登录也必须写入 session_version（见 admin/auth.py 的正确实现）
             session["user_id"] = u.id
             session["session_version"] = u.session_version or 0
+            # 显式复位：不能沿用上一轮会话残留的 twofa_ok=True
+            session["twofa_ok"] = False
+            if not _needs_second_factor(u):
+                log_login_attempt(username, True)
             flash(f"欢迎回来，{u.username}！")
             # 登录表单 POST 时 next 在 query string（login.html 的 action 已带上），
             # 兼容放在表单体里的写法，两处都取一次。
@@ -140,8 +152,9 @@ def login():
 
 @main_bp.route("/logout")
 def logout():
-    session.pop("user_id", None)
-    session.pop("twofa_ok", None)        # 登出必须连第二因素状态一起清掉
+    # 登出必须清整份会话（至少含 user_id / twofa_ok / session_version）：
+    # 只 pop user_id 会留下 twofa_ok=True，下一次仅凭密码登录即可跳过 TOTP。
+    session.clear()
     return redirect(url_for("main.index"))
 
 

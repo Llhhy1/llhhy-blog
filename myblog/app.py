@@ -526,7 +526,8 @@ def _register_request_hooks(app):
     # 只过了密码的会话去改动第二因素本身（v3.21.2 审计 C2 的同一条路径）。
     _TWOFA_ALLOW = ("/twofa", "/static/", "/favicon.ico",
                     "/api/auth/2fa/verify", "/api/auth/2fa/status",
-                    "/api/auth/logout", "/api/auth/me", "/api/csrf", "/logout")
+                    "/api/auth/logout", "/api/auth/me", "/api/csrf",
+                    "/logout", "/admin/logout")
 
     @app.before_request
     def enforce_twofa():

@@ -99,7 +99,9 @@ def _rgba(h, alpha):
 # 因此：键必须在白名单内，值必须匹配它那一类的语法。
 _ACCENT_RE = re.compile(r"^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$")
 _HEX_COLOR_RE = re.compile(r"^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$")
-_FUNC_COLOR_RE = re.compile(r"^(?:rgba?|hsla?|hwb)\(\s*[-0-9a-zA-Z,.%/#\s]*\)$")
+# ⚠️ 括号后**不要再跟 `\s*`**：字符类里已含 `\s`，两个相邻的可变长量词能匹配同一批
+# 字符就会形成歧义，CodeQL 直接报多项式回溯（ReDoS）。现在只剩一个 `*`，线性时间。
+_FUNC_COLOR_RE = re.compile(r"^(?:rgba?|hsla?|hwb)\([-0-9a-zA-Z,.%/#\s]*\)$")
 _LENGTH_RE = re.compile(r"^\d+(?:\.\d+)?(?:px|rem|em|%)$")
 _NUMBER_RE = re.compile(r"^\d+(?:\.\d+)?$")
 # 阴影类：允许 hex / 函数色 / 长度 / 逗号 / `inset`，不允许下面这些危险子串。
@@ -129,6 +131,10 @@ def _token_value_ok(kind, value):
     if not isinstance(value, str) or not value.strip():
         return False
     v = value.strip()
+    if len(v) > 200:
+        # token 全是短值。先把规模钉住，正则的最坏耗时就有了上界，
+        # 也顺手挡掉「拿一个 100KB 字符串来喂校验函数」这种用法。
+        return False
     low = v.lower()
     if any(sub in low for sub in _FORBIDDEN_SUBSTRINGS):
         return False
@@ -142,7 +148,7 @@ def _token_value_ok(kind, value):
     if kind == "number":
         return bool(_NUMBER_RE.match(v))
     if kind == "family":
-        return bool(_FAMILY_RE.match(v)) and len(v) <= 200
+        return bool(_FAMILY_RE.match(v))
     if kind == "shadow":
         return bool(_SHADOW_RE.match(v))
     return False

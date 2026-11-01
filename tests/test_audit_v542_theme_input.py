@@ -13,13 +13,15 @@
 """
 import json
 import re
+import time
 import uuid
 
 import pytest
 from models import db, Setting
 from utils import css_context_escape, normalize_lang
-from themes import (THEME_PRESETS, _BASE_LIGHT, current_theme, normalize_custom_theme,
-                    sanitize_theme_tokens, validate_accent)
+from themes import (THEME_PRESETS, _BASE_LIGHT, _FUNC_COLOR_RE, _token_value_ok,
+                    current_theme, normalize_custom_theme, sanitize_theme_tokens,
+                    validate_accent)
 
 DIRTY_CSS = "a{color:red}</StYlE><script>evil()</script>"
 DIRTY_ACCENT = "red;} html{display:none} :root{--accent:blue"
@@ -121,6 +123,29 @@ def test_token_whitelist_rejects_unknown_key():
 def test_token_values_are_typed(key, value):
     clean, errors = sanitize_theme_tokens({key: value})
     assert key not in clean and errors, "%s=%r 应被拒绝" % (key, value)
+
+
+@pytest.mark.parametrize("good", [
+    "rgba(25, 109, 221, .10)", "rgb(25,109,221)", "hwb(180 20% 30%)", "hsla(0 0% 0% / .5)",
+])
+def test_function_colors_still_pass(good):
+    """改正则不能把合法写法一起改掉：空格、`/` 分隔、百分号都要收。"""
+    assert _token_value_ok("color", good), good
+
+
+def test_color_regex_has_no_overlapping_quantifiers():
+    """CodeQL 在 v5.4.x 这里报过**多项式回溯**（ReDoS）：`\\(\\s*[\\s…]*\\)` 里相邻两个
+    量词都能吃掉同一批空白字符。空白类只能出现一次，且输入规模要先被钉住。"""
+    assert r"(\s*" not in _FUNC_COLOR_RE.pattern, "函数色正则不要再放 `\\s*`：字符类已含空白"
+    start = time.perf_counter()
+    for bad in ("hwb(" + "\t" * 200 + "x", "rgb(" + " " * 200 + "x"):
+        assert _token_value_ok("color", bad) is False
+    assert time.perf_counter() - start < 0.5, "校验函数被回溯拖住了"
+
+
+def test_overlong_token_value_is_rejected_before_matching():
+    assert _token_value_ok("color", "#fff" + "a" * 400) is False
+    assert _token_value_ok("family", "A" * 5000) is False
 
 
 def test_normalize_custom_theme_completes_base_tokens():

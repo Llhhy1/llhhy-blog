@@ -8,7 +8,7 @@ from flask import (Blueprint, request, redirect, url_for,
 from models import (db, Post, Tag, Comment, User, Guestbook, AuditLog, PostHistory, RecycleBin,
                     Announcement, FriendLink)
 from utils import (make_slug, ascii_slug, count_words, validate_password, apply_slug_template,
-                   BEIJING_TZ, safe_redirect)
+                   BEIJING_TZ, safe_redirect, normalize_lang)
 from config import APP_VERSION
 import audit as _audit
 import fts
@@ -342,7 +342,9 @@ def create_post_core(*, title, content, summary="", cover="", category_id=None,
         author_id=author_id,
         word_count=wc, reading_minutes=rm,
         is_private=is_private, reward_enabled=reward_enabled, reward_qr=reward_qr,
-        lang=(lang or "zh"), translation_group=(translation_group or "").strip(),
+        # v5.3.3 审计 P2-4：lang 会被拼进 `<html lang='…'>` 与 XML 的 hreflang 属性，
+        # 旧实现只 strip()，作者可写 `x'><script>…` 落库。写入侧一律过白名单。
+        lang=normalize_lang(lang), translation_group=(translation_group or "").strip(),
     )
     db.session.add(post)
     db.session.flush()  # 先把文章放进会话，避免标签关联警告
@@ -441,7 +443,7 @@ def update_post_core(post, form, user):
         post.pin_requested = False  # 管理员直接操作置顶，不留申请态
     post.seo_description = (form.get("seo_description") or "").strip()
     post.seo_keywords = (form.get("seo_keywords") or "").strip()
-    post.lang = (form.get("lang") or "zh").strip() or "zh"
+    post.lang = normalize_lang(form.get("lang"))
     post.translation_group = (form.get("translation_group") or "").strip()
     if user.is_super:
         post.is_private = form_flag(form, "is_private")

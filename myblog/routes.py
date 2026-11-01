@@ -597,7 +597,8 @@ def feed():
         author = (p.author.username if p.author else site_title)
         cat = p.category.name if p.category else ""
         alts = "".join(
-            f"      <atom:link rel='alternate' hreflang='{h}' href='{escape(u)}'/>\n"
+            f"      <atom:link rel='alternate' hreflang='{escape(str(h))}' "
+            f"href='{escape(u)}'/>\n"
             for h, u in hreflang_alternates(p, base)
         )
         items.append(
@@ -657,7 +658,7 @@ def atom_feed():
         when = fmt_bj(p.created_at, ts)
         # v3.21.0 内容多语言：每个语言版本独立 <link rel=alternate hreflang=...>
         alts = "".join(
-            f'    <link href="{escape(u)}" rel="alternate" hreflang="{h}"/>\n'
+            f'    <link href="{escape(u)}" rel="alternate" hreflang="{escape(str(h))}"/>\n'
             for h, u in hreflang_alternates(p, base)
         )
         entries.append(
@@ -791,7 +792,8 @@ def sitemap():
         if cover:
             extra += f'<image:image><image:loc>{escape(cover)}</image:loc></image:image>'
         for h, alt_u in hreflang_alternates(p, base):
-            extra += f'<xhtml:link rel="alternate" hreflang="{h}" href="{escape(alt_u)}"/>'
+            extra += (f'<xhtml:link rel="alternate" hreflang="{escape(str(h))}" '
+                      f'href="{escape(alt_u)}"/>')
         lines.append(f"  <url><loc>{escape(u)}</loc>{extra}"
                      f"<changefreq>weekly</changefreq><priority>0.8</priority></url>")
     lines.append("</urlset>")

@@ -7,6 +7,7 @@ from utils import fmt_bj, get_setting, site_base
 from _time import utcnow
 import logging
 import os
+import re
 import threading
 from urllib.parse import urlparse
 
@@ -144,6 +145,24 @@ def settings():
                     continue
                 else:
                     val = raw
+            elif f == "accent_color":
+                # v5.3.3 审计 P2-2：旧实现原样存表单值，而它会被拼进 SSR 的
+                # `:root { --accent: {{ settings.accent_color }} }`，
+                # `red;} html{display:none}` 之类即可注入任意 CSS 规则。
+                from themes import validate_accent
+                val, err = validate_accent(request.form.get(f, ""))
+                if err:
+                    flash(err + "，已保留原值。", "error")
+                    continue
+            elif f == "custom_css":
+                # v5.3.3 审计 P2-1：渲染侧已改成大小写不敏感地转义 `</style`，
+                # 这里再拒一次 `</` —— 自定义 CSS 本来就没有合法理由包含它，
+                # 让「库里存的值本身无法闭合 <style>」成为不依赖渲染的细节。
+                raw = request.form.get(f, "") or ""
+                if re.search(r"(?i)</", raw):
+                    flash("自定义 CSS 不能包含 </（会破坏页面结构），已保留原值。", "error")
+                    continue
+                val = raw
             else:
                 val = request.form.get(f, "")
             row = Setting.query.filter_by(key=f).first()

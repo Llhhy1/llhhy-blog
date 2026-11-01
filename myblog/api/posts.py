@@ -238,7 +238,7 @@ def _rss_xml(posts, title, desc, base):
         cat = p.category.name if p.category else ""
         # v3.21.0 内容多语言：译文组 hreflang 互链
         alts = "".join(
-            f"      <atom:link rel='alternate' hreflang='{h}' href='{escape(u)}'/>\n"
+            f"      <atom:link rel='alternate' hreflang='{escape(str(h))}' href='{escape(u)}'/>\n"
             for h, u in hreflang_alternates(p, base)
         )
         items.append(

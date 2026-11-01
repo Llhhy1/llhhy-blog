@@ -22,6 +22,45 @@ def js_escape(raw):
     return s.replace("</", "<\\/")
 
 
+# HTML 结束标签**大小写不敏感**：v5.3.3 审计发现旧实现只做小写 `str.replace("</style", ...)`，
+# 于是 `</StYlE><script>…` 照样能逃逸出 <style> 上下文。
+_STYLE_CLOSE_RE = re.compile(r"(?i)<\s*/\s*style")
+_COMMENT_OPEN_RE = re.compile(r"(?i)<\s*!--")
+
+
+def css_context_escape(css):
+    """把自定义 CSS 里「能提前结束 <style> 元素」的序列转义掉。
+
+    `<\\/style` 在 CSS 里是无意义内容，不会闭合标签，也不影响任何正常样式。
+    这是渲染侧的最后一道防线；写入侧（后台设置 / 主题导入）也应校验。
+    """
+    if not css:
+        return ""
+    s = _STYLE_CLOSE_RE.sub(r"<\/style", str(css))
+    return _COMMENT_OPEN_RE.sub(r"<\!--", s)
+
+
+# BCP 47 的宽松子集：`zh` / `en` / `zh-CN` / `pt-BR`。刻意不允许引号、
+# 尖括号、反斜杠 —— `post.lang` 会被拼进 `<html lang='…'>` 与 XML 的
+# `hreflang="…"`，脏值等于属性注入（v5.3.3 审计 P2-4）。
+_LANG_RE = re.compile(r"^[A-Za-z]{2,8}(?:-[A-Za-z0-9]{1,8})*$")
+
+
+def is_valid_lang(raw):
+    """是否是可接受的 BCP 47 语言标签（宽松子集）。"""
+    return bool(_LANG_RE.match((raw or "").strip()))
+
+
+def normalize_lang(raw, default="zh"):
+    """把语言标签收敛到白名单形态；非法一律回落 default。
+
+    写入侧用它，是为了让「脏值」根本进不了库；输出侧仍各自做转义，
+    防的是备份还原 / 历史数据 / 直接改库带进来的存量。
+    """
+    s = (raw or "").strip()
+    return s if _LANG_RE.match(s) else default
+
+
 
 
 def count_words(content):

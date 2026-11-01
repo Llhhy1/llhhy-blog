@@ -11,6 +11,7 @@
 - 降级：任意色彩解析失败都回退默认值，绝不抛异常导致页面 500。
 """
 import math
+import re
 
 
 # ---------- OKLCH 色彩工具（纯标准库，sRGB <-> OKLab <-> OKLCH）----------
@@ -86,6 +87,154 @@ def _rgba(h, alpha):
     if not rgb:
         return "rgba(0,0,0,%s)" % alpha
     return "rgba(%d,%d,%d,%s)" % (rgb[0], rgb[1], rgb[2], alpha)
+
+
+# ---------- 自定义主题 token 的校验（v5.4.x，开放访客/主题导入前的硬门槛）----------
+#
+# 为什么要白名单 + 逐类取值校验：`POST /api/theme` 目前只判「light.accent 存不存在」，
+# 任意键值都会落库；前台 `store.js: applyThemeTokens()` 把每个键 `setProperty("--"+k, v)`
+# 写进 :root。CSSOM 挡住了 `</style>` 逃逸，但**挡不住值本身**：
+# 任何被 `background:` 消费的 token 写进 `url(https://attacker/…)` 就是一个
+# 按访客浏览器发出的信标（CSP `img-src https:` 还放行外域图片）。
+# 因此：键必须在白名单内，值必须匹配它那一类的语法。
+_ACCENT_RE = re.compile(r"^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$")
+_HEX_COLOR_RE = re.compile(r"^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$")
+_FUNC_COLOR_RE = re.compile(r"^(?:rgba?|hsla?|hwb)\(\s*[-0-9a-zA-Z,.%/#\s]*\)$")
+_LENGTH_RE = re.compile(r"^\d+(?:\.\d+)?(?:px|rem|em|%)$")
+_NUMBER_RE = re.compile(r"^\d+(?:\.\d+)?$")
+# 阴影类：允许 hex / 函数色 / 长度 / 逗号 / `inset`，不允许下面这些危险子串。
+_SHADOW_RE = re.compile(r"^[\w#%().,\-\s]+$")
+_FAMILY_RE = re.compile(r"^[\w\s,'\"()\-\.]+$")
+_FORBIDDEN_SUBSTRINGS = ("url(", "expression", "javascript", "@import", "@", "\\", "<", ">", "{", "}", ";", ":")
+
+# token 名 → 校验类别。键集合同时充当白名单。
+_TOKEN_KIND = {
+    "accent": "color", "accent_hover": "color", "on_accent": "color",
+    "bg": "color", "surface": "color", "surface_2": "color", "surface_3": "color",
+    "text": "color", "text_muted": "color", "text_faint": "color",
+    "border": "color", "border_strong": "color",
+    "success": "color", "warning": "color", "danger": "color", "info": "color",
+    "nav_bg": "color", "nav_fg": "color", "nav_border": "color",
+    "accent_soft": "color_alpha",
+    "radius_sm": "length", "radius_md": "length", "radius_lg": "length",
+    "radius_pill": "length", "font_size_base": "length",
+    "line_height_base": "number",
+    "font_sans": "family",
+    "shadow_sm": "shadow", "shadow_md": "shadow", "shadow_lg": "shadow",
+}
+
+
+def _token_value_ok(kind, value):
+    """单个 token 取值是否合法（按类别）。"""
+    if not isinstance(value, str) or not value.strip():
+        return False
+    v = value.strip()
+    low = v.lower()
+    if any(sub in low for sub in _FORBIDDEN_SUBSTRINGS):
+        return False
+    if kind == "color":
+        return bool(_HEX_COLOR_RE.match(v)) or bool(_FUNC_COLOR_RE.match(v))
+    if kind == "color_alpha":
+        # accent_soft 这类需要带 alpha：hex 或 rgba()/hsla() 都行
+        return bool(_HEX_COLOR_RE.match(v)) or bool(_FUNC_COLOR_RE.match(v))
+    if kind == "length":
+        return bool(_LENGTH_RE.match(v))
+    if kind == "number":
+        return bool(_NUMBER_RE.match(v))
+    if kind == "family":
+        return bool(_FAMILY_RE.match(v)) and len(v) <= 200
+    if kind == "shadow":
+        return bool(_SHADOW_RE.match(v))
+    return False
+
+
+def validate_accent(raw):
+    """校验 `accent_color`（后台设置 / 主题导入共用）。
+
+    返回 `(值, 错误文案)`：留空 = 清空（前台回落 token 默认色）；非法 = 报错不落库。
+    旧实现把表单值原样写库，再拼进 SSR `<style>` 的 `--accent: {{ … }}`，
+    等于允许 `red;} html{display:none} :root{--accent:blue` 这种规则注入。
+    """
+    s = (raw or "").strip()
+    if not s:
+        return "", None
+    if _ACCENT_RE.match(s):
+        return s, None
+    return None, "主题色必须是 #rgb 或 #rrggbb 十六进制格式"
+
+
+def sanitize_theme_tokens(raw):
+    """把用户提供的 token 字典过滤成「白名单键 + 合法值」。
+
+    返回 `(clean_dict, errors)`：`errors` 是给人看的文案（未知键 / 非法值）。
+    刻意**不因非法键报错终止**整次导入？不 —— 未知键与非法值都记进 errors，
+    由调用方决定拒绝还是部分接受；这里只负责给出结论。
+    """
+    if not isinstance(raw, dict):
+        return {}, ["主题 token 必须是对象"]
+    clean, errors = {}, []
+    for key, value in raw.items():
+        kind = _TOKEN_KIND.get(str(key))
+        if kind is None:
+            errors.append("不支持的 token：%s" % key)
+            continue
+        if not _token_value_ok(kind, value):
+            errors.append("token「%s」取值不合法：%r" % (key, value))
+            continue
+        clean[key] = value.strip()
+    return clean, errors
+
+
+def normalize_custom_theme(custom):
+    """校验自定义主题入参，返回 `(light, dark, errors)`。
+
+    规则（v5.4.x）：
+    - 以 `_BASE_LIGHT` 为底，**只覆盖校验通过的键**；缺项由基准补齐，
+      避免出现「只传 accent，结果前台没有 --text」的半套主题。
+    - `accent` 必填且必须是十六进制色（沿用既有契约）。
+    - `dark` 可选：给了就逐键覆盖推导结果（不会让暗色也变成半套）。
+    """
+    if not isinstance(custom, dict):
+        return None, None, ["自定义主题必须是 JSON 对象"]
+    light_raw = custom.get("light") if isinstance(custom.get("light"), dict) else custom
+    dark_raw = custom.get("dark") if isinstance(custom.get("dark"), dict) else None
+
+    light_clean, errors = sanitize_theme_tokens(light_raw)
+    if dark_raw is not None:
+        dark_clean, dark_errors = sanitize_theme_tokens(dark_raw)
+        errors.extend(dark_errors)
+    else:
+        dark_clean = None
+
+    accent = light_clean.get("accent")
+    if not accent:
+        errors.insert(0, "自定义主题必须包含合法的 accent（#rgb / #rrggbb）")
+    if errors:
+        return None, None, errors
+
+    light = dict(_BASE_LIGHT)
+    light.update(light_clean)
+    # accent 变了，配套的 hover/soft/info 也要跟着重算（与 _make_pack 同一口径），
+    # 否则「只改主色」的自定义主题会留着旧蓝色的 hover/soft，观感割裂。
+    # ⚠️ 不能用 setdefault：light 已由 _BASE_LIGHT 打底，这三个键必然已存在，那样一个都不会重算。
+    at = hex_to_oklch(accent) or (0.6, 0.12, 0.0)
+    derived = {"accent_hover": oklch_to_hex(max(0.0, at[0] - 0.06), at[1], at[2]),
+               "accent_soft": _rgba(accent, 0.10),
+               "info": accent}
+    for key, val in derived.items():
+        if key not in light_clean:
+            light[key] = val
+    # muted/faint 同理：它们是针对**本主题真实表面**重新求解的 WCAG 档位，
+    # 沿用基准值会在浅色 surface 的主题上跌破 4.5:1。
+    _surf = light.get("surface_2") or light["surface"]
+    if "text_muted" not in light_clean:
+        light["text_muted"] = _muted_for(_surf, "#6a717f", light=True)
+    if "text_faint" not in light_clean:
+        light["text_faint"] = _faint_for(_surf, light["text_muted"], light=True)
+    dark = derive_dark(light)
+    if dark_clean:
+        dark.update(dark_clean)   # 用户给的暗色只覆盖对应键，其余仍由推导补齐
+    return light, dark, []
 
 
 # ---------- 默认亮色 token（与 tokens.css 一致）----------
@@ -551,6 +700,10 @@ def current_theme():
 
     优先用 Setting 中持久化的 theme_tokens（含亮/暗完整映射）；
     否则用 accent_color 即时推导默认主题（保证任何情况下都有完整 token）。
+
+    v5.4.x：读侧同样过一次白名单 —— 库里可能躺着备份还原、历史版本或直接改库
+    带进来的脏值，写入校验管不到它们；而这些值会被前台逐个 `setProperty` 到
+    :root，所以「渲染前再洗一遍」是必要的纵深，不是重复劳动。
     """
     from utils import get_setting
     pack_id = (get_setting("theme_pack") or "").strip()
@@ -558,12 +711,19 @@ def current_theme():
     if raw:
         try:
             data = __import__("json").loads(raw)
-            light = data.get("light") or {}
-            dark = data.get("dark") or derive_dark(light)
-            if light:
+            light_in = data.get("light") if isinstance(data.get("light"), dict) else {}
+            dark_in = data.get("dark") if isinstance(data.get("dark"), dict) else {}
+            light_ok, _ = sanitize_theme_tokens(light_in)
+            dark_ok, _ = sanitize_theme_tokens(dark_in)
+            if light_ok.get("accent"):
+                light = dict(_BASE_LIGHT)
+                light.update(light_ok)
+                dark = derive_dark(light)
+                if dark_ok:
+                    dark.update(dark_ok)
                 return {"pack_id": pack_id or "custom", "light": light, "dark": dark}
         except Exception:  # noqa: S110  旁路/兜底路径，失败按降级处理，不影响主流程
             pass
-    accent = get_setting("accent_color", "#1a73e8") or "#1a73e8"
+    accent = validate_accent(get_setting("accent_color", "#1a73e8") or "")[0] or "#196ddd"
     t = _default_theme(accent)
     return {"pack_id": pack_id or "default", "light": t["light"], "dark": t["dark"]}

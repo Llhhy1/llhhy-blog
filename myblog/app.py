@@ -616,15 +616,18 @@ def _register_template_context(app):
             generate_csrf_token()
 
     def _safe_css(css):
-        r"""v3.17.11（审计 R76-B3）：自定义 CSS 注入 <style> 前转义闭合序列。
+        r"""v3.17.11（审计 R76-B3）+ v5.4.x 加固：自定义 CSS 注入 <style> 前转义闭合序列。
 
         原实现把 custom_css 直接 `| safe` 注入 <style>，内容含 `</style><script>…` 时可
         逃逸出样式上下文执行脚本（当前 custom_css 仅超管可写，属低危，但转义为零成本加固）。
         `<\/style` 在 CSS 中无意义、不会闭合标签，因此不影响任何正常样式。
+
+        ⚠️ v5.3.3 审计发现旧写法只做**小写** `str.replace("</style", ...)`，而 HTML
+        结束标签大小写不敏感，`</StYlE><script>…` 可以绕过。现统一走
+        `utils.css_context_escape`（大小写不敏感）。
         """
-        if not css:
-            return ""
-        return str(css).replace("</style", "<\\/style").replace("<!--", "<\\!--")
+        from utils import css_context_escape
+        return css_context_escape(css)
 
     @app.context_processor
     def inject_globals():
@@ -680,6 +683,10 @@ def _register_template_context(app):
         theme_css = (
             f"--theme-radius: {radius}; --theme-font-size: {font_size}; "
         )
+        # v5.3.3 审计 P2-2：`--accent` 直接插在 `<style>` 里，脏值（备份还原 / 直接改库 /
+        # 老版本写入）可以塞进任意 CSS 规则。写入侧已校验，这里再洗一遍给渲染用。
+        from themes import validate_accent
+        accent_hex = validate_accent(settings.get("accent_color"))[0] or "#196ddd"
         # v3.17.0 修复「深色模式顶部白条」：导航配色（nav_style，独立设置）原先无条件注入
         # :root，与 tokens.css 的 dark 规则同特异性且后定义 → 深色下把导航背景压回白色。
         # v3.17.1：属性选择器**不要加引号**——Jinja autoescape 会把引号转义成 &#34;/&#39;，
@@ -700,6 +707,7 @@ def _register_template_context(app):
 
             current_user=current_user,
             admin_css_v=admin_css_v,
+            accent_hex=accent_hex,
             theme_css=theme_css,
             theme_nav_css=theme_nav_css,
             custom_css=_safe_css(settings.get("custom_css", "")),

@@ -4,15 +4,18 @@
 GET  /api/theme  —— 公开：返回预设主题包列表 + 当前激活 pack_id（供前台主题选择器/后台预览用）
 POST /api/theme  —— 仅超管：应用预设包（pack_id）或自定义主题（custom JSON）；写 Setting 并审计
 
-安全：POST 必须有登录超管会话 + 全局 CSRF（app 层 POST 统一校验）；自定义主题 JSON 仅接受
-      {light:{...}, dark?:{...}} 或单层 token 对象，非法结构直接 400，绝不执行任意代码。
+安全：POST 必须有登录超管会话 + 全局 CSRF（app 层 POST 统一校验）。自定义主题走
+      `themes.normalize_custom_theme()`：**键必须在 token 白名单内、值必须匹配该键的语法**
+      （颜色 / 长度 / 数值 / 字体族 / 阴影），缺的键由基准主题补齐，非法键值 400 并回文案。
+      这些 token 会被前台逐个 `setProperty` 写进 `:root`，所以「挡住 url() 之类的外联值」
+      不是洁癖 —— 那是让每个访客的浏览器替站主去请求第三方地址。
 """
 import json
 
 from .common import api_bp, jsonify
 from flask import request, session
 from models import User, Setting, db
-from themes import THEME_PRESETS, PRESET_MAP, current_theme, derive_dark
+from themes import THEME_PRESETS, PRESET_MAP, current_theme, normalize_custom_theme
 # v3.25.0：审计写入搬到顶层 `audit.py` 后，本模块**可以正常顶层导入**了 ——
 # 原先 `from admin import log_audit` 只能塞进函数里延迟导入，因为
 # `admin.ai_summary → api` 构成包级循环，模块顶层导出会直接 ImportError。
@@ -128,15 +131,15 @@ def theme_post():
             db.session.add(Setting(key=key, value=val))
 
     if custom is not None:
-        # 自定义主题：接受 {light:{...}, dark?:{...}} 或单层 {accent:..., ...}
-        if not isinstance(custom, dict):
-            return jsonify({"error": "invalid custom theme"}), 400
-        light = custom.get("light") if isinstance(custom.get("light"), dict) else custom
-        if not isinstance(light, dict) or not light.get("accent"):
-            return jsonify({"error": "custom theme requires light.accent"}), 400
-        dark = custom.get("dark") if isinstance(custom.get("dark"), dict) else derive_dark(light)
+        # 自定义主题：{light:{...}, dark?:{...}} 或单层 {accent:..., ...}
+        # v5.4.x 加固：以前只判「light.accent 存不存在」，任意键值都会落库并被前台
+        # `setProperty("--"+k, v)` 写进 :root。现在走白名单 + 逐类取值校验，
+        # 缺的键由基准主题补齐（避免半套主题），非法键/值直接 400。
+        light, dark, errors = normalize_custom_theme(custom)
+        if errors:
+            return jsonify({"error": "invalid custom theme", "details": errors[:20]}), 400
         set_kv("theme_pack", "custom")
-        set_kv("accent_color", str(light.get("accent", "#1a73e8")))
+        set_kv("accent_color", light["accent"])
         set_kv("theme_tokens", json.dumps({"light": light, "dark": dark}, ensure_ascii=False))
     elif pack_id in PRESET_MAP:
         p = PRESET_MAP[pack_id]

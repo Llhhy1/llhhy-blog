@@ -28,7 +28,7 @@ from flask import request, Response, send_file
 
 from .common import api_bp
 from models import visible_posts_query, hreflang_alternates
-from utils import (get_setting, fmt_bj, site_base, abs_url, seo_shell_ua,
+from utils import (get_setting, fmt_bj, site_base, abs_url, seo_shell_ua, normalize_lang,
                    is_search_engine_ua, HUMAN_VETO_REASONS)
 from og_image import og_png_bytes
 
@@ -401,11 +401,15 @@ def og_post(slug):
     ld = _json_ld(post, public_url, site_name, image_abs, desc)
     # v3.21.0 内容多语言：hreflang 互链（防重复内容）+ 正确 <html lang>
     base = public_url.rsplit("/post/", 1)[0]
+    # v5.3.3 审计 P2-4：hreflang / html lang 现在**写入侧已白名单**，这里再转义一次
+    # 是防存量脏数据（备份还原、直接改库）—— 它们会落进 `<html lang='…'>` 属性。
     alt_links = "".join(
-        f"<link rel='alternate' hreflang='{h}' href='{html.escape(u_)}'>"
+        f"<link rel='alternate' hreflang='{html.escape(str(h), quote=True)}' "
+        f"href='{html.escape(u_, quote=True)}'>"
         for h, u_ in hreflang_alternates(post, base)
     )
-    html_lang = "zh-CN" if (post.lang or "zh") == "zh" else post.lang
+    raw_lang = normalize_lang(post.lang)
+    html_lang = html.escape("zh-CN" if raw_lang == "zh" else raw_lang, quote=True)
 
     # 正文：复用 content_html 缓存列（v3.9.1 起渲染结果已落库，命中时几乎零成本），
     # 不新写渲染逻辑，也就不会引入与正文页不一致的 XSS/白名单差异。

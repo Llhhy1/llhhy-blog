@@ -43,6 +43,9 @@ from .slug import (  # noqa: F401
 )
 from .text import (  # noqa: F401
     js_escape,
+    css_context_escape,
+    is_valid_lang,
+    normalize_lang,
     count_words,
     parse_device,
     detect_bot,

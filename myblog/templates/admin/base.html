@@ -6,7 +6,7 @@
   <title>{% block title %}后台管理{% endblock %} · {{ settings.site_name or settings.site_title or '博客后台' }}</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='admin.css') }}?v={{ admin_css_v }}">
   <style>
-    :root { --accent: {{ settings.accent_color or '#196ddd' }}; {{ theme_css }} }
+    :root { --accent: {{ accent_hex }}; {{ theme_css }} }
     {{ theme_nav_css }}
   </style>
   {% if custom_css %}<style id="site-custom-css">{{ custom_css | safe }}</style>{% endif %}

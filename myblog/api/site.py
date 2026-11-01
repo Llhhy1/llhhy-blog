@@ -5,7 +5,7 @@ import re as _re
 from flask import request, jsonify
 
 from .common import (api_bp, db, Post, Category, Tag, PostTag, Comment, FriendLink, LinkApplication, Announcement, visible_posts_query, _settings_map, clean_html, render_markdown, rate_limit, client_key)
-from themes import current_theme
+from themes import current_theme, visitor_theme_allowed
 # v4.5.0 首页壁纸。单向依赖（theme 不引用 site），不构成包级循环。
 from .theme import _wallpaper
 import stats  # myblog/stats.py：client_ip（友链申请归属地）
@@ -127,6 +127,9 @@ def site():
         "theme_dark_tokens": current_theme()["dark"],
         # v4.5.0 首页壁纸（存 Setting KV，零表结构变更；URL 已限定本站 uploads）
         "wallpaper": _wallpaper(),
+        # 档 1：站主是否在主题中心开放「访客自选主题」。默认关 —— 前台据此决定
+        # 要不要渲染选择器，关掉时不会多发一次 /api/theme 请求。
+        "allow_visitor_theme": visitor_theme_allowed(),
         # v4.7.0 开站时间（后台可配，未配时回退最早可见文章的发布时间）
         "site_since": _site_since(s),
         "categories": [

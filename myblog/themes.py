@@ -3,7 +3,7 @@
 
 设计要点
 --------
-- ``THEME_PRESETS``：14 套精心调配的主题包，仅定义「亮色」token；
+- ``THEME_PRESETS``：15 套精心调配的主题包，仅定义「亮色」token；
   暗色变体由 :func:`derive_dark` 基于 OKLCH 自动推导（替换历史硬编码暗色块）。
 - OKLCH 为现代感知均匀色彩空间（Björn Ottosson 规范），纯标准库实现、零依赖；
   推导保证「同色相、暗色协调、对比可读」，每个亮色主题都得到一套配套暗色。
@@ -682,6 +682,23 @@ THEME_PRESETS = [
                tags=["贵气", "明亮"]),
     _make_pack("cyan-electric", "电光青", "Cyan Electric", "高饱和的电光青，未来感拉满", "#047a90",
                tags=["未来", "高饱和"]),
+    # v5.4.x「青野」：浅鼠尾草 + 沙橙 + 衬线的纸感方向。
+    # **浅主色没有直接当 accent 用** —— `#7ea774` 白字只有 2.74:1、当链接文字压
+    # `#f5f5f5` 只有 2.51:1，会被 tests/test_wcag_contrast.py 的 4.5:1 门禁挡下；
+    # 这个明度的绿本来只该当「色块 / wash」，正文文字仍留给深灰。所以 accent 取
+    # 同色相加深的 `#4e7544`（5.31:1），而**原色 #7ea774 原封留在 accent_soft**
+    # 当 wash / 标签底 / hover 底 —— 观感来源保住，可读性也不靠放宽断言去换。
+    _make_pack("sage-sand", "青野", "Sage & Sand", "鼠尾草绿配沙橙的纸感，衬线字体", "#4e7544",
+               tags=["文艺", "衬线", "暖调"], bg="#f5f5f5", surface="#ffffff",
+               surface_2="#efefe8", surface_3="#e6e6de", text="#333333",
+               border="#ececec", border_strong="#d8d8ce",
+               accent_soft="rgba(126,167,116,.18)", warning="#c98a3f",
+               radius_sm="10px", radius_md="15px", radius_lg="20px",
+               shadow_sm="0 0 10px rgba(0,0,0,.05)",
+               shadow_md="0 0 20px 1px rgba(0,0,0,.05)",
+               shadow_lg="0 5px 20px 1px rgba(0,0,0,.08)",
+               font_sans="'KingHwaOldSong','Noto Serif SC','Source Han Serif SC','Songti SC','SimSun',serif",
+               line_height_base="1.62"),
 ]
 PRESET_MAP = {p["id"]: p for p in THEME_PRESETS}
 

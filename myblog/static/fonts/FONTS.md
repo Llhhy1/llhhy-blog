@@ -52,3 +52,29 @@ GPL 之外分发自己的源代码。但请注意：
    find /www/server/nginx/proxy_cache_dir -type f -delete        # nginx 反代缓存
    nginx -s reload
    ```
+
+## 前台网页字体：京华老宋体（`kinghua/` + `kinghua.css`，**不入库**）
+
+主题「青野」（`themes.py` 的 `sage-sand`）的 `font_sans` 首选 `KingHwaOldSong`，
+即 **京华老宋体**（作者 TerryWang / 王廷瑞，v3.0 2025-06）。它与上面那份
+文泉驿微米黑**用途完全不同**：那份给 PIL 画 og:image（二进制嵌图），这份给浏览器排正文。
+
+- **许可**：可免费商用（含嵌入网页/应用），但**不可修改字体本身**、不可把字体文件
+  单独出售。所以这里只做两件事：把官方 `cn-font-split` 分片**原样**下载、
+  把 CSS 里的路径改成本地路径 + 补 `font-display: swap`（加载策略，不碰字体二进制）。
+- **为什么不 hotlink**：本站 CSP 是 `font-src 'self' data:`（`myblog/security.py:75`），
+  外链字体根本加载不出来；即使放开，也是让每个访客的浏览器替本站请求第三方
+  （访客 IP/UA 外流 + 对方挂了字体就没了），与 `api/theme.py:_safe_wp_url`
+  拒绝外链壁纸是同一条理由。
+- **为什么不进 git**：官方分片是 **503 个 woff2 ≈ 24.8 MB**。二进制资产不该让代码仓库
+  长期背着，且 `kinghua.css` 是**上游产物**，手工编辑会在下次重跑脚本时被无声覆盖。
+  因此 `.gitignore` 只忽略 `kinghua/` 与 `kinghua.css` 两条路径（本目录其余文件照旧入库）。
+- **生成方式**（一次性）：
+  ```bash
+  python tools/fetch_kinghua_font.py            # 下载缺失分片 + 生成 kinghua.css
+  python tools/fetch_kinghua_font.py --check     # 部署后校验：CSS 引用的分片是否齐
+  ```
+  ⚠️ 必须在**打包那台机器**上跑：`package.py` 的 `add_tree()` 递归收 `myblog/`，
+  会把这 24.8 MB 一起装进 `myblog-backend.zip`（后端包体积会从几 MB 涨到约 30 MB）。
+  不想让包里带字体的话，删掉 `myblog/static/fonts/kinghua*` 再打包，
+  前台会自动回落 `Noto Serif SC / Songti SC / SimSun / serif`，功能与排版都不坏。

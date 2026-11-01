@@ -10,6 +10,10 @@ export default defineConfig({
     host: true,
     proxy: {
       "/api": "http://127.0.0.1:8080",
+      // /static 也必须走后端：自托管字体（/static/fonts/kinghua.css）与壁纸/配图
+      //（/static/uploads/…）都住在 Flask 的 static 目录里。少了这条，本地 dev 看到的
+      // 是「字体没生效、壁纸 404」，与线上表现不一致，容易误判成实现有问题。
+      "/static": "http://127.0.0.1:8080",
     },
   },
   build: {

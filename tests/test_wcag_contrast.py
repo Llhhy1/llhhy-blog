@@ -376,7 +376,7 @@ def test_text_tier_hierarchy_remains_distinguishable(path):
 # ---------- 运行时主题（真正生效的那份）----------
 
 def test_runtime_themes_meet_wcag():
-    """**14 套运行时主题**的 faint / muted / danger 全部达标。
+    """**全部运行时主题**的 faint / muted / danger 全部达标。
 
     为什么 tokens.css 的守卫不够：`themes.py` 的 `_BASE_LIGHT` + `derive_dark()`
     经 `store.js: applyThemeTokens()` 逐个 `setProperty` 写到 `:root`，在**前台

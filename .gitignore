@@ -69,3 +69,10 @@ htmlcov/
 # playwright-cli 的临时快照/日志（走查用，绝不入版）
 # 教训：v4.12.1 提交时 `git add -A` 把它一起带进去了，靠 .gitignore 兜住。
 .playwright-cli/
+
+# 京华老宋体的 cn-font-split 分片产物（503 个 woff2 + 一份生成的 CSS，约 26MB）。
+# 由 tools/fetch_kinghua_font.py 在部署机上跑一次生成；不进 git 有两个理由：
+# 二进制资产不该让代码仓库长期背着，且这份 CSS 是**上游产物**，改它只能重跑脚本
+# （手工编辑会在下次重跑时被无声覆盖）。
+myblog/static/fonts/kinghua/
+myblog/static/fonts/kinghua.css

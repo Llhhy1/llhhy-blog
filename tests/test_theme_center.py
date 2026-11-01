@@ -19,6 +19,7 @@ import uuid
 
 
 from models import db, User, Setting, AuditLog, ROLE_SUPER, ROLE_ADMIN
+from themes import THEME_PRESETS
 from utils import _sign_csrf
 
 
@@ -78,7 +79,9 @@ def test_theme_get_public(client):
 
 def test_theme_get_lists_presets(client):
     data = client.get("/api/theme").get_json()
-    assert "presets" in data and len(data["presets"]) == 14
+    # 与**真相源**比条数，而不是钉死某个数字：加一套预设就会把钉死的数字碰红，
+    # 而那条断言真正要守的是「接口有把整套清单吐出来」。
+    assert "presets" in data and len(data["presets"]) == len(THEME_PRESETS)
     ids = [p["id"] for p in data["presets"]]
     assert len(ids) == len(set(ids))        # id 唯一
     assert "classic-blue" in ids            # 首包存在

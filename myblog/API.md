@@ -1,6 +1,6 @@
 # llhhy-blog API 文档
 
-> 版本：**v5.4.1**（2026-11-01 同步：覆盖全部真实路由，文档即接口；与 `APP_VERSION` 一致）
+> 版本：**v5.4.2**（2026-11-01 同步：覆盖全部真实路由，文档即接口；与 `APP_VERSION` 一致）
 >
 > 本文档描述 llhhy-blog 的全部 JSON 接口（`/api/*`，共 **176 条**）与后台页面调用的
 > JSON 接口（`/admin/*`，共 **17 条**）。前端（`vue-frontend/src/lib/api.js`）与本站页面
@@ -1971,10 +1971,10 @@ myblog/
 2. **在 `myblog/api/__init__.py` 的导入清单加一行**（`from .xxx import xxx_bp` 之类）
 3. **写路由**，用 `api_bp` 装饰器（写法见本节末尾示例）
 4. **鉴权按需选**：
-   - 公开 → 不判断
-   - 登录 → `if not _current_user(): return jsonify({"error": "请先登录"}), 401`
-   - 管理员 → `user, err = _role(admin=True); if err: return err`
-   - 超管 → `user, err = _role(super_only=True); if err: return err`
+    - 公开 → 不判断
+    - 登录 → `if not _current_user(): return jsonify({"error": "请先登录"}), 401`
+    - 管理员 → `user, err = _role(admin=True); if err: return err`
+    - 超管 → `user, err = _role(super_only=True); if err: return err`
 5. **写操作自动受 CSRF 保护**，无需额外处理；若要豁免，在 `myblog/app.py:_csrf_protect` 的
    豁免清单里加路径（**谨慎**：豁免意味着该接口可被跨站触发）。
 6. **限流**用 `utils.rate_limit` + `client_key`，见 `myblog/api/posts.py` 的写法。

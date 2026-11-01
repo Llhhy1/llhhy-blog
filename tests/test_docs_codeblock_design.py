@@ -149,3 +149,42 @@ def test_版本号_api_md_与_config_一致():
     ver = m.group(1)
     assert ('APP_VERSION = "%s"' % ver) in cfg, (
         "API.md 版本头 v%s 与 config.APP_VERSION 不一致（test_api_doc_sync.py 也会卡这道）。" % ver)
+
+
+def test_apimd_列表子项缩进不会被并进有序列表():
+    """Python-Markdown 的嵌套列表要 **4 空格**；3 空格会被并进父级 `<ol>`。
+
+    v5.4.2 之前「如何新增一个 API」的 4 个鉴权子项（公开/登录/管理员/超管）只缩进 3 空格，
+    渲染后变成有序列表的第 5~8 项 —— 页面上步骤编号显示成 6/7/8/9/10/11，像是文档写错了。
+    这类「源码看着对、渲染却错」的坑与代码块围栏同源，所以放在同一份守卫里。
+
+    两条判据互补：
+      ① 静态：围栏外不出现「恰好 3 空格 + `- `」（这是被合并的唯一指纹）；
+      ② 渲染：该小节的 `<ol>` 里确实嵌着 `<ul>`，且 `<ul>` 紧跟在「鉴权按需选」这一步之后。
+    """
+    from myblog.utils.render import render_markdown
+
+    md = _read(API_MD)
+    in_fence, bad = False, []
+    for i, line in enumerate(md.splitlines(), 1):
+        if line.lstrip().startswith("```"):
+            in_fence = not in_fence
+            continue
+        if in_fence:
+            continue
+        if re.match(r"^   - ", line):
+            bad.append((i, line[:60]))
+    assert not bad, (
+        "API.md 有「3 空格缩进的无序项」，Python-Markdown 会把它并进父级 <ol>（步骤编号会乱）：%r\n"
+        "嵌套列表请用 4 空格。" % bad)
+
+    html = render_markdown(md)
+    pos = html.rfind("如何新增一个 API")   # rfind：第一次出现的是目录里的链接
+    assert pos > 0, "渲染结果里找不到「如何新增一个 API」小节"
+    start = html.rfind("<h2", 0, pos)
+    end = html.find("<h2", pos)
+    seg = html[start:end if end > 0 else start + 3000]
+    assert "<ol>" in seg and "<ul>" in seg, (
+        "「如何新增一个 API」小节应同时有 <ol>（7 个步骤）与 <ul>（鉴权子项），实际缺一个")
+    assert "<strong>鉴权按需选</strong>：<ul>" in seg, (
+        "鉴权子项没有成为「鉴权按需选」这一步的子列表 —— 缩进失效，4 个子项会被摊平成有序列表的后续步骤")

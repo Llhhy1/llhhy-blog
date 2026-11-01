@@ -11,12 +11,22 @@
 }
 body {
 
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
-    "Microsoft YaHei", sans-serif;
-  line-height: 1.7;
+  /* v5.4.x：接上两个**从来没被消费过**的主题 token —— 之前 body 写死系统无衬线栈、
+   * 行高写死 1.7，所以主题包里的 font_sans / line_height_base 改了个了个寂寞
+   * （实测全站只有后台主题中心的预览卡用到 var(--font-sans)）。
+   * tokens.css 的 --font-sans 与原来写死的栈逐字相同，故现有 15 套预设的外观不变，
+   * 只是「青野」这类衬线包终于能真的把正文换成宋体。
+   * fallback 里保留原栈：主题接口挂了也不至于掉到 Times。 */
+  font-family: var(--font-sans, -apple-system, BlinkMacSystemFont, "Segoe UI",
+    "PingFang SC", "Microsoft YaHei", sans-serif);
+  line-height: var(--line-height-base, 1.7);
   color: var(--text);
   font-size: var(--theme-font-size);
   background: var(--bg);
+  /* 顶部一层主题色 wash（对方是 .container::before 的 op05 渐变）。
+   * 用 background-image 而不是 ::before + z-index:-1 —— body 的背景会被画在负层级
+   * 伪元素之上，得先给 html 铺底才生效，那会牵动整站的背景层，不值当。 */
+  background-image: linear-gradient(to bottom, var(--accent-soft, transparent), transparent 42vh);
 }
 .container {
  max-width: 1040px; margin: 0 auto; padding: 0 20px; }
@@ -168,8 +178,13 @@ body {
   padding: 56px 24px;
   margin-bottom: 6px;
   text-align: center;
-  background: linear-gradient(120deg, var(--accent, #196ddd) 0%, #6aa9ff 100%);
-  color: #fff;
+  /* v5.4.x：无壁纸的首屏不再用「饱和主色块 + 白字」。旧值写死
+   * `linear-gradient(120deg, var(--accent) 0%, #6aa9ff 100%)`，其中 #6aa9ff 是**蓝色专属**
+   * —— 任何非蓝预设套上去都是「主色→蓝」的脏渐变（14 套里有 13 套一直是坏的，
+   * 只是没配壁纸时才看得见）。改成主色淡 wash + 深字：浅底大图的读感更稳，
+   * 且 15 套预设都成立。配了壁纸走下面的 .has-wall 分支，仍是图上白字。 */
+  background: linear-gradient(180deg, var(--accent-soft) 0%, transparent 78%);
+  color: var(--text);
 }
 .home-cover.has-wall {
   min-height: 100svh;
@@ -202,11 +217,19 @@ body {
  * 近距 2px 的小阴影负责把字边缘「切」出来，远距大阴影负责与背景分离。 */
 .home-cover-title {
  margin: 0 0 10px; font-size: clamp(24px, 5.4vw, 44px); font-weight: 800;
- line-height: 1.2; letter-spacing: .5px; color: #fff;
- text-shadow: 0 1px 2px rgba(0,0,0,.55), 0 6px 28px rgba(0,0,0,.45);
+ line-height: 1.2; letter-spacing: .5px; color: var(--text);
 }
 .home-cover-sub {
  margin: 0; font-size: clamp(14px, 2.1vw, 18px); line-height: 1.7;
+ color: var(--text-muted);
+}
+/* 配了壁纸才回到「图上白字 + 双层阴影」：浅色 wash 上的深字压在照片上会糊成一团，
+ * 而白字压在浅色 wash 上又等于没字 —— 两套颜色必须按有没有图分开，不能共用一条。 */
+.home-cover.has-wall .home-cover-title {
+ color: #fff;
+ text-shadow: 0 1px 2px rgba(0,0,0,.55), 0 6px 28px rgba(0,0,0,.45);
+}
+.home-cover.has-wall .home-cover-sub {
  color: rgba(255,255,255,.96);
  text-shadow: 0 1px 2px rgba(0,0,0,.5), 0 3px 16px rgba(0,0,0,.38);
 }
@@ -218,12 +241,20 @@ body {
   width: 44px; height: 44px; border-radius: 50%;
   display: inline-flex; align-items: center; justify-content: center;
   font-size: 20px; line-height: 1; text-decoration: none; cursor: pointer;
-  background: rgba(255,255,255,.16);
-  border: 1px solid rgba(255,255,255,.32);
-  -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px);
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  color: var(--text-muted);
   transition: transform .18s ease, background .18s ease;
 }
-.hcs-item:hover { transform: translateY(-3px); background: rgba(255,255,255,.3); }
+.hcs-item:hover { transform: translateY(-3px); color: var(--accent); border-color: var(--accent); }
+/* 图上：半透明玻璃圆片才在照片上读得出来（无壁纸时用上面的实心主题态） */
+.home-cover.has-wall .hcs-item {
+  background: rgba(255,255,255,.16);
+  border: 1px solid rgba(255,255,255,.32);
+  color: #fff;
+  -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px);
+}
+.home-cover.has-wall .hcs-item:hover { background: rgba(255,255,255,.3); color: #fff; }
 /* v4.6.0：滚动提示从文字流里挪到视口底部绝对定位（对齐 DeepChirp 的
  * `#page-header #scroll-down{position:absolute;bottom:10px}`），
  * 不再跟着标题走，滚动条位置一目了然。 */
@@ -334,10 +365,13 @@ body {
 /* ===== 首页渐变横幅（v3.4.1：与后台 hero-card 同款设计语言） ===== */.home-hero {
 
   position: relative; overflow: hidden;
-  background: linear-gradient(120deg, var(--accent) 0%, #6aa9ff 100%);
+  /* 渐变终点用 --accent-hover（同色相、略深）而不是写死的 #6aa9ff：
+   * 后者是蓝色专属，14 套预设里 13 套套上去都会变成「主色→蓝」的脏渐变。
+   * 阴影同理走主题 token，不再自带蓝色。 */
+  background: linear-gradient(120deg, var(--accent) 0%, var(--accent-hover) 100%);
   color: var(--on-accent); border-radius: var(--theme-radius, 12px);
   padding: 30px 34px; margin-bottom: 6px;
-  box-shadow: 0 8px 24px rgba(25, 109, 221, 0.25);
+  box-shadow: var(--shadow-lg, 0 8px 24px rgba(0, 0, 0, .10));
 }
 .home-hero::before {
 
@@ -366,7 +400,7 @@ body {
 
   content: ""; position: absolute; left: 0; top: 50%; transform: translateY(-50%);
   width: 4px; height: 22px; border-radius: 2px;
-  background: linear-gradient(180deg, var(--accent), rgba(25,109,221,.35));
+  background: linear-gradient(180deg, var(--accent), var(--accent-soft));
 }
 /* 空态（v3.4.1：虚线卡片 + 居中提示，替换朴素文字） */.empty {
 
@@ -423,8 +457,25 @@ body {
    注意 .post-body pre code 特异性更高，仍保持整行不折行 + 横向滚动。 */.post-body a,
 .post-body code {
  word-break: break-word; overflow-wrap: anywhere; }
+/* 正文链接：v5.4.x 之前**从来没被主题管过** —— 只有上面那条断行规则，
+ * 颜色一直是浏览器默认的 #00E（rgb(0,0,238) 实测），所以换任何主题链接都是蓝的。
+ * 下划线用 --accent-soft 淡一档，hover 才转成实色，避免整屏「蓝字」。
+ * 打印样式（@media print 里的 color:#000 !important）优先级更高，不受影响。 */
+.post-body a {
+ color: var(--accent, #196ddd); text-decoration: underline;
+ text-decoration-color: var(--accent-soft, rgba(25,109,221,.3));
+ text-underline-offset: 2px; }
+.post-body a:hover { text-decoration-color: var(--accent, #196ddd); }
 .post-body h2 {
- font-size: 21px; margin: 22px 0 10px; }
+ font-size: 21px; margin: 22px 0 10px;
+ /* 「荧光笔」小标题：用 inset 阴影在主色的浅档（--accent-soft）上划过标题底部。
+    这里用**已有**的 --accent-soft 表达，不新增 token 键；高度压到 .32em ——
+    0.55em 在 21px 字号上会把半行字埋进色块。`width: fit-content` 是关键：
+    h2 是块级元素，不限宽的话 inset 阴影会横贯整行，变成一条“下划线”而不是
+    “荧光笔划过标题”。 */
+ width: fit-content; max-width: 100%;
+ box-shadow: inset 0 -0.32em var(--accent-soft);
+}
 .post-body h3 {
  font-size: 18px; margin: 18px 0 8px; }
 .post-body p {
@@ -485,7 +536,7 @@ body {
 .search-box input:focus, .sub-box input[type=email]:focus, .comment-form input:focus, .comment-form textarea:focus,
 input[type=text]:focus, input[type=password]:focus, input[type=email]:focus, input[type=number]:focus, select:focus, textarea:focus {
 
-  outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px rgba(25,109,221,0.12);
+  outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft);
 }
 .search-box button, .widget button {
  padding: 8px 12px; border: none; background: var(--accent); color: var(--on-accent); border-radius: 6px; cursor: pointer; transition: filter .15s; }
@@ -511,7 +562,7 @@ input[type=text]:focus, input[type=password]:focus, input[type=email]:focus, inp
   transition: all .18s; line-height: 1.2;
 }
 .hot-tag:hover {
- transform: translateY(-2px); box-shadow: 0 4px 14px rgba(25,109,221,.18); border-color: var(--accent); }
+ transform: translateY(-2px); box-shadow: var(--shadow-md); border-color: var(--accent); }
 .hot-tag-count {
  font-size: 12px; font-weight: 400; color: #999; background: #f4f6f9; border-radius: 999px; padding: 1px 8px; }
 [data-theme="dark"] .hot-tag:hover {
@@ -644,7 +695,7 @@ button:hover, .btn:hover {
  display: flex; align-items: center; justify-content: center;
     width: 44px; height: 44px; border-radius: 12px; border: none;
     background: var(--accent); color: var(--on-accent); font-size: 22px; line-height: 1;
-    box-shadow: 0 6px 18px rgba(25,109,221,.4); cursor: pointer; margin-right: 8px;
+    box-shadow: 0 6px 18px rgba(0,0,0,.28); cursor: pointer; margin-right: 8px;
     transition: transform .2s ease, filter .2s ease; }
 .hamburger:hover {
  filter: brightness(1.08); transform: scale(1.05); }
@@ -683,7 +734,7 @@ button:hover, .btn:hover {
     border-left: 3px solid transparent; transition: all .15s;
     display: flex; align-items: center; gap: 10px; }
 .drawer-nav a:hover {
- background: rgba(25,109,221,.08); border-left-color: var(--accent); color: var(--accent); }
+ background: var(--accent-soft); border-left-color: var(--accent); color: var(--accent); }
 /* v3.17.13：前台导航统一图标（与后台 .side-nav .nav-emoji 视觉一致，手机抽屉 / 桌面顶栏同步） */
 .nav-emoji { display: inline-block; width: 20px; text-align: center; flex-shrink: 0; font-size: 16px; line-height: 1; }
 .site-header nav a { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
@@ -693,7 +744,7 @@ button:hover, .btn:hover {
 .drawer-user {
  color: var(--nav-fg); opacity: .7; font-size: 13px; padding: 4px 0; }
 .drawer-link {
- padding: 10px 12px; border-radius: 8px; background: rgba(25,109,221,.06);
+ padding: 10px 12px; border-radius: 8px; background: var(--ui-fill, rgba(120,120,128,.08));
     color: var(--nav-fg); text-decoration: none; font-size: 14px; border: none; text-align: left; cursor: pointer; }
 .drawer-theme {
  font-size: 14px; }
@@ -920,7 +971,7 @@ button:hover, .btn:hover {
  transform: translateY(-3px); box-shadow: 0 8px 20px rgba(20,30,50,0.10); }
 .stats-big-card::after {
  content: ""; position: absolute; right: -18px; top: -18px; width: 64px; height: 64px;
-  border-radius: 50%; background: linear-gradient(135deg, rgba(25,109,221,.10), transparent); }
+  border-radius: 50%; background: linear-gradient(135deg, var(--accent-soft), transparent); }
 .stat-big-num {
  font-size: 34px; font-weight: 800; color: var(--accent); line-height: 1.1; }
 .stat-big-label {

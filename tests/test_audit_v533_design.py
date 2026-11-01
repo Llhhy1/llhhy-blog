@@ -102,11 +102,21 @@ def test_square_and_stats_have_no_known_dark_literals():
 
 
 def test_cover_subtitle_stays_white_on_image():
-    """封面副标题压在渐变/照片上，不能用正文灰阶。"""
+    """封面副标题压在照片上，不能用正文灰阶；但也**只能**在有壁纸时才白。
+
+    v5.4.x 把无壁纸首屏从「饱和主色块 + 白字」换成「主色淡 wash + 深字」，
+    所以这条契约的正确形态是「白字规则必须被 `.has-wall` 限定」——
+    不限定的话 look.css（后于 global.css 加载）会把深字又刷回白字，白压浅底等于没字。
+    """
     css = _read("vue-frontend/src/styles/look.css")
-    m = re.search(r"\.home-cover-sub\s*\{([^}]*)\}", css)
-    assert m and "rgba(255, 255, 255" in m.group(1), \
-        ".home-cover-sub 又变成灰字（压在图片/渐变上会糊掉）"
+    m = re.search(r"([^{}]*)\.home-cover-sub\s*\{([^}]*)\}", css)
+    assert m and "rgba(255, 255, 255" in m.group(2), \
+        ".home-cover-sub 又变成灰字（压在照片上会糊掉）"
+    assert "has-wall" in m.group(1), "白字规则没被 .has-wall 限定，无壁纸首屏会白压浅底"
+
+    g = _strip_comments(_read("vue-frontend/src/styles/global.css"))
+    assert "#6aa9ff" not in g, \
+        "首屏渐变又写回蓝色专属的 #6aa9ff（非蓝预设套上去就是「主色→蓝」脏渐变）"
 
 
 def test_no_undefined_text_soft_token():

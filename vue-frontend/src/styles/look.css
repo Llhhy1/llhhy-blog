@@ -310,8 +310,10 @@ input[type=tel]:focus, select:focus, textarea:focus {
   letter-spacing: var(--ui-tracking, -0.02em);
   line-height: 1.2;
 }
-.home-cover-sub {
-  /* 压在渐变/照片上：用白色 + 阴影，不跟随正文灰阶（灰字在图上会糊掉）。 */
+.home-cover.has-wall .home-cover-sub {
+  /* 压在照片上：白字 + 阴影，不跟随正文灰阶（灰字在图上会糊掉）。
+   * ⚠️ 必须带 `.has-wall`：无壁纸的首屏现在是「主题色淡 wash + 深字」，
+   * 这条本文件后于 global.css 加载，不限定作用域就会把深字又刷回白字（白压浅＝没字）。 */
   color: rgba(255, 255, 255, .96);
   text-shadow: 0 1px 10px rgba(0, 0, 0, .35);
   font-size: var(--type-md, 16px);

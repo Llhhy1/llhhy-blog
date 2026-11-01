@@ -983,6 +983,28 @@ MIME 混淆，缺少 CSP 不产生可利用的差异。
 - 守卫新增「闭合围栏必须是纯 ` ``` `」「围栏必须顶格」「真实渲染 `<pre>` 数 == 围栏块数」三条判据，并已变异验证 —— 防止「源码看着对、渲染却失败」的同类问题再次静默上线。
 - 本次修复不改变 `render_markdown` 的渲染口径，也不改 bleach 白名单，历史文章缓存无需失效。
 
+## R166 · v5.4.3（批次 D 主题校验加固 + 档 1 访客自选主题）安全审查
+
+**范围**：`themes.py`（+182）、`api/theme.py`、`admin/settings.py`、`admin/_helpers.py`、`admin/theme_center.py`、`utils/text.py`（新增 `css_context_escape` / `normalize_lang`）、`api/og.py`、`api/site.py`、`api/posts.py`、`routes.py`、`app.py`、4 个模板（`post.lang` 输出转义 + 主题中心开关）、前端 `ThemePicker.vue` / `store.js` / `App.vue`。**无新表、无 Alembic 迁移**（新状态是 Setting KV）。
+
+### 166.1 逐维复核
+
+| 维度 | 结论 | 说明 |
+|---|---|---|
+| 存储型 XSS（本轮主线） | 已收口 | 三条进入 CSS/HTML 的通道分别加固：`custom_css` 改大小写不敏感转义 + 写入侧再拒 `</`（旧写法 `</StYlE><script>` 可逃逸）；`accent_color` 走 `validate_accent()` 且 SSR 前用 `accent_hex` 再洗；主题 token 键走白名单、值按类别校验（`url(...)` 一律拒）。`post.lang` 由 `normalize_lang()` 收敛为 BCP 47 宽松子集，并在 4 处输出转义。 |
+| 存量脏数据（备份还原 / 直接改库） | 读时兜底 | `current_theme()` 读取时同样过白名单，非法 token 剔除并回落 `_BASE_LIGHT` 基准 —— 不依赖「写入时已经洗过」。 |
+| 访客可控输入（档 1 新增面） | 最低暴露 | 访客选择只写自己浏览器的 `localStorage`，**不产生任何服务端状态**（不进 cookie、不进用户表、不改 Setting）；站主关掉开关后残留值立即失效；前端对非法值（如 `../../../etc/passwd`）回落站主主题。 |
+| 越权 | 未变 | `POST /api/theme` 仍 `super_required` + 全局 CSRF；开关与主题同一端点、同一鉴权，没有新增「谁都能改」的入口。`visitor_theme` 只接受布尔 / `"true"` / `"false"`，避免前端拼错字段却静默成功。 |
+| CSRF / 开放重定向 / SQLi / SSRF | 不适用或未变 | 无新路由、无新外链跳转；查询仍走 ORM；`wallpaper` 仍限定 `/static/uploads/` 单层文件名。 |
+| 审计留痕 | 增强 | 纯开关请求单独记一条 `theme / 访客自选主题 / 开放|关闭`，不与「应用主题」混记。 |
+| 依赖 / 供应链 | 未变 | 未新增任何依赖。 |
+
+### 166.2 回归点
+
+- **`custom` 从严属行为破坏**：历史主题 JSON 若含未知键或 `url()` 会开始返回 400（带 `details`），已写进 CHANGELOG 与 `docs/audit/2026-11-01-v5.4.x-batch-D-and-tier1.md`。
+- `_TOKEN_KIND` 白名单与 `_BASE_LIGHT` 的键集必须同步（已有 `test_base_light_matches_token_files` 钉住）；新增 token 忘记登记类别会被自家校验挡掉。
+- 档 2（主题商店 / 用户上传主题包）之前必须先有主题包来源限制，否则白名单只是把「注入」换成「任意值」。
+
 ## R165 · v5.4.2（/docs 步骤列表缩进排版修复）安全审查
 
 **范围**：仅 `myblog/API.md` 的 4 行缩进（3 → 4 空格）与一条守卫测试。**无代码、无路由、无模板、无表结构变更**。

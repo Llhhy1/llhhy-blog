@@ -7,6 +7,40 @@
 > v4.0.0 ~ v4.3.0 → `docs/archive/CHANGELOG_v4.0.0-v4.3.0.md`（v5.3.4 因体积守卫触发，主文件涨到 200 KB / 上限 200 KB）。
 > 本文件从 **v4.3.1** 起。**归档不是删除** —— 查旧版本变更细节时去上述文件。
 
+## v5.4.3（2026-11-02 · 批次 D 主题校验加固 + 档 1 访客自选主题（默认关））
+
+> 来源：PR #35 `feat/theme-validation-and-picker`（5 提交 / 23 文件 / +1146−40，CI 6/6 通过），本地快进合并为 `a4e4599`。完整说明见 `docs/audit/2026-11-01-v5.4.x-batch-D-and-tier1.md`。
+
+### A. 批次 D：4 个 P2 收口（共同点是「值被原样搬进 CSS/XML 上下文」）
+
+| 面 | 之前 | 现在 |
+|---|---|---|
+| `custom_css` | 只转义小写 `</style`，`</StYlE><script>` 可逃逸出样式上下文 | `utils.css_context_escape()` 大小写不敏感；写入侧再拒一次 `</` |
+| `accent_color` | 原样拼进 SSR `--accent: {{…}}`，可注入任意 CSS 规则 | `themes.validate_accent()` 写入校验 + 渲染前再洗（`accent_hex`） |
+| 自定义主题 token | 只判 `light.accent` 存不存在，任意键值落库 | 键走白名单、值按类别校验；非法 400 + 逐条 `details`；读侧 `current_theme()` 再洗一遍 |
+| `post.lang` | 只 `strip()`，`x'><script>…` 能落库 | `normalize_lang()` 写入收敛 + 4 处输出转义 |
+
+### B. 档 1：访客自选主题（默认关）
+
+- 主题中心新增站主总开关（Setting KV `allow_visitor_theme`，**默认关**；首次保存才建行 → **无迁移**）。
+- 开放后前台顶栏与手机抽屉各出现一个选择器，访客可在 14 套预设里挑；选择**只写自己的 `localStorage`**，不改 Setting、不影响其他访客。
+- 站主关掉开关 → 选择器不再渲染，访客残留选择立即失效。
+- 接口变化：`GET /api/theme`、`GET /api/site`、`POST /api/theme` 的返回多 `allow_visitor_theme`；`POST /api/theme` 新增 `visitor_theme`（只收 `true`/`false` 或 `"true"`/`"false"`，其他一律 400）。**`API.md` 已同步这三处契约。**
+
+### C. 行为变化（会咬到存量脚本，先看一眼）
+
+- `POST /api/theme` 的 `custom` **变严**：未知 token 键、`url(...)`、颜色名 `red`、`12px; body{…}` 一律 400（`details` 逐条说明）。以前是静默收下并落库 —— 历史主题 JSON 导入前要先按文案清理。
+- 自定义主题现在**补齐基准**：只传 `accent` 也得到完整一套 token，且 `accent_hover / accent_soft / info / text_muted / text_faint` 按新主色重算（不再留旧蓝）。
+- 库里已有脏 token（备份还原 / 直接改库）在**读取时**被剔除并回落基准，不必手工清库；`post.lang` 白名单只作用于写入，存量脏值靠输出转义兜住。
+
+### D. 验证
+
+- PR 侧：新增 `test_audit_v542_theme_input.py`（32 条）+ `test_audit_v542_visitor_theme.py`（23 条）；全量 1390 passed、`ruff` 0 错、`lint_debt` 无新增债务、`check_i18n` 通过、`vite build` 通过、CI 6/6 success。
+- 合并后本机：`compileall` exit 0、`ruff check .` 全绿、**定向回归 198 passed**（主题 / SEO / site / 文档守卫共 12 个文件）、`npm run build` ✓、**全量 pytest 1396 passed**（发布前实测）。
+- **未验**：像素级观感（PR 作者本机拿不到可见视口）。上线后需真机看一眼顶栏胶囊、抽屉整行按钮、14 套时面板滚动。
+
+**前端源码有改动 → 本版必须重新构建前端**（`_vite_build30/` 已按合并后源码重建）；无数据库迁移，head 仍 `b7c2e91a4d63`。
+
 ## v5.4.2（2026-11-01 · 修 `/docs`「如何新增一个 API」步骤编号错乱）
 
 > 起因：`/docs` 上这一节的步骤编号显示成 **6/7/8/9/10/11**。不是编号写错，是 **Markdown 缩进**：步骤 4「鉴权按需选」下的 4 个子项只缩进 **3 空格**，而 Python-Markdown 的嵌套列表要 **4 空格** —— 少一个空格，这 4 项就被并进同一个 `<ol>` 成了第 5~8 步，后面的 5/6/7 步顺延成 9/10/11。

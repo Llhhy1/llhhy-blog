@@ -1,6 +1,6 @@
 # llhhy-blog API 文档
 
-> 版本：**v5.4.2**（2026-11-01 同步：覆盖全部真实路由，文档即接口；与 `APP_VERSION` 一致）
+> 版本：**v5.4.3**（2026-11-02 同步：覆盖全部真实路由，文档即接口；与 `APP_VERSION` 一致）
 >
 > 本文档描述 llhhy-blog 的全部 JSON 接口（`/api/*`，共 **176 条**）与后台页面调用的
 > JSON 接口（`/admin/*`，共 **17 条**）。前端（`vue-frontend/src/lib/api.js`）与本站页面
@@ -327,7 +327,7 @@ myblog/
 - 鉴权：公开
 - 说明：一次性返回前台所需的站点信息、主题 token、壁纸、分类/标签/友链与统计汇总
 - 请求：无
-- 成功：`200 {"site_name": "...", "site_title": "...", "site_note": "...", "site_description": "...", "about_content": "...", "footer_text": "...", "beian_code": "...", "accent_color": "...", "weather_city": "...", "weather_lat": "...", "weather_lon": "...", "theme_mode": "...", "theme_radius": "...", "theme_font": "...", "nav_style": "...", "custom_css": "...", "reward_qr_default": "...", "site_lang": "...", "entry": {...}, "entries": [{"label", "label_en", "url", "icon"}], "theme_pack": "...", "theme_tokens": {...}, "theme_dark_tokens": {...}, "wallpaper": {"enabled", "light", "dark", "overlay"}, "site_since": "YYYY-MM-DD", "categories": [{"name", "slug", "count"}], "tags": [{"name", "slug", "count"}], "links": [{"name", "url", "description"}], "stats": {"posts", "views", "comments"}}`
+- 成功：`200 {"site_name": "...", "site_title": "...", "site_note": "...", "site_description": "...", "about_content": "...", "footer_text": "...", "beian_code": "...", "accent_color": "...", "weather_city": "...", "weather_lat": "...", "weather_lon": "...", "theme_mode": "...", "theme_radius": "...", "theme_font": "...", "nav_style": "...", "custom_css": "...", "reward_qr_default": "...", "site_lang": "...", "entry": {...}, "entries": [{"label", "label_en", "url", "icon"}], "theme_pack": "...", "theme_tokens": {...}, "theme_dark_tokens": {...}, "wallpaper": {"enabled", "light", "dark", "overlay"}, "allow_visitor_theme": false, "site_since": "YYYY-MM-DD", "categories": [{"name", "slug", "count"}], "tags": [{"name", "slug", "count"}], "links": [{"name", "url", "description"}], "stats": {"posts", "views", "comments"}}`
 - 失败：无
 
 ### `GET /api/links` — 友情链接列表
@@ -517,18 +517,19 @@ myblog/
 ### `GET /api/theme` — 主题预设与当前主题
 
 - 鉴权：公开
-- 说明：返回全部预设主题包（亮/暗 token）+ 当前激活的 pack_id + 当前壁纸配置
+- 说明：返回全部预设主题包（亮/暗 token）+ 当前激活的 pack_id + 当前壁纸配置 + 是否对访客开放自选（v5.4.3）
 - 请求：无
-- 成功：`200 {"presets": [{"id", "name", "en", "desc", "tags", "light", "dark"}], "current": {"pack_id": "classic-blue"}, "wallpaper": {"enabled", "light", "dark", "overlay"}}`
+- 成功：`200 {"presets": [{"id", "name", "en", "desc", "tags", "light", "dark"}], "current": {"pack_id": "classic-blue"}, "wallpaper": {"enabled", "light", "dark", "overlay"}, "allow_visitor_theme": false}`
 - 失败：无
 
 ### `POST /api/theme` — 应用主题 / 设置壁纸
 
 - 鉴权：超管（需 CSRF Token）
-- 说明：应用预设主题包或自定义主题 token，并可单独设置首页壁纸；写 Setting 并记审计日志
-- 请求：body JSON — `pack_id`（预设 id，如 `classic-blue`）、`custom`（`{light:{...}, dark?:{...}}` 或单层 token 对象，须含 `accent`）、`wallpaper`（`{enabled, light, dark, overlay}`，图片路径仅接受 `/static/uploads/` 下的单层文件名）；三者可组合，只带 `wallpaper` 即为纯壁纸请求
-- 成功：`200 {"ok": true, "pack_id": "classic-blue", "theme_tokens": {...}, "theme_dark_tokens": {...}, "wallpaper": {"enabled", "light", "dark", "overlay"}}`
-- 失败：`403 {"error": "forbidden"}`（非超管）、`400 {"error": "invalid custom theme"}`、`400 {"error": "custom theme requires light.accent"}`、`400 {"error": "unknown pack_id"}`、`400 {"error": "invalid wallpaper"}`、`400 {"error": "启用壁纸前请先上传至少一张图片"}`
+- 说明：应用预设主题包或自定义主题 token，可单独设置首页壁纸，也可单独切换「访客自选主题」总开关；写 Setting 并记审计日志
+- 请求：body JSON — `pack_id`（预设 id，如 `classic-blue`）、`custom`（`{light:{...}, dark?:{...}}` 或单层 token 对象）、`wallpaper`（`{enabled, light, dark, overlay}`，图片路径仅接受 `/static/uploads/` 下的单层文件名）、`visitor_theme`（`true` / `false`，或字符串 `"true"` / `"false"`）；可组合，只带 `wallpaper` 即纯壁纸请求、只带 `visitor_theme` 即纯开关请求
+- `custom` 校验（v5.4.3 起从严）：键必须命中 token 白名单、值必须匹配该键的语法（颜色 / 长度 / 数值 / 字体族 / 阴影）；**缺失的键由基准主题补齐**（只传 `accent` 也会得到完整一套）；`url(...)`、颜色名 `red`、`12px; body{...}` 一律拒绝。历史上这些是「静默收下并落库」，存量主题 JSON 导入前需按返回文案清理
+- 成功：`200 {"ok": true, "pack_id": "classic-blue", "theme_tokens": {...}, "theme_dark_tokens": {...}, "wallpaper": {"enabled", "light", "dark", "overlay"}, "allow_visitor_theme": false}`
+- 失败：`403 {"error": "forbidden"}`（非超管）、`400 {"error": "invalid custom theme", "details": ["...", ...]}`（不合法 token，`details` 逐条说明，最多 20 条）、`400 {"error": "unknown pack_id"}`、`400 {"error": "invalid wallpaper"}`、`400 {"error": "启用壁纸前请先上传至少一张图片"}`、`400 {"error": "visitor_theme 只能是 true / false"}`
 
 该模块源码位置：`myblog/api/theme.py`
 

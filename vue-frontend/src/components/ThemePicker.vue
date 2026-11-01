@@ -89,15 +89,16 @@ onBeforeUnmount(() => {
 .tp-wrap { position: relative; display: inline-flex; }
 .tp-ico { display: inline-block; width: 20px; text-align: center; font-size: 16px; line-height: 1; }
 .tp-row { display: flex; align-items: center; gap: 10px; width: 100%; }
-.tp-wrap.tp-full { display: block; width: 100%; }
-.tp-wrap.tp-full .tp-panel {
-  position: static; width: 100%; max-height: none; margin-top: 8px; box-shadow: none;
-}
 .tp-panel {
   position: absolute; z-index: 70; top: calc(100% + 10px); right: 0;
   width: min(360px, calc(100vw - 24px)); max-height: 70vh; overflow: auto;
   background: var(--surface); border: 1px solid var(--border);
   border-radius: var(--radius-lg); box-shadow: var(--shadow-lg); padding: 12px;
+}
+/* 抽屉形态：占满一行、面板向下展开（绝对定位在侧栏里会被抽屉的滚动容器裁掉） */
+.tp-wrap.tp-full { display: block; width: 100%; }
+.tp-wrap.tp-full .tp-panel {
+  position: static; width: 100%; max-height: none; margin-top: 8px; box-shadow: none;
 }
 .tp-tip { margin: 0 0 10px; font-size: var(--type-xs); color: var(--text-muted); }
 .tp-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }

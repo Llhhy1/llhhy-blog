@@ -7,6 +7,39 @@
 > v4.0.0 ~ v4.3.0 → `docs/archive/CHANGELOG_v4.0.0-v4.3.0.md`（v5.3.4 因体积守卫触发，主文件涨到 200 KB / 上限 200 KB）。
 > 本文件从 **v4.3.1** 起。**归档不是删除** —— 查旧版本变更细节时去上述文件。
 
+## v5.4.4（2026-11-02 · 主题「青野」+ 京华老宋体自托管 + 主题 token 真正被消费）
+
+> 来源：PR #36 `feat/sage-theme`（2 提交 / 12 文件 / +482−28，`mergeable_state=clean`），本地快进合并为 `3288b15`；同批并入 PR #37（Dependabot：`github/codeql-action` 3→4，只改 `.github/workflows/codeql.yml`，不进部署包）。
+
+### A. 第 15 套预设「青野」（`sage-sand`）
+
+- 浅鼠尾草 + 沙橙的纸感方向：bg `#f5f5f5` / surface `#fff` / surface_2 `#efefe8` / text `#333` / 圆角 10-15-20 / 单层柔影 / 行高 1.62。
+- **accent 没有直接拿浅绿用**：`#7ea774` 白字只有 2.74:1、当链接压 `#f5f5f5` 只有 2.51:1，过不了 `test_wcag_contrast.py` 的 4.5:1；accent 取同色相加深的 `#4e7544`（白字 5.31:1），`#7ea774` 原封留在 `accent_soft` 当 wash / 标签底 —— 观感来源保住，不靠放宽断言换可读性。
+
+### B. 京华老宋体自托管（`tools/fetch_kinghua_font.py`）
+
+- 官方 cn-font-split 产物**原样**落地：503 个 woff2 / 24.8 MB + 生成的 `kinghua.css`（只把路径改成本地、只补 `font-display: swap`，不动字体二进制）。
+- **不入 git**（`.gitignore` 只加 `kinghua/` 与 `kinghua.css` 两条，`fonts/` 其余照旧入库），但**会进后端 zip**：`package.py` 的 `add_tree()` 递归收 `myblog/`，后端包体积由 ~5 MB 涨到 ~30 MB。不想带就删掉这两条路径再打包，前台回落 `Noto Serif SC / Songti SC / SimSun / serif`。
+- 为什么必须自托管：CSP 是 `font-src 'self' data:`（`security.py`），hotlink 会被浏览器直接拦掉；即便放开，也是让每个访客替本站去请求第三方（IP/UA 外流）。
+- `--check` 是部署后唯一的自检入口；它读**改写后**的 CSS —— 正则只认官方原始路径时会数出 0/0 并「报就绪」（本轮实际踩过）。
+- `vite.config.js` 给 dev 补 `/static` 代理：本地不再出现「字体不生效、壁纸 404」的假象。
+
+### C. 主题 token 终于被消费（换色才露出来的硬编码蓝）
+
+- `body` 之前写死系统无衬线栈 + `line-height: 1.7`，主题包的 `font_sans` / `line_height_base` **从来没生效**（实测全站只有后台预览卡用了 `var(--font-sans)`）。改接 `var(--font-sans)` / `var(--line-height-base)`；`tokens.css` 的 `--font-sans` 与原栈逐字相同 → 其余 14 套外观不变。
+- `.home-cover` 无壁纸首屏：旧渐变终点写死 `#6aa9ff`（蓝色专属），14 套里 13 套是「主色→蓝」的脏渐变。改为主色淡 wash + 深字；配壁纸走 `.has-wall` 分支，仍是图上白字 + 双层阴影。
+- `.home-hero` 渐变终点 → `var(--accent-hover)`、投影 → `var(--shadow-lg)`；抽屉 hover / 热门标签 / 统计卡光斑 / 手机汉堡投影等 6 处 `rgba(25,109,221,…)` → `--accent-soft` / `--ui-fill` / 中性黑。
+- `.post-body a` 补 `color: var(--accent)`：此前只有断行规则、没有颜色，链接一直是浏览器默认蓝。
+
+### D. 兼容与代价
+
+- 无接口契约变化、**无数据库迁移**；`API.md` 仅版本号同步。新增 `tests/test_audit_v543_sage_theme.py`（9 条：预设可读性、token 真被 CSS 消费、字体 link 与 CSP 一致、分片不入库、`build_css` 幂等、正文链接跟随主题、无硬编码蓝、白字只作用于壁纸态）。
+- 首次部署多一步：分片不在仓库里，打包机上必须跑过 `python tools/fetch_kinghua_font.py`，否则包里没有字体（不报错，只是回落系统宋体）。
+
+### E. 验证
+
+- 合并后本机：`npm run build` ✓（`_vite_build30` / 5.87s）、全量 pytest 1405 passed；两条失败均为版本号守卫（`myblog/README.md` 未同步、CHANGELOG 缺本节），补齐后定向复跑转绿；字体 `--check` = 503/503 齐全。
+
 ## v5.4.3（2026-11-02 · 批次 D 主题校验加固 + 档 1 访客自选主题（默认关））
 
 > 来源：PR #35 `feat/theme-validation-and-picker`（5 提交 / 23 文件 / +1146−40，CI 6/6 通过），本地快进合并为 `a4e4599`。完整说明见 `docs/audit/2026-11-01-v5.4.x-batch-D-and-tier1.md`。

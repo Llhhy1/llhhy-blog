@@ -1028,6 +1028,15 @@ sha256sum /tmp/og.png /www/wwwroot/你的站点根/og-default.png
 >   自带 Bearer 鉴权、非会话）。若你的 MCP 客户端此前一直在报 403，升级后即恢复。
 > - 全量报告：`docs/audit/2026-10-07-full-audit-report.md`。
 
+> **v5.4.4（主题「青野」+ 京华老宋体自托管）升级要点**：**后端与前端都改了 → 两个包都要覆盖**。前端动了 `src/styles/global.css`、`look.css`、`index.html`、`vite.config.js`，**必须先 `npm run build`**；后端 `themes.py` 多一套 `sage-sand` 预设。
+> - **后端包体积从 ~5 MB 涨到 ~29 MB**（+503 个 woff2 分片 / 24.8 MB）。这是「京华老宋体」自托管的代价：本站 CSP 是 `font-src 'self' data:`，hotlink 会被浏览器直接拦掉；分片不进 git（`.gitignore` 两条路径），但**随包分发**。
+> - 不想带字体：删掉 `myblog/static/fonts/kinghua/` 与 `kinghua.css` 再 `python package.py`。前台会自动回落 `Noto Serif SC / Songti SC / SimSun / serif`，只是「青野」少了宋体质感，功能与排版都不坏。
+> - **字体生效的判据**（部署后必查）：`curl -sI https://<域名>/static/fonts/kinghua.css` 应为 **200 + `content-type: text/css`**；浏览器 Network 里 `kinghua/*.woff2` 有实际请求（不是 0 条）。若是 404，先看包里有没有 —— `unzip -l myblog-backend.zip | grep -c 'fonts/kinghua/'` 应为 504（503 分片 + css）。
+> - ⚠️ **404 可能被 nginx 缓存**：宝塔全局开了 `proxy_cache`，若部署前有人访问过这个路径（旧版 `index.html` 不会引用它，但手工试过就会），404 会被缓存下来，覆盖文件后仍是 404。清理：`find /www/server/nginx/proxy_cache_dir -type f -delete && nginx -s reload`。
+> - **服务端自检**（在站点目录下）：`python tools/fetch_kinghua_font.py --check` → 应输出 `CSS 引用 503 个分片，本地缺失 0 个`。⚠️ 别在服务器上跑不带 `--check` 的版本，它会去第三方重下 24.8 MB。
+> - **无数据库迁移、无新增依赖**（`pypinyin` 是 v5.4.0 引入的，本版未加新包）。
+> - 观感变化（预期内）：无壁纸的首页首屏由「饱和主色块 + 白字」改为「主题色淡 wash + 深字」，配了壁纸仍走白字 + 阴影。其余 14 套预设的配色随之统一（此前有 8 处写死蓝色，非蓝主题会露出蓝边）。
+
 > **v5.4.3（批次 D 主题校验加固 + 档 1 访客自选主题）升级要点**：**后端与前端都改了 → 两个包都要覆盖**。本版动了 `vue-frontend/src/App.vue`、`store.js`，并新增 `components/ThemePicker.vue`，**必须先 `npm run build` 再打包**（`package.py` 打的是 `_vite_build30/`，只改源码不 build 会静默留着旧页面）。
 > - **无数据库迁移**：`allow_visitor_theme` 是一个 Setting KV，**首次在后台保存开关时**才建行。
 > - 上线后该开关**默认关**：前台不渲染选择器。要开放就去 后台 → 🎨 主题中心 → 「允许访客自选主题」→ 保存；关掉即刻失效（含访客浏览器里残留的选择）。

@@ -5,9 +5,8 @@ import { apiGet, apiPost, setCsrfToken, clearCsrfToken } from "./lib/api.js";
 export const state = reactive({
   site: { site_name: "我的博客", site_title: "我的博客", site_note: "",
           site_description: "", accent_color: "#196ddd",
-          footer_text: "", beian_code: "", about_content: "",
+          footer_text: "", footer_html: "", beian_code: "", about_content: "",
           theme_mode: "system", theme_radius: "md", theme_font: "md",
-          allow_visitor_theme: false,
           nav_style: "light", custom_css: "", site_lang: "zh" },
   user: null,           // { id, username, role, is_admin, ... } 或 null
   reader: { points: 0, badges: [] },  // v3.21.0 gamification：当前读者积分与勋章
@@ -16,11 +15,6 @@ export const state = reactive({
   contentLang: "zh",    // v3.21.0 内容多语言：当前阅读的内容语言（译文切换驱动，独立于 UI i18n）
   installPrompt: null,  // v3.21.0 PWA：浏览器 beforeinstallprompt 事件（可安装时非 null）
   oauthProviders: [],   // v3.21.0 OAuth：后端已配置的第三方登录 provider（空=未配置，按钮不显）
-  themePacks: [],       // 档 1：GET /api/theme 下发的预设包清单（只在开放且需要时拉）
-  // 访客自己的换肤选择。初值直接读 localStorage：首屏不必等 /api/site 也不会闪回站主主题
-  visitorPack: (function () {
-    try { return localStorage.getItem("visitorTheme") || ""; } catch (e) { return ""; }
-  })(),
 });
 
 // v3.0.0 功能11：轻量 i18n 词典（覆盖核心导航与常用文案）
@@ -37,8 +31,6 @@ const I18N = {
     "close": "关闭", "prev": "上一张", "next": "下一张",
     "guestbook": "留言墙", "login": "登录", "register": "注册", "logout": "退出",
     "admin": "后台", "write": "写文章", "theme": "主题",
-    "theme_picker": "选择主题", "theme_follow_site": "跟随站点",
-    "theme_picker_tip": "只在你这台设备上生效",
     "search_placeholder": "搜索文章…",
     "annual": "回顾", "social": "社交", "more": "更多",
     "notifications": "通知", "unread": "未读", "all_read": "全部已读", "no_notifications": "暂无通知",
@@ -111,8 +103,6 @@ const I18N = {
     "close": "Close", "prev": "Previous", "next": "Next",
     "guestbook": "Guestbook", "login": "Login", "register": "Register", "logout": "Logout",
     "admin": "Admin", "write": "Write", "theme": "Theme",
-    "theme_picker": "Choose a theme", "theme_follow_site": "Follow the site",
-    "theme_picker_tip": "Applies to this device only",
     "search_placeholder": "Search posts…",
     "annual": "Review", "social": "Social", "more": "More",
     "notifications": "Notifications", "unread": "unread", "all_read": "Mark all read", "no_notifications": "No notifications",
@@ -266,24 +256,9 @@ export function applyThemeTokens(map) {
 }
 
 // v3.16.0：按当前/指定模式应用「当前激活主题」的亮或暗 token（含导航变量，覆盖默认暗色块）
-//
-// 档 1「访客自选主题」：站主在主题中心开放后，访客可挑一份服务端下发的预设包覆盖显示。
-// 清单只来自 GET /api/theme（同一套后端 token，不是访客自己拼的键值），且
-// `state.site.allow_visitor_theme` 关掉时选择立即失效 —— 手改 localStorage 最多只能
-// 挑清单里已有的 pack，挑不到就回落站主主题，改不出任何新样式。
-export const VISITOR_THEME_KEY = "visitorTheme";
-
-function visitorPack() {
-  if (!state.site.allow_visitor_theme || !state.visitorPack) return null;
-  return state.themePacks.find(function (p) { return p.id === state.visitorPack; }) || null;
-}
-
 export function applyActiveTheme(mode) {
   const m = mode || (document.documentElement.getAttribute("data-theme") === "dark" ? "dark" : "light");
-  const pack = visitorPack();
-  const map = m === "dark"
-    ? (pack ? pack.dark : state.site.theme_dark_tokens)
-    : (pack ? pack.light : state.site.theme_tokens);
+  const map = m === "dark" ? state.site.theme_dark_tokens : state.site.theme_tokens;
   if (map) {
     applyThemeTokens(map);
   } else {
@@ -291,35 +266,6 @@ export function applyActiveTheme(mode) {
     applyThemeVars(state.site);
     applyNavVars(state.site);
   }
-}
-
-// 预设清单只在需要时才拉（14 套 × 亮暗两套 token，约几十 KB）
-let packsLoading = null;
-export function loadThemePacks() {
-  if (state.themePacks.length) return Promise.resolve(state.themePacks);
-  if (!packsLoading) {
-    packsLoading = apiGet("/api/theme")
-      .then(function (d) {
-        state.themePacks = (d && d.presets) || [];
-        return state.themePacks;
-      })
-      .catch(function (e) {
-        console.warn("主题清单加载失败", e);
-        packsLoading = null;   // 失败不缓存，否则一次网络抖动就再也拉不到清单
-        return [];
-      });
-  }
-  return packsLoading;
-}
-
-// 访客换肤：id 为空 = 恢复站主的当前主题
-export function setVisitorTheme(id) {
-  state.visitorPack = id || "";
-  try {
-    if (id) localStorage.setItem(VISITOR_THEME_KEY, id);
-    else localStorage.removeItem(VISITOR_THEME_KEY);
-  } catch (e) {}
-  applyActiveTheme();
 }
 
 // 默认主题：用户没手动切过时，按后台 theme_mode 定（system=跟随系统）
@@ -343,6 +289,29 @@ function injectCustomCss(css) {
   st.textContent = css;
 }
 
+// v5.4.5 自定义页脚代码（站主原样写的 HTML，见后台「站点设置 → 自定义页脚代码」）。
+// 为什么不直接用 v-html：由 innerHTML 插进去的 <script> **不会执行**（HTML 规范如此），
+// 而这个功能的第一用途就是统计代码。所以插入后把每个 script 换成新建的元素 ——
+// 只有脚本创建出来的 script 元素才会真的被加载/执行（内联与外链都走这条路）。
+// 幂等靠 data-src 比对：SPA 换路由不重新执行，站主改了代码才重跑一次。
+// 信任级别与自定义 CSS 一致 —— 两者都只有超级管理员写得进。
+export function injectFooterCode(html) {
+  const box = document.getElementById("site-footer-code");
+  if (!box) return;
+  const src = html || "";
+  if (box.getAttribute("data-src") === src) return;
+  box.setAttribute("data-src", src);
+  box.textContent = "";
+  if (!src) return;
+  box.innerHTML = src;
+  box.querySelectorAll("script").forEach(function (old) {
+    const el = document.createElement("script");
+    for (const attr of old.attributes) el.setAttribute(attr.name, attr.value);
+    el.textContent = old.textContent;
+    old.replaceWith(el);
+  });
+}
+
 // 一次性加载站点设置 + 登录态
 let inited = false;
 export async function initSite() {
@@ -356,10 +325,9 @@ export async function initSite() {
     applyThemeVars(s);
     applyDefaultTheme(s);
     // v3.16.0 主题中心：若有完整主题包，整体换肤（亮/暗按当前模式）
-    // 档 1：访客存过选择就先备齐清单，否则换肤只会拿到站主主题（applyActiveTheme 里回落）
-    if (s.allow_visitor_theme && state.visitorPack) await loadThemePacks();
     applyActiveTheme();
     injectCustomCss(s.custom_css);
+    injectFooterCode(s.footer_html);
     document.title = s.site_name || s.site_title || "我的博客";
     initLang(s.site_lang);  // v3.0.0 功能11：按本地/后台设置初始化语言
   } catch (e) { console.warn("站点设置加载失败", e); }

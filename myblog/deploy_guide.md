@@ -569,7 +569,8 @@ sha256sum /tmp/og.png /www/wwwroot/你的站点根/og-default.png
 | RSS 订阅页 | `https://你的域名/feed` | 列出 RSS 2.0 与 Atom 两个地址；页脚 / 侧栏有「📡 RSS 订阅」入口 |
 | 分类/标签地址 | `https://你的域名/tag/agent-security` | 纯 ASCII 地址 200；旧中文地址（`/tag/智能体安全`）爬虫拿到 301、真人自动把地址栏换成新地址；后台「标签管理」slug 列无中文（v5.4.0） |
 | 部署脚本 | 服务器执行一次更新后看日志 + `sha256sum /www/wwwroot/myblog/update.sh` | 日志出现「脚本已自更新到 v5.4.1（旧版备份：…），重新执行…」，且服务器 `update.sh` 的 sha256 与仓库同 tag 一致；本版起 venv 属 root 时新增依赖会自动以 root 安装（`umask 022`），日志会写「以 root 写入 venv」（v5.4.1） |
-| 主题中心 | 后台 → 🎨 主题中心 | 14 套预设可切换、自定义 token 非法值返回 400 并逐条说明；「允许访客自选主题」默认关，打开后前台顶栏/手机抽屉出现选择器，访客换肤刷新仍生效，关掉后立即失效（v5.4.3） |
+| 主题中心 | 后台 → 🎨 主题中心 | 15 套预设可切换、自定义 token 非法值返回 400 并逐条说明；页面上**不再有**「允许访客自选主题」开关（v5.4.3 上线、v5.4.5 下架，前台无主题选择器） |
+| 自定义页脚代码 | 后台 → ⚙️ 站点设置 → 「自定义页脚代码」 | 填 `<p>页脚测试</p>` → 前台页脚出现该段文字（登录页也出现）；再填一段内联 `<script>console.log("footer-ok")</script>` → 浏览器控制台输出 `footer-ok`，且站内切路由**不重复打印**；超过 20000 字符被拒并保留原值；「操作日志」留一条改动记录（v5.4.5） |
 | 接口文档 | `https://你的域名/docs` | 「完整接口清单」来自 `/api/docs`，内容与 `myblog/API.md` 一致；搜索框输入 `mobile` / `slug` 能命中接口、左侧目录可点、右侧「本节内容」随滚动高亮（v5.3.1 修复搜索/目录失效）；代码块带「语言标签栏 + 复制按钮」且语法高亮生效（v5.3.2 重做，v5.3.3 修好 API.md 围栏；注意高亮在 `/api/docs` 内容到达后才跑，首屏需等文档加载完）；v5.3.4 起默认品牌色为 `#196ddd`、元信息 14px；「如何新增一个 API」步骤编号 1~7 连续、鉴权子项是缩进列表（v5.4.2） |
 | API | `https://你的域名/api/site` | 返回 JSON |
 
@@ -1028,6 +1029,14 @@ sha256sum /tmp/og.png /www/wwwroot/你的站点根/og-default.png
 >   自带 Bearer 鉴权、非会话）。若你的 MCP 客户端此前一直在报 403，升级后即恢复。
 > - 全量报告：`docs/audit/2026-10-07-full-audit-report.md`。
 
+> **v5.4.5（自定义页脚代码 + 访客自选主题下架）升级要点**：**后端与前端都改了 → 两个包都要覆盖**。前端动了 `src/App.vue`、`src/store.js` 并**删除** `src/components/ThemePicker.vue`，**必须先 `npm run build` 再打包**（`package.py` 打的是 `_vite_build30/`）。
+> - **无数据库迁移**：新字段 `footer_html` 是 Setting KV，`_ensure_settings()` 首次启动会补一行空值；`API.md` 的接口清单本版同步。
+> - 部署后要**亲手验一次页脚代码**（这是「贴上去不生效最难查」的一类功能）：后台 → ⚙️ 站点设置 → 「自定义页脚代码」填
+>   `<script>console.log("footer-ok")</script>`，硬刷新前台首页 → 浏览器控制台应出现 `footer-ok`，且**在站内来回切路由不会重复打印**。
+>   外链统计脚本（`<script src="https://…">`）在 SPA 前台可正常加载（SPA 首页由 nginx 直出、不带 CSP 头）；
+>   但 Flask 渲染的页面（登录/注册/后台/爬虫壳页）受 `script-src 'self' 'unsafe-inline' 'unsafe-eval'` 约束，**站外脚本会被拦** —— 这不是 bug，别把统计代码的验证放到登录页上做。
+> - 访客侧的可见变化：顶栏与手机抽屉**不再有**「🎨 选择主题」按钮。若某个访客反馈「按钮还在」，是他浏览器里的旧前端产物，硬刷新即可。
+>
 > **v5.4.4（主题「青野」+ 京华老宋体自托管）升级要点**：**后端与前端都改了 → 两个包都要覆盖**。前端动了 `src/styles/global.css`、`look.css`、`index.html`、`vite.config.js`，**必须先 `npm run build`**；后端 `themes.py` 多一套 `sage-sand` 预设。
 > - **后端包体积从 ~5 MB 涨到 ~29 MB**（+503 个 woff2 分片 / 24.8 MB）。这是「京华老宋体」自托管的代价：本站 CSP 是 `font-src 'self' data:`，hotlink 会被浏览器直接拦掉；分片不进 git（`.gitignore` 两条路径），但**随包分发**。
 > - 不想带字体：删掉 `myblog/static/fonts/kinghua/` 与 `kinghua.css` 再 `python package.py`。前台会自动回落 `Noto Serif SC / Songti SC / SimSun / serif`，只是「青野」少了宋体质感，功能与排版都不坏。
@@ -1041,7 +1050,7 @@ sha256sum /tmp/og.png /www/wwwroot/你的站点根/og-default.png
 > - **无数据库迁移**：`allow_visitor_theme` 是一个 Setting KV，**首次在后台保存开关时**才建行。
 > - 上线后该开关**默认关**：前台不渲染选择器。要开放就去 后台 → 🎨 主题中心 → 「允许访客自选主题」→ 保存；关掉即刻失效（含访客浏览器里残留的选择）。
 > - ⚠️ **行为变化**：`POST /api/theme` 的 `custom` 变严 —— 未知 token 键 / `url(...)` / 颜色名 `red` / 带分号的值一律 `400` 并回 `details`。有历史主题 JSON 要导入的，先按文案清理。
-> - 真机看一眼（PR 作者本机没取到视口）：顶栏胶囊按钮、手机抽屉整行按钮、14 套预设时面板的滚动高度。
+> - ⚠️ **本档已于 v5.4.5 整体下架**（站主判定「访客自选主题」是多余功能）：开关卡片、`ThemePicker.vue`、`visitor_theme` / `allow_visitor_theme` 接口字段全部删除。老库里那行 `allow_visitor_theme` 已无人读取，不必清理。
 >
 > **v5.4.2（修 `/docs` 步骤列表编号错乱）升级要点**：**只改文档内容**（`myblog/API.md` 4 行缩进 + 一条守卫测试），无代码改动；按常规覆盖后端包即可（前端包与 v5.4.1 等价）。
 > - 核验：`/docs` 的「如何新增一个 API」小节步骤编号应为 **1~7 连续**，第 4 步「鉴权按需选」下是 4 个缩进子项（公开/登录/管理员/超管），不再出现 6~11 的错乱编号。

@@ -87,6 +87,8 @@ def _ensure_settings(app):
         "site_description": "欢迎来到我的博客，这里记录我的生活、技术与想法。",
         "about_content": "这里是关于本站的描述，你可以在后台「站点设置」里修改这段文字。",
         "footer_text": "© " + str(datetime.datetime.now().year) + " 我的博客 · 由 Flask 驱动",
+        # v5.4.5 自定义页脚代码（站主原样写的 HTML，仅超管可改；留空 = 不输出任何东西）
+        "footer_html": "",
         "beian_code": "",
         "weather_lat": "39.9042",   # 默认北京纬度
         "weather_lon": "116.4074",  # 默认北京经度

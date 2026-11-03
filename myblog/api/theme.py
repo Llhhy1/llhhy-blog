@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
 """主题中心 API（v3.16.0）。
 
-GET  /api/theme  —— 公开：返回预设主题包列表 + 当前激活 pack_id + 是否开放访客自选（供前台选择器/后台预览用）
+GET  /api/theme  —— 公开：返回预设主题包列表 + 当前激活 pack_id（供后台主题中心预览用）
 POST /api/theme  —— 仅超管：应用预设包（pack_id）或自定义主题（custom JSON），
-                   也可单独提交 wallpaper / visitor_theme 开关；写 Setting 并审计
+                   也可单独提交 wallpaper；写 Setting 并审计
 
 安全：POST 必须有登录超管会话 + 全局 CSRF（app 层 POST 统一校验）。自定义主题走
       `themes.normalize_custom_theme()`：**键必须在 token 白名单内、值必须匹配该键的语法**
@@ -16,8 +16,7 @@ import json
 from .common import api_bp, jsonify
 from flask import request, session
 from models import User, Setting, db
-from themes import (THEME_PRESETS, PRESET_MAP, ALLOW_VISITOR_KEY, current_theme,
-                    normalize_custom_theme, visitor_theme_allowed)
+from themes import THEME_PRESETS, PRESET_MAP, current_theme, normalize_custom_theme
 # v3.25.0：审计写入搬到顶层 `audit.py` 后，本模块**可以正常顶层导入**了 ——
 # 原先 `from admin import log_audit` 只能塞进函数里延迟导入，因为
 # `admin.ai_summary → api` 构成包级循环，模块顶层导出会直接 ImportError。
@@ -110,7 +109,6 @@ def theme_get():
         "presets": THEME_PRESETS,
         "current": {"pack_id": current_theme()["pack_id"]},
         "wallpaper": _wallpaper(),
-        "allow_visitor_theme": visitor_theme_allowed(),
     })
 
 
@@ -125,7 +123,6 @@ def theme_post():
     pack_id = (data.get("pack_id") or "").strip()
     custom = data.get("custom")
     wallpaper = data.get("wallpaper")   # v4.5.0：可只带 wallpaper（纯壁纸请求）
-    visitor_theme = data.get("visitor_theme")   # 档 1：可只带它（纯开关请求）
 
     def set_kv(key, val):
         row = Setting.query.filter_by(key=key).first()
@@ -171,24 +168,10 @@ def theme_post():
             return jsonify({"error": "启用壁纸前请先上传至少一张图片"}), 400
         set_kv(WALLPAPER_KEY, json.dumps(wp, ensure_ascii=False))
 
-    visitor_allow = None
-    if visitor_theme is not None:
-        # 只接受真正的开/关：`1`、`"on"` 这类一律 400，免得前端拼错字段却「静默成功」。
-        if isinstance(visitor_theme, bool):
-            visitor_allow = visitor_theme
-        elif isinstance(visitor_theme, str) and visitor_theme.strip().lower() in ("true", "false"):
-            visitor_allow = visitor_theme.strip().lower() == "true"
-        else:
-            return jsonify({"error": "visitor_theme 只能是 true / false"}), 400
-        set_kv(ALLOW_VISITOR_KEY, "true" if visitor_allow else "false")
-
     db.session.commit()
     # 审计失败不该让主题应用失败；`log_audit` 自身已全异常静默，这里只是双保险
     with contextlib.suppress(Exception):
-        only_visitor = visitor_allow is not None and not pack_id and custom is None and wallpaper is None
-        if only_visitor:
-            log_audit("theme", target="访客自选主题", detail="开放" if visitor_allow else "关闭")
-        elif wallpaper is not None and not pack_id and custom is None:
+        if wallpaper is not None and not pack_id and custom is None:
             log_audit("theme", target="设置首页壁纸",
                       detail="启用" if _wallpaper()["enabled"] else "关闭")
         else:
@@ -200,5 +183,4 @@ def theme_post():
         "theme_tokens": t["light"],
         "theme_dark_tokens": t["dark"],
         "wallpaper": _wallpaper(),
-        "allow_visitor_theme": visitor_theme_allowed(),
     })

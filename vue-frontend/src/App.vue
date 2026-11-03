@@ -50,9 +50,6 @@
         <router-link class="drawer-link" to="/register" @click="drawerOpen = false">{{ t('register') }}</router-link>
       </template>
       <button class="drawer-link drawer-theme" type="button" @click="toggleTheme(); drawerOpen = false">{{ t('theme') }}：{{ themeIcon }}</button>
-      <!-- 档 1：桌面顶栏在窄屏会整条隐藏（.site-header nav { display:none }），
-           抽屉里必须也有入口，否则手机访客根本换不了主题 -->
-      <ThemePicker v-if="state.site.allow_visitor_theme" full />
       <button class="drawer-link drawer-lang" type="button" @click="toggleLang(); drawerOpen = false">{{ state.lang === 'en' ? '中文' : 'EN' }}</button>
     </div>
   </aside>
@@ -127,8 +124,6 @@
         </template>
         <button class="lang-toggle" type="button" @click="toggleLang" :title="t('switch_lang')">{{ state.lang === 'en' ? '中' : 'EN' }}</button>
         <button class="theme-toggle" type="button" :aria-label="t('toggle_theme')" @click="toggleTheme">{{ themeIcon }}</button>
-        <!-- 档 1：站主在主题中心开放后才出现（关掉时连请求都不会发） -->
-        <ThemePicker v-if="state.site.allow_visitor_theme" />
       </nav>
     </div>
   </header>
@@ -186,6 +181,10 @@
       <p v-if="state.site.beian_code">
         <a href="https://beian.miit.gov.cn" target="_blank" rel="noopener">{{ state.site.beian_code }}</a>
       </p>
+      <!-- v5.4.5 自定义页脚代码（后台「站点设置 → 自定义页脚代码」，仅超管可写）。
+           内容由 store.js 的 injectFooterCode() 用原生 DOM 写入并重建 <script>，
+           所以这里**必须保持空元素**、也不要改成 v-html（那样脚本不会执行）。 -->
+      <div id="site-footer-code"></div>
       <div v-if="pluginFooter.length" class="plugin-footer-cards">
         <a v-for="c in pluginFooter" :key="c.id" class="plugin-footer-card"
            :href="c.link || '#'" target="_blank" rel="noopener">
@@ -219,7 +218,6 @@ import { state, initSite, logout, t, setLang, applyActiveTheme, installApp } fro
 import { toast } from "./lib/toast.js";
 import { apiPost, apiGet } from "./lib/api.js";
 import { sanitizeHtml } from "./lib/sanitize.js";
-import ThemePicker from "./components/ThemePicker.vue";
 const themeIcon = ref("🌙");
 const noteClosed = ref(false);
 const drawerOpen = ref(false);  // v2.6.0 mobile 抽屉开关

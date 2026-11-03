@@ -1005,6 +1005,34 @@ MIME 混淆，缺少 CSP 不产生可利用的差异。
 - `_TOKEN_KIND` 白名单与 `_BASE_LIGHT` 的键集必须同步（已有 `test_base_light_matches_token_files` 钉住）；新增 token 忘记登记类别会被自家校验挡掉。
 - 档 2（主题商店 / 用户上传主题包）之前必须先有主题包来源限制，否则白名单只是把「注入」换成「任意值」。
 
+## R167 · v5.4.5（自定义页脚代码 + 档 1 访客自选主题下架）安全审查
+
+**范围**：`admin/settings.py`（新字段 `footer_html` + 上限 + 审计）、`app.py`（默认值行）、
+`api/site.py`（读出口）、`templates/base.html`（SSR 页脚 `| safe`）、
+`templates/admin/settings.html`（textarea）；前端 `store.js`（`injectFooterCode()`）、
+`App.vue`（`#site-footer-code` 挂载点）。下架侧删 `themes.py` 的两个符号、`api/theme.py` 的
+`visitor_theme` 分支、`admin/theme_center.py` 的传参、`ThemePicker.vue`、档 1 测试文件。
+**无新表、无 Alembic 迁移、无新依赖。**
+
+### 167.1 逐维复核
+
+| 维度 | 结论 | 说明 |
+|---|---|---|
+| 存储型 XSS（本轮主线） | **按设计接受，边界收口** | `footer_html` 的定义就是「站主原样写的 HTML」，输出侧不转义、不清洗（清洗即砍掉统计代码这一头号用途）。风险不在内容而在**谁能写**：唯一入口是 `@super_required` 的 `POST /admin/settings`，普通管理员 403；`/api/*` 没有任何写该键的端点（移动端 `_SETTING_KEYS` 是只读展示白名单）。等价于 WordPress 的「页脚代码/统计代码」设置项 —— 超管账号本身即可改主题文件，权限面没有扩大。 |
+| 二阶写入通道 | 已排除 | 逐项确认无第二条写路径：MCP / 移动端设置接口只读；`config_rollback` 只能把值回滚成**历史上超管写过的值**；备份恢复与直接改库不属于应用权限模型。 |
+| 脚本执行域 | 已量化 | SPA 前台由 nginx 直出、**不带 CSP 头** → 内联与外链脚本都能跑；Flask 渲染的页面（登录/注册/后台/爬虫壳页）带 `script-src 'self' 'unsafe-inline' 'unsafe-eval'` → 内联可跑、站外 `<script src>` 被拦。两者都不是本轮新引入的宽松度（`unsafe-inline` 早于本版存在）。 |
+| 资源型 DoS | 有上限 | `FOOTER_HTML_MAX = 20000` 字符：该值进**每一个**前台页面响应体。超限直接拒绝并保留原值，前端与 SSR 都取不到超限内容。 |
+| 重复执行 / 计数失真 | 已防 | `injectFooterCode()` 用 `data-src` 比对做幂等；SPA 切路由不重跑脚本（否则统计 PV 会被自家路由放大）。 |
+| 越权（档 1 下架） | 攻击面净减少 | 删除 `visitor_theme` 入参与 `allow_visitor_theme` 读出口后，`POST /api/theme` 的可达状态转移只剩「主题包 / 自定义 token / 壁纸」三项，均为超管专属。老客户端提交 `visitor_theme` 被**静默忽略**（不写库、不报错），不存在「字段还在但没人管」的悬空状态。 |
+| 审计留痕 | 增强 | 值变化时记一条 `settings / 自定义页脚代码`（含字符数或「已清空」）；值未变不刷日志，避免把真实改动埋进噪音。 |
+| CSRF / SQLi / SSRF / 密钥 | 不适用或未变 | 无新路由、无外发请求、无凭据；写库仍走 ORM；`/admin/settings` 仍受全局 CSRF 与会话保护。 |
+
+### 167.2 回归点
+
+- 若将来给「普通管理员」开放站点设置的部分字段，**`footer_html` 必须继续留在超管侧** —— 它是当前设置里唯一能在他人浏览器执行脚本的字段。
+- 前端契约没有可观测出口（脚本不执行时页面完全正常），已由 `test_footer_html_v545.py` 的三条源码断言钉住：挂载点存在、`createElement("script")` + `replaceWith` 重建、注入被调用。改 `injectFooterCode` 时不要削弱这三条。
+- 档 1 的缺席守卫扫 `myblog/`、`vue-frontend/src/`、`tests/`、`tools/`；历史文档（CHANGELOG / deploy_guide / 本台账）故意保留记录，不在扫描范围内。
+
 ## R165 · v5.4.2（/docs 步骤列表缩进排版修复）安全审查
 
 **范围**：仅 `myblog/API.md` 的 4 行缩进（3 → 4 空格）与一条守卫测试。**无代码、无路由、无模板、无表结构变更**。

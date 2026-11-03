@@ -718,18 +718,6 @@ def _default_theme(accent):
     return {"light": light, "dark": dark}
 
 
-# 档 1「访客自选主题」总开关的 Setting 键。键放在 themes（主题的真相源）而不是
-# api/theme：读它的有 /api/theme、/api/site、后台主题中心三处，而 admin 里已有
-# 包级循环的前科（见 v3.25.0 的 log_audit 教训）。
-ALLOW_VISITOR_KEY = "allow_visitor_theme"
-
-
-def visitor_theme_allowed():
-    """站主是否开放「访客自选主题」（缺键 = 关；未开放时前台连选择器都不渲染）。"""
-    from utils import setting_bool
-    return setting_bool(ALLOW_VISITOR_KEY, False)
-
-
 def current_theme():
     """读取当前激活主题，返回 {pack_id, light, dark}。
 

@@ -21,24 +21,6 @@
     <button type="button" class="btn" id="tcExportBtn">导出当前主题 JSON</button>
   </div>
 
-  <!-- 档 1：访客自选主题。默认关 —— 开放后前台顶栏多一个主题按钮，
-       访客只能在这份服务端下发的预设清单里挑，选择写在他自己的 localStorage，
-       既不改 Setting，也不影响其他访客看到的主题。 -->
-  <div class="tv-box">
-    <h3>访客自选主题</h3>
-    <p>
-      开放后，访客可在前台顶栏从这 {{ presets|length }} 套预设里挑一套自己看着舒服的；
-      选择只存在他本人的浏览器里，不影响你设定的当前主题，也不影响其他访客。
-    </p>
-    <div class="wp-ctl">
-      <label class="wp-check">
-        <input type="checkbox" id="tvEnabled" {% if allow_visitor %}checked{% endif %}> 允许访客自选主题
-      </label>
-      <button type="button" class="btn" id="tvSaveBtn">保存</button>
-      <span id="tvMsg" class="tc-msg"></span>
-    </div>
-  </div>
-
   <!-- 首页壁纸（v4.5.0）：首屏满屏大图，标题与联系方式叠加其上 -->
   <div class="tc-wall">
     <h3>首页壁纸（首屏大图）</h3>
@@ -179,30 +161,6 @@
 
     // 初始填充导出框（当前主题）
     jsonEl.value = JSON.stringify({ light: {{ current.light | tojson }}, dark: {{ current.dark | tojson }} }, null, 2);
-
-    // ---------- 档 1：访客自选主题开关 ----------
-    var tvEnabled = document.getElementById('tvEnabled');
-    var tvMsg = document.getElementById('tvMsg');
-
-    function showTvMsg(text, ok) {
-      tvMsg.textContent = text;
-      tvMsg.style.color = ok ? 'var(--success,#188038)' : 'var(--danger,#e5484d)';
-      setTimeout(function () { tvMsg.textContent = ''; }, 4000);
-    }
-
-    document.getElementById('tvSaveBtn').addEventListener('click', function () {
-      applyAxios({ visitor_theme: tvEnabled.checked }).then(function (res) {
-        if (res.ok) {
-          showTvMsg(res.d.allow_visitor_theme
-            ? '已开放：访客可在前台顶栏自选主题'
-            : '已关闭：前台不再显示主题选择器', true);
-        } else {
-          // 保存失败要把开关拨回**服务端真实值**，否则界面显示「已开放」而实际没生效
-          tvEnabled.checked = !!(res.d && res.d.allow_visitor_theme);
-          showTvMsg('保存失败：' + ((res.d && (res.d.error || res.d.details)) || '网络或权限错误'), false);
-        }
-      }).catch(function () { showTvMsg('保存失败：网络错误', false); });
-    });
 
     // ---------- v4.5.0 首页壁纸 ----------
     var wp = { enabled: false, light: '', dark: '', overlay: 0.35 };
@@ -366,12 +324,6 @@
       background:var(--surface,#fff); border:1px solid var(--border,#ececec); border-radius:14px;
       padding:14px 16px; margin-bottom:18px; }
     .tc-current-label { color:var(--text-muted,#6b7280); font-size:13px; margin-right:8px; }
-    /* 访客自选主题开关（与 .tc-current 同款卡片，但内容纵向排布） */
-    .tv-box { background:var(--surface,#fff); border:1px solid var(--border,#ececec); border-radius:14px;
-      padding:14px 16px; margin-bottom:18px; }
-    .tv-box h3 { margin:0 0 6px; font-size:15px; }
-    .tv-box p { margin:0; max-width:760px; font-size:13px; color:var(--text-muted,#6b7280); }
-    .tv-box .wp-ctl { margin-top:12px; }
     .tc-swatches { display:flex; gap:6px; }
     .tc-sw { width:22px; height:22px; border-radius:6px; border:1px solid rgba(0,0,0,.1); display:inline-block; }
     .tc-grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(240px,1fr)); gap:16px; }

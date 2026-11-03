@@ -81,6 +81,19 @@
         </div>
 
         <div class="field">
+          <label class="field-label" for="footer_html">自定义页脚代码</label>
+          <textarea id="footer_html" name="footer_html" rows="6"
+            placeholder="&lt;p&gt;用 XX 建站 · &lt;a href=&quot;/about&quot;&gt;关于本站&lt;/a&gt;&lt;/p&gt;&#10;&lt;script&gt;console.log('页脚脚本')&lt;/script&gt;">{{ settings.footer_html }}</textarea>
+          <p class="field-hint">
+            <b>原样输出到前台页脚</b>，不做任何转义 —— 用来放统计代码、自定义链接、版权行。
+            <b><code>&lt;script&gt;</code> 会真的执行</b>（内联脚本直接跑；外链脚本由前端重建后加载）。<br>
+            这段代码只有<b>超级管理员</b>能改，改动会进「操作日志」；它等于把「在你网站上跑任意 JS」的权力交给你自己，
+            所以<b>不要粘贴来路不明的"美化插件"代码</b>。留空 = 前台不输出任何东西。<br>
+            上限 {{ footer_html_max }} 字符；超出会被拒绝并保留原值。
+          </p>
+        </div>
+
+        <div class="field">
           <label class="field-label" for="site_since">开站时间</label>
           <input id="site_since" type="date" name="site_since" value="{{ settings.site_since or '' }}" min="2000-01-01" max="2100-12-31">
           <p class="field-hint">

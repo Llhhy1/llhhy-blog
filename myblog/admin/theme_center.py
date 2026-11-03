@@ -2,7 +2,7 @@
 # 主题中心后台页（v3.16.0）：仅超管可进入；实际「应用」走 /api/theme（AJAX + CSRF）。
 from ._helpers import super_required, admin_bp     # admin_bp = 同一蓝图对象
 from flask import render_template
-from themes import THEME_PRESETS, current_theme, visitor_theme_allowed
+from themes import THEME_PRESETS, current_theme
 
 
 @admin_bp.route("/theme-center")
@@ -14,5 +14,4 @@ def theme_center():
     from .media import collect_media
     return render_template("admin/theme_center.html",
                            presets=THEME_PRESETS, current=current_theme(),
-                           allow_visitor=visitor_theme_allowed(),
                            media=collect_media())

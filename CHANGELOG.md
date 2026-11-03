@@ -7,6 +7,38 @@
 > v4.0.0 ~ v4.3.0 → `docs/archive/CHANGELOG_v4.0.0-v4.3.0.md`（v5.3.4 因体积守卫触发，主文件涨到 200 KB / 上限 200 KB）。
 > 本文件从 **v4.3.1** 起。**归档不是删除** —— 查旧版本变更细节时去上述文件。
 
+## v5.4.5（2026-11-03 · 自定义页脚代码 + 访客自选主题下架）
+
+> 来源：分支 `feat/footer-code-and-tier1-removal`（待合并）。站主反馈：档 1「访客自选主题」是多余功能，拆掉；要一个能自己写页脚代码的入口。
+
+### A. 自定义页脚代码（`footer_html`）
+
+- 后台「站点设置 → ① 站点信息」新增 textarea（挨着页脚文字/备案号），内容**原样输出**到页脚：统计代码、自定义链接、版权行都行。
+- **不做任何清洗**（转义 `<` 或剥 `<script>` 会让头号用途失效）。信任边界改由三处守住：
+  ① 只有 `@super_required` 的 `/admin/settings` 能写（普通管理员 403，移动端 `_SETTING_KEYS` 只读、MCP 无写入口）；
+  ② 长度上限 `FOOTER_HTML_MAX = 20000`（它进的是**每个前台页面**，防误粘贴整份 HTML）；
+  ③ 改动写一条审计日志（`target=自定义页脚代码`），值没变不刷日志；同时进配置快照 → 可回滚。
+- **前端脚本会真的执行**：`v-html` / `innerHTML` 插进去的 `<script>` 按规范不运行，所以 `store.js:injectFooterCode()` 插入后把每个 script 换成新建元素（内联与外链同路）；`data-src` 比对保证幂等，SPA 换路由不会把统计脚本重跑一遍（否则 PV 翻倍）。
+- SSR 侧（`templates/base.html`，登录/注册页）`| safe` 直出。注意 CSP：Flask 渲染的页面 `script-src 'self' 'unsafe-inline' 'unsafe-eval'` → **内联脚本可跑，外链 `<script src="https://…">` 会被拦**；SPA 首页由 nginx 直出、不带 CSP 头，所以站外统计代码在前台正常加载。
+- 接口契约：`GET /api/site` 新增 `footer_html`（恒有键，未配置为 `""`）。
+
+### B. 档 1「访客自选主题」下架
+
+- 删除范围：`themes.ALLOW_VISITOR_KEY` / `visitor_theme_allowed()`、`POST /api/theme` 的 `visitor_theme` 分支、`GET /api/theme` 与 `GET /api/site` 的 `allow_visitor_theme`、主题中心开关卡片、`ThemePicker.vue`、`store.js` 的 `themePacks`/`visitorPack`/`loadThemePacks`/`setVisitorTheme`/`VISITOR_THEME_KEY`、3 个 i18n 键、`tests/test_audit_v542_visitor_theme.py`（23 条）。
+- **保留**：批次 D 的主题校验加固（`tests/test_audit_v543_sage_theme.py`、`test_audit_v542_theme_input.py` 不动）与第 15 套预设「青野」。
+- 新增缺席守卫 `test_visitor_theme_switch_is_gone_from_code`：扫 `myblog/`、`vue-frontend/src/`、`tests/`、`tools/`，任何残影（含 `localStorage` 键名）即变红 —— 本项目由 AI 协助维护，留残影等于邀请下一次改动把它接回去。
+- 线上库里那行 `allow_visitor_theme` Setting **不用清**：已无人读取，留着无害；`localStorage` 里访客存过的 `visitorTheme` 同理。
+
+### C. 验证
+
+- 新增 `tests/test_footer_html_v545.py`（19 条）：原样存/原样输出（含「登录页 302 导致断言假绿」的坑已用匿名 client 规避）、超限拒绝且其他字段照常保存、边界值恰好可存、普通管理员 403、无 API 写入口、审计一条且不重复、进快照、前端契约（mount + 重建 script + 幂等）、档 1 缺席扫描。
+- 全量 pytest / ruff / `lint_debt`（基线不放宽）/ `check_i18n` / `vite build` 见 PR。
+
+### D. 部署
+
+- **前端有改动 → 必须 `npm run build` 再打包**（`App.vue`、`store.js`，并删了 `components/ThemePicker.vue`）。
+- **无数据库迁移**：`footer_html` 是 Setting KV（`_ensure_settings` 会补默认空值行）。旧前端配新后端 → 少一个页脚 div，不报错；新前端配旧后端 → `footer_html` 缺失即不注入。
+
 ## v5.4.4（2026-11-02 · 主题「青野」+ 京华老宋体自托管 + 主题 token 真正被消费）
 
 > 来源：PR #36 `feat/sage-theme`（2 提交 / 12 文件 / +482−28，`mergeable_state=clean`），本地快进合并为 `3288b15`；同批并入 PR #37（Dependabot：`github/codeql-action` 3→4，只改 `.github/workflows/codeql.yml`，不进部署包）。

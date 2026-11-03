@@ -144,6 +144,10 @@
       {% if settings.beian_code %}
       <p class="beian"><a href="https://beian.miit.gov.cn" target="_blank" rel="noopener">{{ settings.beian_code }}</a></p>
       {% endif %}
+      {# v5.4.5 自定义页脚代码：站主（仅超管）原样填写的 HTML，这里**故意不转义** ——
+         它的用途就是统计代码/自定义链接。写入侧只有 super_required 一道门，
+         与此前「自定义 CSS」同一信任级别。 #}
+      {{ settings.footer_html | safe }}
     </div>
   </footer>
 

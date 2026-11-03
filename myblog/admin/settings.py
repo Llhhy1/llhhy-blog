@@ -14,6 +14,13 @@ from urllib.parse import urlparse
 logger = logging.getLogger(__name__)
 
 
+# v5.4.5 自定义页脚代码的长度上限（字符）。
+# 为什么要有上限：这段值会原样进每个前台页面的页脚，统计代码一般几百到几千字符；
+# 真出问题的场景是误粘贴（整份 HTML 源码）或恶意灌水 —— 那会把每页响应体撑大。
+# 上限只管大小，**不清洗内容**：清洗就废了这个功能（它的用途就是 `<script>`）。
+FOOTER_HTML_MAX = 20000
+
+
 def _normalize_site_url(raw):
     """清洗「站点对外地址（site_url）」输入（v3.25.5）。
 
@@ -83,7 +90,7 @@ def settings():
         # 但后台此前**根本没有输入框**，SEO 页却一直警告"未配置"并指向本页，
         # 等于把人指进死胡同（只能改环境变量或直接改库）。
         fields = ["site_url", "site_title", "site_name", "site_note", "site_description", "about_content", "footer_text",
-                  "beian_code", "weather_lat", "weather_lon", "weather_city",
+                  "beian_code", "footer_html", "weather_lat", "weather_lon", "weather_city",
                   "accent_color",
                   # v4.9.0 分享卡片模板（留空 = 经典渐变 1200×630）
                   "og_template",
@@ -114,6 +121,7 @@ def settings():
         # site_url 单独清洗：其它字段原样取表单值，只有它必须先过校验。
         # 同时记住旧值 —— 变了就要立刻重跑证书检查（见 `_trigger_cert_recheck`）。
         _old_site_url = get_setting("site_url") or ""
+        _old_footer_html = get_setting("footer_html") or ""
         _site_url_value, _site_url_error = _normalize_site_url(request.form.get("site_url", ""))
         for f in fields:
             if f == "site_url":
@@ -163,6 +171,17 @@ def settings():
                     flash("自定义 CSS 不能包含 </（会破坏页面结构），已保留原值。", "error")
                     continue
                 val = raw
+            elif f == "footer_html":
+                # v5.4.5 自定义页脚代码：**只限量，不清洗**。这段值的用途就是原样输出
+                # HTML/`<script>`（统计代码、自定义链接），清洗等于砍掉功能。
+                # 权限侧已经收口：本路由是 @super_required，普通管理员进不来；
+                # 写坏了也有兜底 —— 超管自己看得到页脚，且值本身在配置快照里可回滚。
+                raw = request.form.get(f, "") or ""
+                if len(raw) > FOOTER_HTML_MAX:
+                    flash("自定义页脚代码超出 %d 字符上限（当前 %d 字符），已保留原值。"
+                          % (FOOTER_HTML_MAX, len(raw)), "error")
+                    continue
+                val = raw
             else:
                 val = request.form.get(f, "")
             row = Setting.query.filter_by(key=f).first()
@@ -206,6 +225,13 @@ def settings():
         elif _site_url_value != _old_site_url:
             # 只有真的改了才重跑（每天每次保存都跑一遍没意义，也白出网）。
             _trigger_cert_recheck()
+        # v5.4.5：页脚代码会在访客浏览器里**执行脚本**，值得单独留一条痕迹——
+        # 整站设置没有逐字段审计，但这一项的传播面是「所有访客的浏览器」。
+        _new_footer_html = get_setting("footer_html") or ""
+        if _new_footer_html != _old_footer_html:
+            log_audit("settings", target="自定义页脚代码",
+                      detail=("已清空" if not _new_footer_html
+                              else "已更新（%d 字符）" % len(_new_footer_html)))
         flash("站点设置已保存")
         return redirect(url_for("admin.settings"))
     settings = {s.key: s.value for s in Setting.query.all()}
@@ -221,6 +247,7 @@ def settings():
     return render_template("admin/settings.html", settings=settings,
                            site_base_now=site_base(),
                            og_templates=og_templates,
+                           footer_html_max=FOOTER_HTML_MAX,
                            default_center=ecosystem.DEFAULT_CENTER)
 
 @admin_bp.route("/api/slug-preview", methods=["GET"])

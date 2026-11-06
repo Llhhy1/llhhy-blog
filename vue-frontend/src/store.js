@@ -7,7 +7,8 @@ export const state = reactive({
           site_description: "", accent_color: "#196ddd",
           footer_text: "", footer_html: "", beian_code: "", about_content: "",
           theme_mode: "system", theme_radius: "md", theme_font: "md",
-          nav_style: "light", custom_css: "", site_lang: "zh" },
+          nav_style: "light", custom_css: "", site_lang: "zh",
+          theme_bundle: null },
   user: null,           // { id, username, role, is_admin, ... } 或 null
   reader: { points: 0, badges: [] },  // v3.21.0 gamification：当前读者积分与勋章
   loaded: false,
@@ -277,6 +278,61 @@ function applyDefaultTheme(s) {
   document.documentElement.setAttribute("data-theme", dark ? "dark" : "light");
 }
 
+// v5.5.0 主题包展示层：把纯声明式配置变成 :root 上的 data-* 与 CSS 变量。
+// 为什么不直接注入一整份 CSS：主题包是「可分发的数据」，表达力必须能被白名单穷举，
+// 否则第三方包就等价于任意代码。这里只搬运数值，真正的版式规则写在 global.css。
+// 幂等：每次先清掉上一轮变量与属性，切回经典主题时不会残留「分章」结构。
+let _bundleVarNames = [];
+export function applyThemeBundle(bundle) {
+  const el = document.documentElement;
+  for (const n of _bundleVarNames) el.style.removeProperty(n);
+  _bundleVarNames = [];
+  for (const k of ["layout", "card", "frame", "sidebar", "motion", "bg", "columns"]) {
+    el.removeAttribute("data-" + k);
+  }
+  const style = document.getElementById("site-bundle-css");
+  if (style) style.textContent = "";
+  if (!bundle || !bundle.layout) return;
+
+  const l = bundle.layout;
+  el.setAttribute("data-layout", l.mode || "classic");
+  el.setAttribute("data-card", l.card || "col");
+  el.setAttribute("data-frame", l.frame || "normal");
+  el.setAttribute("data-sidebar", l.sidebar || "auto");
+  el.setAttribute("data-motion", (bundle.motion && bundle.motion.level) || "subtle");
+  el.setAttribute("data-bg", (bundle.background && bundle.background.mode) || "flat");
+
+  // ⚠️ 列数走 data-columns 属性 + CSS 里写死的 repeat(N, …)。
+  // 试过两种自定义属性写法都不行：`repeat(var(--n), 1fr)` 计数位无效；
+  // `grid-template-columns: var(--v)` 展开成 repeat() 又被判为计算值期无效，
+  // 两种都静默塌成单列。列数只有 1~4，写四条规则最稳。
+  el.setAttribute("data-columns", String(l.columns || 2));
+  const vars = {
+    "--zh-gap": (l.gap || 16) + "px",
+    "--zh-content-max": (l.content_max || 1100) + "px",
+  };
+  const pal = bundle.palette || {};
+  for (const k in pal) {
+    if (Object.prototype.hasOwnProperty.call(pal, k)) {
+      vars["--zh-" + k.replace(/_/g, "-")] = pal[k];
+    }
+  }
+  for (const k in vars) {
+    el.style.setProperty(k, vars[k]);
+    _bundleVarNames.push(k);
+  }
+  // 受限 CSS：服务端已校验过选择器命名空间与危险子串，这里只负责挂载。
+  if (bundle.css) {
+    let st = document.getElementById("site-bundle-css");
+    if (!st) {
+      st = document.createElement("style");
+      st.id = "site-bundle-css";
+      document.head.appendChild(st);
+    }
+    st.textContent = bundle.css;
+  }
+}
+
 // 自定义 CSS 注入（覆盖样式，优先级最高）
 function injectCustomCss(css) {
   if (!css) return;
@@ -326,8 +382,17 @@ export async function initSite() {
     applyDefaultTheme(s);
     // v3.16.0 主题中心：若有完整主题包，整体换肤（亮/暗按当前模式）
     applyActiveTheme();
+    // v5.5.0：主题包的布局 / 章节配色 / 动效放在颜色之后、自定义 CSS 之前，
+    // 保证站主手写的 custom_css 仍是最高优先级（与既有覆盖语义一致）。
+    applyThemeBundle(s.theme_bundle);
     injectCustomCss(s.custom_css);
-    injectFooterCode(s.footer_html);
+    // 后台「主题工坊」用 iframe 加载本站真实首页做预览，URL 带 tc_preview=1。
+    // 统计代码必须在这里跳过：否则站主每看一次预览就多跑一遍统计脚本、PV 翻倍
+    // （injectFooterCode 本身是幂等的，但换一个文档就是全新一次注入）。
+    // 自定义 CSS 照常注入 —— 预览要忠实反映站主真正会看到的样子。
+    if (!/(?:^|[?&])tc_preview=1(?:&|$)/.test(window.location.search)) {
+      injectFooterCode(s.footer_html);
+    }
     document.title = s.site_name || s.site_title || "我的博客";
     initLang(s.site_lang);  // v3.0.0 功能11：按本地/后台设置初始化语言
   } catch (e) { console.warn("站点设置加载失败", e); }

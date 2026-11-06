@@ -84,6 +84,111 @@
     </div>
   </div>
 
+  <!-- v5.5.0 主题包：纯 JSON 分发，除颜色外还带布局 / 章节配色 / 动效 -->
+  {% if bundles %}
+  <div class="tc-custom" style="margin-bottom:22px;">
+    <h3>主题包（含布局）</h3>
+    <p style="color:var(--text-muted,#6b7280);font-size:13px;max-width:760px;">
+      主题包是 <code>myblog/theme_packs/*.json</code> 里的一份纯声明式配置，除颜色外还能定义
+      整站背景、布局、卡片形态与动效。部署本系统的人往该目录放一份合法 JSON 即可拥有自己的主题，
+      无需改 Python 源码。应用主题包会退出下面的「预设 / 自定义」，反之亦然。
+    </p>
+    <div class="tc-grid">
+      {% for b in bundles %}
+      <div class="tc-card">
+        <div class="tc-prev" style="--accent:{{ b.accent }};--bg:{{ b.swatch }};--surface:{{ b.swatch }};--text:#f2efe6;--border:#3a4541;--muted:#b9c2bc;">
+          <div class="tc-prev-bar"><span class="tc-dot"></span><span class="tc-prev-title">{{ b.name }}</span></div>
+          <div class="tc-prev-card">
+            <div class="tc-prev-h"></div>
+            <div class="tc-prev-line"></div>
+            <div class="tc-prev-line short"></div>
+            <button class="tc-prev-btn" type="button">卷一 · 新章</button>
+          </div>
+        </div>
+        <div class="tc-meta">
+          <strong>{{ b.name }}</strong>
+          <span class="tc-en">{{ b.en }} · v{{ b.version }}</span>
+          <p class="tc-desc">{{ b.desc }}</p>
+          <div class="tc-tags">
+            <span class="tc-tag">{{ b.layout }}</span>
+            {% for t in b.tags %}<span class="tc-tag">{{ t }}</span>{% endfor %}
+          </div>
+          {% if b.source %}<p class="tc-desc" style="font-size:11px;opacity:.75;">{{ b.source }}</p>{% endif %}
+          <button type="button" class="btn tc-apply-bundle" data-bundle="{{ b.id }}">
+            {% if active_bundle_id == b.id %}已应用 · 重新应用{% else %}应用此主题包{% endif %}
+          </button>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+
+  <!-- v5.5.0 ②③：主题工坊（可视化定制）+ 主题市场（自建/导入/内置统一管理）。
+       预览 iframe 指向本站真实前台，而不是手写一份「等价」的静态示意 ——
+       手搓预览会掩盖 DOM 层级与 CSS 特异性问题（本项目踩过）。 -->
+  <div class="tc-ws" id="tcWs">
+    <div class="tc-ws-head">
+      <h3>主题工坊 · 定制我的主题</h3>
+      <div class="tc-rollback">
+        <span id="tcPrevLabel">上一套外观：暂无</span>
+        <button type="button" class="btn ghost" id="tcRollbackBtn">↩ 一键回滚</button>
+      </div>
+    </div>
+    <p class="tc-hint">
+      调好配色与版面后点「保存并应用」，右侧就是本站真实首页（不是模拟图）。
+      每次切换前会自动留一份外观快照，不满意点「一键回滚」即可还原；回滚后再点一次可以反悔。
+    </p>
+    <div class="tc-ws-grid">
+      <div class="tc-ws-form">
+        <label class="tc-field">以此主题为起点
+          <select id="wsBase"></select>
+        </label>
+        <div id="wsFields"></div>
+        <div class="tc-ws-actions">
+          <button type="button" class="btn ghost" id="wsSaveBtn">仅保存为主题</button>
+          <button type="button" class="btn" id="wsApplyBtn">保存并应用（可回滚）</button>
+          <button type="button" class="btn ghost" id="wsExportBtn">导出 JSON</button>
+        </div>
+        <div id="wsMsg" class="tc-msg"></div>
+      </div>
+      <div class="tc-ws-preview">
+        <div class="tc-ws-preview-head">
+          <strong>真实前台预览</strong>
+          <input type="text" id="wsPreviewUrl" aria-label="预览地址" value="/">
+          <button type="button" class="btn ghost" id="wsReloadBtn">刷新预览</button>
+        </div>
+        <iframe id="wsFrame" title="本站前台预览" src="about:blank"></iframe>
+        <p class="tc-hint">预览地址默认 <code>/</code>（与后台同源），子目录部署可改成实际前台路径；
+          填其它域名时可能被站点 CSP 的 <code>frame-src 'self'</code> 拦下，属预期行为。
+          预览页会跳过统计代码注入，避免后台看一眼就多计一次 PV。</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="tc-market">
+    <div class="tc-ws-head">
+      <h3>主题市场 · 我的主题库</h3>
+      <span id="tcMarketCount" class="tc-en"></span>
+    </div>
+    <p class="tc-hint">
+      内置主题包由部署包分发（只读）；在工坊里保存的、以及从 JSON 导入的都存进本站主题库。
+      <strong>第三方导入包会强制禁用自定义 CSS</strong>，颜色、字体与版面照常可用。
+    </p>
+    <div class="tc-grid" id="tcMarketGrid"></div>
+    <div class="tc-import">
+      <h4>导入第三方主题包 JSON</h4>
+      <textarea id="tcImportBundle" rows="6" spellcheck="false"
+                aria-label="第三方主题包 JSON"
+                style="width:100%;font-family:ui-monospace,Menlo,Consolas,monospace;"
+                placeholder='粘贴一份主题包 JSON（schema: 1），导入后不会应用'></textarea>
+      <div style="margin-top:10px;display:flex;gap:10px;flex-wrap:wrap;align-items:center;">
+        <button type="button" class="btn" id="tcImportBundleBtn">导入到主题库</button>
+        <span id="tcMarketMsg" class="tc-msg"></span>
+      </div>
+    </div>
+  </div>
+
   <!-- 预设包网格 -->
   <div class="tc-grid">
     {% for p in presets %}
@@ -278,6 +383,410 @@
       if (d.wallpaper) { wp = d.wallpaper; renderWp(); }
     }).catch(function () {});
 
+    // ---------- v5.5.0 ②③：主题工坊 / 主题市场 ----------
+    var LIB = { builtins: [], items: [], active_id: '', prev: null, limits: {} };
+    var EDIT = null, EDIT_ID = '', EDIT_ORIGIN = '', EDIT_OVERWRITE = '', currentBaseId = '';
+    var wsBase = document.getElementById('wsBase');
+    var wsFields = document.getElementById('wsFields');
+    var wsMsg = document.getElementById('wsMsg');
+    var marketMsg = document.getElementById('tcMarketMsg');
+    var marketGrid = document.getElementById('tcMarketGrid');
+    var wsFrame = document.getElementById('wsFrame');
+    var previewUrl = document.getElementById('wsPreviewUrl');
+    var rollbackBtn = document.getElementById('tcRollbackBtn');
+    var NUM_PATHS = ['layout.columns', 'layout.content_max', 'layout.gap'];
+
+    function postJson(url, body) {
+      return fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf },
+        body: JSON.stringify(body)
+      }).then(function (r) { return r.json().then(function (d) { return { ok: r.ok, d: d }; }); });
+    }
+    function showWs(text, ok, box) {
+      var t = box || wsMsg;
+      t.textContent = text;
+      t.style.color = ok ? 'var(--success,#188038)' : 'var(--danger,#e5484d)';
+      setTimeout(function () { t.textContent = ''; }, 4500);
+    }
+    function el(tag, cls, text) {
+      var n = document.createElement(tag);
+      if (cls) n.className = cls;
+      if (text !== undefined && text !== null) n.textContent = text;
+      return n;
+    }
+    function clone(o) { return JSON.parse(JSON.stringify(o)); }
+    function getPath(o, p) {
+      var cur = o, parts = p.split('.');
+      for (var i = 0; i < parts.length; i++) {
+        if (!cur || typeof cur !== 'object') return '';
+        cur = cur[parts[i]];
+      }
+      return cur === undefined || cur === null ? '' : cur;
+    }
+    function setPath(o, p, v) {
+      var cur = o, parts = p.split('.');
+      for (var i = 0; i < parts.length - 1; i++) {
+        if (!cur[parts[i]] || typeof cur[parts[i]] !== 'object') cur[parts[i]] = {};
+        cur = cur[parts[i]];
+      }
+      var last = parts[parts.length - 1];
+      if (NUM_PATHS.indexOf(p) >= 0) {
+        var n = parseInt(v, 10);
+        cur[last] = isNaN(n) ? 0 : n;
+      } else { cur[last] = v; }
+    }
+
+    // 字段表：编辑器刻意只暴露「声明式数据」，没有任意 CSS 输入框。
+    // 想写高级样式请用站点设置的 custom_css（同一信任级别），这也让导入包
+    // 「禁用 css」不会砍掉正常功能。
+    var GROUPS = [
+      { t: '基本信息', open: true, f: [
+        ['name', '主题名称', 'text'], ['en', '英文名', 'text'], ['desc', '一句话简介', 'text']
+      ]},
+      { t: '全站配色（亮色 token）', open: true, f: [
+        ['tokens.light.accent', '主色', 'color'], ['tokens.light.bg', '页面底色', 'color'],
+        ['tokens.light.surface', '卡片面', 'color'], ['tokens.light.text', '正文色', 'color'],
+        ['tokens.light.border', '描边', 'color']
+      ]},
+      { t: '章节配色（明暗分章）', open: false, f: [
+        ['palette.ink', '墨底', 'color'], ['palette.ink_card', '墨卡片', 'color'],
+        ['palette.ink_line', '墨描边', 'color'], ['palette.ink_fg', '墨底正文', 'color'],
+        ['palette.ink_muted', '墨底副文', 'color'], ['palette.paper', '纸底', 'color'],
+        ['palette.paper_card', '纸卡片', 'color'], ['palette.paper_line', '纸描边', 'color'],
+        ['palette.paper_fg', '纸底正文', 'color'], ['palette.paper_muted', '纸底副文', 'color'],
+        ['palette.seal', '朱砂印记', 'color'], ['palette.watermark', '水印字', 'color'],
+        ['palette.thumb', '缩略底色', 'color']
+      ]},
+      { t: '版面与动效', open: true, f: [
+        ['layout.mode', '布局', 'select', [['classic', '经典'], ['chapter', '章回']]],
+        ['layout.card', '卡片形态', 'select', [['col', '竖卡'], ['row', '横卡']]],
+        ['layout.frame', '外框', 'select', [['normal', '常规'], ['wide', '宽框'], ['frameless', '无框']]],
+        ['layout.sidebar', '侧栏', 'select', [['auto', '跟随插件'], ['show', '显示'], ['hide', '隐藏']]],
+        ['layout.hero', '首屏依赖', 'select', [['required', '必需'], ['optional', '可选'], ['none', '无']]],
+        ['layout.columns', '卡片列数', 'select', [['1', '1 列'], ['2', '2 列'], ['3', '3 列'], ['4', '4 列']]],
+        ['layout.content_max', '内容最大宽（px）', 'int'],
+        ['layout.gap', '卡片间距（px）', 'int'],
+        ['background.mode', '背景', 'select', [['flat', '通篇'], ['chapter', '明暗分章']]],
+        ['motion.level', '动效档', 'select', [['off', '关闭'], ['subtle', '轻'], ['full', '明显']]]
+      ]},
+      { t: '栏目文案', open: false, f: [
+        ['labels.eyebrow', '英文小标', 'text'], ['labels.volume', '卷名', 'text'],
+        ['labels.volume_en', '卷英文名', 'text'], ['labels.categories_title', '分卷标题', 'text'],
+        ['labels.watermark', '水印字', 'text'], ['labels.hero_badge', '卷首胶囊', 'text'],
+        ['labels.seal', '印记', 'text']
+      ]}
+    ];
+
+    function buildForm() {
+      wsFields.textContent = '';
+      GROUPS.forEach(function (g) {
+        var box = el('details', 'tc-group');
+        if (g.open) box.open = true;
+        box.appendChild(el('summary', null, g.t));
+        g.f.forEach(function (f) {
+          var path = f[0], label = f[1], type = f[2];
+          var row = el('label', 'tc-f');
+          row.appendChild(el('span', null, label));
+          if (type === 'select') {
+            var sel = el('select');
+            sel.setAttribute('data-path', path);
+            f[3].forEach(function (op) {
+              var o = el('option', null, op[1]); o.value = op[0]; sel.appendChild(o);
+            });
+            row.appendChild(sel);
+          } else if (type === 'color') {
+            var wrap = el('span', 'tc-color');
+            var pick = el('input'); pick.type = 'color';
+            pick.setAttribute('data-color-for', path);
+            var txt = el('input'); txt.type = 'text'; txt.className = 'tc-hex';
+            txt.setAttribute('data-path', path);
+            wrap.appendChild(pick); wrap.appendChild(txt);
+            row.appendChild(wrap);
+          } else {
+            var inp = el('input'); inp.type = type === 'int' ? 'number' : 'text';
+            if (type === 'int') inp.min = '1';
+            inp.setAttribute('data-path', path);
+            row.appendChild(inp);
+          }
+          box.appendChild(row);
+        });
+        wsFields.appendChild(box);
+      });
+      wsFields.addEventListener('input', onFieldInput);
+      wsFields.addEventListener('change', onFieldInput);
+    }
+
+    function syncForm() {
+      if (!EDIT) return;
+      Array.prototype.forEach.call(wsFields.querySelectorAll('[data-path]'), function (n) {
+        n.value = String(getPath(EDIT, n.getAttribute('data-path')));
+      });
+      Array.prototype.forEach.call(wsFields.querySelectorAll('[data-color-for]'), function (n) {
+        var v = String(getPath(EDIT, n.getAttribute('data-color-for')));
+        if (/^#[0-9a-fA-F]{6}$/.test(v)) n.value = v;
+      });
+    }
+
+    function onFieldInput(e) {
+      if (!EDIT) return;
+      var t = e.target;
+      var cp = t.getAttribute && t.getAttribute('data-color-for');
+      var path = cp || (t.getAttribute && t.getAttribute('data-path'));
+      if (!path) return;
+      setPath(EDIT, path, t.value);
+      if (cp) {
+        var txt = wsFields.querySelector('[data-path="' + cp + '"]');
+        if (txt) txt.value = t.value;
+      } else {
+        var pick = wsFields.querySelector('[data-color-for="' + path + '"]');
+        if (pick && /^#[0-9a-fA-F]{6}$/.test(t.value)) pick.value = t.value;
+      }
+    }
+
+    function previewSrc() {
+      var u = (previewUrl.value || '/').trim();
+      if (u.charAt(0) !== '/' && !/^https?:\/\//i.test(u)) u = '/' + u;
+      return u + (u.indexOf('?') >= 0 ? '&' : '?') + 'tc_preview=1';
+    }
+    function reloadFrame() { wsFrame.src = previewSrc(); }
+
+    function findBundle(id) {
+      var hit = null;
+      LIB.builtins.forEach(function (b) { if (b.id === id) hit = b; });
+      LIB.items.forEach(function (it) { if (it.id === id) hit = it.bundle; });
+      return hit;
+    }
+    function loadEdit(id, origin, silent) {
+      var b = findBundle(id);
+      if (!b) { showWs('找不到该主题', false); return; }
+      var real = origin || 'builtin';
+      if (real === 'auto') {
+        real = 'builtin';
+        LIB.items.forEach(function (it) { if (it.id === id) real = it.origin; });
+      }
+      EDIT = clone(b);
+      EDIT_ID = id;
+      EDIT_ORIGIN = real;
+      EDIT_OVERWRITE = (real === 'own') ? id : '';
+      currentBaseId = id;
+      syncForm();
+      if (wsBase.value !== id) wsBase.value = id;
+      if (!silent) {
+        showWs('已载入「' + EDIT.name + '」；' +
+          (EDIT_OVERWRITE ? '保存会覆盖这套主题' : '保存会另存为一套新主题'), true);
+        document.getElementById('tcWs').scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
+    }
+
+    function renderBaseOptions() {
+      var cur = currentBaseId;
+      wsBase.textContent = '';
+      var g1 = el('optgroup'); g1.label = '内置主题包（只读，保存会另存）';
+      LIB.builtins.forEach(function (b) {
+        var o = el('option', null, b.name); o.value = b.id; g1.appendChild(o);
+      });
+      wsBase.appendChild(g1);
+      if (LIB.items.length) {
+        var g2 = el('optgroup'); g2.label = '我的主题库';
+        LIB.items.forEach(function (it) {
+          var o = el('option', null, it.name + (it.origin === 'imported' ? '（导入）' : ''));
+          o.value = it.id; g2.appendChild(o);
+        });
+        wsBase.appendChild(g2);
+      }
+      if (cur && findBundle(cur)) wsBase.value = cur;
+      else if (LIB.builtins.length) wsBase.value = LIB.builtins[0].id;
+    }
+
+    function updatePrev() {
+      var p = LIB.prev;
+      document.getElementById('tcPrevLabel').textContent = p
+        ? ('上一套外观：' + p.label + '（' + p.at + '）') : '上一套外观：暂无';
+      rollbackBtn.disabled = !p;
+    }
+
+    function downloadJson(obj, filename) {
+      var blob = new Blob([JSON.stringify(obj, null, 2)], { type: 'application/json' });
+      var a = el('a'); a.href = URL.createObjectURL(blob); a.download = filename;
+      document.body.appendChild(a); a.click();
+      setTimeout(function () { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+    }
+
+    function marketCard(it, kind, bundle) {
+      var card = el('div', 'tc-card');
+      var prev = el('div', 'tc-prev');
+      var light = (bundle.tokens && bundle.tokens.light) || {};
+      var pal = bundle.palette || {};
+      // 卡片缩略图要用具体样式属性上色，**不能写 CSS 变量**：后台 admin 的配色
+      // 单一真相源是 myblog/static/tokens.css，一旦在这里以变量方式注入颜色，
+      // 就等于把前台主题注入带进后台，对比度守卫的口径都会失效。
+      // inline 具体属性只作用于这张卡片、不继承。
+      prev.style.backgroundColor = pal.ink || light.bg || '#f7f8fa';
+      var bar = el('div', 'tc-prev-bar');
+      var dot = el('span', 'tc-dot');
+      dot.style.backgroundColor = light.accent || '#196ddd';
+      bar.appendChild(dot);
+      var ttl = el('span', 'tc-prev-title', it.name);
+      ttl.style.color = pal.ink_fg || light.text || '#2c2c2c';
+      bar.appendChild(ttl);
+      prev.appendChild(bar);
+      var mock = el('div', 'tc-prev-card');
+      mock.style.backgroundColor = pal.ink_card || light.surface || '#fff';
+      mock.style.borderColor = pal.ink_line || light.border || '#ececec';
+      var h = el('div', 'tc-prev-h');
+      h.style.backgroundColor = pal.ink_fg || light.text || '#2c2c2c';
+      mock.appendChild(h);
+      var lineColor = pal.ink_muted || '#b9c2bc';
+      var l1 = el('div', 'tc-prev-line'); l1.style.backgroundColor = lineColor;
+      var l2 = el('div', 'tc-prev-line short'); l2.style.backgroundColor = lineColor;
+      mock.appendChild(l1); mock.appendChild(l2);
+      prev.appendChild(mock);
+      card.appendChild(prev);
+
+      var meta = el('div', 'tc-meta');
+      meta.appendChild(el('strong', null, it.name));
+      var sub = kind === 'builtin' ? '内置只读 · ' + (bundle.layout || {}).mode
+        : (it.origin === 'imported' ? '第三方导入 · CSS 已禁用' : '我创建的') +
+          ' · ' + (bundle.layout || {}).mode;
+      meta.appendChild(el('span', 'tc-en', sub));
+      meta.appendChild(el('p', 'tc-desc', bundle.desc || ''));
+      var tags = el('div', 'tc-tags');
+      (bundle.tags || []).forEach(function (t) { tags.appendChild(el('span', 'tc-tag', t)); });
+      meta.appendChild(tags);
+
+      var btns = el('div', 'tc-card-btns');
+      var bid = kind === 'builtin' ? it.id : 'lib:' + it.id;
+      var bApply = el('button', 'btn', LIB.active_id === bid ? '重新应用' : '应用');
+      bApply.type = 'button';
+      bApply.addEventListener('click', function () { applyById(bid); });
+      btns.appendChild(bApply);
+      var bEdit = el('button', 'btn ghost', '编辑');
+      bEdit.type = 'button';
+      bEdit.addEventListener('click', function () { loadEdit(it.id, kind === 'builtin' ? 'builtin' : it.origin); });
+      btns.appendChild(bEdit);
+      var bExp = el('button', 'btn ghost', '导出');
+      bExp.type = 'button';
+      bExp.addEventListener('click', function () { downloadJson(bundle, it.id + '.json'); });
+      btns.appendChild(bExp);
+      var bCopy = el('button', 'btn ghost', '复制副本');
+      bCopy.type = 'button';
+      bCopy.addEventListener('click', function () {
+        var b = clone(bundle); b.name = (b.name || '主题') + ' · 副本';
+        b.id = (b.id || 'theme') + '-copy';
+        postJson('/api/theme/library', { action: 'save', bundle: b }).then(function (res) {
+          if (res.ok) { loadLibrary(); showWs('已复制为「' + res.d.item.name + '」', true, marketMsg); }
+          else showWs((res.d.details || [])[0] || res.d.error || '复制失败', false, marketMsg);
+        });
+      });
+      btns.appendChild(bCopy);
+      if (kind === 'item') {
+        var bDel = el('button', 'btn ghost', '删除');
+        bDel.type = 'button';
+        bDel.addEventListener('click', function () {
+          if (!window.confirm('确定删除主题「' + it.name + '」？')) return;
+          postJson('/api/theme/library', { action: 'delete', id: it.id }).then(function (res) {
+            if (res.ok) { loadLibrary(); showWs('已删除', true, marketMsg); }
+            else showWs((res.d.details || [])[0] || res.d.error || '删除失败', false, marketMsg);
+          });
+        });
+        btns.appendChild(bDel);
+      }
+      meta.appendChild(btns);
+      card.appendChild(meta);
+      return card;
+    }
+
+    function renderMarket() {
+      marketGrid.textContent = '';
+      LIB.builtins.forEach(function (b) {
+        marketGrid.appendChild(marketCard({ id: b.id, name: b.name }, 'builtin', b));
+      });
+      LIB.items.forEach(function (it) {
+        marketGrid.appendChild(marketCard(it, 'item', it.bundle));
+      });
+      document.getElementById('tcMarketCount').textContent =
+        '内置 ' + LIB.builtins.length + ' 套 · 主题库 ' + LIB.items.length + '/' +
+        (LIB.limits.max_items || 24) + ' 套';
+    }
+
+    function loadLibrary() {
+      return fetch('/api/theme/library').then(function (r) { return r.json(); }).then(function (d) {
+        if (d.error) { showWs(d.error, false, marketMsg); return; }
+        LIB = d;
+        renderBaseOptions(); renderMarket(); updatePrev();
+        if (!EDIT && LIB.builtins.length) loadEdit(LIB.builtins[0].id, 'builtin', true);
+      }).catch(function () { showWs('主题库加载失败', false, marketMsg); });
+    }
+
+    function saveEdit(apply) {
+      if (!EDIT) return;
+      var body = { action: 'save', bundle: clone(EDIT) };
+      if (EDIT_OVERWRITE) body.overwrite_id = EDIT_OVERWRITE;
+      postJson('/api/theme/library', body).then(function (res) {
+        if (!res.ok) {
+          showWs((res.d.details || [])[0] || res.d.error || '保存失败', false);
+          return;
+        }
+        EDIT = clone(res.d.bundle);
+        EDIT_ID = res.d.item.id;
+        EDIT_ORIGIN = res.d.item.origin;
+        EDIT_OVERWRITE = (EDIT_ORIGIN === 'own') ? EDIT_ID : '';
+        currentBaseId = EDIT_ID;
+        if (!apply) {
+          loadLibrary(); reloadFrame();
+          showWs('已保存为「' + EDIT.name + '」（未应用到站点）', true);
+        } else {
+          applyById('lib:' + EDIT_ID, true);
+        }
+      }).catch(function () { showWs('保存失败：网络错误', false); });
+    }
+
+    function applyById(bid, fromSave) {
+      postJson('/api/theme', { bundle_id: bid }).then(function (res) {
+        if (!res.ok) { showWs(res.d.error || '应用失败', false); return; }
+        reloadFrame(); loadLibrary();
+        showWs('已应用并刷新预览' + (fromSave ? '（已自动留快照，可一键回滚）' : ''), true);
+      }).catch(function () { showWs('应用失败：网络错误', false); });
+    }
+
+    buildForm();
+    wsBase.addEventListener('change', function () { loadEdit(wsBase.value, 'auto'); });
+    document.getElementById('wsSaveBtn').addEventListener('click', function () { saveEdit(false); });
+    document.getElementById('wsApplyBtn').addEventListener('click', function () { saveEdit(true); });
+    document.getElementById('wsExportBtn').addEventListener('click', function () {
+      if (EDIT) downloadJson(EDIT, (EDIT.id || 'theme') + '.json');
+    });
+    document.getElementById('wsReloadBtn').addEventListener('click', reloadFrame);
+    document.getElementById('tcRollbackBtn').addEventListener('click', function () {
+      postJson('/api/theme/library', { action: 'rollback' }).then(function (res) {
+        if (res.ok) { reloadFrame(); loadLibrary(); showWs('已回滚到：' + res.d.label, true); }
+        else showWs(res.d.error || '回滚失败', false);
+      }).catch(function () { showWs('回滚失败：网络错误', false); });
+    });
+    document.getElementById('tcImportBundleBtn').addEventListener('click', function () {
+      var raw = document.getElementById('tcImportBundle').value.trim();
+      if (!raw) { showWs('请先粘贴 JSON', false, marketMsg); return; }
+      postJson('/api/theme/library', { action: 'import', text: raw }).then(function (res) {
+        if (res.ok) {
+          document.getElementById('tcImportBundle').value = '';
+          loadLibrary();
+          showWs('已导入「' + res.d.item.name + '」（第三方 CSS 已禁用，未自动应用）', true, marketMsg);
+        } else {
+          showWs((res.d.details || [])[0] || res.d.error || '导入失败', false, marketMsg);
+        }
+      }).catch(function () { showWs('导入失败：网络错误', false, marketMsg); });
+    });
+    try {
+      var saved = localStorage.getItem('tcPreviewUrl');
+      if (saved) previewUrl.value = saved;
+    } catch (e) {}
+    previewUrl.addEventListener('change', function () {
+      try { localStorage.setItem('tcPreviewUrl', previewUrl.value.trim()); } catch (e) {}
+      reloadFrame();
+    });
+    loadLibrary().then(function () { reloadFrame(); });
+
     // 应用预设
     Array.prototype.forEach.call(document.querySelectorAll('.tc-apply'), function (btn) {
       btn.addEventListener('click', function () {
@@ -285,6 +794,17 @@
           if (res.ok) { refreshCurrent(res.d); showMsg('已应用：' + btn.getAttribute('data-pack'), true); }
           else { showMsg(res.d.error || '应用失败', false); }
         }).catch(function () { showMsg('网络错误', false); });
+      });
+    });
+
+    // v5.5.0 应用主题包：成功后整页刷新，让布局预览与「当前主题」都同步
+    Array.prototype.forEach.call(document.querySelectorAll('.tc-apply-bundle'), function (btn) {
+      btn.addEventListener('click', function () {
+        btn.disabled = true;
+        applyAxios({ bundle_id: btn.getAttribute('data-bundle') }).then(function (res) {
+          if (res.ok) { window.location.reload(); }
+          else { btn.disabled = false; showMsg(res.d.error || '应用失败', false); }
+        }).catch(function () { btn.disabled = false; showMsg('网络错误', false); });
       });
     });
 
@@ -380,5 +900,44 @@
     .wp-check, .wp-range { display:flex; align-items:center; gap:6px; font-size:13px;
       color:var(--text-muted,#6b7280); }
     .wp-range input[type=range] { width:150px; }
+    /* v5.5.0 ②③ 主题工坊 / 主题市场 */
+    .tc-ws, .tc-market { margin:24px 0; background:var(--surface,#fff);
+      border:1px solid var(--border,#ececec); border-radius:14px; padding:16px; }
+    .tc-ws-head { display:flex; align-items:center; justify-content:space-between;
+      gap:12px; flex-wrap:wrap; margin-bottom:8px; }
+    .tc-ws-head h3 { margin:0; }
+    .tc-rollback { display:flex; align-items:center; gap:10px; font-size:12px;
+      color:var(--text-muted,#6b7280); }
+    .tc-hint { font-size:12px; color:var(--text-muted,#6b7280); line-height:1.65; margin:0 0 14px; }
+    .tc-ws-grid { display:grid; grid-template-columns:minmax(300px,420px) minmax(0,1fr); gap:16px; }
+    @media (max-width:1100px) { .tc-ws-grid { grid-template-columns:minmax(0,1fr); } }
+    .tc-field { display:flex; flex-direction:column; gap:6px; font-size:13px;
+      color:var(--text-muted,#6b7280); margin-bottom:12px; }
+    .tc-field select, .tc-f input[type=text], .tc-f input[type=number], .tc-f select,
+    .tc-ws-preview-head input { border:1px solid var(--border-strong,#d9dde3); border-radius:8px;
+      padding:6px 8px; background:var(--surface,#fff); color:var(--text,#2c2c2c); font-size:12px; }
+    .tc-group { border:1px solid var(--border,#ececec); border-radius:10px;
+      padding:8px 10px; margin-bottom:10px; }
+    .tc-group > summary { cursor:pointer; font-size:13px; font-weight:600; }
+    .tc-f { display:flex; align-items:center; justify-content:space-between; gap:8px;
+      margin:8px 0; font-size:12px; color:var(--text-muted,#6b7280); }
+    .tc-f > span { flex:1 1 auto; }
+    .tc-f input[type=text], .tc-f input[type=number], .tc-f select { width:170px; max-width:62%; }
+    .tc-color { display:flex; align-items:center; gap:6px; }
+    .tc-color input[type=color] { width:34px; height:28px; padding:0; cursor:pointer;
+      border:1px solid var(--border-strong,#d9dde3); border-radius:6px; background:none; }
+    .tc-hex { width:88px !important; max-width:none !important;
+      font-family:ui-monospace,Menlo,Consolas,monospace; }
+    .tc-ws-actions { display:flex; gap:8px; flex-wrap:wrap; margin-top:12px; }
+    .tc-ws-preview { display:flex; flex-direction:column; gap:8px; min-width:0; }
+    .tc-ws-preview-head { display:flex; align-items:center; gap:8px; font-size:13px; }
+    .tc-ws-preview-head strong { white-space:nowrap; }
+    .tc-ws-preview-head input { flex:1 1 auto; min-width:110px; }
+    .tc-ws-preview iframe { width:100%; height:660px; border:1px solid var(--border,#ececec);
+      border-radius:10px; background:#fff; }
+    .tc-card-btns { display:flex; gap:6px; flex-wrap:wrap; margin-top:8px; }
+    .tc-card-btns .btn { font-size:12px; padding:5px 9px; }
+    .tc-import { margin-top:18px; padding-top:14px; border-top:1px solid var(--border,#ececec); }
+    .tc-import h4 { margin:0 0 8px; font-size:14px; }
   </style>
 {% endblock %}

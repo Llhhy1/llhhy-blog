@@ -1029,6 +1029,13 @@ sha256sum /tmp/og.png /www/wwwroot/你的站点根/og-default.png
 >   自带 Bearer 鉴权、非会话）。若你的 MCP 客户端此前一直在报 403，升级后即恢复。
 > - 全量报告：`docs/audit/2026-10-07-full-audit-report.md`。
 
+> **v5.5.0（主题包「章回」+ 主题工坊 + 主题市场 + 外观回滚）升级要点**：**后端与前端都改了 → 两个包都要覆盖**。前端动了 `src/store.js` / `src/styles/global.css` / `src/views/HomeView.vue`，**必须先 `npm run build` 再打包**（`package.py` 打的是 `_vite_build30/`）；后端新增 `theme_bundles.py` / `theme_library.py` / `theme_packs/zhanghui.json`。
+> - **无数据库迁移、无新依赖、无需改 `update.sh`**：主题库存 `Setting.theme_library_v1`、快照存 `theme_look_prev_v1`，都是按需写入的 KV 行，不动表结构，也不走 Alembic。
+> - **后端包仍约 29 MB**（v5.4.4 起内嵌 503 个京华老宋体分片）：一键更新**必须带 `GH_MIRROR=https://gh-proxy.com/`**，直连实测 21~28 KB/s 会顶爆 `curl --max-time 180`。
+> - **部署者换主题**：往 `myblog/theme_packs/` 放一份通过 schema 校验的 JSON（照 `zhanghui.json` 写），重启后即出现在后台「🎨 主题中心 → 主题市场」，点「应用」即可；**无需改 Python 源码、无需重建前端包**。
+> - **站主自建 / 导入**：「主题工坊」可视化调色与版面、真实前台 iframe 预览、保存并应用；右上一键回滚到上一套外观（可反悔）。**第三方导入包强制禁用自定义 CSS**（市场卡有标注），颜色 / 字体 / 版面照常可用。
+> - **上线后只读核验**：`GET /api/theme/library` 未登录应 403、超管应 200；`GET /api/site` 的 `theme_bundle` 未激活时为 `null`；`/api/docs` 实时渲染磁盘 `API.md`，头部应为 v5.5.0。
+>
 > **v5.4.5（自定义页脚代码 + 访客自选主题下架）升级要点**：**后端与前端都改了 → 两个包都要覆盖**。前端动了 `src/App.vue`、`src/store.js` 并**删除** `src/components/ThemePicker.vue`，**必须先 `npm run build` 再打包**（`package.py` 打的是 `_vite_build30/`）。
 > - **无数据库迁移**：新字段 `footer_html` 是 Setting KV，`_ensure_settings()` 首次启动会补一行空值；`API.md` 的接口清单本版同步。
 > - 部署后要**亲手验一次页脚代码**（这是「贴上去不生效最难查」的一类功能）：后台 → ⚙️ 站点设置 → 「自定义页脚代码」填

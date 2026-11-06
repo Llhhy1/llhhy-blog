@@ -6,6 +6,9 @@ from flask import request, jsonify
 
 from .common import (api_bp, db, Post, Category, Tag, PostTag, Comment, FriendLink, LinkApplication, Announcement, visible_posts_query, _settings_map, clean_html, render_markdown, rate_limit, client_key)
 from themes import current_theme
+# v5.5.0 主题包展示层：布局原语 / 章节配色 / 动效档 / 受限 CSS。
+# 未激活主题包时返回 None，前台保持经典布局（零改动路径）。
+import theme_bundles as bundles
 # v4.5.0 首页壁纸。单向依赖（theme 不引用 site），不构成包级循环。
 from .theme import _wallpaper
 import stats  # myblog/stats.py：client_ip（友链申请归属地）
@@ -129,6 +132,9 @@ def site():
         "theme_pack": current_theme()["pack_id"],
         "theme_tokens": current_theme()["light"],
         "theme_dark_tokens": current_theme()["dark"],
+        # v5.5.0：当前主题包的展示层（纯声明式，前台据此设 data-* 与 CSS 变量）。
+        # 坏包 / 未激活 → None，前台一律回落经典布局，绝不影响渲染。
+        "theme_bundle": bundles.public_bundle(bundles.active_bundle()),
         # v4.5.0 首页壁纸（存 Setting KV，零表结构变更；URL 已限定本站 uploads）
         "wallpaper": _wallpaper(),
         # v4.7.0 开站时间（后台可配，未配时回退最早可见文章的发布时间）

@@ -1,6 +1,6 @@
 # llhhy-blog API 文档
 
-> 版本：**v5.4.5**（2026-11-03 同步：覆盖全部真实路由，文档即接口；与 `APP_VERSION` 一致）
+> 版本：**v5.5.0**（2026-11-07 同步：主题包 / 主题工坊 / 主题市场 / 外观回滚；与 `APP_VERSION` 一致）
 >
 > 本文档描述 llhhy-blog 的全部 JSON 接口（`/api/*`，共 **176 条**）与后台页面调用的
 > JSON 接口（`/admin/*`，共 **17 条**）。前端（`vue-frontend/src/lib/api.js`）与本站页面
@@ -34,7 +34,7 @@
 - [评论表情 /reactions](#评论表情-reactions)（2 条）
 - [读者积分 /reader](#读者积分-reader)（2 条）
 - [回顾与地域 /review](#回顾与地域-review)（4 条）
-- [主题中心 /theme](#主题中心-theme)（2 条）
+- [主题中心 /theme](#主题中心-theme)（4 条）
 - [插件 /plugins](#插件-plugins)（4 条）
 - [系统与版本 /system](#系统与版本-system)（5 条）
 - [后台 JSON 接口 /admin](#后台-json-接口-admin)（17 条）
@@ -328,8 +328,9 @@ myblog/
 - 说明：一次性返回前台所需的站点信息、主题 token、壁纸、分类/标签/友链与统计汇总。
   `footer_html`（v5.4.5）是站主在「站点设置 → 自定义页脚代码」里**原样**写的 HTML，
   前台页脚不做转义直接渲染（`<script>` 会执行）；**只有超级管理员能改它**，本接口只读
+- `theme_bundle`（v5.5.0）：当前主题包的展示层，恒有键；未激活 / 包损坏时为 `null`（前台回落经典布局）。结构为 `{"id", "layout": {"mode", "card", "frame", "sidebar", "hero", "columns", "content_max", "gap"}, "background": {"mode", "texture"}, "motion": {"level"}, "palette": {"ink", "paper", "seal", ...}, "labels": {"volume", "categories_title", ...}, "css"}`。全部字段在服务端过白名单校验；`css` 只允许 `.zh-*` / `[data-layout…]` 命名空间选择器，且禁 `url(` / `@import` / `</` 等片段
 - 请求：无
-- 成功：`200 {"site_name": "...", "site_title": "...", "site_note": "...", "site_description": "...", "about_content": "...", "footer_text": "...", "footer_html": "...", "beian_code": "...", "accent_color": "...", "weather_city": "...", "weather_lat": "...", "weather_lon": "...", "theme_mode": "...", "theme_radius": "...", "theme_font": "...", "nav_style": "...", "custom_css": "...", "reward_qr_default": "...", "site_lang": "...", "entry": {...}, "entries": [{"label", "label_en", "url", "icon"}], "theme_pack": "...", "theme_tokens": {...}, "theme_dark_tokens": {...}, "wallpaper": {"enabled", "light", "dark", "overlay"}, "site_since": "YYYY-MM-DD", "categories": [{"name", "slug", "count"}], "tags": [{"name", "slug", "count"}], "links": [{"name", "url", "description"}], "stats": {"posts", "views", "comments"}}`
+- 成功：`200 {"site_name": "...", "site_title": "...", "site_note": "...", "site_description": "...", "about_content": "...", "footer_text": "...", "footer_html": "...", "beian_code": "...", "accent_color": "...", "weather_city": "...", "weather_lat": "...", "weather_lon": "...", "theme_mode": "...", "theme_radius": "...", "theme_font": "...", "nav_style": "...", "custom_css": "...", "reward_qr_default": "...", "site_lang": "...", "entry": {...}, "entries": [{"label", "label_en", "url", "icon"}], "theme_pack": "...", "theme_tokens": {...}, "theme_dark_tokens": {...}, "theme_bundle": null, "wallpaper": {"enabled", "light", "dark", "overlay"}, "site_since": "YYYY-MM-DD", "categories": [{"name", "slug", "count"}], "tags": [{"name", "slug", "count"}], "links": [{"name", "url", "description"}], "stats": {"posts", "views", "comments"}}`
 - 失败：无
 
 ### `GET /api/links` — 友情链接列表
@@ -514,27 +515,56 @@ myblog/
 
 ## 主题中心 /theme
 
-本模块共 2 条接口（主题预设读取、应用主题/壁纸）。
+本模块共 4 条接口（主题预设读取、应用主题/壁纸、站主主题库读取、主题库操作）。
+
+v5.5.0 起主题分三层，互不混淆：① **预设包**（`themes.py` 硬编码的 15 套亮/暗 token）；② **内置主题包**（`myblog/theme_packs/*.json`，随部署包分发的只读资产，含布局）；③ **站主主题库**（`Setting.theme_library_v1` 里的自建 / 导入包，后台可视化编辑器管理）。三者互斥地决定一套外观，激活 id 存 `Setting.theme_bundle_id`。
 
 ### `GET /api/theme` — 主题预设与当前主题
 
 - 鉴权：公开
-- 说明：返回全部预设主题包（亮/暗 token）+ 当前激活的 pack_id + 当前壁纸配置
+- 说明：返回全部预设主题包（亮/暗 token）、全部内置主题包摘要、当前激活的 pack_id / bundle_id + 当前壁纸配置
 - 请求：无
-- 成功：`200 {"presets": [{"id", "name", "en", "desc", "tags", "light", "dark"}], "current": {"pack_id": "classic-blue"}, "wallpaper": {"enabled", "light", "dark", "overlay"}}`
+- 成功：`200 {"presets": [{"id", "name", "en", "desc", "tags", "light", "dark"}], "bundles": [{"id", "name", "en", "desc", "version", "tags", "source", "layout", "card", "swatch", "accent"}], "current": {"pack_id": "classic-blue", "bundle_id": ""}, "wallpaper": {"enabled", "light", "dark", "overlay"}}`
+- `bundles`（v5.5.0）：来自 `myblog/theme_packs/*.json` 的**主题包摘要**，不含整套 token 与 CSS。部署者往该目录放一份合法 JSON 即可扩展，无需改 Python 源码。`current.bundle_id` 非空时表示前台 SPA 正按该包的布局渲染；主题包与「预设 / 自定义」互斥
 - 失败：无
 
 ### `POST /api/theme` — 应用主题 / 设置壁纸
 
 - 鉴权：超管（需 CSRF Token）
 - 说明：应用预设主题包或自定义主题 token，可单独设置首页壁纸；写 Setting 并记审计日志
-- 请求：body JSON — `pack_id`（预设 id，如 `classic-blue`）、`custom`（`{light:{...}, dark?:{...}}` 或单层 token 对象）、`wallpaper`（`{enabled, light, dark, overlay}`，图片路径仅接受 `/static/uploads/` 下的单层文件名）；可组合，只带 `wallpaper` 即纯壁纸请求
+- 请求：body JSON — `pack_id`（预设 id，如 `classic-blue`）、`custom`（`{light:{...}, dark?:{...}}` 或单层 token 对象）、`bundle_id`（v5.5.0：内置主题包 id，如 `zhanghui`）、`wallpaper`（`{enabled, light, dark, overlay}`，图片路径仅接受 `/static/uploads/` 下的单层文件名）；可组合，只带 `wallpaper` 即纯壁纸请求
+- `bundle_id` 契约（v5.5.0 扩展）：`zhanghui` 引用 `myblog/theme_packs/` 内置包；`lib:my-dark` 引用站主主题库条目。**不接受在应用请求里上传整包内容**（新增包走 `POST /api/theme/library`）；两者都经过同一套 schema 校验。应用后写 `theme_bundle_id` / `theme_pack=bundle:<id>` / `accent_color` / `theme_tokens`。传 `pack_id` 或 `custom` 会清空 `theme_bundle_id`（退出主题包布局），避免颜色换了而布局还留着上一份包的「分章」结构
+- **回滚快照**：任何主题/壁纸变更前会把 `theme_bundle_id` / `theme_pack` / `accent_color` / `theme_tokens` / `home_wallpaper` 五个键的原值整组存入 `Setting.theme_look_prev_v1`（不是存 id 再重放，避免漏掉某个键造成「颜色回来了但布局没回来」）。用 `POST /api/theme/library` 的 `action=rollback` 恢复，且恢复后当前外观成为新的回滚目标（可反悔）
 - `custom` 校验（v5.4.3 起从严）：键必须命中 token 白名单、值必须匹配该键的语法（颜色 / 长度 / 数值 / 字体族 / 阴影）；**缺失的键由基准主题补齐**（只传 `accent` 也会得到完整一套）；`url(...)`、颜色名 `red`、`12px; body{...}` 一律拒绝。历史上这些是「静默收下并落库」，存量主题 JSON 导入前需按返回文案清理
-- 成功：`200 {"ok": true, "pack_id": "classic-blue", "theme_tokens": {...}, "theme_dark_tokens": {...}, "wallpaper": {"enabled", "light", "dark", "overlay"}}`
-- 失败：`403 {"error": "forbidden"}`（非超管）、`400 {"error": "invalid custom theme", "details": ["...", ...]}`（不合法 token，`details` 逐条说明，最多 20 条）、`400 {"error": "unknown pack_id"}`、`400 {"error": "invalid wallpaper"}`、`400 {"error": "启用壁纸前请先上传至少一张图片"}`
+- 成功：`200 {"ok": true, "pack_id": "classic-blue", "bundle_id": "", "theme_tokens": {...}, "theme_dark_tokens": {...}, "wallpaper": {...}, "prev": {"label": "章回", "at": "2026-11-07T00:20:00"} | null}`（`prev` 为本次切换前那套外观，可供「一键回滚」；无历史时为 `null`）
+- 失败：`403 {"error": "forbidden"}`（非超管）、`400 {"error": "invalid custom theme", "details": ["...", ...]}`（不合法 token，`details` 逐条说明，最多 20 条）、`400 {"error": "unknown pack_id"}`、`400 {"error": "unknown bundle_id"}`（包不存在或未通过校验）、`400 {"error": "invalid wallpaper"}`、`400 {"error": "启用壁纸前请先上传至少一张图片"}`
 - 说明（v5.4.5 契约变化）：v5.4.3 起的 `visitor_theme` 入参与两处返回里的 `allow_visitor_theme` **已下架**；老客户端再提交 `visitor_theme` 会被**静默忽略**（不报错、也不写库）
 
-该模块源码位置：`myblog/api/theme.py`
+### `GET /api/theme/library` — 站主主题库（主题市场数据）
+
+- 鉴权：**超管**（管理数据，含完整主题包内容，不对访客公开）
+- 说明：一次返回主题市场所需的全部数据 —— 内置包完整内容、站内自建/导入包完整内容、当前激活 id、可回滚的上一套外观、库容量上限
+- 请求：无
+- 成功：`200 {"builtins": [<完整主题包>], "items": [{"id", "name", "origin": "own|imported", "saved_at", "desc", "tags", "layout", "card", "accent", "swatch", "css_disabled", "source", "bundle": <完整主题包>}], "active_id": "zhanghui", "prev": {"label", "at"} | null, "limits": {"max_items": 24, "max_item_kb": 16, "max_total_kb": 192}}`
+- `origin=imported` 的包 `css_disabled` 恒为 `true`（见下方信任边界）；内置只读包**不在** `items` 里，出现在 `builtins` 里，不能删除或覆盖
+- 失败：`403 {"error": "forbidden"}`（未登录 / 非超管）
+
+### `POST /api/theme/library` — 主题库操作（保存 / 导入 / 删除 / 回滚）
+
+- 鉴权：**超管 + CSRF Token**
+- 说明：单端点 + `action` 分派四个动作，共用同一处鉴权与审计
+- 请求：body JSON
+  - `{ "action": "save", "bundle": <完整主题包>, "overwrite_id"?: "my-dark" }` —— 可视化编辑器保存；`overwrite_id` 为空则按 `bundle.id` 自动分配不撞内置包的 id，**覆盖导入包时保留其 `imported` 信任标记**
+  - `{ "action": "import", "bundle": <完整主题包> }` 或 `{ "action": "import", "text": "<JSON 字符串>" }` —— 导入第三方包
+  - `{ "action": "delete", "id": "my-dark" }` —— 删除站内条目（内置包不可删；**正在使用的主题不可删**，否则前台会静默回落经典布局）
+  - `{ "action": "rollback" }` —— 恢复上一套外观（五个 Setting 键整组回写），并把当前外观设为新的回滚目标
+- **信任边界（重要）**：`import` 走严格模式 —— 校验通过后**强制把 `css` 置空**并在 `source` 里标注「第三方自定义 CSS 已禁用」，id 加 `imp-` 前缀且保证不撞内置包。原因是内置包随代码分发、站主在编辑器里调出的包由站主本人负责，唯有导入包是别人写的代码。颜色 / 字体 / 布局仍全部可用（它们本来就是被 token 白名单与枚举穷举的数据，值里禁 `url(` / `@` / `;` / `:` / 尖括号 / 花括号）。`save` 保留 `css` 字段，信任级别等同站点设置里的 `custom_css`（仅超管可写）
+- 容量：最多 24 套 / 单套 16 KB / 总计 192 KB；坏包、坏 id、非法枚举一律 `400` 并给 `details`，不落库
+- 成功：`200 {"ok": true, "item": {...}, "bundle": {...}, "prev": {...} | null, "active_id": "..."}`（各 action 附带字段略有差异：`rollback` 返回 `{"ok":true,"label":"章回"}`；`delete` 返回 `{"ok":true}`）
+- 失败：`403 {"error": "forbidden"}`、`400 {"error": "invalid theme bundle", "details": [...]}`（schema / 枚举 / 容量不合法）、`400 {"error": "invalid json"}`、`400 {"error": "delete failed", "details": [...]}`、`400 {"error": "nothing to rollback"}`、`400 {"error": "unknown action"}`
+- 所有动作写 `log_audit("theme", target="主题库/<action>")`，与主题切换共用审计通道
+
+该模块源码位置：`myblog/api/theme.py`（主题库存储：`myblog/theme_library.py`；包校验：`myblog/theme_bundles.py`）
 
 ---
 

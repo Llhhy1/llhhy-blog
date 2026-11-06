@@ -9,6 +9,7 @@
          出现「切了主题壁纸还是亮色」。 -->
     <section ref="coverRef" class="home-cover" :class="{ 'has-wall': !!wallpaperUrl }" :style="coverStyle">
       <div class="home-cover-inner">
+        <span v-if="isChapter" class="zh-hero-badge">{{ zhLabels.hero_badge || '卷首' }}</span>
         <h2 class="home-cover-title">{{ state.site.site_name || state.site.site_title || '我的博客' }}</h2>
         <p class="home-cover-sub">{{ state.site.site_description || '记录思考，分享知识' }}</p>
         <div v-if="socials.length" class="home-cover-social" aria-label="联系方式">
@@ -30,6 +31,12 @@
       <div v-if="wallpaperUrl" class="home-cover-hint" aria-hidden="true">
         <span class="hch-arrow">↓</span><span>向下滚动</span>
       </div>
+      <!-- v5.5.0 章回：首屏底部「最近更新」胶囊。数据来自首页文章列表本身，
+           不发额外请求；没有文章时不渲染。 -->
+      <div v-if="isChapter && items.length" class="zh-update-bar">
+        <span class="zh-update-label">最近更新</span>
+        <router-link :to="`/post/${items[0].slug}`">{{ items[0].title }}</router-link>
+      </div>
     </section>
 
     <!-- v4.7.0：原「站点概览 bento 六卡」与「找到我」社交墙已移入「运营驾驶舱」（/stats）。
@@ -38,9 +45,15 @@
          数据本身没丢，只是不再占用首页黄金位。⚠️ `socials` 仍被首屏
          `.home-cover-social` 使用，**不可随之删除**。 -->
 
-    <div class="layout">
-      <div class="content">
-        <h1 class="page-title">✨ 最新文章</h1>
+    <!-- v5.5.0 章回：同一份文章数据，仅在激活主题包时换容器类名与栏目标题；
+         经典首页的 DOM 结构一行未改，靠 CSS 命名空间保持零影响。 -->
+    <div class="layout" :class="{ 'zh-chapter-dark': isChapter }">
+      <div class="content" :class="{ 'zh-card-grid': isChapter }">
+        <div v-if="isChapter" class="zh-chapter-head">
+          <h2>{{ zhLabels.volume || '卷一　新章' }}</h2>
+          <span class="zh-chapter-en">{{ zhLabels.volume_en || 'CHAPTERS' }} / 共 {{ total }} 篇</span>
+        </div>
+        <h1 v-else class="page-title">✨ 最新文章</h1>
         <!-- v3.17.0 骨架屏：首屏加载中显示占位，避免「还没有文章」闪现 -->
         <template v-if="loading">
           <div v-for="n in 3" :key="n" class="skel-card">
@@ -68,6 +81,29 @@
       </div>
       <Sidebar />
     </div>
+
+    <!-- v5.5.0 章回：分卷区（纸白）。分类数据直接复用 /api/site 下发的
+         categories，不新增接口；水印/栏目标题全部来自主题包 labels。 -->
+    <section v-if="isChapter" class="zh-chapter-light">
+      <div class="zh-watermark" aria-hidden="true">{{ zhLabels.watermark || 'FEN JUAN' }}</div>
+      <div class="zh-section-head">
+        <span class="zh-eyebrow">{{ zhLabels.categories_en || 'CATEGORIES' }}</span>
+        <h2>{{ zhLabels.categories_title || '分卷' }}<span class="zh-seal-dot">.</span></h2>
+      </div>
+      <div class="zh-cat-grid">
+        <router-link v-for="c in chapterCategories" :key="c.slug"
+                     :to="`/category/${c.slug}`" class="zh-cat-card">
+          <div class="zh-cat-thumb"></div>
+          <div class="zh-cat-meta">
+            <strong>{{ c.name }}</strong><span>{{ c.count }} 篇</span>
+          </div>
+        </router-link>
+      </div>
+      <div class="zh-cat-pills">
+        <router-link v-for="c in chapterCategories" :key="'pill-' + c.slug"
+                     :to="`/category/${c.slug}`" class="zh-cat-pill">{{ c.name }}</router-link>
+      </div>
+    </section>
   </div>
 </template>
 
@@ -183,7 +219,16 @@ function fmtNum(n) {
   return String(n);
 }
 const totalPages = ref(1);
+const total = ref(0);
 const PAGE_SIZE = 8;
+
+// v5.5.0：主题包展示层。所有字段都带兜底 —— 包损坏 / 未激活时 isChapter=false，
+// 首页仍按经典结构渲染，不会因为一个坏 JSON 白屏。
+const bundle = computed(() => state.site.theme_bundle || null);
+const isChapter = computed(() => !!(bundle.value && bundle.value.layout
+  && bundle.value.layout.mode === "chapter"));
+const zhLabels = computed(() => (bundle.value && bundle.value.labels) || {});
+const chapterCategories = computed(() => (state.site.categories || []).slice(0, 4));
 
 const pages = computed(() => {
   const list = [];
@@ -207,6 +252,7 @@ async function load() {
     const data = await apiGet("/api/posts", { page: page.value, page_size: PAGE_SIZE, lang: state.contentLang });
     items.value = data.items || [];
     totalPages.value = data.total_pages || 1;
+    total.value = data.total || items.value.length;
   } catch (e) { items.value = []; totalPages.value = 1; }
   finally { loading.value = false; }
 }

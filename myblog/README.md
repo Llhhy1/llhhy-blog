@@ -2,7 +2,7 @@
 
 llhhy-blog 的后端：Flask + SQLite，服务端渲染前台 + `/api/*` JSON 接口 + Jinja2 管理后台。
 
-- 当前版本：**v5.4.5**
+- 当前版本：**v5.5.0**
 - **版本历史一律记在 [CHANGELOG.md](../CHANGELOG.md)，本文件不重复记录。**
 - 根目录总览见 [README.md](../README.md)
 - 时区：展示统一北京时间（UTC+8），存储仍为 UTC；配置见 `config.TIME_ZONE`
@@ -16,6 +16,9 @@ myblog/
 ├── models.py       # 数据模型（文章/评论/用户/系列/公告/留言/订阅者等）
 │                   #   Post.content_html/content_hash = 正文渲染缓存（v3.9.1）
 ├── routes.py       # 前台页面 / 登录注册 / 评论 / 天气 / RSS
+├── theme_bundles.py # 主题包 schema 校验 / 内置加载 / lib: 前缀解析
+├── theme_library.py # 站主主题库（Setting KV）+ 五键外观快照与回滚
+├── theme_packs/    # 随包分发的内置主题包 JSON；部署者放一份就是自己的主题
 ├── utils/          # 通用工具包（v3.18.1 由单文件 utils.py 拆出，公共 API 不变）：
 │                   #   timeutil 时间 / render Markdown 渲染清洗 / net 限流与客户端 IP /
 │                   #   slug / text 文本·UA / security 密码与 CSRF / settings / web

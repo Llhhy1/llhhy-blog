@@ -1005,6 +1005,49 @@ MIME 混淆，缺少 CSP 不产生可利用的差异。
 - `_TOKEN_KIND` 白名单与 `_BASE_LIGHT` 的键集必须同步（已有 `test_base_light_matches_token_files` 钉住）；新增 token 忘记登记类别会被自家校验挡掉。
 - 档 2（主题商店 / 用户上传主题包）之前必须先有主题包来源限制，否则白名单只是把「注入」换成「任意值」。
 
+## R168 · v5.5.0（主题包「章回」+ 主题工坊 + 主题市场 + 外观回滚）安全审查
+
+**范围**：新增 `theme_bundles.py`（schema 校验 + 内置加载 + `resolve_bundle`）、
+`theme_library.py`（站主主题库 KV / 导入严格模式 / 五键快照与回滚）、
+`theme_packs/zhanghui.json`；改 `api/theme.py`（2 条新路由 + 变更前快照 + `lib:` 前缀）、
+`api/site.py`（展示层下发）、`admin/theme_center.py` / `templates/admin/theme_center.html`
+（工坊与市场 UI）；前端 `store.js`（预览标记 + 展示层消费）、`global.css` / `HomeView.vue`
+（章回布局）。新增 `tests/test_theme_bundles.py`（20 条）、`tests/test_theme_library.py`（16 条）。
+**无新表、无 Alembic 迁移、无新依赖、无改 `update.sh`。**
+
+### 168.1 逐维复核
+
+| 维度 | 结论 | 说明 |
+|---|---|---|
+| XSS | 已修 / 通过 | 导入包的 `name` / `desc` / `tags` / `labels` / `source` 全过 `_as_text`（禁 `<` `>`、限长）；后台市场卡片用 DOM `textContent` 渲染，不用 `innerHTML` 拼串；Jinja2 侧仍是 `{{ }}` 自动转义 |
+| 任意样式注入 | **已修（本轮主防线）** | 第三方包走 `action=import` 时**强制 `css=""`**、`source` 标注、`imp-` 前缀防覆盖内置包。内置包随代码分发、站主编辑器保存的包由本人负责，三者不共用信任级别。`save` 保留 `css`，但编辑器**不提供 CSS 输入框**，信任级别等同既有 `custom_css`（仅超管） |
+| 外联信标 / SSRF | 通过 | `validate_bundle` 的 CSS 黑名单挡 `url(` / `@import` / `data:` / `javascript:`；token 值经 `sanitize_theme_tokens` 挡 `url(` / `@` / `;` / `:` / 尖括号 / 花括号；服务端不请求任何外部 URL。预览 iframe 的地址由站主填写，且 CSP `frame-src 'self'` 默认只放同源 |
+| 越权 | 已修 / 通过 | `GET /api/theme/library` 与 `POST /api/theme/library` 均先过 `_super_user()`；`POST /api/theme` 原有超管判断不变。守卫 `test_库读取需要超管` / `test_库操作需要超管` 覆盖未登录与 `ROLE_ADMIN` |
+| CSRF | 通过 | 所有新写操作走全局 `_csrf_protect`（POST 闸既认 body 也认 `X-CSRF-Token`）；模板脚本统一带 header |
+| 资源耗尽 | 已修 | 主题库三道上限：24 套 / 单套 16 KB / 总 192 KB；坏 KV 回落空库，不让后台 500；`list_bundles()` 跳过坏包并记日志 |
+| 静默降级 | 已修 | 正在使用的自建主题禁止删除（否则 `active_bundle()` 解析失败、前台静默回落经典布局）；库内包读时再过一次 `validate_bundle` |
+| SQL 注入 / 密钥 / 资源泄漏 | 通过 | 全 ORM `filter_by` / `db.session.get`，无字符串拼接；无新凭据；文件读写全用 `with`；无 `subprocess` / `eval` |
+| 限流 | **接受风险** | 新写接口未接 `rate_limit`，与既有主题 API 同口径；仅超管可用、后台低频，且容量上限已挡住放大。若将来开放给普通管理员需补限流（登记 ROADMAP 观察） |
+| 统计口径 | 已修 | 后台预览 iframe 重新加载前台会重跑统计脚本；`tc_preview=1` 让 `initSite()` 跳过 `injectFooterCode`，避免 PV 翻倍。自定义 CSS 照常注入，预览忠实 |
+| 可访问性 | 已修 | 带 placeholder 的导入 textarea 补 `aria-label`（`test_every_placeholder_control_has_accessible_name` 曾拦下） |
+| 后台配色单一真相源 | 已修 | 市场卡片原用 CSS 变量上色，被 `test_admin_has_no_theme_token_injection` 拦下；改 inline 具体属性，只作用于卡片、不继承 |
+
+### 168.2 与 R166 的关系（前置条件已落实）
+
+R166 曾结论：「档 2（主题商店 / 用户上传主题包）之前必须先有主题包来源限制，否则白名单
+只是把『注入』换成『任意值』」。本版把该前置条件落成：① 内置包只从 `theme_packs/` 只读加载，
+**应用请求不接受整包上传**；② 导入走独立 `action=import` 且剥 CSS；③ `schema` 版本 +
+枚举白名单 + 逐类值校验。同时**并未**开放访客上传或访客换肤，v5.4.5 的缺席守卫保持绿。
+
+### 168.3 回归点与变异验证
+
+- 两条关键守卫做过变异验证：把「保存前剥派生 token」与「导入强制剥 CSS」分别临时改坏，
+  `test_保存时派生token与暗色按新主色重算` / `test_导入包强制剥离CSS且id不撞内置` 均如期变红，
+  还原后 16 条全绿。**注释里的 `setProperty` 字面量也会被逐行扫描守卫命中**，已一并清掉。
+- `test_回滚快照不含新值` 钉住 `capture_look()` 的时序；`test_解析库内包与损坏KV的降级` 钉住坏包不进前台。
+- 本地预览脚本为绕过 CSP 而放宽 `frame-src`（仅临时脚本、不入库）：生产预览地址同源 `/`，
+  **本就不需要放宽**，不可把该改动搬进仓库源码。
+
 ## R167 · v5.4.5（自定义页脚代码 + 档 1 访客自选主题下架）安全审查
 
 **范围**：`admin/settings.py`（新字段 `footer_html` + 上限 + 审计）、`app.py`（默认值行）、

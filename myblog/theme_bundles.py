@@ -21,6 +21,9 @@ import logging
 import os
 import re
 
+from flask import has_app_context
+from sqlalchemy.exc import SQLAlchemyError
+
 from themes import normalize_custom_theme, validate_accent
 
 logger = logging.getLogger(__name__)
@@ -262,10 +265,13 @@ def resolve_bundle(bundle_id):
     if not bid:
         return None
     if bid.startswith("lib:"):
+        if not has_app_context():
+            return None
+        import theme_library
         try:
-            import theme_library
             it = theme_library.get_item(bid[4:])
-        except Exception:
+        except SQLAlchemyError as exc:
+            logger.warning("主题库读取失败：%s", exc)
             return None
         return it["bundle"] if it else None
     return get_bundle(bid)
@@ -273,11 +279,8 @@ def resolve_bundle(bundle_id):
 
 def active_bundle():
     """读当前激活的主题包；未激活 / 包已删除 / 包损坏 → ``None``（前台回落经典布局）。"""
-    try:
-        from utils import get_setting
-        bid = (get_setting(ACTIVE_KEY) or "").strip()
-    except Exception:  # 无 app 上下文（CLI 审计等），按未激活处理
-        return None
+    from utils import get_setting
+    bid = (get_setting(ACTIVE_KEY) or "").strip()
     return resolve_bundle(bid) if bid else None
 
 

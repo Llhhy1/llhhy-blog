@@ -112,11 +112,8 @@ def wallpaper_uses(filename):
 def theme_get():
     # v5.5.0：内置主题包摘要（不含整套 token / CSS，列表响应保持轻量）。
     # 主题包与「预设 / 自定义」互斥：当前激活哪一个由 Setting.theme_bundle_id 决定。
-    try:
-        from utils import get_setting
-        active_id = (get_setting(bundles.ACTIVE_KEY) or "").strip()
-    except Exception:  # 无 DB 上下文时按未激活处理，绝不让主题中心 500
-        active_id = ""
+    from utils import get_setting
+    active_id = (get_setting(bundles.ACTIVE_KEY) or "").strip()
     return jsonify({
         "presets": THEME_PRESETS,
         "bundles": [bundles.summary(b) for b in bundles.list_bundles()],
@@ -219,11 +216,8 @@ def theme_post():
         else:
             log_audit("theme", target="应用主题", detail=pack_id or "custom")
     t = current_theme()
-    try:
-        from utils import get_setting
-        active_id = (get_setting(bundles.ACTIVE_KEY) or "").strip()
-    except Exception:
-        active_id = bundle_applied
+    from utils import get_setting
+    active_id = (get_setting(bundles.ACTIVE_KEY) or "").strip()
     return jsonify({
         "ok": True,
         "pack_id": pack_id or current_theme()["pack_id"],
@@ -250,11 +244,8 @@ def theme_library_get():
     """超管读取主题市场全量数据：内置包 + 站内自建/导入包 + 回滚目标。"""
     if not _super_user():
         return jsonify({"error": "forbidden"}), 403
-    try:
-        from utils import get_setting
-        active_id = (get_setting(bundles.ACTIVE_KEY) or "").strip()
-    except Exception:
-        active_id = ""
+    from utils import get_setting
+    active_id = (get_setting(bundles.ACTIVE_KEY) or "").strip()
     items = []
     for it in library.library_data()["items"]:
         s = library.item_summary(it)
@@ -331,8 +322,5 @@ def theme_library_post():
 
 
 def _active_id():
-    try:
-        from utils import get_setting
-        return (get_setting(bundles.ACTIVE_KEY) or "").strip()
-    except Exception:
-        return ""
+    from utils import get_setting
+    return (get_setting(bundles.ACTIVE_KEY) or "").strip()

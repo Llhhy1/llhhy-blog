@@ -10,6 +10,7 @@
 4. **不回归**：访客换肤缺席守卫仍绿（本项目有独立测试，这里再钉一次语义）。
 """
 import copy
+from contextvars import Context
 import json
 import os
 import secrets
@@ -95,6 +96,47 @@ def test_列表能发现内置包且摘要不含整套token():
     s = bundles.summary(next(b for b in found if b["id"] == "zhanghui"))
     assert "tokens" not in s and "css" not in s
     assert s["layout"] == "chapter"
+    assert s["source"] == ""
+
+
+def test_主题包无应用上下文时仍可安全读取():
+    def probe():
+        assert bundles.active_bundle() is None
+        assert bundles.resolve_bundle("lib:missing") is None
+        assert bundles.resolve_bundle("zhanghui")["id"] == "zhanghui"
+
+    Context().run(probe)
+
+
+def test_主题库数据库异常回落并记录日志(monkeypatch, caplog):
+    from sqlalchemy.exc import SQLAlchemyError
+    import theme_library
+
+    def unavailable(_iid):
+        raise SQLAlchemyError("database unavailable")
+
+    monkeypatch.setattr(theme_library, "get_item", unavailable)
+    assert bundles.resolve_bundle("lib:sample") is None
+    assert "主题库读取失败" in caplog.text
+
+
+def test_主题库程序错误不得静默隐藏(monkeypatch):
+    import theme_library
+
+    def broken(_iid):
+        raise TypeError("invalid internal value")
+
+    monkeypatch.setattr(theme_library, "get_item", broken)
+    with pytest.raises(TypeError, match="invalid internal value"):
+        bundles.resolve_bundle("lib:sample")
+
+
+def test_主题摘要接口返回精简元数据(client):
+    response = client.get("/api/theme")
+    assert response.status_code == 200
+    pack = next(b for b in response.get_json()["bundles"] if b["id"] == "zhanghui")
+    assert pack["source"] == ""
+    assert pack["layout"] == "chapter"
 
 
 def test_坏id与坏枚举被拒绝():

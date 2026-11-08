@@ -14,9 +14,12 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 STATIC = ROOT / "myblog" / "static"
 SPA_CSS = ROOT / "vue-frontend" / "src" / "styles"
 
-# v5.6.0 实施前实测：SPA 四份 CSS 里共 18 种 px 字号。棘轮只许减不许增；
-# 新代码一律用 --type-* / --ui-* 尺度。
-FONT_SIZE_BASELINE = 18
+# v5.6.0 实施前实测：SPA 四份 CSS 里共 18 种 px 字号，当时只做「只许减不许增」的棘轮。
+# v5.7.0 已把 CSS 里全部 px 字号迁到 13 级 --type-* 尺度（每处带兜底），
+# 所以这里收紧为 0：任何新的 font-size: Npx 字面量都会立刻变红。
+# 更完整的全库断言（含 Vue scoped / 后台 / SSR 与兜底值反查）见
+# tests/test_typography_scale_v570.py。
+FONT_SIZE_BASELINE = 0
 
 
 def _lum(hex_color):
@@ -88,7 +91,9 @@ def test_真实页面组合的对比度达标():
 def test_字号尺度棘轮只减不增():
     sizes = set()
     for p in SPA_CSS.glob("*.css"):
-        sizes |= set(re.findall(r"font-size\s*:\s*([0-9.]+)px",
+        # (?<![-\w])：排除 --theme-font-size: 15px 这类**变量定义**里的子串，
+        # 它不是 font-size 声明（v5.7.0 实测不加会假报 1 种字号）。
+        sizes |= set(re.findall(r"(?<![-\w])font-size\s*:\s*([0-9.]+)px",
                                 p.read_text(encoding="utf-8")))
     assert len(sizes) <= FONT_SIZE_BASELINE, (
         f"字号从 {FONT_SIZE_BASELINE} 种涨到 {len(sizes)} 种：{sorted(sizes)}。"

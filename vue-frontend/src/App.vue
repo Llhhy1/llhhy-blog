@@ -523,7 +523,7 @@ router.afterEach(() => { loadNotifs(); });
   background: var(--accent, #196ddd);
   color: #fff;
   border-radius: 0 0 8px 0;
-  font-size: 14px;
+  font-size: var(--type-meta, 14px);
   text-decoration: none;
 }
 .skip-link:focus {
@@ -535,7 +535,7 @@ router.afterEach(() => { loadNotifs(); });
    这条是**可点入口**，要跟它们区分开 —— 用主色 + 稍大字号。 */
 .site-footer-rss {
   margin: 8px 0 0;
-  font-size: 13px;
+  font-size: var(--type-sm, 13px);
 }
 .site-footer-rss a {
   color: var(--accent, #196ddd);
@@ -560,15 +560,15 @@ router.afterEach(() => { loadNotifs(); });
   padding: 14px 16px;
   align-self: flex-start;
 }
-.plugin-sidebar-title { margin: 0 0 8px; font-size: 13px; color: var(--muted, #888); font-weight: 600; }
-.plugin-sidebar-link { display: block; padding: 6px 0; color: var(--link, #196ddd); text-decoration: none; font-size: 14px; }
+.plugin-sidebar-title { margin: 0 0 8px; font-size: var(--type-sm, 13px); color: var(--muted, #888); font-weight: 600; }
+.plugin-sidebar-link { display: block; padding: 6px 0; color: var(--link, #196ddd); text-decoration: none; font-size: var(--type-meta, 14px); }
 .plugin-sidebar-link:hover { text-decoration: underline; }
-.plugin-html { margin-top: 10px; font-size: 13px; }
+.plugin-html { margin-top: 10px; font-size: var(--type-sm, 13px); }
 .plugin-html :deep(a) { color: var(--link, #196ddd); }
 .plugin-remote-badge {
   display: inline-block; margin: 8px 0 0; padding: 6px 14px;
   background: var(--accent, #196ddd); color: #fff; border-radius: 20px;
-  text-decoration: none; font-size: 13px;
+  text-decoration: none; font-size: var(--type-sm, 13px);
 }
 .plugin-nav-link { /* 视觉由全局导航样式兜底 */ }
 /* v4.1.0 外部入口「🧰 工具箱」下拉 —— 视觉由全局导航样式兜底。
@@ -579,10 +579,10 @@ router.afterEach(() => { loadNotifs(); });
 .site-toolbox-toggle {
   background: none; border: none; padding: 0; cursor: pointer;
   display: inline-flex; align-items: center; gap: 5px;
-  color: var(--nav-fg); font-size: 15px; font-family: inherit; white-space: nowrap;
+  color: var(--nav-fg); font-size: var(--type-base, 15px); font-family: inherit; white-space: nowrap;
 }
 .site-toolbox-toggle:hover { color: var(--accent); }
-.toolbox-caret { font-size: 10px; opacity: .7; }
+.toolbox-caret { font-size: var(--type-3xs, 10px); opacity: .7; }
 .toolbox-menu {
   position: absolute; top: 100%; left: 0; z-index: 60; min-width: 158px;
   /* v4.7.1：`margin` 必须为 0 —— 原来 `margin: 6px 0 0` 会在容器（.nav-toolbox）与
@@ -599,7 +599,7 @@ router.afterEach(() => { loadNotifs(); });
 .toolbox-menu .site-entry-link {
   margin-left: 0 !important; padding: 9px 14px;
   display: flex; align-items: center; gap: 8px;
-  color: var(--nav-fg); text-decoration: none; font-size: 14px; white-space: nowrap;
+  color: var(--nav-fg); text-decoration: none; font-size: var(--type-meta, 14px); white-space: nowrap;
   border-left: 0 !important;
 }
 .toolbox-menu .site-entry-link:hover { background: rgba(25, 109, 221, .08); color: var(--accent); }
@@ -609,7 +609,7 @@ router.afterEach(() => { loadNotifs(); });
 .toolbox-menu .more-link {
   margin-left: 0 !important; padding: 9px 14px;
   display: flex; align-items: center; gap: 8px;
-  color: var(--nav-fg); text-decoration: none; font-size: 14px; white-space: nowrap;
+  color: var(--nav-fg); text-decoration: none; font-size: var(--type-meta, 14px); white-space: nowrap;
   border-left: 0 !important;
 }
 .toolbox-menu .more-link:hover,
@@ -631,7 +631,7 @@ router.afterEach(() => { loadNotifs(); });
   border-radius: 22px;
   background: var(--accent, #4c6ef5);
   color: #fff;
-  font-size: 14px;
+  font-size: var(--type-meta, 14px);
   cursor: pointer;
   box-shadow: 0 4px 14px rgba(0, 0, 0, 0.18);
 }

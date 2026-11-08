@@ -310,11 +310,11 @@ async function submit() {
 .comment-react { display: flex; gap: 4px; flex-wrap: wrap; }
 .react-btn {
   border: 1px solid var(--border, #e3e6ea); background: var(--surface, #fff);
-  border-radius: 999px; padding: 2px 8px; font-size: 13px; line-height: 1.6;
+  border-radius: 999px; padding: 2px 8px; font-size: var(--type-sm, 13px); line-height: var(--leading-base, 1.6);
   cursor: pointer; color: inherit;
   transition: transform 120ms ease, border-color 120ms ease, background 120ms ease;
 }
-.react-btn em { font-style: normal; font-size: 11px; color: var(--text-muted, #6b7280); margin-left: 3px; }
+.react-btn em { font-style: normal; font-size: var(--type-2xs, 11px); color: var(--text-muted, #6b7280); margin-left: 3px; }
 .react-btn:hover { transform: translateY(-1px); border-color: var(--accent, #196ddd); }
 .react-btn.active { border-color: var(--accent, #196ddd); background: var(--accent-soft, rgba(25, 109, 221, .1)); }
 
@@ -325,11 +325,11 @@ async function submit() {
    会扫 global.css；本段是 scoped，不在其射程内，故更要自己守规矩。 */
 .comment-sortbar {
   display: flex; align-items: center; gap: 8px;
-  margin: 4px 0 14px; font-size: 13px;
+  margin: 4px 0 14px; font-size: var(--type-sm, 13px);
 }
 .comment-sortbar-label { color: var(--text-muted, #6b7280); }
 .comment-sort-btn {
-  padding: 3px 12px; font-size: 13px; cursor: pointer;
+  padding: 3px 12px; font-size: var(--type-sm, 13px); cursor: pointer;
   border: 1px solid var(--border, #e5e7eb);
   border-radius: 999px;
   background: var(--surface, #fff);

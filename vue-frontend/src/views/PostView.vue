@@ -405,22 +405,22 @@ watch(() => route.params.slug, () => {
   border-left: 3px solid var(--accent); border-radius: var(--radius-md, 12px);
   padding: 14px 16px; margin: 0 0 20px;
 }
-.ai-badge { display: inline-block; font-size: 12px; font-weight: 600; color: var(--accent); margin-bottom: 6px; }
-.ai-summary-text { margin: 0; font-size: 14px; line-height: 1.75; color: var(--text); }
+.ai-badge { display: inline-block; font-size: var(--type-xs, 12px); font-weight: 600; color: var(--accent); margin-bottom: 6px; }
+.ai-summary-text { margin: 0; font-size: var(--type-meta, 14px); line-height: var(--leading-loose, 1.75); color: var(--text); }
 .ai-tags { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
-.ai-tag { font-size: 12px; color: var(--accent); text-decoration: none; background: var(--accent-soft, rgba(25,109,221,.1)); border-radius: 999px; padding: 2px 10px; }
+.ai-tag { font-size: var(--type-xs, 12px); color: var(--accent); text-decoration: none; background: var(--accent-soft, rgba(25,109,221,.1)); border-radius: 999px; padding: 2px 10px; }
 
 /* v3.21.0 内容多语言：译文切换器 */
-.lang-switcher { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin: 6px 0 16px; font-size: 13px; }
+.lang-switcher { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin: 6px 0 16px; font-size: var(--type-sm, 13px); }
 .lang-switcher-label { color: var(--text-muted); }
 .lang-opt { text-decoration: none; padding: 3px 11px; border: 1px solid var(--border, #e2e2e2); border-radius: 999px; color: var(--text); background: var(--surface-2, #f4f6f8); transition: border-color .15s ease, color .15s ease; }
 .lang-opt:hover { border-color: var(--accent, #196ddd); color: var(--accent, #196ddd); }
 .lang-opt.active { background: var(--accent, #196ddd); color: #fff; border-color: var(--accent, #196ddd); }
 
 /* v3.21.0 gamification：读者积分/勋章条 */
-.reader-points { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin: 4px 0 16px; font-size: 13px; }
+.reader-points { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin: 4px 0 16px; font-size: var(--type-sm, 13px); }
 .rp-score { padding: 3px 11px; border-radius: 999px; background: var(--surface-2, #f4f6f8); border: 1px solid var(--border, #e2e2e2); color: var(--text); }
-.rp-badge { font-size: 18px; line-height: 1; cursor: default; }
+.rp-badge { font-size: var(--type-lg, 18px); line-height: var(--leading-flat, 1); cursor: default; }
 
 /* v3.16.0 正文增强：图片灯箱 + 代码复制（作用于 v-html 注入的内容，必须用 :deep 命中） */
 .post-body :deep(.img-zoomable) {
@@ -432,7 +432,7 @@ watch(() => route.params.slug, () => {
 .post-body :deep(.code-copy-btn) {
   position: absolute; top: 8px; right: 8px; z-index: 5;
   border: 1px solid var(--border, #e2e2e2); background: rgba(255,255,255,.9); color: #444;
-  border-radius: 8px; padding: 3px 10px; font-size: 12px; cursor: pointer;
+  border-radius: 8px; padding: 3px 10px; font-size: var(--type-xs, 12px); cursor: pointer;
   opacity: .82; transition: opacity .18s ease, color .18s ease, border-color .18s ease;
 }
 .post-body :deep(pre):hover .code-copy-btn { opacity: 1; }
@@ -455,14 +455,14 @@ watch(() => route.params.slug, () => {
 .lb-close {
   position: fixed; top: 18px; right: 22px; z-index: 1001;
   width: 42px; height: 42px; border-radius: 50%; border: none;
-  background: rgba(255,255,255,.16); color: #fff; font-size: 26px; line-height: 1;
+  background: rgba(255,255,255,.16); color: #fff; font-size: var(--type-2xl, 26px); line-height: var(--leading-flat, 1);
   cursor: pointer; transition: background .18s ease;
 }
 .lb-close:hover { background: rgba(255,255,255,.32); }
 .lb-nav {
   position: fixed; top: 50%; transform: translateY(-50%); z-index: 1001;
   width: 48px; height: 48px; border-radius: 50%; border: none;
-  background: rgba(255,255,255,.16); color: #fff; font-size: 30px; line-height: 1;
+  background: rgba(255,255,255,.16); color: #fff; font-size: var(--type-3xl, 30px); line-height: var(--leading-flat, 1);
   cursor: pointer; transition: background .18s ease;
 }
 .lb-nav:hover { background: rgba(255,255,255,.32); }
@@ -470,7 +470,7 @@ watch(() => route.params.slug, () => {
 .lb-next { right: 20px; }
 .lb-count {
   position: fixed; bottom: 22px; left: 50%; transform: translateX(-50%);
-  color: #fff; font-size: 13px; background: rgba(0,0,0,.4);
+  color: #fff; font-size: var(--type-sm, 13px); background: rgba(0,0,0,.4);
   padding: 4px 12px; border-radius: 999px;
 }
 </style>

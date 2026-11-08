@@ -10,7 +10,7 @@
     body { padding-top: 56px; }
     .pv-banner { position: fixed; top: 0; left: 0; right: 0; z-index: 99;
       background: #fff8e6; color: #8a6d1a; border-bottom: 1px solid #f3e2b8;
-      padding: 10px 16px; font-size: 13px; text-align: center; }
+      padding: 10px 16px; font-size: var(--type-sm, 13px); text-align: center; }
     .pv-shell { max-width: 760px; margin: 0 auto; padding: 24px 16px 80px; }
   </style>
 </head>
@@ -18,7 +18,7 @@
   <div class="pv-banner">👀 这是未发布内容的预览（作者分享的链接），24 小时内有效。</div>
   <main class="pv-shell">
     <h1>{{ post.title }}</h1>
-    {% if post.summary %}<p style="color:#888;font-size:14px;">{{ post.summary }}</p>{% endif %}
+    {% if post.summary %}<p style="color:#888;font-size:var(--type-meta, 14px);">{{ post.summary }}</p>{% endif %}
     <hr>
     <article class="post-content">
       {{ content_html | safe }}

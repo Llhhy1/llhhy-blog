@@ -8,6 +8,18 @@
 > v4.3.1 ~ v4.6.1 → `docs/archive/CHANGELOG_v4.3.1-v4.6.1.md`（v5.5.0 因体积守卫触发，搬走最老六个版本段）。
 > 本文件从 **v4.7.0** 起。**归档不是删除** —— 查旧版本变更细节时去上述文件。
 
+## v5.7.0（2026-11-08 · 设计系统收口二期：后台去内联 / 暗色 token 化 / 排版尺度统一）
+
+承接 v5.6.0 明确延后的四项，本轮全部落地。
+
+- **后台模板去内联**：新增 `myblog/static/admin-pages.css`，把各页静态内联 `<style>` 抽取到共享文件，由 `admin/base.html` 在 `admin.css` 之后引入（tokens 变量先加载）。**刻意保留**：`base.html` 的两个动态注入块（`:root` 主题注入、`custom_css`）、响应式卡片化基座（`td[data-label]::before`）、`backup.html` 的 `bk-table` 卡片化规则、`theme_center.html` 的市场样式 —— 前两者含 Jinja 变量，后三者被 `test_admin_table_data_label.py` / `test_base_css_规则与守卫同口径` 按「规则在模板内」钉死，搬走会让守卫假红。内联块数量 **14 → 11**（守卫按字符串计数，含 content_calendar.html 里 JS 字符串中的 `<style>` 字样；真实块 10 个），`test_admin_componentization.py` 棘轮同步下调。
+- **宏全量迁移**：`admin/_components.html` 的 `btn` / `empty_state` / `section_title` 等宏从 3 个高频页扩到全部能找到逐字等价静态片段的模板；每处都是「1 行 from-import + 1~2 行替换」，可逐行回退。表单 action/name、CSRF 隐藏字段、`data-label`、`aria-label`、`hidden` 一个没动，`theme_center.html` 只有 `<style>` 段与元素内联样式的字号/行高走尺度，市场卡片的上色逻辑与页面 JS 一行未动（该页禁用 CSS 变量上色）。
+- **暗色硬编码 + 裸 hex 收敛**：`admin.css` 与 `static/style.css` 里与亮/暗语义 token 精确相等的裸色统一改成 `var(--token, #原值)` 兜底写法；暗色段写死的灰阶（`#e6e8eb` / `#9aa0a8` / `#333842` 一类）改走 `[data-theme="dark"]` 的对应 token，消除「暗色另有一套 hardcoded 灰阶」的双真相源。渐变端点色、状态徽章专用底色、阴影 rgba 保留并登记理由。`static/style.css` 非兜底裸 hex **156 → 21**；`admin.css` 的降幅由 `test_css_token_ratchet.py` 的新基线记录。所有替换都带兜底值，token 未加载（旧缓存 / 旧模板）时表现不变。
+- **排版尺度统一**：两份 `tokens.css` 同步扩到 **13 级字号**（`--type-3xs` … `--type-display`）+ **7 级排版行高**（`--leading-flat` … `--leading-relaxed`）与 2 个布局专用档（`--leading-none: 0` / `--leading-double: 2`）；SPA CSS、Vue SFC 全文（含 `<template>` 内联 `style`）、`admin.css`、`static/style.css`、`admin-pages.css`，以及后台模板全文（含元素内联 `style`）里，原先 **21 种 px 字号 / 19 种行高字面量全部归零**，每处带 `var(--token, 原值)` 兜底。模板内联 CSS 的**颜色**按动态注入 / 守卫依赖 / 市场卡片配色的边界保留原样，不在本轮收敛范围。新增 `tests/test_typography_scale_v570.py`：断言全库零字面量、两份 tokens 的尺度定义逐字一致，**反查每个兜底值确实落在收敛映射表内**（防 `var(--type-sm, 19px)` 把新尺度架空），并钉住「`var(--leading-*)` 后必须有分号或规则闭合」—— 批量替换曾把 `line-height: 1.6;` 的分号吃掉，写成 `... 1.6) color: ...`，浏览器静默丢弃整条声明，全库共修回 36 处。`test_design_system_v560.py` 的字号棘轮由 18 收紧到 **0**。
+- **验证口径**：全量 pytest、ruff、compileall、`vite build`；真实浏览器用「本地构建产物 + 反代线上真实 API」的预览服务，逐页对比首页 / 文章 / 分类 / 归档 / 登录页的亮暗两套表现，不用手写等价 DOM。
+
+**接口契约不变**（`API.md` 只 bump 头部版本）、无迁移、无新依赖、主题包 schema 未改、`update.sh` 未动。**前端 CSS 与后台 CSS 都改了 → 必须重新 `vite build` 再打包**；后端包仍约 29 MB，一键更新必须带 `GH_MIRROR=https://gh-proxy.com/`。
+
 ## v5.6.1（2026-11-08 · 章回内页网格回归修复）
 
 > **来源**：v5.6.0 上线后的「真实浏览器逐项核验」抓到的真问题，不是本地推测。

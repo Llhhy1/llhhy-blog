@@ -54,6 +54,26 @@
   --leading-tight: 1.3;
   --leading-relaxed: 1.85;
 
+  /* v5.7.0 排版尺度收敛：全库 21 种 px 字号 / 19 种行高字面量统一到
+   * 13 级字号 + 7 级行高。所有消费点用 var(--token, 原值) 兜底写法：
+   * token 未加载（旧缓存 / 旧模板）时表现与收敛前逐字一致。
+   * ⚠️ 两份 tokens.css 必须逐字同步 —— test_design_system_v560.py 与
+   *    test_wcag_contrast.py 都会比对变量集合与取值。 */
+  --type-3xs: 10px;
+  --type-xlg: 20px;
+  --type-3xl: 32px;
+  --type-display: 44px;
+  --leading-flat: 1;
+  --leading-snug: 1.4;
+  --leading-normal: 1.5;
+  --leading-base: 1.6;
+  --leading-loose: 1.75;
+  /* 布局专用档（不是排版尺度）：line-height:0 用来消 inline 基线间隙，
+   * line-height:2 用来给单行文字做垂直居中。收进变量是为了全库零字面量，
+   * 不要拿它们当正文行高用。 */
+  --leading-none: 0;
+  --leading-double: 2;
+
   --shadow-sm: 0 1px 3px rgba(0, 0, 0, .03);
   --shadow-md: 0 6px 18px rgba(20, 30, 50, .08);
   --shadow-lg: 0 16px 48px rgba(0, 0, 0, .20);

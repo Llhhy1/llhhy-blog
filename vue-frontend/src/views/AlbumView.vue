@@ -360,42 +360,42 @@ onUnmounted(() => window.removeEventListener("keydown", onKey));
   font-size: clamp(22px, 3.6vw, 32px);
   font-weight: 700;
   letter-spacing: -0.02em;
-  line-height: 1.24;
+  line-height: var(--leading-tight, 1.24);
   margin: 0 0 6px;
 }
-.album-hero-sub { margin: 0 0 6px; font-size: 15px; line-height: 1.6; opacity: .92; }
-.album-hero-meta { margin: 0; font-size: 13px; opacity: .86; }
+.album-hero-sub { margin: 0 0 6px; font-size: var(--type-base, 15px); line-height: var(--leading-base, 1.6); opacity: .92; }
+.album-hero-meta { margin: 0; font-size: var(--type-sm, 13px); opacity: .86; }
 
 .album-head-plain { margin-bottom: 22px; }
-.album-sub { color: var(--text-muted, #5f6368); font-size: 15px; margin: 0 0 6px; }
-.album-meta-plain { color: var(--text-faint, #9aa0a6); font-size: 13px; margin: 0; }
+.album-sub { color: var(--text-muted, #5f6368); font-size: var(--type-base, 15px); margin: 0 0 6px; }
+.album-meta-plain { color: var(--text-faint, #9aa0a6); font-size: var(--type-sm, 13px); margin: 0; }
 
 /* --- 区块 --- */
 .album-block { margin: 0 0 30px; }
 .album-block-title {
-  font-size: 19px;
+  font-size: var(--type-lg, 19px);
   font-weight: 600;
   letter-spacing: -0.01em;
   margin: 0 0 10px;
   padding-left: 12px;
   border-left: 3px solid var(--accent, #196ddd);
-  line-height: 1.4;
+  line-height: var(--leading-snug, 1.4);
 }
-.album-prose { font-size: 15.5px; line-height: 1.78; color: var(--text, #1c1c1e); }
+.album-prose { font-size: var(--type-md, 15.5px); line-height: var(--leading-loose, 1.78); color: var(--text, #1c1c1e); }
 .album-prose p { margin: 0 0 .85em; }
 .album-prose ul { margin: 0 0 .85em; padding-left: 1.3em; }
 .album-prose li { margin: 0 0 .35em; }
 .album-prose strong { font-weight: 600; }
 .album-section-note {
   color: var(--text-muted, #5f6368);
-  font-size: 14.5px;
+  font-size: var(--type-meta, 14.5px);
   margin-bottom: 14px;
 }
 .album-tips .album-prose {
   background: var(--ui-fill, rgba(120, 120, 128, .10));
   border-radius: var(--ui-radius-control, 12px);
   padding: 14px 18px;
-  font-size: 14.5px;
+  font-size: var(--type-meta, 14.5px);
 }
 
 /* --- 媒体网格 --- */
@@ -448,8 +448,8 @@ onUnmounted(() => window.removeEventListener("keydown", onKey));
   border-radius: 50%;
   background: rgba(0, 0, 0, .48);
   color: #fff;
-  font-size: 20px;
-  line-height: 1;
+  font-size: var(--type-xlg, 20px);
+  line-height: var(--leading-flat, 1);
   padding-left: 4px;
   box-shadow: 0 2px 10px rgba(0, 0, 0, .3);
   backdrop-filter: blur(2px);
@@ -457,8 +457,8 @@ onUnmounted(() => window.removeEventListener("keydown", onKey));
 .album-video-play:hover .album-video-play-icon { background: rgba(0, 0, 0, .62); }
 .album-caption {
   margin-top: 8px;
-  font-size: 13px;
-  line-height: 1.6;
+  font-size: var(--type-sm, 13px);
+  line-height: var(--leading-base, 1.6);
   color: var(--text-muted, #5f6368);
 }
 
@@ -486,10 +486,10 @@ onUnmounted(() => window.removeEventListener("keydown", onKey));
   margin-top: 12px;
   text-align: center;
   color: rgba(255, 255, 255, .88);
-  font-size: 14px;
-  line-height: 1.6;
+  font-size: var(--type-meta, 14px);
+  line-height: var(--leading-base, 1.6);
 }
-.lb-count { margin-left: 10px; opacity: .6; font-size: 12px; }
+.lb-count { margin-left: 10px; opacity: .6; font-size: var(--type-xs, 12px); }
 .lb-close {
   position: absolute;
   top: 14px; right: 18px;
@@ -498,8 +498,8 @@ onUnmounted(() => window.removeEventListener("keydown", onKey));
   border-radius: 50%;
   background: rgba(255, 255, 255, .14);
   color: #fff;
-  font-size: 22px;
-  line-height: 1;
+  font-size: var(--type-xl, 22px);
+  line-height: var(--leading-flat, 1);
   cursor: pointer;
 }
 .lb-nav {
@@ -511,8 +511,8 @@ onUnmounted(() => window.removeEventListener("keydown", onKey));
   border-radius: 50%;
   background: rgba(255, 255, 255, .14);
   color: #fff;
-  font-size: 26px;
-  line-height: 1;
+  font-size: var(--type-2xl, 26px);
+  line-height: var(--leading-flat, 1);
   cursor: pointer;
 }
 .lb-prev { left: 16px; }
@@ -522,6 +522,6 @@ onUnmounted(() => window.removeEventListener("keydown", onKey));
 @media (max-width: 640px) {
   .album-media-grid { grid-template-columns: 1fr 1fr; gap: 10px; }
   .album-hero-mask { padding: 40px 16px 16px; }
-  .lb-nav { width: 40px; height: 40px; font-size: 22px; }
+  .lb-nav { width: 40px; height: 40px; font-size: var(--type-xl, 22px); }
 }
 </style>

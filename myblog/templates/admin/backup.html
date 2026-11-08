@@ -1,4 +1,5 @@
 {% extends "admin/base.html" %}
+{% from "admin/_components.html" import empty_state, section_title %}
 {% block title %}数据备份{% endblock %}
 {% block content %}
 <h1 class="page-title">💾 数据备份与容灾</h1>
@@ -47,7 +48,7 @@
   </div>
   {% if verify_state.bad_items %}
   <div class="settings-section">
-    <h3>校验不通过的备份包</h3>
+    {{ section_title('校验不通过的备份包') }}
     <p class="hint">下列包不可用于恢复，建议先手动备份一次再排查。损坏的包会一直占着保留周期。</p>
     <div class="admin-table">
       <thead><tr><th>备份包</th><th>原因</th></tr></thead>
@@ -164,7 +165,7 @@
   </table>
 </div>
 {% else %}
-<p class="stats-empty">暂无备份。点上方「立即备份一次」生成第一个备份。</p>
+{{ empty_state('暂无备份。点上方「立即备份一次」生成第一个备份。') }}
 {% endif %}
 
 <p class="stats-tip">
@@ -178,11 +179,11 @@
   .bk-ov-card { background:#fff; border:1px solid #eee; border-radius:12px; padding:12px 14px;
     display:flex; flex-direction:column; gap:6px; box-shadow:0 1px 3px rgba(0,0,0,.03); }
   .bk-ov-wide { grid-column:1 / -1; }
-  .bk-ov-label { font-size:12px; color:#888; }
-  .bk-ov-value { font-size:17px; font-weight:600; color:#1f2329; word-break:break-all; }
-  .bk-ov-value small { font-size:12px; font-weight:400; color:#999; }
-  .bk-ov-sm { font-size:15px; }
-  .bk-tag { display:inline-block; font-size:12px; padding:2px 9px; border-radius:999px; margin-right:6px;
+  .bk-ov-label { font-size:var(--type-xs, 12px); color:#888; }
+  .bk-ov-value { font-size:var(--type-md, 17px); font-weight:600; color:#1f2329; word-break:break-all; }
+  .bk-ov-value small { font-size:var(--type-xs, 12px); font-weight:400; color:#999; }
+  .bk-ov-sm { font-size:var(--type-base, 15px); }
+  .bk-tag { display:inline-block; font-size:var(--type-xs, 12px); padding:2px 9px; border-radius:999px; margin-right:6px;
     background:#f1f3f4; color:#9aa0a6; }
   .bk-tag.on { background:#e6f4ea; color:#1e7e34; }
   [data-theme="dark"] .bk-ov-card { background:#1d2025; border-color:#2a2e35; }
@@ -195,11 +196,11 @@
   .bk-table-wrap { width:100%; overflow-x:auto; }
   .bk-table { width:100%; border-collapse:collapse; background:#fff; border-radius:12px; overflow:hidden;
     box-shadow:0 1px 3px rgba(0,0,0,.03); }
-  .bk-table th, .bk-table td { padding:11px 12px; text-align:left; font-size:13px; border-bottom:1px solid #eee; vertical-align:top; }
+  .bk-table th, .bk-table td { padding:11px 12px; text-align:left; font-size:var(--type-sm, 13px); border-bottom:1px solid #eee; vertical-align:top; }
   .bk-table th { background:#fafbfc; color:#555; font-weight:600; white-space:nowrap; }
   .bk-table tbody tr:last-child td { border-bottom:none; }
   .bk-actions { white-space:nowrap; }
-  .bk-confirm { font-size:12px; margin:0 6px 0 2px; color:#c0392b; }
+  .bk-confirm { font-size:var(--type-xs, 12px); margin:0 6px 0 2px; color:#c0392b; }
   [data-theme="dark"] .bk-table { background:#1d2025; }
   [data-theme="dark"] .bk-table th, [data-theme="dark"] .bk-table td { border-color:#2a2e35; }
   [data-theme="dark"] .bk-table th { background:#23272e; color:#c7ccd3; }

@@ -98,8 +98,8 @@ onMounted(async () => {
 }
 .rss-intro {
   color: var(--text-muted, #6a717f);
-  font-size: 14px;
-  line-height: 1.8;
+  font-size: var(--type-meta, 14px);
+  line-height: var(--leading-relaxed, 1.8);
   margin: 0 0 20px;
 }
 .rss-sources {
@@ -118,12 +118,12 @@ onMounted(async () => {
   flex-direction: column;
   gap: 6px;
 }
-.rss-fmt { font-size: 14px; }
+.rss-fmt { font-size: var(--type-meta, 14px); }
 .rss-url {
   /* 地址要能整行读完、还能被选中 —— 不截断、允许换行 */
   display: block;
-  font-size: 12px;
-  line-height: 1.5;
+  font-size: var(--type-xs, 12px);
+  line-height: var(--leading-normal, 1.5);
   color: var(--text-muted, #6a717f);
   word-break: break-all;
   user-select: all;
@@ -135,20 +135,20 @@ onMounted(async () => {
   flex-wrap: wrap;
 }
 .rss-pick {
-  font-size: 13px;
+  font-size: var(--type-sm, 13px);
   color: var(--text-faint, #7d838f);
   margin: 12px 0 0;
 }
 .rss-h2 {
-  font-size: 17px;
+  font-size: var(--type-md, 17px);
   font-weight: 600;
   margin: 28px 0 10px;
 }
 .rss-steps {
   margin: 0;
   padding-left: 22px;
-  font-size: 14px;
-  line-height: 1.9;
+  font-size: var(--type-meta, 14px);
+  line-height: var(--leading-relaxed, 1.9);
   color: var(--text, #2c2c2c);
 }
 .rss-latest {
@@ -163,7 +163,7 @@ onMounted(async () => {
   gap: 12px;
   padding: 8px 0;
   border-bottom: 1px solid var(--ui-hairline, rgba(60, 60, 67, 0.12));
-  font-size: 14px;
+  font-size: var(--type-meta, 14px);
 }
 .rss-latest a {
   color: var(--text, #2c2c2c);
@@ -175,11 +175,11 @@ onMounted(async () => {
 .rss-latest a:hover { color: var(--accent, #196ddd); }
 .rss-date {
   flex: 0 0 auto;
-  font-size: 12px;
+  font-size: var(--type-xs, 12px);
   color: var(--text-faint, #7d838f);
 }
 .rss-empty {
-  font-size: 13px;
+  font-size: var(--type-sm, 13px);
   color: var(--text-faint, #7d838f);
 }
 </style>

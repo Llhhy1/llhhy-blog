@@ -59,7 +59,7 @@ onMounted(async () => {
 </script>
 
 <style scoped>
-.eco-intro { margin: 0 0 18px; font-size: 14px; color: var(--text-muted, #8a8f98); line-height: 1.7; }
+.eco-intro { margin: 0 0 18px; font-size: var(--type-meta, 14px); color: var(--text-muted, #8a8f98); line-height: var(--leading-loose, 1.7); }
 .eco-loading { padding: 24px 0; color: var(--text-muted, #8a8f98); }
 
 .eco-summary {
@@ -78,13 +78,13 @@ onMounted(async () => {
   background: var(--surface, #fff);
 }
 .eco-num {
-  font-size: 30px;
+  font-size: var(--type-3xl, 30px);
   font-weight: 800;
-  line-height: 1.1;
+  line-height: var(--leading-tight, 1.1);
   color: var(--accent, #196ddd);
   letter-spacing: -.5px;
 }
-.eco-label { font-size: 13px; color: var(--text-muted, #8a8f98); }
+.eco-label { font-size: var(--type-sm, 13px); color: var(--text-muted, #8a8f98); }
 
 .eco-list { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 10px; }
 .eco-item {
@@ -98,7 +98,7 @@ onMounted(async () => {
   background: var(--surface, #fff);
 }
 .eco-url {
-  font-size: 14px;
+  font-size: var(--type-meta, 14px);
   color: var(--text, #2c2c2c);
   text-decoration: none;
   border-bottom: 1px dotted var(--border, #d5d5d5);
@@ -107,21 +107,21 @@ onMounted(async () => {
 .eco-url:hover { color: var(--accent, #196ddd); }
 .eco-anon { border-bottom: none; color: var(--text-muted, #9aa0a6); font-style: italic; }
 .eco-tag {
-  font-size: 11px;
+  font-size: var(--type-2xs, 11px);
   color: var(--text-muted, #9aa0a6);
   background: var(--surface-2, #f7f8fa);
   border: 1px solid var(--border, #ececec);
   border-radius: 999px;
   padding: 1px 8px;
 }
-.eco-time { font-size: 12px; color: var(--text-muted, #9aa0a6); margin-left: auto; }
+.eco-time { font-size: var(--type-xs, 12px); color: var(--text-muted, #9aa0a6); margin-left: auto; }
 
-.eco-empty { font-size: 14px; color: var(--text-muted, #8a8f98); }
+.eco-empty { font-size: var(--type-meta, 14px); color: var(--text-muted, #8a8f98); }
 .eco-note {
   margin: 22px 0 0;
   padding: 14px 16px;
-  font-size: 12.5px;
-  line-height: 1.7;
+  font-size: var(--type-sm, 12.5px);
+  line-height: var(--leading-loose, 1.7);
   color: var(--text-muted, #8a8f98);
   background: var(--surface-2, #f7f8fa);
   border: 1px solid var(--border, #ececec);

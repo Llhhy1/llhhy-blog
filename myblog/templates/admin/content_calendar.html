@@ -1,36 +1,19 @@
 {% extends "admin/base.html" %}
+{% from "admin/_components.html" import btn, empty_state %}
 {% block title %}内容日历{% endblock %}
 {% block content %}
 
 {# ⚠️ Jinja 子模板里 block 之外的内容**不会渲染**（v4.2.0 踩过：三张卡静默消失了
    两个大版本）。本页所有内容——包括下面的 <style>——都必须待在 content 块内。 #}
 
-<style>
-.cal-wrap{overflow-x:auto;}
-table.cal{border-collapse:collapse;width:100%;min-width:720px;table-layout:fixed;}
-table.cal th{padding:6px 0;font-size:12px;color:var(--muted,#8a93a0);font-weight:600;text-align:center;border-bottom:2px solid var(--border,#ececec);}
-table.cal td{border:1px solid var(--border,#ececec);vertical-align:top;padding:5px 6px;height:104px;}
-table.cal td.cal-empty{background:var(--surface-2,#fafbfc);}
-.cal-day{font-size:12px;color:var(--muted,#8a93a0);font-weight:600;margin-bottom:4px;}
-.cal-item{display:block;font-size:12px;line-height:1.5;margin-bottom:3px;padding:2px 5px;border-radius:5px;
-  background:var(--surface-2,#f4f5f7);color:var(--text,#333);text-decoration:none;overflow:hidden;
-  text-overflow:ellipsis;white-space:nowrap;}
-.cal-item:hover{background:var(--accent-soft,#e8f0fe);}
-.cal-more{font-size:11px;color:var(--muted,#8a93a0);}
-.cal-tip{display:inline-block;margin-right:10px;}
-.dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:4px;vertical-align:middle;}
-.dot-published{background:#48bb78;}
-.dot-draft{background:#a0aec0;}
-.dot-scheduled{background:#4299e1;}
-</style>
 
 <h1 class="page-title">📅 内容日历（{{ year }} 年 {{ month }} 月）</h1>
 
 <div class="admin-actions">
-  <a class="btn ghost" href="{{ url_for('admin.content_calendar', year=prev_year, month=prev_month) }}">← 上月</a>
-  <a class="btn ghost" href="{{ url_for('admin.content_calendar') }}">回到本月</a>
-  <a class="btn ghost" href="{{ url_for('admin.content_calendar', year=next_year, month=next_month) }}">下月 →</a>
-  <a class="btn" href="{{ url_for('admin.new_post') }}">✏️ 写新文章</a>
+  {{ btn('← 上月', url_for('admin.content_calendar', year=prev_year, month=prev_month)) }}
+  {{ btn('回到本月', url_for('admin.content_calendar')) }}
+  {{ btn('下月 →', url_for('admin.content_calendar', year=next_year, month=next_month)) }}
+  {{ btn('✏️ 写新文章', url_for('admin.new_post'), kind='') }}
 </div>
 
 <div class="panel">
@@ -78,7 +61,7 @@ table.cal td.cal-empty{background:var(--surface-2,#fafbfc);}
   </div>
 
   {% if total == 0 %}
-  <p class="stats-empty">本月还没有任何文章（草稿 / 定时 / 已发布都不算有）。</p>
+  {{ empty_state('本月还没有任何文章（草稿 / 定时 / 已发布都不算有）。') }}
   {% endif %}
 </div>
 

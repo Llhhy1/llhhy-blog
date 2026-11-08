@@ -18,9 +18,12 @@ COMPONENTS = ADMIN_DIR / "_components.html"
 CHANGED_TEMPLATES = ("dashboard.html", "stats.html", "my_posts.html")
 
 # 内联 <style 标签基线：v5.6.0 实测 54 个 admin 模板共 14 个 <style 开标签。
-# 棘轮语义「只允许减少」：新样式请进 admin.css / tokens.css，不许再加内联块。
-# 主动收敛了内联样式时同步调低本常量，绝不要调高。
-INLINE_STYLE_BASELINE = 14
+# v5.7.0 把 5 个纯静态块抽到 admin-pages.css，实测降到 **11**（含
+# content_calendar.html 里 JS 字符串中的 "<style>" 字样，守卫按字符串计数）。
+# 保留的 10 个真实块：2 个动态注入、base 响应式基座、backup 卡片化、
+# theme_center、以及 4 个含 Jinja 变量/选择器冲突的页。
+# 棘轮语义「只允许减少」：新样式请进 admin.css / admin-pages.css，不许再加内联块。
+INLINE_STYLE_BASELINE = 11
 
 _MACRO_RE = re.compile(r"\{%\s*macro\s+(\w+)")
 _HEX_RE = re.compile(r"#[0-9a-fA-F]{3,8}\b")

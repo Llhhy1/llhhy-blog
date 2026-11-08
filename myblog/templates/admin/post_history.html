@@ -1,4 +1,5 @@
 {% extends "admin/base.html" %}
+{% from "admin/_components.html" import btn %}
 {% block title %}版本历史{% endblock %}
 {% block content %}
   <h1 class="page-title">🕓 版本历史：{{ post.title }}</h1>
@@ -25,5 +26,5 @@
       {% endfor %}
     </tbody>
   </table>
-  <p style="margin-top:16px;"><a class="btn ghost" href="{{ url_for('admin.edit_post', post_id=post.id) }}">← 返回编辑</a></p>
+  <p style="margin-top:16px;">{{ btn('← 返回编辑', url_for('admin.edit_post', post_id=post.id)) }}</p>
 {% endblock %}

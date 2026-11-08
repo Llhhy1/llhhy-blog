@@ -206,10 +206,10 @@ onMounted(() => {
 .sq-composer-foot { display: flex; align-items: center; justify-content: flex-end; gap: 12px; margin-top: 10px; }
 .sq-count { font-size: var(--type-xs); color: var(--text-muted); }
 .avatar { width: 40px; height: 40px; border-radius: 50%; background: var(--accent); color: var(--on-accent); display: flex; align-items: center; justify-content: center; font-weight: 500; flex-shrink: 0; }
-.avatar.sm { width: 34px; height: 34px; font-size: 14px; }
+.avatar.sm { width: 34px; height: 34px; font-size: var(--type-meta, 14px); }
 .sq-moment-head { display: flex; gap: 10px; align-items: center; margin-bottom: 8px; }
-.sq-moment-author { font-size: 14px; font-weight: 500; }
-.sq-moment-content { font-size: 15px; line-height: 1.7; white-space: pre-wrap; word-break: break-word; }
+.sq-moment-author { font-size: var(--type-meta, 14px); font-weight: 500; }
+.sq-moment-content { font-size: var(--type-base, 15px); line-height: var(--leading-loose, 1.7); white-space: pre-wrap; word-break: break-word; }
 .sq-moment-actions { display: flex; gap: 16px; margin-top: 10px; }
 .sq-like { background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: var(--type-sm); padding: 0; }
 .sq-like:hover { color: var(--accent); }

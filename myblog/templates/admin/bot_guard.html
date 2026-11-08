@@ -1,4 +1,5 @@
 {% extends "admin/base.html" %}
+{% from "admin/_components.html" import empty_state, section_title %}
 {% block title %}反爬限流保护{% endblock %}
 {% block content %}
   <h1 class="page-title">🛡️ 反爬限流保护</h1>
@@ -29,7 +30,7 @@
   </div>
 
   <div class="stats-card" style="margin-top:24px;">
-    <h3>🚫 触发 / 封禁记录</h3>
+    {{ section_title('🚫 触发 / 封禁记录') }}
     {% if stats.recent %}
     <table class="stats-table">
       <thead>
@@ -62,7 +63,7 @@
       </tbody>
     </table>
     {% else %}
-      <p class="stats-empty">暂无触发记录。</p>
+      {{ empty_state('暂无触发记录。') }}
     {% endif %}
   </div>
 {% endblock %}

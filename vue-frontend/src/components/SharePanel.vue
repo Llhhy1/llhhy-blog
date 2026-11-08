@@ -138,7 +138,7 @@ onBeforeUnmount(() => document.removeEventListener("keydown", onKey));
   display: inline-flex; align-items: center; gap: 6px;
   padding: 8px 14px; border-radius: var(--radius-pill);
   border: 1px solid var(--border-strong); background: var(--surface);
-  color: var(--text); cursor: pointer; font-size: 14px;
+  color: var(--text); cursor: pointer; font-size: var(--type-meta, 14px);
   transition: border-color var(--transition), box-shadow var(--transition), transform var(--transition);
 }
 .share-btn:hover { border-color: var(--accent); box-shadow: var(--shadow-md); transform: translateY(-1px); }
@@ -154,36 +154,36 @@ onBeforeUnmount(() => document.removeEventListener("keydown", onKey));
 .share-card-preview { position: relative; margin-bottom: 12px; border-radius: var(--radius-md); overflow: hidden; border: 1px solid var(--border); }
 .share-card-preview img { display: block; width: 100%; aspect-ratio: 1200/630; object-fit: cover; }
 .share-card-tag {
-  position: absolute; left: 8px; top: 8px; font-size: 11px;
+  position: absolute; left: 8px; top: 8px; font-size: var(--type-2xs, 11px);
   padding: 2px 8px; border-radius: var(--radius-pill);
   background: rgba(0,0,0,.45); color: #fff; backdrop-filter: blur(4px);
 }
-.share-panel-title { margin: 0 0 10px; font-size: 13px; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.share-panel-title { margin: 0 0 10px; font-size: var(--type-sm, 13px); color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 .share-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
 .share-item {
   display: flex; flex-direction: column; align-items: center; gap: 5px;
   padding: 8px 2px; border: 0; background: transparent; border-radius: var(--radius-md);
-  color: var(--text); font-size: 12px; text-decoration: none; cursor: pointer;
+  color: var(--text); font-size: var(--type-xs, 12px); text-decoration: none; cursor: pointer;
   transition: background var(--transition), transform var(--transition);
 }
 .share-item:hover { background: var(--surface-2); transform: translateY(-1px); }
 .share-ico {
   width: 34px; height: 34px; border-radius: 50%;
   display: inline-flex; align-items: center; justify-content: center;
-  background: var(--b, var(--accent)); color: #fff; font-size: 13px; font-weight: 600;
+  background: var(--b, var(--accent)); color: #fff; font-size: var(--type-sm, 13px); font-weight: 600;
 }
 .share-ico svg { width: 16px; height: 16px; }
 
 .share-qr { margin-top: 12px; text-align: center; }
 .share-qr img { background: #fff; border-radius: var(--radius-md); border: 1px solid var(--border); }
-.share-qr p { margin: 6px 0 0; font-size: 12px; color: var(--text-muted); }
-.share-hint { margin: 12px 0 0; font-size: 12px; color: var(--text-faint); line-height: 1.6; }
+.share-qr p { margin: 6px 0 0; font-size: var(--type-xs, 12px); color: var(--text-muted); }
+.share-hint { margin: 12px 0 0; font-size: var(--type-xs, 12px); color: var(--text-faint); line-height: var(--leading-base, 1.6); }
 
 .share-tip {
   position: fixed; left: 50%; bottom: 48px; transform: translateX(-50%);
   z-index: 200; padding: 9px 18px; border-radius: var(--radius-pill);
-  background: var(--text); color: var(--bg); font-size: 13px; box-shadow: var(--shadow-lg);
+  background: var(--text); color: var(--bg); font-size: var(--type-sm, 13px); box-shadow: var(--shadow-lg);
 }
 
 .share-pop-enter-active, .share-pop-leave-active { transition: opacity .18s ease, transform .18s ease; }

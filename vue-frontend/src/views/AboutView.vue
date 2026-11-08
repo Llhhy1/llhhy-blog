@@ -36,7 +36,7 @@ onMounted(async () => {
 <style scoped>
 .live-box { margin: 28px 0 0; padding: 14px 20px; border: 1px solid var(--border, #ececec);
   border-radius: 12px; background: var(--surface, #fff); }
-.live-line { margin: 0; font-size: 14px; color: var(--text, #2c2c2c); }
-.live-line b { color: var(--accent, #196ddd); font-size: 16px; }
-.live-note { color: var(--text-muted, #9aa0a6); font-size: 12px; }
+.live-line { margin: 0; font-size: var(--type-meta, 14px); color: var(--text, #2c2c2c); }
+.live-line b { color: var(--accent, #196ddd); font-size: var(--type-md, 16px); }
+.live-note { color: var(--text-muted, #9aa0a6); font-size: var(--type-xs, 12px); }
 </style>

@@ -77,7 +77,7 @@ onMounted(() => load(1));
 </script>
 
 <style scoped>
-.gallery-sub { margin: -8px 0 22px; color: var(--text-muted, #9aa0a6); font-size: 15px; }
+.gallery-sub { margin: -8px 0 22px; color: var(--text-muted, #9aa0a6); font-size: var(--type-base, 15px); }
 .gallery-empty {
   padding: 56px 24px;
   text-align: center;
@@ -87,7 +87,7 @@ onMounted(() => load(1));
 }
 .more { display: flex; justify-content: center; padding: 28px 0 8px; }
 .btn { border: 1px solid var(--ui-hairline, rgba(60, 60, 67, .12)); background: var(--surface, #fff);
-  color: var(--text, #1c1c1e); padding: 8px 22px; border-radius: 999px; cursor: pointer; font-size: 14px; }
+  color: var(--text, #1c1c1e); padding: 8px 22px; border-radius: 999px; cursor: pointer; font-size: var(--type-meta, 14px); }
 .btn:disabled { opacity: .5; cursor: default; }
 
 .album-grid {
@@ -127,27 +127,27 @@ onMounted(() => load(1));
   transition: transform 420ms var(--ui-ease, cubic-bezier(.32, .72, 0, 1));
 }
 .album-card:hover .album-cover img { transform: scale(1.03); }
-.album-nocover { font-size: 13px; color: var(--text-faint, #9aa0a6); }
+.album-nocover { font-size: var(--type-sm, 13px); color: var(--text-faint, #9aa0a6); }
 
 .album-body { padding: 16px 18px 18px; }
 .album-title {
-  font-size: 18px;
+  font-size: var(--type-lg, 18px);
   font-weight: 600;
   letter-spacing: -0.01em;
-  line-height: 1.35;
+  line-height: var(--leading-snug, 1.35);
   margin: 0 0 6px;
 }
 .album-summary {
   color: var(--text-muted, #5f6368);
-  font-size: 14px;
-  line-height: 1.6;
+  font-size: var(--type-meta, 14px);
+  line-height: var(--leading-base, 1.6);
   margin: 0 0 8px;
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
-.album-meta { color: var(--text-faint, #9aa0a6); font-size: 12.5px; margin: 0; }
+.album-meta { color: var(--text-faint, #9aa0a6); font-size: var(--type-sm, 12.5px); margin: 0; }
 
 /* 预览带：让人一眼看出「里面有东西」 */
 .album-preview {
@@ -166,7 +166,7 @@ onMounted(() => load(1));
   justify-content: center;
 }
 .album-preview-cell img { width: 100%; height: 100%; object-fit: cover; }
-.album-preview-video { font-size: 11px; color: var(--text-faint, #9aa0a6); }
+.album-preview-video { font-size: var(--type-2xs, 11px); color: var(--text-faint, #9aa0a6); }
 
 @media (max-width: 640px) {
   .album-grid { grid-template-columns: 1fr; }

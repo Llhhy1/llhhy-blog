@@ -59,7 +59,7 @@
       <ul class="list-clean">
         <li v-for="p in hotPosts" :key="p.slug">
           <router-link :to="`/post/${p.slug}`">{{ p.title }}</router-link>
-          <span style="font-size: 11px; color: #aaa; margin-left: 6px;">{{ p.reads }} {{ t('reads') }}</span>
+          <span style="font-size: var(--type-2xs, 11px); color: #aaa; margin-left: 6px;">{{ p.reads }} {{ t('reads') }}</span>
         </li>
         <li v-if="!hotPosts.length">{{ t('no_data') }}</li>
       </ul>
@@ -67,7 +67,7 @@
 
     <div class="widget">
       <h3>{{ t('site_stats') }}</h3>
-      <p style="font-size: 13px; color: #666;">{{ t('stats_line', { p: totalPosts, c: totalComments }) }}</p>
+      <p style="font-size: var(--type-sm, 13px); color: #666;">{{ t('stats_line', { p: totalPosts, c: totalComments }) }}</p>
     </div>
 
     <div v-if="links.length" class="widget">

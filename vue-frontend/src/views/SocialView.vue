@@ -57,7 +57,7 @@ async function onCopy(it) {
 </script>
 
 <style scoped>
-.page-sub { color: var(--text-muted); font-size: 14px; margin: -10px 0 18px; }
+.page-sub { color: var(--text-muted); font-size: var(--type-meta, 14px); margin: -10px 0 18px; }
 .social-grid {
   display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 12px;
 }
@@ -70,20 +70,20 @@ async function onCopy(it) {
 .social-card:hover { transform: translateY(-2px); border-color: var(--accent); box-shadow: 0 4px 14px rgba(0, 0, 0, .06); }
 .social-icon {
   flex: 0 0 38px; width: 38px; height: 38px; border-radius: 10px;
-  display: grid; place-items: center; font-size: 19px; line-height: 1;
+  display: grid; place-items: center; font-size: var(--type-lg, 19px); line-height: var(--leading-flat, 1);
 }
 .social-body { display: flex; flex-direction: column; min-width: 0; flex: 1; }
-.social-name { font-size: 14px; font-weight: 600; }
+.social-name { font-size: var(--type-meta, 14px); font-weight: 600; }
 .social-handle {
-  font-size: 12px; color: var(--text-muted); margin-top: 2px;
+  font-size: var(--type-xs, 12px); color: var(--text-muted); margin-top: 2px;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-.social-go { font-size: 12px; color: var(--accent); flex: 0 0 auto; }
-.social-tip { margin-top: 16px; font-size: 12px; color: var(--text-faint); }
+.social-go { font-size: var(--type-xs, 12px); color: var(--accent); flex: 0 0 auto; }
+.social-tip { margin-top: 16px; font-size: var(--type-xs, 12px); color: var(--text-faint); }
 @media (max-width: 640px) {
   .social-grid { grid-template-columns: 1fr 1fr; gap: 10px; }
   .social-card { padding: 12px; gap: 10px; }
-  .social-icon { flex-basis: 32px; width: 32px; height: 32px; font-size: 16px; }
+  .social-icon { flex-basis: 32px; width: 32px; height: 32px; font-size: var(--type-md, 16px); }
   .social-go { display: none; }
 }
 </style>

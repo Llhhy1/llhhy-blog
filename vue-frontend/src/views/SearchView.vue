@@ -109,7 +109,7 @@ watch(() => route.query.q + (route.query.page || ""), load);
   margin: 0 0 16px;
 }
 .sh-label {
-  font-size: 12px;
+  font-size: var(--type-xs, 12px);
   color: var(--text-muted);
 }
 .sh-chip {
@@ -117,8 +117,8 @@ watch(() => route.query.q + (route.query.page || ""), load);
   align-items: center;
   gap: 5px;
   padding: 3px 9px;
-  font-size: 12px;
-  line-height: 1.7;
+  font-size: var(--type-xs, 12px);
+  line-height: var(--leading-loose, 1.7);
   color: var(--text);
   background: var(--surface-2);
   border: 1px solid var(--border);
@@ -135,15 +135,15 @@ watch(() => route.query.q + (route.query.page || ""), load);
 .sh-chip:active { transform: scale(.94); }
 .sh-del {
   color: var(--text-faint);
-  font-size: 13px;
-  line-height: 1;
+  font-size: var(--type-sm, 13px);
+  line-height: var(--leading-flat, 1);
 }
 .sh-del:hover {
   color: var(--danger);
 }
 .sh-clear {
   padding: 2px 10px;
-  font-size: 12px;
+  font-size: var(--type-xs, 12px);
   color: var(--text-muted);
   background: var(--ui-fill, rgba(120, 120, 128, .10));
   border: 1px solid transparent;

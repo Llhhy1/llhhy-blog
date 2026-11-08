@@ -24,7 +24,7 @@
   <!-- 首页壁纸（v4.5.0）：首屏满屏大图，标题与联系方式叠加其上 -->
   <div class="tc-wall">
     <h3>首页壁纸（首屏大图）</h3>
-    <p style="color:var(--text-muted,#6b7280);font-size:13px;margin:0 0 14px;max-width:760px;">
+    <p style="color:var(--text-muted,#6b7280);font-size:var(--type-sm, 13px);margin:0 0 14px;max-width:760px;">
       启用后首页顶部铺满整屏壁纸，站点标题与联系方式图标叠加在遮罩之上，
       向下滚动即进入文章列表。建议用 1920×1080 以上的横图；
       暗色模式留空则沿用亮色壁纸。
@@ -88,7 +88,7 @@
   {% if bundles %}
   <div class="tc-custom" style="margin-bottom:22px;">
     <h3>主题包（含布局）</h3>
-    <p style="color:var(--text-muted,#6b7280);font-size:13px;max-width:760px;">
+    <p style="color:var(--text-muted,#6b7280);font-size:var(--type-sm, 13px);max-width:760px;">
       主题包是 <code>myblog/theme_packs/*.json</code> 里的一份纯声明式配置，除颜色外还能定义
       整站背景、布局、卡片形态与动效。部署本系统的人往该目录放一份合法 JSON 即可拥有自己的主题，
       无需改 Python 源码。应用主题包会退出下面的「预设 / 自定义」，反之亦然。
@@ -113,7 +113,7 @@
             <span class="tc-tag">{{ b.layout }}</span>
             {% for t in b.tags %}<span class="tc-tag">{{ t }}</span>{% endfor %}
           </div>
-          {% if b.source %}<p class="tc-desc" style="font-size:11px;opacity:.75;">{{ b.source }}</p>{% endif %}
+          {% if b.source %}<p class="tc-desc" style="font-size:var(--type-2xs, 11px);opacity:.75;">{{ b.source }}</p>{% endif %}
           <button type="button" class="btn tc-apply-bundle" data-bundle="{{ b.id }}">
             {% if active_bundle_id == b.id %}已应用 · 重新应用{% else %}应用此主题包{% endif %}
           </button>
@@ -218,7 +218,7 @@
   <!-- 自定义主题 JSON -->
   <div class="tc-custom">
     <h3>自定义主题（导入 / 导出 JSON）</h3>
-    <p style="color:var(--text-muted,#6b7280);font-size:13px;">
+    <p style="color:var(--text-muted,#6b7280);font-size:var(--type-sm, 13px);">
       格式：<code>{"light": {"accent":"#xxxxxx", ...}, "dark": {...}}</code>；省略 <code>dark</code> 时由 OKLCH 自动推导。
     </p>
     <textarea id="tcJson" rows="8" spellcheck="false" style="width:100%;font-family:ui-monospace,Menlo,Consolas,monospace;"></textarea>
@@ -843,7 +843,7 @@
     .tc-current { display:flex; align-items:center; gap:16px; flex-wrap:wrap;
       background:var(--surface,#fff); border:1px solid var(--border,#ececec); border-radius:14px;
       padding:14px 16px; margin-bottom:18px; }
-    .tc-current-label { color:var(--text-muted,#6b7280); font-size:13px; margin-right:8px; }
+    .tc-current-label { color:var(--text-muted,#6b7280); font-size:var(--type-sm, 13px); margin-right:8px; }
     .tc-swatches { display:flex; gap:6px; }
     .tc-sw { width:22px; height:22px; border-radius:6px; border:1px solid rgba(0,0,0,.1); display:inline-block; }
     .tc-grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(240px,1fr)); gap:16px; }
@@ -852,24 +852,24 @@
     .tc-prev { padding:12px; background:var(--bg,#f7f8fa); color:var(--text,#2c2c2c); font-family:var(--font-sans,sans-serif); }
     .tc-prev-bar { display:flex; align-items:center; gap:8px; margin-bottom:10px; }
     .tc-dot { width:12px; height:12px; border-radius:50%; background:var(--accent,#196ddd); }
-    .tc-prev-title { font-weight:600; font-size:14px; }
+    .tc-prev-title { font-weight:600; font-size:var(--type-meta, 14px); }
     .tc-prev-card { background:var(--surface,#fff); border:1px solid var(--border,#ececec); border-radius:10px; padding:10px; }
     .tc-prev-h { height:8px; width:60%; background:var(--text,#2c2c2c); border-radius:4px; opacity:.85; margin-bottom:8px; }
     .tc-prev-line { height:6px; background:var(--muted,#9aa0a6); border-radius:4px; margin:6px 0; }
     .tc-prev-line.short { width:75%; }
     .tc-prev-btn { margin-top:10px; border:0; background:var(--accent,#196ddd); color:#fff;
-      padding:7px 14px; border-radius:999px; font-size:13px; cursor:pointer; }
+      padding:7px 14px; border-radius:999px; font-size:var(--type-sm, 13px); cursor:pointer; }
     .tc-meta { padding:12px 14px 16px; display:flex; flex-direction:column; gap:6px; }
-    .tc-en { color:var(--text-muted,#9aa0a6); font-size:12px; }
-    .tc-desc { color:var(--text-muted,#6b7280); font-size:13px; margin:2px 0; }
+    .tc-en { color:var(--text-muted,#9aa0a6); font-size:var(--type-xs, 12px); }
+    .tc-desc { color:var(--text-muted,#6b7280); font-size:var(--type-sm, 13px); margin:2px 0; }
     .tc-tags { display:flex; gap:6px; flex-wrap:wrap; margin-bottom:4px; }
-    .tc-tag { font-size:11px; background:var(--surface-2,#f4f6f8); color:var(--text-muted,#6b7280);
+    .tc-tag { font-size:var(--type-2xs, 11px); background:var(--surface-2,#f4f6f8); color:var(--text-muted,#6b7280);
       border-radius:999px; padding:2px 9px; }
     .tc-apply { margin-top:auto; }
     .tc-custom { margin-top:24px; background:var(--surface,#fff); border:1px solid var(--border,#ececec);
       border-radius:14px; padding:16px; }
     .tc-custom h3 { margin:0 0 8px; }
-    .tc-msg { font-size:13px; align-self:center; }
+    .tc-msg { font-size:var(--type-sm, 13px); align-self:center; }
     .btn.ghost { background:transparent; border:1px solid var(--border-strong,#d9dde3); color:var(--text,#2c2c2c); }
     /* v4.5.0 首页壁纸配置区 */
     .tc-wall { margin:0 0 22px; background:var(--surface,#fff); border:1px solid var(--border,#ececec);
@@ -877,11 +877,11 @@
     .tc-wall h3 { margin:0 0 6px; }
     .wp-row { display:grid; grid-template-columns:repeat(auto-fit,minmax(240px,1fr)); gap:14px; }
     .wp-slot { display:flex; flex-direction:column; gap:8px; }
-    .wp-label { font-size:13px; color:var(--text-muted,#6b7280); }
+    .wp-label { font-size:var(--type-sm, 13px); color:var(--text-muted,#6b7280); }
     .wp-prev { display:block; width:100%; aspect-ratio:16/9; object-fit:cover;
       border:1px solid var(--border,#ececec); border-radius:10px; background:var(--bg,#f7f8fa); }
     .wp-prev:not(.has) { display:flex; align-items:center; justify-content:center;
-      color:var(--text-muted,#9aa0a6); font-size:13px; }
+      color:var(--text-muted,#9aa0a6); font-size:var(--type-sm, 13px); }
     .wp-prev:not(.has)::after { content:'尚未设置'; }
     .wp-btns { display:flex; gap:8px; flex-wrap:wrap; }
     /* v4.7.4：媒体库选择面板 */
@@ -889,15 +889,15 @@
       border-radius:12px; background:var(--bg,#f7f8fa); }
     .wp-lib[hidden] { display:none; }
     .wp-lib-head { display:flex; align-items:center; justify-content:space-between;
-      margin-bottom:10px; font-size:13px; color:var(--text-muted,#6b7280); }
+      margin-bottom:10px; font-size:var(--type-sm, 13px); color:var(--text-muted,#6b7280); }
     .wp-lib-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(110px,1fr)); gap:8px;
       max-height:320px; overflow-y:auto; }
     .wp-lib-item { padding:0; border:1px solid var(--border,#ececec); border-radius:8px;
-      overflow:hidden; cursor:pointer; background:#fff; line-height:0; }
+      overflow:hidden; cursor:pointer; background:#fff; line-height:var(--leading-none, 0); }
     .wp-lib-item:hover { border-color:var(--accent,#196ddd); }
     .wp-lib-item img { width:100%; aspect-ratio:16/10; object-fit:cover; display:block; }
     .wp-ctl { display:flex; align-items:center; gap:16px; flex-wrap:wrap; margin-top:16px; }
-    .wp-check, .wp-range { display:flex; align-items:center; gap:6px; font-size:13px;
+    .wp-check, .wp-range { display:flex; align-items:center; gap:6px; font-size:var(--type-sm, 13px);
       color:var(--text-muted,#6b7280); }
     .wp-range input[type=range] { width:150px; }
     /* v5.5.0 ②③ 主题工坊 / 主题市场 */
@@ -906,21 +906,21 @@
     .tc-ws-head { display:flex; align-items:center; justify-content:space-between;
       gap:12px; flex-wrap:wrap; margin-bottom:8px; }
     .tc-ws-head h3 { margin:0; }
-    .tc-rollback { display:flex; align-items:center; gap:10px; font-size:12px;
+    .tc-rollback { display:flex; align-items:center; gap:10px; font-size:var(--type-xs, 12px);
       color:var(--text-muted,#6b7280); }
-    .tc-hint { font-size:12px; color:var(--text-muted,#6b7280); line-height:1.65; margin:0 0 14px; }
+    .tc-hint { font-size:var(--type-xs, 12px); color:var(--text-muted,#6b7280); line-height:var(--leading-base, 1.65); margin:0 0 14px; }
     .tc-ws-grid { display:grid; grid-template-columns:minmax(300px,420px) minmax(0,1fr); gap:16px; }
     @media (max-width:1100px) { .tc-ws-grid { grid-template-columns:minmax(0,1fr); } }
-    .tc-field { display:flex; flex-direction:column; gap:6px; font-size:13px;
+    .tc-field { display:flex; flex-direction:column; gap:6px; font-size:var(--type-sm, 13px);
       color:var(--text-muted,#6b7280); margin-bottom:12px; }
     .tc-field select, .tc-f input[type=text], .tc-f input[type=number], .tc-f select,
     .tc-ws-preview-head input { border:1px solid var(--border-strong,#d9dde3); border-radius:8px;
-      padding:6px 8px; background:var(--surface,#fff); color:var(--text,#2c2c2c); font-size:12px; }
+      padding:6px 8px; background:var(--surface,#fff); color:var(--text,#2c2c2c); font-size:var(--type-xs, 12px); }
     .tc-group { border:1px solid var(--border,#ececec); border-radius:10px;
       padding:8px 10px; margin-bottom:10px; }
-    .tc-group > summary { cursor:pointer; font-size:13px; font-weight:600; }
+    .tc-group > summary { cursor:pointer; font-size:var(--type-sm, 13px); font-weight:600; }
     .tc-f { display:flex; align-items:center; justify-content:space-between; gap:8px;
-      margin:8px 0; font-size:12px; color:var(--text-muted,#6b7280); }
+      margin:8px 0; font-size:var(--type-xs, 12px); color:var(--text-muted,#6b7280); }
     .tc-f > span { flex:1 1 auto; }
     .tc-f input[type=text], .tc-f input[type=number], .tc-f select { width:170px; max-width:62%; }
     .tc-color { display:flex; align-items:center; gap:6px; }
@@ -930,14 +930,14 @@
       font-family:ui-monospace,Menlo,Consolas,monospace; }
     .tc-ws-actions { display:flex; gap:8px; flex-wrap:wrap; margin-top:12px; }
     .tc-ws-preview { display:flex; flex-direction:column; gap:8px; min-width:0; }
-    .tc-ws-preview-head { display:flex; align-items:center; gap:8px; font-size:13px; }
+    .tc-ws-preview-head { display:flex; align-items:center; gap:8px; font-size:var(--type-sm, 13px); }
     .tc-ws-preview-head strong { white-space:nowrap; }
     .tc-ws-preview-head input { flex:1 1 auto; min-width:110px; }
     .tc-ws-preview iframe { width:100%; height:660px; border:1px solid var(--border,#ececec);
       border-radius:10px; background:#fff; }
     .tc-card-btns { display:flex; gap:6px; flex-wrap:wrap; margin-top:8px; }
-    .tc-card-btns .btn { font-size:12px; padding:5px 9px; }
+    .tc-card-btns .btn { font-size:var(--type-xs, 12px); padding:5px 9px; }
     .tc-import { margin-top:18px; padding-top:14px; border-top:1px solid var(--border,#ececec); }
-    .tc-import h4 { margin:0 0 8px; font-size:14px; }
+    .tc-import h4 { margin:0 0 8px; font-size:var(--type-meta, 14px); }
   </style>
 {% endblock %}

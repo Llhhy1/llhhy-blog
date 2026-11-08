@@ -1,24 +1,25 @@
 {% extends "admin/base.html" %}
+{% from "admin/_components.html" import btn, empty_state %}
 {% block title %}访客日志{% endblock %}
 {% block content %}
   <style>
-.tag{display:inline-block;padding:1px 8px;border-radius:10px;font-size:12px;line-height:1.6;}
+.tag{display:inline-block;padding:1px 8px;border-radius:10px;font-size:var(--type-xs, 12px);line-height:var(--leading-base, 1.6)}
 .tag-human{background:rgba(56,178,172,.15);color:#319795;}
 .tag-ai{background:rgba(159,122,234,.15);color:#9f7aea;}
 .tag-tool{background:rgba(237,137,54,.15);color:#dd6b20;}
 .tag-unknown{background:rgba(160,174,192,.18);color:#718096;}
 .tag-blocked{background:rgba(229,62,62,.15);color:#e53e3e;}
-.vl-ip{font-family:ui-monospace,Consolas,monospace;font-size:13px;}
+.vl-ip{font-family:ui-monospace,Consolas,monospace;font-size:var(--type-sm, 13px);}
 /* v4.7.0：换行行为统一交给 admin.css 的 `.admin-table td.vl-path`（那里带
    `.admin-table td` 前缀，特异性更高，能压过本行的裸 `.vl-path`）。
    此处原先的 `max-width:280px` 在 `display:table-cell` 下**根本不生效** ——
    这正是「设了上限还是溢出」的原因，已删除以免误导。 */
-.vl-path{color:var(--muted,#888);font-size:12px;}
+.vl-path{color:var(--muted,#888);font-size:var(--type-xs, 12px);}
 .range-switch{display:flex;flex-wrap:wrap;gap:6px;margin:4px 0 12px;}
 .range-switch .btn.btn-active{background:#4a5568;color:#fff;border-color:#4a5568;}
 .vl-filters{display:flex;flex-wrap:wrap;gap:8px;align-items:flex-end;margin-bottom:14px;}
-.vl-filters label{display:flex;flex-direction:column;font-size:12px;color:var(--muted,#888);gap:3px;}
-.vl-filters input,.vl-filters select{padding:5px 8px;border:1px solid var(--line,#ddd);border-radius:6px;background:var(--card,#fff);color:inherit;font-size:13px;}
+.vl-filters label{display:flex;flex-direction:column;font-size:var(--type-xs, 12px);color:var(--muted,#888);gap:3px;}
+.vl-filters input,.vl-filters select{padding:5px 8px;border:1px solid var(--line,#ddd);border-radius:6px;background:var(--card,#fff);color:inherit;font-size:var(--type-sm, 13px);}
   </style>
 
   <h1 class="page-title">👣 访客日志
@@ -45,7 +46,7 @@
     <label>属地<input type="text" name="region" value="{{ f_region }}" placeholder="如 广东"></label>
     <label>路径<input type="text" name="path" value="{{ f_path }}" placeholder="如 /post/"></label>
     <button type="submit" class="btn">筛选</button>
-    <a class="btn" href="{{ url_for('admin.visit_logs') }}">重置</a>
+    {{ btn('重置', url_for('admin.visit_logs'), kind='') }}
   </form>
 
   <div class="stats-card">
@@ -113,7 +114,7 @@
     </nav>
     {% endif %}
     {% else %}
-      <p class="stats-empty">该区间暂无访问记录。</p>
+      {{ empty_state('该区间暂无访问记录。') }}
     {% endif %}
   </div>
 

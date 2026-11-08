@@ -173,14 +173,14 @@ async function startOAuthLogin(p) {
 .oauth-divider span {
   position: relative; background: var(--bg); padding: 2px 12px;
   border-radius: var(--ui-radius-pill, 999px);
-  font-size: 12px; color: var(--text-muted);
+  font-size: var(--type-xs, 12px); color: var(--text-muted);
 }
 .oauth-btn {
   display: block; width: 100%; margin-bottom: 8px;
   padding: 11px 18px; border-radius: var(--ui-radius-pill, 999px);
   border: 1px solid var(--ui-hairline, rgba(60, 60, 67, .12));
   background: var(--ui-fill, rgba(120, 120, 128, .10)); color: var(--text);
-  font-size: 14px; font-weight: 500; cursor: pointer;
+  font-size: var(--type-meta, 14px); font-weight: 500; cursor: pointer;
   transition: background-color var(--ui-dur-fast, 180ms) ease,
               border-color .15s,
               transform var(--ui-dur-fast, 180ms) var(--ui-ease, cubic-bezier(.32, .72, 0, 1));

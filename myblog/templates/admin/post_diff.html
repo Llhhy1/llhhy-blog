@@ -1,4 +1,5 @@
 {% extends "admin/base.html" %}
+{% from "admin/_components.html" import btn %}
 {% block title %}版本对比{% endblock %}
 {% block content %}
   <h1 class="page-title">版本对比：{{ post.title }}</h1>
@@ -14,7 +15,7 @@
       {% endfor %}
     </select>
     <button type="submit" class="btn">对比</button>
-    <a class="btn ghost" href="{{ url_for('admin.post_history', post_id=post.id) }}">← 返回版本列表</a>
+    {{ btn('← 返回版本列表', url_for('admin.post_history', post_id=post.id)) }}
   </form>
 
   {% if rows %}

@@ -1,4 +1,5 @@
 {% extends "admin/base.html" %}
+{% from "admin/_components.html" import btn %}
 {% block title %}媒体库{% endblock %}
 {% block content %}
   <h1 class="page-title">🖼️ 媒体库（{{ items | length }}）</h1>
@@ -21,7 +22,7 @@
            aria-label="搜索媒体标题或文件名" size="24">
     <button type="submit" class="btn">筛选</button>
     {% if cur_kind or cur_folder or cur_q %}
-      <a class="btn" href="{{ url_for('admin.media_lib') }}">清除</a>
+      {{ btn('清除', url_for('admin.media_lib'), kind='') }}
     {% endif %}
     <span class="hint" style="margin-left:auto;">
       图片 ≤ {{ image_max }} · 视频 ≤ {{ video_max }} · 超过 {{ single_max }} 自动分块（每块 {{ chunk_size }}）

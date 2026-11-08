@@ -1,4 +1,5 @@
 {% extends "admin/base.html" %}
+{% from "admin/_components.html" import btn %}
 {% block title %}配置回滚{% endblock %}
 {% block content %}
 <h1 class="page-title">配置回滚</h1>
@@ -49,6 +50,6 @@
     {% endfor %}
   </div>
   <button type="submit" class="btn primary">确认回滚</button>
-  <a class="btn" href="{{ url_for('admin.config_history') }}">取消</a>
+  {{ btn('取消', url_for('admin.config_history'), kind='') }}
 </form>
 {% endblock %}

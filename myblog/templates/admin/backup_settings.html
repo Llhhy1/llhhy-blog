@@ -1,4 +1,5 @@
 {% extends "admin/base.html" %}
+{% from "admin/_components.html" import section_title %}
 {% block title %}备份配置{% endblock %}
 {% block content %}
 <h1 class="page-title">⚙️ 备份配置</h1>
@@ -19,7 +20,7 @@
 <form method="post" action="{{ url_for('admin.backup_settings') }}">
   {{ csrf_input() }}
   <div class="settings-section">
-    <h3>本地保留</h3>
+    {{ section_title('本地保留') }}
     <div class="form-row">
       <label for="backup_dir">本地备份目录（留空 = 默认项目上级 backups/）</label>
       <input id="backup_dir" type="text" name="backup_dir" value="{{ values.backup_dir }}" placeholder="/www/wwwroot/backups 或留空" style="width:100%;">
@@ -31,7 +32,7 @@
   </div>
 
   <div class="settings-section">
-    <h3>对象存储 OSS / COS / S3</h3>
+    {{ section_title('对象存储 OSS / COS / S3') }}
     <div class="form-row"><label for="backup_oss_bucket">Bucket（留空 = 关闭该后端）</label>
       <input id="backup_oss_bucket" type="text" name="backup_oss_bucket" value="{{ values.backup_oss_bucket }}" placeholder="my-blog-backups"></div>
     <div class="form-row"><label for="backup_oss_region">Region</label>
@@ -47,7 +48,7 @@
   </div>
 
   <div class="settings-section">
-    <h3>SCP 备用机</h3>
+    {{ section_title('SCP 备用机') }}
     <div class="form-row"><label for="backup_scp_host">主机（user@host，留空 = 关闭该后端）</label>
       <input id="backup_scp_host" type="text" name="backup_scp_host" value="{{ values.backup_scp_host }}" placeholder="root@192.168.1.10"></div>
     <div class="form-row"><label for="backup_scp_dir">目标目录（默认 ~/blog_backups）</label>
@@ -59,7 +60,7 @@
   </div>
 
   <div class="settings-section">
-    <h3>WebDAV 云盘（坚果云 / Nextcloud / 群晖）</h3>
+    {{ section_title('WebDAV 云盘（坚果云 / Nextcloud / 群晖）') }}
     <div class="form-row"><label for="backup_webdav_url">WebDAV URL（留空 = 关闭该后端）</label>
       <input id="backup_webdav_url" type="text" name="backup_webdav_url" value="{{ values.backup_webdav_url }}" placeholder="https://dav.jianguoyun.com/dav/blogbackup"></div>
     <div class="form-row"><label for="backup_webdav_user">用户名</label>
@@ -82,12 +83,12 @@
 <style>
   .settings-section { background:#fff; border-radius:12px; padding:16px 18px; margin:16px 0; box-shadow:0 1px 3px rgba(0,0,0,.03); }
   [data-theme="dark"] .settings-section { background:#1d2025; }
-  .settings-section h3 { margin:0 0 12px; font-size:15px; color:#333; }
+  .settings-section h3 { margin:0 0 12px; font-size:var(--type-base, 15px); color:#333; }
   [data-theme="dark"] .settings-section h3 { color:#eef0f2; }
   .form-row { margin-bottom:12px; }
-  .form-row label { display:block; font-size:13px; color:#555; margin-bottom:4px; }
+  .form-row label { display:block; font-size:var(--type-sm, 13px); color:#555; margin-bottom:4px; }
   [data-theme="dark"] .form-row label { color:#c7ccd3; }
-  .form-row input { border:1px solid #ddd; border-radius:8px; padding:8px 10px; font-size:13px; background:#fafbfc; color:#333; }
+  .form-row input { border:1px solid #ddd; border-radius:8px; padding:8px 10px; font-size:var(--type-sm, 13px); background:#fafbfc; color:#333; }
   [data-theme="dark"] .form-row input { border-color:#333; background:#23272e; color:#eef0f2; }
 </style>
 {% endblock %}

@@ -103,7 +103,7 @@ watch(() => route.params.slug, load);
   margin-bottom: 22px;
 }
 .series-hot-tags-title {
-  font-size: 14px;
+  font-size: var(--type-meta, 14px);
   font-weight: 600;
   color: #475569;
   margin-bottom: 12px;
@@ -117,14 +117,14 @@ watch(() => route.params.slug, load);
 .hot-tag {
   color: var(--accent, #3b82f6);
   text-decoration: none;
-  line-height: 1.4;
+  line-height: var(--leading-snug, 1.4);
   transition: color 0.15s;
 }
 .hot-tag:hover {
   text-decoration: underline;
 }
 .hot-tag-count {
-  font-size: 11px;
+  font-size: var(--type-2xs, 11px);
   color: #94a3b8;
   vertical-align: super;
 }

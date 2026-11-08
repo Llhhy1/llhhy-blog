@@ -3,7 +3,7 @@
 {% block content %}
   <h1 class="page-title">验证码设置</h1>
 
-  <div class="flash flash-info" style="margin-bottom:18px;line-height:1.7;">
+  <div class="flash flash-info" style="margin-bottom:18px;line-height:var(--leading-loose, 1.7);">
     🛡️ 验证码用于拦截注册 / 评论 / 留言的机器垃圾提交。可在此单独开关与调参，无需改环境变量。
     {% if captcha_cfg %}
       <br>当前状态：<b>全局{{ '已启用' if captcha_cfg.enabled else '已关闭' }}</b>；
@@ -22,7 +22,7 @@
       <span><b>启用验证码</b>（总开关；关闭后所有场景均不要求验证码）</span>
     </label>
 
-    <label style="margin-top:22px;font-size:15px;color:var(--accent);">⚙️ 图像参数</label>
+    <label style="margin-top:22px;font-size:var(--type-base, 15px);color:var(--accent);">⚙️ 图像参数</label>
 
     <label for="captcha_length">验证码长度（3–8 位）</label>
     <input id="captcha_length" type="number" name="captcha_length" min="3" max="8" value="{{ settings.captcha_length or '4' }}">
@@ -39,7 +39,7 @@
       <span>排除易混淆字符（0/O、1/I/L 等，开启后只使用不易看错的字符）</span>
     </label>
 
-    <label style="margin-top:22px;font-size:15px;color:var(--accent);">🎯 各场景开关</label>
+    <label style="margin-top:22px;font-size:var(--type-base, 15px);color:var(--accent);">🎯 各场景开关</label>
     <p class="hint" style="margin:0 0 12px;">可分别对注册、评论、留言启用或关闭验证码（需先开启上方总开关）。</p>
 
     <label class="checkbox-row">

@@ -494,12 +494,12 @@ onMounted(() => {
   transition: transform .16s ease, border-color .16s ease;
 }
 a.ov-cell:hover { transform: translateY(-2px); border-color: var(--accent, #196ddd); }
-.ov-k { font-size: 12px; color: var(--text-muted, #8a8f98); }
-.ov-v { font-size: 20px; font-weight: 700; color: var(--text, #222); line-height: 1.25; }
+.ov-k { font-size: var(--type-xs, 12px); color: var(--text-muted, #8a8f98); }
+.ov-v { font-size: var(--type-xlg, 20px); font-weight: 700; color: var(--text, #222); line-height: var(--leading-tight, 1.25) }
 /* 开站时间字符串比数字长，允许占两格并在窄屏独占一行 */
 .ov-since { grid-column: span 2; }
-.ov-s { font-size: 11px; color: var(--text-muted, #8a8f98); }
-.ov-note { margin: 10px 0 0; font-size: 12px; color: var(--text-muted, #8a8f98); }
+.ov-s { font-size: var(--type-2xs, 11px); color: var(--text-muted, #8a8f98); }
+.ov-note { margin: 10px 0 0; font-size: var(--type-xs, 12px); color: var(--text-muted, #8a8f98); }
 .ov-note a { color: var(--accent, #196ddd); }
 
 /* ===== v4.7.0 年度回顾 ===== */
@@ -507,26 +507,26 @@ a.ov-cell:hover { transform: translateY(-2px); border-color: var(--accent, #196d
 .ar-switch { float: right; font-style: normal; display: flex; gap: 4px; }
 .ar-year {
   border: 1px solid var(--border, #ececec); background: transparent;
-  color: var(--text-muted, #8a8f98); font-size: 12px;
+  color: var(--text-muted, #8a8f98); font-size: var(--type-xs, 12px);
   padding: 2px 9px; border-radius: 999px; cursor: pointer;
 }
 .ar-year.active { background: var(--accent, #196ddd); border-color: var(--accent, #196ddd); color: var(--on-accent); }
-.ar-sub { margin: 16px 0 8px; font-size: 13px; color: var(--text-muted, #6b7280); font-weight: 500; }
+.ar-sub { margin: 16px 0 8px; font-size: var(--type-sm, 13px); color: var(--text-muted, #6b7280); font-weight: 500; }
 .ar-months { display: flex; align-items: flex-end; gap: 6px; height: 96px; }
 .ar-month { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: center; gap: 3px; height: 100%; }
 .ar-bar-track { flex: 1; width: 100%; display: flex; align-items: flex-end; background: var(--surface-2, #f7f8fa); border-radius: 5px; overflow: hidden; }
 .ar-bar { width: 100%; background: linear-gradient(180deg, #7cb0ff, var(--accent, #196ddd)); border-radius: 5px; min-height: 2px; transition: height .3s ease; }
-.ar-mlabel { font-size: 10px; color: var(--text-muted, #8a8f98); }
-.ar-mcount { font-size: 11px; color: var(--text, #222); font-weight: 500; }
+.ar-mlabel { font-size: var(--type-3xs, 10px); color: var(--text-muted, #8a8f98); }
+.ar-mcount { font-size: var(--type-2xs, 11px); color: var(--text, #222); font-weight: 500; }
 .ar-cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 18px; }
 .ar-list { margin: 0; padding: 0; list-style: none; }
-.ar-list li { display: flex; align-items: center; gap: 8px; padding: 6px 0; border-bottom: 1px dashed var(--border, #ececec); font-size: 13px; }
+.ar-list li { display: flex; align-items: center; gap: 8px; padding: 6px 0; border-bottom: 1px dashed var(--border, #ececec); font-size: var(--type-sm, 13px); }
 .ar-list li:last-child { border-bottom: none; }
-.ar-no { width: 18px; color: var(--text-muted, #8a8f98); font-weight: 700; font-size: 12px; flex-shrink: 0; }
+.ar-no { width: 18px; color: var(--text-muted, #8a8f98); font-weight: 700; font-size: var(--type-xs, 12px); flex-shrink: 0; }
 .ar-list a { flex: 1; min-width: 0; color: var(--text, #222); text-decoration: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ar-list a:hover { color: var(--accent, #196ddd); }
-.ar-num { color: var(--text-muted, #8a8f98); font-size: 12px; flex-shrink: 0; }
-.ar-more { display: inline-block; margin-top: 12px; font-size: 12px; color: var(--accent, #196ddd); text-decoration: none; }
+.ar-num { color: var(--text-muted, #8a8f98); font-size: var(--type-xs, 12px); flex-shrink: 0; }
+.ar-more { display: inline-block; margin-top: 12px; font-size: var(--type-xs, 12px); color: var(--accent, #196ddd); text-decoration: none; }
 @media (max-width: 640px) {
   .ov-since { grid-column: span 1; }
   .ar-switch { float: none; margin-top: 6px; }
@@ -567,8 +567,8 @@ a.ov-cell:hover { transform: translateY(-2px); border-color: var(--accent, #196d
     color-mix(in srgb, var(--accent, #196ddd) 14%, transparent), transparent 70%);
 }
 .dash-icon {
-  font-size: 17px;
-  line-height: 1;
+  font-size: var(--type-md, 17px);
+  line-height: var(--leading-flat, 1);
   margin-bottom: 9px;
   width: 34px;
   height: 34px;
@@ -584,10 +584,10 @@ a.ov-cell:hover { transform: translateY(-2px); border-color: var(--accent, #196d
   margin-bottom: 3px;
 }
 .dash-num {
-  font-size: 28px;
+  font-size: var(--type-2xl, 28px);
   font-weight: 800;
   color: var(--accent, #196ddd);
-  line-height: 1.1;
+  line-height: var(--leading-tight, 1.1);
   letter-spacing: -.5px;
 }
 .dash-foot {
@@ -597,7 +597,7 @@ a.ov-cell:hover { transform: translateY(-2px); border-color: var(--accent, #196d
   margin-top: 10px;
 }
 .dash-delta {
-  font-size: 12px;
+  font-size: var(--type-xs, 12px);
   padding: 2px 8px;
   border-radius: 999px;
   display: inline-flex;
@@ -613,7 +613,7 @@ a.ov-cell:hover { transform: translateY(-2px); border-color: var(--accent, #196d
    （原先的深棕字在深底不可读，那条暗色规则就是给它打的裸色补丁）。
    up/down 同样已用 --success / --danger token 自动翻转。 */
 .dash-delta em { font-style: normal; opacity: .65; font-weight: 500; }
-.dash-delta.wow { font-size: 11px; opacity: .9; }
+.dash-delta.wow { font-size: var(--type-2xs, 11px); opacity: .9; }
 
 /* ===== 网格布局：三列小卡 + 趋势/时段全宽 ===== */
 .stats-grid {
@@ -644,13 +644,13 @@ a.ov-cell:hover { transform: translateY(-2px); border-color: var(--accent, #196d
    这是本次修掉的深色不可读根因。 */
 .range-switch button {
   border: none; background: var(--surface); color: var(--text);
-  padding: 4px 10px; cursor: pointer; font-size: 12px;
+  padding: 4px 10px; cursor: pointer; font-size: var(--type-xs, 12px);
 }
 .range-switch button.active { background: var(--accent, #196ddd); color: var(--on-accent); }
 .export-btn {
   border: 1px solid var(--border, #e3e3e3); background: var(--surface);
   color: var(--text); border-radius: 8px; padding: 4px 10px;
-  cursor: pointer; font-size: 12px;
+  cursor: pointer; font-size: var(--type-xs, 12px);
 }
 .export-btn:disabled { opacity: .5; cursor: not-allowed; }
 
@@ -689,8 +689,8 @@ a.ov-cell:hover { transform: translateY(-2px); border-color: var(--accent, #196d
   color: #fff;
   border-radius: 8px;
   padding: 8px 10px;
-  font-size: 12px;
-  line-height: 1.5;
+  font-size: var(--type-xs, 12px);
+  line-height: var(--leading-normal, 1.5);
   pointer-events: none;
   white-space: nowrap;
   box-shadow: 0 4px 12px rgba(0, 0, 0, .25);

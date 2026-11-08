@@ -1,4 +1,5 @@
 {% extends "admin/base.html" %}
+{% from "admin/_components.html" import btn %}
 {% block title %}{% if post %}编辑文章{% else %}写新文章{% endif %}{% endblock %}
 {% block content %}
   <h1 class="page-title">{% if post %}编辑文章{% else %}写新文章{% endif %}</h1>
@@ -185,14 +186,14 @@
     <p style="margin-top:8px;">
       {% if preview_token %}<button type="button" class="btn ghost small" id="preview-link-btn">🔗 复制未发布预览链接</button>{% endif %}
       {% if post %}<button type="button" class="btn ghost small" id="ai-summary-btn">🤖 生成 AI 摘要</button>{% endif %}
-      {% if post %}<div id="ai-summary-box" style="display:none;margin:10px 0;padding:10px 12px;background:var(--surface-2,#f4f6f8);border:1px solid var(--border,#ececec);border-radius:10px;font-size:13px;line-height:1.7;"></div>{% endif %}
+      {% if post %}<div id="ai-summary-box" style="display:none;margin:10px 0;padding:10px 12px;background:var(--surface-2,#f4f6f8);border:1px solid var(--border,#ececec);border-radius:10px;font-size:var(--type-sm, 13px);line-height:var(--leading-loose, 1.7);"></div>{% endif %}
       <a class="btn ghost small" href="{{ url_for('admin.post_history', post_id=post.id) }}">🕓 版本历史 / 对比</a>
     </p>
     {% endif %}
 
     <div class="form-actions">
       <button type="submit" class="btn" id="save-btn">保存</button>
-      <a class="btn ghost" href="{{ url_for('admin.my_posts') }}">返回文章管理</a>
+      {{ btn('返回文章管理', url_for('admin.my_posts')) }}
     </div>
   </form>
 
@@ -488,7 +489,7 @@
       document.getElementById("cover").value = d.cover || "";
       var bar = document.createElement("div");
       bar.className = "draft-tip";
-      bar.style.cssText = "background:#fff8e6;color:#8a6d1a;border:1px solid #f3e2b8;padding:8px 12px;border-radius:8px;margin-bottom:14px;font-size:13px;";
+      bar.style.cssText = "background:#fff8e6;color:#8a6d1a;border:1px solid #f3e2b8;padding:8px 12px;border-radius:8px;margin-bottom:14px;font-size:var(--type-sm, 13px);";
       bar.textContent = "📝 已恢复上次未保存的新稿（本地草稿），可继续编辑或直接保存。";
       form.insertBefore(bar, form.firstChild);
       count(); doPreview();

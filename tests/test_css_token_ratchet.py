@@ -36,9 +36,12 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 # 裸 hex 计数基线（**排除** var(--x, #hex) 兜底里的那些 —— 它们已经是 token 化写法）
 # v3.25.0 实测：style.css 188 → 177（本批token 化 11 处），admin.css 200 → 190
 # （计数口径修过一次：早先统计时把 var() 兜底算成了裸 hex，基线偏大 10）
+# v5.7.0 实测下调：admin.css 190 -> 111、style.css 177 -> 21；
+# 新增 admin-pages.css（由各页内联 <style> 抽取而来，属存量迁移，不是新增散点）。
 BASELINE = {
-    "myblog/static/admin.css": 190,
-    "myblog/static/style.css": 177,
+    "myblog/static/admin.css": 111,
+    "myblog/static/style.css": 21,
+    "myblog/static/admin-pages.css": 40,
 }
 
 # 已 token 化的位置：(文件, 行内容片段, token 名) —— 防止退回裸 hex

@@ -204,32 +204,32 @@ loadMap();
 .ar-loading { color: var(--text-muted); padding: 20px 0; }
 .ar-stats { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; margin-bottom: 18px; }
 .ar-stat { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-md, 12px); padding: 12px 14px; display: flex; flex-direction: column; gap: 2px; }
-.ar-stat .k { font-size: 12px; color: var(--text-muted); }
-.ar-stat .v { font-size: 22px; font-weight: 700; }
+.ar-stat .k { font-size: var(--type-xs, 12px); color: var(--text-muted); }
+.ar-stat .v { font-size: var(--type-xl, 22px); font-weight: 700; }
 .ar-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-md, 12px); padding: 16px 18px; margin-bottom: 18px; }
-.ar-card h2 { font-size: 15px; margin: 0 0 12px; }
+.ar-card h2 { font-size: var(--type-base, 15px); margin: 0 0 12px; }
 .ar-two { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
 .ar-months { display: flex; align-items: flex-end; gap: 6px; height: 120px; }
 .ar-month { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; height: 100%; gap: 4px; }
 .ar-bar { width: 100%; max-width: 26px; background: linear-gradient(180deg, var(--accent), var(--accent-soft)); border-radius: 4px 4px 0 0; }
-.ar-mlabel { font-size: 11px; color: var(--text-faint); }
+.ar-mlabel { font-size: var(--type-2xs, 11px); color: var(--text-faint); }
 .ar-hot { margin: 0; padding-left: 20px; }
-.ar-hot li { display: flex; justify-content: space-between; gap: 10px; padding: 5px 0; font-size: 14px; }
+.ar-hot li { display: flex; justify-content: space-between; gap: 10px; padding: 5px 0; font-size: var(--type-meta, 14px); }
 .ar-hot a { color: var(--text); text-decoration: none; }
 .ar-hot a:hover { color: var(--accent); }
-.ar-num { color: var(--text-muted); font-size: 12px; flex-shrink: 0; }
+.ar-num { color: var(--text-muted); font-size: var(--type-xs, 12px); flex-shrink: 0; }
 .ar-tags { display: flex; flex-wrap: wrap; gap: 8px; }
-.ar-tag { display: inline-flex; align-items: center; gap: 5px; background: var(--surface-2); border: 1px solid var(--border); border-radius: 999px; padding: 4px 10px; font-size: 13px; color: var(--text); text-decoration: none; }
-.ar-tag em { color: var(--text-muted); font-style: normal; font-size: 12px; }
+.ar-tag { display: inline-flex; align-items: center; gap: 5px; background: var(--surface-2); border: 1px solid var(--border); border-radius: 999px; padding: 4px 10px; font-size: var(--type-sm, 13px); color: var(--text); text-decoration: none; }
+.ar-tag em { color: var(--text-muted); font-style: normal; font-size: var(--type-xs, 12px); }
 .ar-regions { display: flex; flex-direction: column; gap: 8px; }
-.ar-region { display: grid; grid-template-columns: 84px 1fr 46px; align-items: center; gap: 10px; font-size: 13px; }
+.ar-region { display: grid; grid-template-columns: 84px 1fr 46px; align-items: center; gap: 10px; font-size: var(--type-sm, 13px); }
 .ar-rname { color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ar-rbar { background: var(--surface-2); border-radius: 999px; height: 8px; overflow: hidden; }
 .ar-rbar i { display: block; height: 100%; background: var(--accent); border-radius: 999px; transition: width var(--transition, 160ms ease); }
 .ar-rnum { text-align: right; color: var(--text-muted); }
-.ar-empty { color: var(--text-faint); font-size: 13px; }
+.ar-empty { color: var(--text-faint); font-size: var(--type-sm, 13px); }
 /* v3.17.2 成就徽章 */
-.ar-badge-count { font-style: normal; color: var(--text-muted); font-size: 13px; margin-left: 6px; }
+.ar-badge-count { font-style: normal; color: var(--text-muted); font-size: var(--type-sm, 13px); margin-left: 6px; }
 .ar-badges { display: grid; grid-template-columns: repeat(auto-fill, minmax(108px, 1fr)); gap: 10px; }
 .ar-badge { display: flex; flex-direction: column; align-items: center; gap: 3px; padding: 12px 8px;
   border: 1px solid var(--border); border-radius: var(--radius-md, 12px); background: var(--surface-2);
@@ -237,10 +237,10 @@ loadMap();
   transition: transform var(--transition, 160ms ease), opacity var(--transition, 160ms ease); }
 .ar-badge.on { filter: none; opacity: 1; background: var(--surface); border-color: var(--accent); }
 .ar-badge.on:hover { transform: translateY(-2px); }
-.ar-badge-icon { font-size: 22px; line-height: 1; }
-.ar-badge-name { font-size: 12.5px; font-weight: 600; }
-.ar-badge-prog { font-size: 11px; color: var(--text-muted); }
-.ar-badge-tip { margin: 12px 0 0; font-size: 12px; color: var(--text-faint); }
+.ar-badge-icon { font-size: var(--type-xl, 22px); line-height: var(--leading-flat, 1); }
+.ar-badge-name { font-size: var(--type-sm, 12.5px); font-weight: 600; }
+.ar-badge-prog { font-size: var(--type-2xs, 11px); color: var(--text-muted); }
+.ar-badge-tip { margin: 12px 0 0; font-size: var(--type-xs, 12px); color: var(--text-faint); }
 /* v3.17.3 访客地图 */
 .geo-svg { width: 100%; height: auto; display: block; }
 .geo-prov { cursor: default; }

@@ -54,7 +54,7 @@
 
     {# v4.11.0：只读诊断端点的工具清单，从 mcp_diag.TOOLS 现取（不手抄，避免与 tools/list 漂移） #}
     {% if diag_tools %}
-    <h3 style="margin:18px 0 8px;font-size:14px;">🧪 只读诊断端点当前提供 {{ diag_tools|length }} 个工具</h3>
+    <h3 style="margin:18px 0 8px;font-size:var(--type-meta, 14px);">🧪 只读诊断端点当前提供 {{ diag_tools|length }} 个工具</h3>
     <ul class="tool-chips">
       {% for t in diag_tools %}
         <li class="tool-chip" title="{{ t.description }}">

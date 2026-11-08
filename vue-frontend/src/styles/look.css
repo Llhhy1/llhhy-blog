@@ -30,7 +30,7 @@ body {
   font-size: clamp(24px, 3.4vw, var(--ui-title, 32px));
   font-weight: 700;
   letter-spacing: var(--ui-tracking, -0.02em);
-  line-height: 1.22;
+  line-height: var(--leading-tight, 1.22);
   margin: 4px 0 22px;
   padding-left: 0;
 }
@@ -41,10 +41,10 @@ body {
 button, .btn {
   padding: 10px 20px;
   border-radius: var(--ui-radius-pill, 999px);
-  font-size: 15px;
+  font-size: var(--type-base, 15px);
   font-weight: 500;
   letter-spacing: 0.01em;
-  line-height: 1.4;
+  line-height: var(--leading-snug, 1.4);
   -webkit-tap-highlight-color: transparent;
   transition: transform var(--ui-dur-fast, 180ms) var(--ui-ease, cubic-bezier(.32, .72, 0, 1)),
               background-color var(--ui-dur-fast, 180ms) ease,
@@ -73,15 +73,15 @@ button:focus-visible, .btn:focus-visible {
   background: var(--ui-fill, rgba(120, 120, 128, .24));
   color: var(--text, #d7d9dc);
 }
-.btn.small, button.small { padding: 6px 14px; font-size: 13px; }
+.btn.small, button.small { padding: 6px 14px; font-size: var(--type-sm, 13px); }
 
 /* --- 输入控件：圆角填充字段 --- */
 input[type=text], input[type=password], input[type=email], input[type=number],
 input[type=search], input[type=url], input[type=tel], select, textarea {
   border-radius: var(--ui-radius-control, 12px);
   padding: 11px 14px;
-  font-size: 15px;
-  line-height: 1.5;
+  font-size: var(--type-base, 15px);
+  line-height: var(--leading-normal, 1.5);
   border: 1px solid var(--ui-hairline, rgba(60, 60, 67, .12));
   background: var(--ui-fill, rgba(120, 120, 128, .10));
   transition: border-color var(--ui-dur-fast, 180ms) ease,
@@ -202,11 +202,11 @@ input[type=tel]:focus, select:focus, textarea:focus {
 }
 .post-card h2 {
   margin: 0 0 6px;
-  line-height: 1.34;
+  line-height: var(--leading-snug, 1.34);
   letter-spacing: -0.01em;
 }
 .post-card h2 a {
-  font-size: 20px;
+  font-size: var(--type-xlg, 20px);
   font-weight: 600;
   color: var(--text, #2c2c2c);
   text-decoration: none;
@@ -237,8 +237,8 @@ input[type=tel]:focus, select:focus, textarea:focus {
 .post-meta a:hover { text-decoration: none; opacity: .8; }
 .post-summary {
   color: var(--text-muted, #6a717f);
-  font-size: 15px;
-  line-height: 1.68;
+  font-size: var(--type-base, 15px);
+  line-height: var(--leading-base, 1.68);
   margin: 0;
 }
 .read-more {
@@ -247,7 +247,7 @@ input[type=tel]:focus, select:focus, textarea:focus {
   gap: 4px;
   margin-top: 14px;
   padding: 7px 16px;
-  font-size: 14px;
+  font-size: var(--type-meta, 14px);
   font-weight: 500;
   border-radius: var(--ui-radius-pill, 999px);
   background: var(--ui-fill, rgba(120, 120, 128, .10));
@@ -259,7 +259,7 @@ input[type=tel]:focus, select:focus, textarea:focus {
   background: var(--accent-soft, rgba(25, 109, 221, .10));
   transform: translateX(2px);
 }
-.pin-badge { font-size: 14px; margin-right: 6px; }
+.pin-badge { font-size: var(--type-meta, 14px); margin-right: 6px; }
 
 /* --- 分页：分段控件观感 --- */
 .pagination {
@@ -278,7 +278,7 @@ input[type=tel]:focus, select:focus, textarea:focus {
   height: 38px;
   padding: 0 12px;
   border-radius: var(--ui-radius-pill, 999px);
-  font-size: 14px;
+  font-size: var(--type-meta, 14px);
   color: var(--text, #2c2c2c);
   text-decoration: none;
   background: var(--ui-fill, rgba(120, 120, 128, .10));
@@ -308,7 +308,7 @@ input[type=tel]:focus, select:focus, textarea:focus {
 .home-cover-title {
   font-weight: 700;
   letter-spacing: var(--ui-tracking, -0.02em);
-  line-height: 1.2;
+  line-height: var(--leading-tight, 1.2);
 }
 .home-cover.has-wall .home-cover-sub {
   /* 压在照片上：白字 + 阴影，不跟随正文灰阶（灰字在图上会糊掉）。
@@ -317,7 +317,7 @@ input[type=tel]:focus, select:focus, textarea:focus {
   color: rgba(255, 255, 255, .96);
   text-shadow: 0 1px 10px rgba(0, 0, 0, .35);
   font-size: var(--type-md, 16px);
-  line-height: 1.6;
+  line-height: var(--leading-base, 1.6);
 }
 .hcs-item {
   border-radius: var(--ui-radius-pill, 999px);
@@ -337,7 +337,7 @@ input[type=tel]:focus, select:focus, textarea:focus {
   font-size: clamp(26px, 4vw, 34px);
   font-weight: 700;
   letter-spacing: var(--ui-tracking, -0.02em);
-  line-height: 1.24;
+  line-height: var(--leading-tight, 1.24);
   margin: 0 0 12px;
 }
 .post-cover-hero {
@@ -350,24 +350,24 @@ input[type=tel]:focus, select:focus, textarea:focus {
 
 /* 正文：阅读器式的宽松行距与字距 */
 .post-body {
-  font-size: 17px;
-  line-height: 1.86;
+  font-size: var(--type-md, 17px);
+  line-height: var(--leading-relaxed, 1.86);
   letter-spacing: 0.01em;
   color: var(--text, #2c2c2c);
 }
 .post-body p { margin: 0 0 1.15em; }
 .post-body h2 {
-  font-size: 22px;
+  font-size: var(--type-xl, 22px);
   font-weight: 600;
   letter-spacing: -0.01em;
   margin: 1.9em 0 0.8em;
-  line-height: 1.35;
+  line-height: var(--leading-snug, 1.35);
 }
 .post-body h3 {
-  font-size: 18px;
+  font-size: var(--type-lg, 18px);
   font-weight: 600;
   margin: 1.6em 0 0.7em;
-  line-height: 1.4;
+  line-height: var(--leading-snug, 1.4);
 }
 .post-body img, .post-body video {
   display: block;
@@ -378,7 +378,7 @@ input[type=tel]:focus, select:focus, textarea:focus {
 .post-body pre {
   border-radius: var(--ui-radius-control, 12px);
   padding: 14px 16px;
-  font-size: 13.5px;
+  font-size: var(--type-meta, 13.5px);
   overflow-x: auto;
 }
 .post-body :not(pre) > code {
@@ -404,7 +404,7 @@ input[type=tel]:focus, select:focus, textarea:focus {
   margin: 16px 0;
 }
 .toc-title {
-  font-size: 13px;
+  font-size: var(--type-sm, 13px);
   font-weight: 500;
   color: var(--text-muted, #6a717f);
   margin-bottom: 8px;
@@ -423,7 +423,7 @@ input[type=tel]:focus, select:focus, textarea:focus {
   background: var(--ui-fill, rgba(120, 120, 128, .10));
   color: var(--text, #2c2c2c);
   text-decoration: none;
-  font-size: 13px;
+  font-size: var(--type-sm, 13px);
   transition: background-color var(--ui-dur-fast, 180ms) ease;
 }
 .lang-opt.active {
@@ -438,7 +438,7 @@ input[type=tel]:focus, select:focus, textarea:focus {
   border-radius: var(--ui-radius-pill, 999px);
   background: var(--ui-fill, rgba(120, 120, 128, .10));
   color: var(--text-muted, #6a717f);
-  font-size: 13px;
+  font-size: var(--type-sm, 13px);
   text-decoration: none;
   transition: background-color var(--ui-dur-fast, 180ms) ease,
               color var(--ui-dur-fast, 180ms) ease;
@@ -461,18 +461,18 @@ input[type=tel]:focus, select:focus, textarea:focus {
   border-radius: var(--ui-radius-pill, 999px);
   background: var(--accent-soft, rgba(25, 109, 221, .10));
   color: var(--accent, #196ddd);
-  font-size: 12px;
+  font-size: var(--type-xs, 12px);
   font-weight: 500;
   margin-bottom: 8px;
 }
-.ai-summary-text { margin: 0; line-height: 1.7; color: var(--text-muted, #6a717f); }
+.ai-summary-text { margin: 0; line-height: var(--leading-loose, 1.7); color: var(--text-muted, #6a717f); }
 .ai-tag {
   display: inline-block;
   padding: 3px 10px;
   margin: 6px 6px 0 0;
   border-radius: var(--ui-radius-pill, 999px);
   background: var(--ui-fill-strong, rgba(120, 120, 128, .18));
-  font-size: 12px;
+  font-size: var(--type-xs, 12px);
   color: var(--text-muted, #6a717f);
   text-decoration: none;
 }
@@ -482,7 +482,7 @@ input[type=tel]:focus, select:focus, textarea:focus {
   border-radius: var(--ui-radius-pill, 999px);
   background: var(--accent-soft, rgba(25, 109, 221, .10));
   color: var(--accent, #196ddd);
-  font-size: 13px;
+  font-size: var(--type-sm, 13px);
   font-weight: 500;
 }
 .rp-badge {
@@ -505,7 +505,7 @@ input[type=tel]:focus, select:focus, textarea:focus {
   margin-bottom: 16px;
 }
 .widget-title, .widget h3 {
-  font-size: 13px;
+  font-size: var(--type-sm, 13px);
   font-weight: 500;
   letter-spacing: 0.03em;
   color: var(--text-faint, #7d838f);
@@ -516,7 +516,7 @@ input[type=tel]:focus, select:focus, textarea:focus {
 .list-clean li {
   padding: 9px 0;
   border-bottom: 1px solid var(--ui-hairline, rgba(60, 60, 67, .12));
-  line-height: 1.55;
+  line-height: var(--leading-normal, 1.55);
 }
 .list-clean li:last-child { border-bottom: 0; }
 .list-clean a {
@@ -537,7 +537,7 @@ input[type=tel]:focus, select:focus, textarea:focus {
    * 改用 --text（随主题深浅自动翻转），实测 5.1:1 以上。 */
   color: var(--text, #2c2c2c);
   font-size: var(--type-sm, 13px);
-  line-height: 1.4;
+  line-height: var(--leading-snug, 1.4);
   text-decoration: none;
   transition: background-color var(--ui-dur-fast, 180ms) ease,
               color var(--ui-dur-fast, 180ms) ease,
@@ -562,7 +562,7 @@ input[type=tel]:focus, select:focus, textarea:focus {
   border: 1px solid var(--ui-hairline, rgba(60, 60, 67, .12));
   background: var(--ui-fill, rgba(120, 120, 128, .10));
   padding: 9px 16px;
-  font-size: 14px;
+  font-size: var(--type-meta, 14px);
 }
 .search-box input:focus {
   outline: none;
@@ -572,16 +572,16 @@ input[type=tel]:focus, select:focus, textarea:focus {
 .search-box button {
   border-radius: var(--ui-radius-pill, 999px);
   padding: 9px 18px;
-  font-size: 14px;
+  font-size: var(--type-meta, 14px);
   font-weight: 500;
 }
 .search-box button:hover { filter: none; opacity: .88; }
 
 /* 订阅框：跟随分组卡 */
 .sub-box { border-radius: var(--ui-radius-card, 22px); overflow: hidden; }
-.sub-msg { font-size: 13px; line-height: 1.6; }
+.sub-msg { font-size: var(--type-sm, 13px); line-height: var(--leading-base, 1.6); }
 .sub-tip {
-  font-size: 12px;
+  font-size: var(--type-xs, 12px);
   color: var(--text-faint, #7d838f);
   border-radius: var(--ui-radius-control, 12px);
   padding: 8px 12px;
@@ -610,7 +610,7 @@ input[type=tel]:focus, select:focus, textarea:focus {
 /* 表单标签：圆润风格用中等字重 + 收紧字距，不用 600 的「重标签」 */
 .auth-box label {
   font-weight: 500;
-  font-size: 13px;
+  font-size: var(--type-sm, 13px);
   letter-spacing: .01em;
   color: var(--text-muted, #6a717f);
   margin-bottom: 6px;
@@ -623,10 +623,10 @@ input[type=tel]:focus, select:focus, textarea:focus {
   font-weight: 500;
 }
 .auth-tip {
-  font-size: 13px;
+  font-size: var(--type-sm, 13px);
   color: var(--text-muted, #6a717f);
   margin-top: 14px;
-  line-height: 1.6;
+  line-height: var(--leading-base, 1.6);
 }
 .auth-tip a { text-decoration: none; font-weight: 500; }
 .auth-tip a:hover { text-decoration: underline; }
@@ -651,7 +651,7 @@ input[type=tel]:focus, select:focus, textarea:focus {
 .comment-status {
   border-radius: var(--ui-radius-pill, 999px);
   padding: 8px 16px;
-  font-size: 13px;
+  font-size: var(--type-sm, 13px);
   margin-top: 10px;
 }
 
@@ -677,13 +677,13 @@ input[type=tel]:focus, select:focus, textarea:focus {
   box-shadow: var(--ui-shadow-lift, 0 2px 8px rgba(0, 0, 0, .07));
 }
 .guestbook-item .gb-meta {
-  font-size: 13px;
+  font-size: var(--type-sm, 13px);
   color: var(--text-faint, #7d838f);
   margin-bottom: 6px;
 }
 .guestbook-item .gb-content {
-  font-size: 15px;
-  line-height: 1.7;
+  font-size: var(--type-base, 15px);
+  line-height: var(--leading-loose, 1.7);
 }
 /* 点赞按钮：灰填充胶囊（原来是 1px 描边的方角按钮） */
 .gb-like-btn {
@@ -692,7 +692,7 @@ input[type=tel]:focus, select:focus, textarea:focus {
   border: 1px solid transparent;
   background: var(--ui-fill, rgba(120, 120, 128, .10));
   color: var(--text-muted, #6a717f);
-  font-size: 13px;
+  font-size: var(--type-sm, 13px);
   margin-top: 10px;
   cursor: pointer;
   transition: background-color var(--ui-dur-fast, 180ms) ease,
@@ -711,8 +711,8 @@ input[type=tel]:focus, select:focus, textarea:focus {
   padding: 10px 14px;
   background: var(--ui-fill, rgba(120, 120, 128, .10));
   color: var(--text-muted, #6a717f);
-  font-size: 13px;
-  line-height: 1.6;
+  font-size: var(--type-sm, 13px);
+  line-height: var(--leading-base, 1.6);
 }
 
 /* --- 归档时间线：轴线改发丝线，节点带底色环 --- */
@@ -724,13 +724,13 @@ input[type=tel]:focus, select:focus, textarea:focus {
   bottom: 8px;
 }
 .tl-year {
-  font-size: 22px;
+  font-size: var(--type-xl, 22px);
   font-weight: 700;
   letter-spacing: -.01em;
   margin: 22px 0 8px;
 }
 .tl-month {
-  font-size: 13px;
+  font-size: var(--type-sm, 13px);
   font-weight: 500;
   color: var(--text-muted, #6a717f);
   letter-spacing: .02em;
@@ -744,7 +744,7 @@ input[type=tel]:focus, select:focus, textarea:focus {
   background: var(--accent, #196ddd);
   box-shadow: 0 0 0 3px var(--bg, #ffffff);
 }
-.tl-item a { font-size: 15px; line-height: 1.6; }
+.tl-item a { font-size: var(--type-base, 15px); line-height: var(--leading-base, 1.6); }
 
 /* --- 搜索结果 --- */
 .search-item {
@@ -760,13 +760,13 @@ input[type=tel]:focus, select:focus, textarea:focus {
   transform: translateY(-3px);
   box-shadow: var(--ui-shadow-lift, 0 2px 8px rgba(0, 0, 0, .07));
 }
-.search-item h2 { font-size: 19px; font-weight: 600; letter-spacing: -.01em; }
+.search-item h2 { font-size: var(--type-lg, 19px); font-weight: 600; letter-spacing: -.01em; }
 .search-item h2 a { color: var(--text, #2c2c2c); text-decoration: none; }
 [data-theme="dark"] .search-item h2 a { color: var(--text, #d7d9dc); }
 .search-snippet {
   color: var(--text-muted, #6a717f);
-  font-size: 14px;
-  line-height: 1.7;
+  font-size: var(--type-meta, 14px);
+  line-height: var(--leading-loose, 1.7);
   margin-top: 8px;
 }
 .search-snippet mark {
@@ -779,8 +779,8 @@ input[type=tel]:focus, select:focus, textarea:focus {
 .unsub-tip {
   border-radius: var(--ui-radius-control, 12px);
   padding: 10px 14px;
-  font-size: 14px;
-  line-height: 1.6;
+  font-size: var(--type-meta, 14px);
+  line-height: var(--leading-base, 1.6);
   margin-top: 12px;
 }
 .unsub-card { padding: 26px; }
@@ -824,13 +824,13 @@ input[type=tel]:focus, select:focus, textarea:focus {
   flex-direction: column;
   gap: 4px;
 }
-.post-album-title { font-size: 16px; font-weight: 600; color: var(--text, #2c2c2c); }
-.post-album-summary { font-size: 13px; line-height: 1.6; color: var(--text-muted, #6a717f); }
-.post-album-meta { font-size: 12px; color: var(--text-faint, #7d838f); }
+.post-album-title { font-size: var(--type-md, 16px); font-weight: 600; color: var(--text, #2c2c2c); }
+.post-album-summary { font-size: var(--type-sm, 13px); line-height: var(--leading-base, 1.6); color: var(--text-muted, #6a717f); }
+.post-album-meta { font-size: var(--type-xs, 12px); color: var(--text-faint, #7d838f); }
 .post-album-link {
   margin-top: auto;
   align-self: flex-start;
-  font-size: 13px;
+  font-size: var(--type-sm, 13px);
   color: var(--accent, #196ddd);
   text-decoration: none;
 }
@@ -906,14 +906,14 @@ input[type=tel]:focus, select:focus, textarea:focus {
 :root[data-layout="chapter"] .zh-page-eyebrow {
   display: block;
   color: var(--zh-seal, #a8442a);
-  font-size: var(--type-xs, 11px);
+  font-size: var(--type-xs, 12px);
   letter-spacing: .22em;
 }
 :root[data-layout="chapter"] .zh-page-title {
   margin: 8px 0 0;
   color: var(--zh-paper-fg, #232a28);
   font-family: var(--font-sans, serif);
-  font-size: var(--type-xl, 26px);
+  font-size: var(--type-xl, 22px);
   font-weight: 500;
   letter-spacing: .08em;
 }
@@ -924,7 +924,7 @@ input[type=tel]:focus, select:focus, textarea:focus {
   border: 1px solid var(--zh-paper-line, #ddd8cc);
   border-radius: 999px;
   color: var(--zh-paper-muted, #6b756f);
-  font-size: var(--type-xs, 11px);
+  font-size: var(--type-xs, 12px);
 }
 :root[data-layout="chapter"] .post-detail .zh-page-eyebrow {
   text-align: center;

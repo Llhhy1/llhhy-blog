@@ -35,7 +35,7 @@
                    {{ 'checked' if r.value }}
                    style="margin-right:8px;vertical-align:middle;">
           {% endif %}
-          <span style="font-weight:600;font-size:15px;">{{ r.label }}</span>
+          <span style="font-weight:600;font-size:var(--type-base, 15px);">{{ r.label }}</span>
         </label>
 
         {% if r.type != 'bool' %}
@@ -108,7 +108,7 @@
   <hr style="border:none;border-top:1px solid #eee;margin:28px 0;">
 
   <h3 style="margin-top:0;">🔒 刻意不放进本页的配置</h3>
-  <ul class="stats-tip" style="line-height:2;padding-left:22px;">
+  <ul class="stats-tip" style="line-height:var(--leading-double, 2);padding-left:22px;">
     <li><code>SECRET_KEY</code> / <code>ADMIN_PASSWORD</code> / <code>DATABASE_URL</code> /
         <code>MCP_*_TOKEN</code> —— <b>根信任</b>。存进数据库 = 拿到数据面
         （SQL 注入或备份文件）的人顺带获得伪造会话 / 改管理员密码的能力。</li>

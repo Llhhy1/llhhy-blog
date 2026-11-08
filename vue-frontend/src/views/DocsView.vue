@@ -478,7 +478,7 @@ onBeforeUnmount(() => {
   align-items: baseline;
   justify-content: space-between;
   gap: var(--space-2);
-  font-size: 17px;
+  font-size: var(--type-md, 17px);
   font-weight: 700;
   color: var(--text);
   margin-bottom: var(--space-3);
@@ -488,7 +488,7 @@ onBeforeUnmount(() => {
 
 .sidebar-ver {
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-size: 11px;
+  font-size: var(--type-2xs, 11px);
   font-weight: 600;
   color: var(--text-faint);
   padding: 1px 7px;
@@ -504,7 +504,7 @@ onBeforeUnmount(() => {
   width: 100%;
   box-sizing: border-box;
   padding: 7px 30px 7px 11px;
-  font-size: 13px;
+  font-size: var(--type-sm, 13px);
   font-family: inherit;
   color: var(--text);
   background: var(--surface-2);
@@ -532,8 +532,8 @@ onBeforeUnmount(() => {
   background: transparent;
   color: var(--text-faint);
   cursor: pointer;
-  font-size: 11px;
-  line-height: 1;
+  font-size: var(--type-2xs, 11px);
+  line-height: var(--leading-flat, 1);
   padding: 5px 6px;
   border-radius: var(--radius-xs);
 }
@@ -544,7 +544,7 @@ onBeforeUnmount(() => {
    它不带本组件的 scoped 属性，所以必须用 :deep() 才能命中。
    样式只做「让 markdown 可读」这一件事，不另起一套配色体系。 */
 .doc-src-note {
-  font-size: 13px;
+  font-size: var(--type-sm, 13px);
   color: var(--text-muted, #888);
   padding: 8px 12px;
   margin: 0 0 12px;
@@ -553,7 +553,7 @@ onBeforeUnmount(() => {
   border-radius: 0 var(--ui-radius-group, 8px) var(--ui-radius-group, 8px) 0;
 }
 .doc-full-hint {
-  font-size: 13px;
+  font-size: var(--type-sm, 13px);
   color: var(--text-muted, #888);
   margin: 6px 0;
 }
@@ -561,15 +561,15 @@ onBeforeUnmount(() => {
   margin-top: 14px;
   padding-top: 10px;
   border-top: 1px solid var(--border, rgba(127, 127, 127, .22));
-  font-size: 14px;
-  line-height: 1.75;
+  font-size: var(--type-meta, 14px);
+  line-height: var(--leading-loose, 1.75);
   overflow-wrap: break-word;
 }
 /* 清单里的标题降一级视觉权重：它是「附录」，不该抢上面人工导读的层级 */
-.doc-full-body :deep(h1) { font-size: 19px; margin: 18px 0 8px; }
-.doc-full-body :deep(h2) { font-size: 17px; margin: 20px 0 8px; }
-.doc-full-body :deep(h3) { font-size: 15px; margin: 16px 0 6px; }
-.doc-full-body :deep(h4) { font-size: 14px; margin: 12px 0 4px; }
+.doc-full-body :deep(h1) { font-size: var(--type-lg, 19px); margin: 18px 0 8px; }
+.doc-full-body :deep(h2) { font-size: var(--type-md, 17px); margin: 20px 0 8px; }
+.doc-full-body :deep(h3) { font-size: var(--type-base, 15px); margin: 16px 0 6px; }
+.doc-full-body :deep(h4) { font-size: var(--type-meta, 14px); margin: 12px 0 4px; }
 .doc-full-body :deep(p) { margin: 6px 0; }
 .doc-full-body :deep(ul),
 .doc-full-body :deep(ol) { margin: 6px 0 6px 20px; }
@@ -593,7 +593,7 @@ onBeforeUnmount(() => {
   width: 100%;
   border-collapse: collapse;
   margin: 10px 0;
-  font-size: 13px;
+  font-size: var(--type-sm, 13px);
 }
 .doc-full-body :deep(th),
 .doc-full-body :deep(td) {
@@ -615,7 +615,7 @@ onBeforeUnmount(() => {
 .nav-section-active .nav-section-title { color: var(--accent); }
 
 .nav-section-title {
-  font-size: 11px;
+  font-size: var(--type-2xs, 11px);
   font-weight: 700;
   letter-spacing: .04em;
   color: var(--text-faint);
@@ -631,8 +631,8 @@ onBeforeUnmount(() => {
   border-radius: var(--radius-xs);
   border-left: 2px solid transparent;
   transition: background var(--transition), color var(--transition), border-color var(--transition);
-  font-size: 13.5px;
-  line-height: 1.5;
+  font-size: var(--type-meta, 13.5px);
+  line-height: var(--leading-normal, 1.5);
 }
 .nav-link:hover { background: var(--surface-2); color: var(--accent); }
 /* 当前所在章节：原来只有右侧 TOC 会跟着滚，左侧没有任何反馈 */
@@ -644,13 +644,13 @@ onBeforeUnmount(() => {
 }
 
 .nav-result, .nav-empty {
-  font-size: 12px;
+  font-size: var(--type-xs, 12px);
   color: var(--text-faint);
-  line-height: 1.7;
+  line-height: var(--leading-loose, 1.7);
   margin: var(--space-2) 0 0;
   padding: 0 10px;
 }
-.nav-empty code { font-size: 11.5px; }
+.nav-empty code { font-size: var(--type-xs, 11.5px); }
 
 /* ── 中：正文 ─────────────────────────────────────────────────── */
 .docs-main { flex: 1; min-width: 0; }
@@ -663,7 +663,7 @@ onBeforeUnmount(() => {
 }
 
 .doc-section h1 {
-  font-size: 28px;
+  font-size: var(--type-2xl, 28px);
   font-weight: 700;
   letter-spacing: -.01em;
   color: var(--text);
@@ -672,25 +672,25 @@ onBeforeUnmount(() => {
   border-bottom: 1px solid var(--border);
 }
 .doc-section h3 {
-  font-size: 17px;
+  font-size: var(--type-md, 17px);
   font-weight: 700;
   color: var(--text);
   margin: var(--space-6) 0 var(--space-3);
   scroll-margin-top: 82px;
 }
 .doc-section h4 {
-  font-size: 15px;
+  font-size: var(--type-base, 15px);
   font-weight: 700;
   color: var(--text);
   margin: var(--space-5) 0 var(--space-2);
 }
-.doc-section p { line-height: 1.85; color: var(--text-muted); margin: var(--space-3) 0; }
-.doc-section ul, .doc-section ol { line-height: 1.85; color: var(--text-muted); padding-left: 22px; }
+.doc-section p { line-height: var(--leading-relaxed, 1.85); color: var(--text-muted); margin: var(--space-3) 0; }
+.doc-section ul, .doc-section ol { line-height: var(--leading-relaxed, 1.85); color: var(--text-muted); padding-left: 22px; }
 .doc-section li { margin-bottom: 3px; }
 .doc-section a { color: var(--accent); text-decoration: none; }
 .doc-section a:hover { text-decoration: underline; }
 
-.p-note { color: var(--text-faint); font-size: 12.5px; }
+.p-note { color: var(--text-faint); font-size: var(--type-sm, 12.5px); }
 
 /* 「本文档覆盖范围」提示块：把「全部接口」这种不成立的承诺讲清楚 */
 .coverage {
@@ -698,7 +698,7 @@ onBeforeUnmount(() => {
   border-left: 3px solid var(--accent);
   border-radius: var(--radius-xs);
   padding: 10px 14px;
-  font-size: 13.5px;
+  font-size: var(--type-meta, 13.5px);
 }
 
 /* ── 端点行 ───────────────────────────────────────────────────── */
@@ -717,7 +717,7 @@ onBeforeUnmount(() => {
 .method {
   padding: 3px 10px;
   border-radius: var(--radius-xs);
-  font-size: 11.5px;
+  font-size: var(--type-xs, 11.5px);
   font-weight: 700;
   letter-spacing: .03em;
   text-transform: uppercase;
@@ -733,7 +733,7 @@ onBeforeUnmount(() => {
 
 .path {
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-size: 13.5px;
+  font-size: var(--type-meta, 13.5px);
   font-weight: 600;
   color: var(--text);
   word-break: break-all;
@@ -743,7 +743,7 @@ onBeforeUnmount(() => {
 .auth {
   padding: 2px 9px;
   border-radius: var(--radius-pill);
-  font-size: 11px;
+  font-size: var(--type-2xs, 11px);
   font-weight: 600;
   margin-left: auto;
   white-space: nowrap;
@@ -758,7 +758,7 @@ onBeforeUnmount(() => {
   width: 100%;
   border-collapse: collapse;
   margin: var(--space-4) 0;
-  font-size: 13.5px;
+  font-size: var(--type-meta, 13.5px);
   /* 桌面让浏览器按内容分配：原固定布局把「路径 / 说明」两列拉成 50/50 */
   table-layout: auto;
 }
@@ -770,13 +770,13 @@ onBeforeUnmount(() => {
   vertical-align: top;
   word-break: break-word;
   overflow-wrap: anywhere;
-  line-height: 1.7;
+  line-height: var(--leading-loose, 1.7);
 }
 .params-table th {
   background: var(--surface-2);
   color: var(--text);
   font-weight: 700;
-  font-size: 12.5px;
+  font-size: var(--type-sm, 12.5px);
   white-space: nowrap;
 }
 .params-table td { color: var(--text-muted); }
@@ -807,7 +807,7 @@ onBeforeUnmount(() => {
 }
 .doc-full-body :deep(.code-block__lang) {
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-size: 11px;
+  font-size: var(--type-2xs, 11px);
   font-weight: 600;
   letter-spacing: .06em;
   text-transform: uppercase;
@@ -815,8 +815,8 @@ onBeforeUnmount(() => {
 }
 .doc-full-body :deep(.code-block__copy) {
   flex: 0 0 auto;
-  font-size: 11px;
-  line-height: 1.5;
+  font-size: var(--type-2xs, 11px);
+  line-height: var(--leading-normal, 1.5);
   padding: 2px 10px;
   color: #cbd5e1;
   background: rgba(255, 255, 255, .06);
@@ -836,24 +836,24 @@ onBeforeUnmount(() => {
   padding: 14px 16px;
   background: #1f2937;
   overflow-x: auto;
-  line-height: 1.7;
+  line-height: var(--leading-loose, 1.7);
 }
 .doc-full-body :deep(.code-block pre code) {
   display: block;
   padding: 0;
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-size: 12.8px;
+  font-size: var(--type-sm, 12.8px);
   background: none;
 }
 
-code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12.8px; }
+code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: var(--type-sm, 12.8px); }
 
 .doc-section :not(pre) > code {
   background: var(--surface-2);
   color: var(--danger);
   padding: 1px 5px;
   border-radius: var(--radius-xs);
-  font-size: 12.5px;
+  font-size: var(--type-sm, 12.5px);
   border: 1px solid var(--border);
 }
 
@@ -871,7 +871,7 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; fo
   overscroll-behavior: contain;
 }
 .toc-title {
-  font-size: 11px;
+  font-size: var(--type-2xs, 11px);
   font-weight: 700;
   letter-spacing: .04em;
   color: var(--text-faint);
@@ -882,13 +882,13 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; fo
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.toc-empty { font-size: 12px; color: var(--text-faint); margin: 0; padding: 0 9px; }
+.toc-empty { font-size: var(--type-xs, 12px); color: var(--text-faint); margin: 0; padding: 0 9px; }
 .toc-nav { display: flex; flex-direction: column; gap: 1px; }
 .toc-link {
   display: block;
   padding: 4px 9px;
-  font-size: 12.5px;
-  line-height: 1.5;
+  font-size: var(--type-sm, 12.5px);
+  line-height: var(--leading-normal, 1.5);
   color: var(--text-faint);
   text-decoration: none;
   border-radius: var(--radius-xs);
@@ -913,7 +913,7 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; fo
   border: 1px solid var(--border);
   background: var(--surface);
   color: var(--text-muted);
-  font-size: 16px;
+  font-size: var(--type-md, 16px);
   cursor: pointer;
   box-shadow: var(--shadow-md);
   transition: color var(--transition), border-color var(--transition), transform var(--transition);
@@ -970,7 +970,7 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; fo
     flex: 0 0 auto;
     white-space: nowrap;
     padding: 5px 12px;
-    font-size: 13px;
+    font-size: var(--type-sm, 13px);
     border: 1px solid var(--border);
     border-radius: var(--radius-pill);
   }
@@ -979,15 +979,15 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; fo
 
   .docs-main { padding-top: var(--space-2); width: 100%; min-width: 0; max-width: 100%; }
   .doc-section { scroll-margin-top: 68px; }
-  .doc-section h1 { font-size: 23px; }
-  .doc-section h3 { font-size: 16px; scroll-margin-top: 68px; }
+  .doc-section h1 { font-size: var(--type-xl, 23px); }
+  .doc-section h3 { font-size: var(--type-md, 16px); scroll-margin-top: 68px; }
 
   .endpoint { gap: var(--space-2); padding: 9px 11px; }
-  .path { font-size: 12.5px; }
+  .path { font-size: var(--type-sm, 12.5px); }
   .auth { margin-left: 0; }
 
   /* 窄屏才用固定布局 + 强制换行，避免长 code 撑破视口 */
-  .params-table { table-layout: fixed; font-size: 12.5px; }
+  .params-table { table-layout: fixed; font-size: var(--type-sm, 12.5px); }
   .params-table th, .params-table td { padding: 7px 8px; }
   .params-table th { white-space: normal; }
 

@@ -1005,6 +1005,20 @@ MIME 混淆，缺少 CSP 不产生可利用的差异。
 - `_TOKEN_KIND` 白名单与 `_BASE_LIGHT` 的键集必须同步（已有 `test_base_light_matches_token_files` 钉住）；新增 token 忘记登记类别会被自家校验挡掉。
 - 档 2（主题商店 / 用户上传主题包）之前必须先有主题包来源限制，否则白名单只是把「注入」换成「任意值」。
 
+## R172 · v5.7.0（设计系统收口二期：后台去内联 / 暗色 token 化 / 排版尺度统一）安全审查
+
+**范围**：CSS 与 Jinja2 模板的展示层重构；新增 `myblog/static/admin-pages.css` 与
+`tests/test_typography_scale_v570.py`；版本号与六份文档同步。
+
+| 维度 | 结论 | 依据 |
+|---|---|---|
+| XSS / 注入 / 越权 / CSRF / SSRF / 密钥 / 限流 | 全部通过或不适用 | 改动只有 CSS 声明值与静态 HTML 片段 → macro；无新路由、无新写接口、无新依赖、无 `v-html`、无 `|safe`、无 `<script>`；`theme_center.html` 仅字号/行高声明被替换，市场卡片上色逻辑与 JS 未动 |
+| 主题包 CSS 信任边界 | 通过 | 未改 `theme_bundles.py` / `store.js` 的注入逻辑；后台仍零 `setProperty`，`tokens.css` 继续是后台唯一配色来源；`origin=imported` 恒禁 CSS |
+| 数据与凭据 | 通过 | 无迁移、无环境变量变化、无新文件写入口；`update.sh` 与 Ed25519 签名链未动 |
+| 回归防护 | 通过 | 表单 action/name、CSRF 隐藏字段、`data-label`、`aria-label`、`hidden` 全部保留；被守卫钉死的 `td[data-label]::before` / `bk-table` 规则留在模板内；新增守卫断言全库零字号字面量、且每个兜底值落在收敛映射表内 |
+
+**结论**：纯展示层重构，未引入新暴露面；R170 / R171 结论不变。
+
 ## R171 · v5.6.1（章回内页网格回归修复）安全审查
 
 **范围**：仅 `vue-frontend/src/styles/look.css` 增加两条 CSS 规则，

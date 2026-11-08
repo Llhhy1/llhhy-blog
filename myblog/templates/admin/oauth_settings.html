@@ -21,7 +21,7 @@
 
   {% for r in rows %}
   <div class="section-box" style="margin-bottom:18px;">
-    <h2 style="margin-top:0;font-size:16px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+    <h2 style="margin-top:0;font-size:var(--type-md, 16px);display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
       {{ r.label }}
       {% if r.state == 'ok' %}
         <span class="stats-tip" style="color:#188038;font-weight:600;">● {{ r.state_text }}</span>
@@ -38,7 +38,7 @@
       <a href="{{ r.console_url }}" target="_blank" rel="noopener">{{ r.console_url }}</a>
       {% if r.doc_url %} · <a href="{{ r.doc_url }}" target="_blank" rel="noopener">官方文档</a>{% endif %}
     </p>
-    <ul class="stats-tip" style="margin:0 0 12px;padding-left:22px;line-height:1.9;">
+    <ul class="stats-tip" style="margin:0 0 12px;padding-left:22px;line-height:var(--leading-relaxed, 1.9);">
       {% if r.name == 'github' %}
         <li>登录 GitHub → 右上角头像 → <b>Settings</b> → 最下面 <b>Developer settings</b> → <b>OAuth Apps</b> → <b>New OAuth App</b></li>
         <li><b>Application name</b> 随便填（如 {{ site_base or 'My Blog' }}）；<b>Homepage URL</b> 填 <code>{{ site_base or '（先配 site_url）' }}</code></li>
@@ -105,7 +105,7 @@
   <hr style="border:none;border-top:1px solid #eee;margin:28px 0;">
 
   <h3 style="margin-top:0;">📖 常见问题</h3>
-  <ul class="stats-tip" style="line-height:2;padding-left:22px;">
+  <ul class="stats-tip" style="line-height:var(--leading-double, 2);padding-left:22px;">
     <li><b>保存了但登录页没出现按钮？</b> 回到本页看状态是不是「已启用」——
         只填 Client ID 或只填 Secret 都不会启用。</li>
     <li><b>点按钮跳回来说「redirect_uri 不匹配」？</b> 回调地址被填错了，

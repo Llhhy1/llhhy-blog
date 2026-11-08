@@ -56,9 +56,9 @@
   --radius-lg: 20px;
   --radius-pill: 999px;
 
-  /* 字号尺度（v5.3.4 审计）：新代码只引用这组 token，不再写字面量。
-   * 原有 27 种字号不会一次性迁移完；先从「元信息 / 标签 / 代码」这些
-   * 高频且对比度易出问题的位置开始收口。
+  /* 字号尺度（v5.3.4 审计 → v5.7.0 全量收敛）：新代码只引用这组 token，
+   * 不再写字面量。v5.7.0 已把 CSS 里全部 px 字号迁到 13 级尺度，
+   * 每处都带 var(--token, 原值) 兜底。
    * ⚠️ 刻意用 `--type-*` 命名：本文件下方已有 `--font-size-base`，
    *    同名重复会让两处定义互相覆盖、排查时极难发现。 */
   --type-2xs: 11px;
@@ -72,6 +72,26 @@
   --type-2xl: 28px;
   --leading-tight: 1.3;
   --leading-relaxed: 1.85;
+
+  /* v5.7.0 排版尺度收敛：全库 21 种 px 字号 / 19 种行高字面量统一到
+   * 13 级字号 + 7 级行高。所有消费点用 var(--token, 原值) 兜底写法：
+   * token 未加载（旧缓存 / 旧模板）时表现与收敛前逐字一致。
+   * ⚠️ 两份 tokens.css 必须逐字同步 —— test_design_system_v560.py 与
+   *    test_wcag_contrast.py 都会比对变量集合与取值。 */
+  --type-3xs: 10px;
+  --type-xlg: 20px;
+  --type-3xl: 32px;
+  --type-display: 44px;
+  --leading-flat: 1;
+  --leading-snug: 1.4;
+  --leading-normal: 1.5;
+  --leading-base: 1.6;
+  --leading-loose: 1.75;
+  /* 布局专用档（不是排版尺度）：line-height:0 用来消 inline 基线间隙，
+   * line-height:2 用来给单行文字做垂直居中。收进变量是为了全库零字面量，
+   * 不要拿它们当正文行高用。 */
+  --leading-none: 0;
+  --leading-double: 2;
 
   /* 阴影 */
   --shadow-sm: 0 1px 3px rgba(0, 0, 0, .03);

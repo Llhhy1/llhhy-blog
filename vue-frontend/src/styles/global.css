@@ -1601,8 +1601,11 @@ body { text-rendering: optimizeLegibility; }
 }
 .zh-section-head h2 { margin: 6px 0 0; font-size: 20px; font-weight: 500; letter-spacing: .08em; }
 .zh-section-head .zh-seal-dot { color: var(--zh-seal, #a8442a); }
+/* v5.6.0 P2：列数不再写死 4 —— auto-fit 让分类数量变化时自动排布，
+   空的轨道会被折叠，因此「恰好 4 个分类」时观感与原来的 repeat(4) 一致。 */
 .zh-cat-grid {
-  position: relative; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr));
+  position: relative; display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
   gap: 10px; max-width: var(--zh-content-max, 1100px); margin: 0 auto;
 }
 .zh-cat-card {

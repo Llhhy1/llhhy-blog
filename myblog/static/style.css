@@ -31,12 +31,13 @@ body {
 .content { flex: 1; min-width: 0; }
 .sidebar { width: 280px; flex-shrink: 0; }
 
-/* 文章卡片 */
+/* v5.6.0 P3：真实组合对比度 —— 次级灰字压白卡只有 2.85:1（13px 小字需 4.5:1）。
+   换成正文次级 token + 对齐 --type-meta 尺度；兜底值保留旧表现以防 token 缺失。 */
 .post-card { background: #fff; border: 1px solid #eee; border-radius: 10px; padding: 20px 22px; margin-bottom: 18px; }
-.post-card h2 a { color: #1f1f1f; text-decoration: none; font-size: 19px; }
+.post-card h2 a { color: var(--text, #1f1f1f); text-decoration: none; font-size: 19px; }
 .post-card h2 a:hover { color: var(--accent); }
-.post-meta { color: #999; font-size: 13px; margin: 8px 0; }
-.post-summary { color: #666; font-size: 14px; }
+.post-meta { color: var(--text-muted, #6a717f); font-size: var(--type-meta, 14px); margin: 8px 0; }
+.post-summary { color: var(--text-muted, #666); font-size: 14px; }
 .read-more { display: inline-block; margin-top: 10px; color: var(--accent); text-decoration: none; font-size: 14px; }
 
 /* 文章详情 */
@@ -72,7 +73,7 @@ body {
 /* 评论 */
 .comments { margin-top: 28px; background: #fff; border: 1px solid #eee; border-radius: 10px; padding: 22px 24px; }
 .comment { border-bottom: 1px solid #f0f0f0; padding: 12px 0; }
-.comment-meta { font-size: 13px; color: #999; margin-bottom: 4px; }
+.comment-meta { font-size: 13px; color: var(--text-muted, #6a717f); margin-bottom: 4px; }
 .comment-form { margin-top: 16px; display: flex; flex-direction: column; gap: 10px; }
 .comment-form input, .comment-form textarea { padding: 10px; border: 1px solid #ddd; border-radius: 6px; font-family: inherit; }
 
@@ -113,13 +114,13 @@ button:hover, .btn:hover { background: color-mix(in srgb, var(--accent), #000 15
 
 /* 提示条 */
 .flash { background: #e6f4ea; color: #1e7e34; padding: 10px 14px; border-radius: 6px; margin-bottom: 14px; font-size: 14px; }
-.empty { color: #999; padding: 20px 0; }
+.empty { color: var(--text-muted, #6a717f); padding: 20px 0; }
 
 .pagination { display: flex; align-items: center; gap: 14px; justify-content: center; margin: 24px 0; color: #666; }
 .pagination a { color: var(--accent); text-decoration: none; }
 
 /* 页脚 */
-.site-footer { background: var(--surface, #fff); border-top: 1px solid var(--border, #ececec); padding: 22px 0; color: #999; font-size: 13px; text-align: center; }
+.site-footer { background: var(--surface, #fff); border-top: 1px solid var(--border, #ececec); padding: 22px 0; color: var(--text-muted, #6a717f); font-size: 13px; text-align: center; }
 .site-footer a { color: #8a8a8a; text-decoration: underline; }
 .site-footer a:hover { color: #555; }
 
@@ -259,7 +260,7 @@ button:hover, .btn:hover { background: color-mix(in srgb, var(--accent), #000 15
 .timeline::before { content: ""; position: absolute; left: 0; top: 6px; bottom: 6px; width: 2px; background: #e6e6e6; }
 [data-theme="dark"] .timeline::before { background: #2a2e35; }
 .tl-year { font-size: 20px; font-weight: 700; color: var(--accent); margin: 18px 0 6px; }
-.tl-month { font-size: 14px; color: #999; margin: 8px 0 4px; }
+.tl-month { font-size: 14px; color: var(--text-muted, #6a717f); margin: 8px 0 4px; }
 .tl-item { position: relative; padding: 5px 0; }
 .tl-item::before { content: ""; position: absolute; left: -22px; top: 13px; width: 9px; height: 9px;
   border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 3px #fff; }
@@ -275,7 +276,7 @@ button:hover, .btn:hover { background: color-mix(in srgb, var(--accent), #000 15
 .nav-user a { color: var(--accent); text-decoration: none; }
 [data-theme="dark"] .nav-user { color: #b9bfc6; }
 
-.auth-tip { font-size: 13px; color: #999; margin-top: 10px; }
+.auth-tip { font-size: 13px; color: var(--text-muted, #6a717f); margin-top: 10px; }
 .auth-tip a { color: var(--accent); text-decoration: none; }
 
 .user-add-form { display: flex; flex-wrap: wrap; gap: 10px; margin: 12px 0 22px; background: #fafbfc;
@@ -300,7 +301,7 @@ button:hover, .btn:hover { background: color-mix(in srgb, var(--accent), #000 15
 [data-theme="dark"] .stat-card { background: #1d2025; border-color: #2a2e35; }
 [data-theme="dark"] .stat-card .stat-label { color: #9aa0a6; }
 
-.stats-updated { font-size: 13px; color: #999; font-weight: 400; margin-left: 10px; }
+.stats-updated { font-size: 13px; color: var(--text-muted, #6a717f); font-weight: 400; margin-left: 10px; }
 .stats-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; margin-top: 4px; }
 .stats-card { background: #fff; border: 1px solid #eee; border-radius: 12px; padding: 18px 20px; }
 .stats-card h3 { font-size: 15px; margin-bottom: 14px; color: #333; }
@@ -311,7 +312,7 @@ button:hover, .btn:hover { background: color-mix(in srgb, var(--accent), #000 15
 @media (max-width: 760px) { .stats-grid { grid-template-columns: 1fr; } }
 
 .rank-table { width: 100%; border-collapse: collapse; }
-.rank-table th { font-size: 12px; color: #999; font-weight: 500; text-align: left; padding: 4px 6px; border-bottom: 1px solid #f0f0f0; }
+.rank-table th { font-size: 12px; color: var(--text-muted, #6a717f); font-weight: 500; text-align: left; padding: 4px 6px; border-bottom: 1px solid #f0f0f0; }
 .rank-table td { padding: 7px 6px; border-bottom: 1px solid #f5f5f5; font-size: 14px; }
 .rank-table tr:last-child td { border-bottom: none; }
 .rank-no { width: 34px; color: #bbb; font-weight: 700; }

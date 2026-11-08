@@ -6,6 +6,10 @@
   <title>{% block title %}{{ site_title }}{% endblock %}</title>
   <meta name="description" content="{% block description %}{{ settings.site_description or '' }}{% endblock %}">
   <link rel="alternate" type="application/rss+xml" title="{{ site_title }}" href="{{ url_for('main.feed') }}">
+  <!-- v5.6.0 P3：SSR 登录/错误页此前只加载 style.css，连 tokens.css 都不引，
+       导致 --text / --bg / --accent 全部走各自兜底值，与 SPA、后台三套皮。
+       先引唯一真相源，style.css 与下面后台注入的 :root 仍在后面覆盖。 -->
+  <link rel="stylesheet" href="{{ url_for('static', filename='tokens.css') }}">
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
   <style>
     /* 站点主题色：可被后台「站点设置」中的 accent_color 覆盖 */

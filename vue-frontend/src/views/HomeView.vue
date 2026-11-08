@@ -228,7 +228,10 @@ const bundle = computed(() => state.site.theme_bundle || null);
 const isChapter = computed(() => !!(bundle.value && bundle.value.layout
   && bundle.value.layout.mode === "chapter"));
 const zhLabels = computed(() => (bundle.value && bundle.value.labels) || {});
-const chapterCategories = computed(() => (state.site.categories || []).slice(0, 4));
+// v5.6.0 P2：分卷不再硬砍前 4 类 —— 分类有多少就显示多少，列数交给
+// .zh-cat-grid 的 auto-fit 自适应（窄屏仍由既有 820/520 断点收成 2/1 列）。
+// 站主在后台新增分类时，首页分卷区无需改代码即可跟着长。
+const chapterCategories = computed(() => state.site.categories || []);
 
 const pages = computed(() => {
   const list = [];

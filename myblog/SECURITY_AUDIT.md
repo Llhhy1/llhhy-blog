@@ -1005,6 +1005,31 @@ MIME 混淆，缺少 CSP 不产生可利用的差异。
 - `_TOKEN_KIND` 白名单与 `_BASE_LIGHT` 的键集必须同步（已有 `test_base_light_matches_token_files` 钉住）；新增 token 忘记登记类别会被自家校验挡掉。
 - 档 2（主题商店 / 用户上传主题包）之前必须先有主题包来源限制，否则白名单只是把「注入」换成「任意值」。
 
+## R170 · v5.6.0（UI 深度优化四阶段：章回贯通 / 四态 / 设计系统 / 后台组件化）安全审查
+
+**范围**：前端新增 `AsyncState.vue` / `lib/chapter.js`，改 `App.vue` / `store.js` /
+`styles/look.css` / `styles/global.css` 与 6 个视图；后端改 `static/style.css`、
+`templates/base.html`、新增 `templates/admin/_components.html` 与 3 个后台模板；
+配套 4 个静态守卫测试。**无新增路由、无新增写接口、无新增依赖、无 schema 变更。**
+
+| 维度 | 结论 | 依据 |
+|---|---|---|
+| XSS | 通过 | 新组件只用 `{{ }}` 插值与 `defineProps`，全文零 `v-html`；Jinja 宏参数一律 `{{ label }}` 自动转义、零 `|safe`、零 `<script>` 输出；`lib/chapter.js` 只读 `/api/site` 下发的 `theme_bundle.labels`（服务端 `public_bundle()` 已裁剪），不拼 HTML |
+| 主题包 CSS 信任边界 | 通过 | 未改 `theme_bundles.py` 一行：`origin=imported` 仍恒 `css=""`，受限 CSS 仍走服务端选择器命名空间校验后再由 `store.js` 注入；本轮新增的章回语言层是**仓库内静态 CSS**，不接受任何包内容 |
+| SQL 注入 | 通过 | 本轮无 SQL、无 ORM 查询改动；`AsyncState` 的重试回调是函数 prop，不接收 SQL 或 URL 字符串 |
+| 越权 / CSRF | 通过 | 无新路由；后台 3 个模板只替换静态片段，表单 `action` / `method` / `name` / CSRF 隐藏字段 / `data-label` 全部保留（由 `test_admin_componentization.py` 与既有 `test_admin_table_data_label.py` 双重钉住） |
+| SSRF / 限流 | 不适用 | 无外部 URL 请求、无新写接口 |
+| 密钥 / 资源泄漏 | 通过 | 无凭据、无文件句柄、无新增网络请求；`catch` 只加提示，不改降级路径 |
+
+**新增守卫**：`test_ui_state_layer.py`（断点 / CSS 顺序 / 四态 / 零 `v-html` 零裸 hex）、
+`test_chapter_coverage_v560.py`（语言层选择器前缀与经典主题零影响、壁纸联动不减少、
+cover 白字守卫、`data-columns` 契约）、`test_design_system_v560.py`（三面共享 tokens、
+两份 tokens 同值、真实组合对比度 4.5:1、字号棘轮、组件圆角不打架）、
+`test_admin_componentization.py`（宏契约 / 内联 style 棘轮 / 零 `setProperty`）。
+
+**结论**：本轮为纯展示层改动，未引入新暴露面；`SECURITY_AUDIT.md` 既有 R1~R169 结论不变。
+无数据库迁移、无环境变量变化、无需改 `update.sh`。
+
 ## R169 · v5.5.1（主题说明整理与发布检查修复）
 
 - 主题元数据与文档精简，不修改配色、布局、权限或第三方导入策略；字体授权文件保留。

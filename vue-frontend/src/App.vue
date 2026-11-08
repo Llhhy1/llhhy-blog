@@ -312,7 +312,7 @@ async function loadNotifs() {
     const d = await apiGet("/api/notifications");
     notifUnread.value = d.unread || 0;
     notifList.value = d.items || [];
-  } catch (e) {}
+  } catch (e) { toast("通知加载失败，请稍后重试", "danger"); }
 }
 function toggleNotifPanel() {
   showNotifPanel.value = !showNotifPanel.value;
@@ -320,7 +320,7 @@ function toggleNotifPanel() {
 }
 async function openNotif(n) {
   if (!n.is_read) {
-    try { await apiPost(`/api/notification/${n.id}/read`, {}); n.is_read = true; notifUnread.value = Math.max(0, notifUnread.value - 1); } catch (e) {}
+    try { await apiPost(`/api/notification/${n.id}/read`, {}); n.is_read = true; notifUnread.value = Math.max(0, notifUnread.value - 1); } catch (e) { toast("标记已读失败，请稍后重试", "danger"); }
   }
   showNotifPanel.value = false;
   if (n.link) { location.href = n.link; }
@@ -489,7 +489,7 @@ onMounted(async () => {
   try {
     const an = await apiGet("/api/announcements");
     announcements.value = an.items || [];
-  } catch (e) {}
+  } catch (e) { toast("公告加载失败，请稍后重试", "danger"); }
   loadNotifs();  // 加载站内通知未读数
   // v3.9.0：插件系统（M0/M2/M3）— 拉取页脚/导航/侧栏/html/远程组件渲染数据
   try {
@@ -501,7 +501,7 @@ onMounted(async () => {
     if (pd && Array.isArray(pd.remote_components)) {
       pd.remote_components.forEach((rc) => loadRemoteComponent(rc.url));
     }
-  } catch (e) {}
+  } catch (e) { toast("插件加载失败，请稍后重试", "danger"); }
   window.addEventListener("scroll", onScroll, { passive: true });
   window.addEventListener("resize", onScroll);
   onScroll();

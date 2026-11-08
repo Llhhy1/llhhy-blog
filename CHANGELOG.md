@@ -8,6 +8,71 @@
 > v4.3.1 ~ v4.6.1 → `docs/archive/CHANGELOG_v4.3.1-v4.6.1.md`（v5.5.0 因体积守卫触发，搬走最老六个版本段）。
 > 本文件从 **v4.7.0** 起。**归档不是删除** —— 查旧版本变更细节时去上述文件。
 
+## v5.6.0（2026-11-08 · UI 深度优化四阶段：章回贯通 / 四态 / 设计系统 / 后台组件化）
+
+> 依据 `docs/audit/2026-10-31-v5.3.3-audit-and-theme.md` 的 7 类观感问题与
+> 「三套主题管线仍未合并，是下一轮视觉升级的主要工作」结论，按 **P1 → P2 → P3 → P4**
+> 依赖顺序一次发版。**四个阶段各自可独立验证，未跨阶段混改。**
+
+### P1 · 状态与刻度
+
+- 新增 `vue-frontend/src/components/AsyncState.vue`：骨架 / 空 / 错误+重试 / 正常四态统一，
+  容器常驻 `role="status" aria-live="polite"`，颜色全走设计系统变量、零裸 hex。
+- `CategoryView.vue` / `ArchiveView.vue` 接入四态：原来请求失败会把分类名或「暂无文章」
+  当成空列表，现在能区分 loading / empty / error 并可重试。首页保留其专用三卡骨架，不强迁。
+- `App.vue` / `store.js` 的静默 `catch` 补用户可见提示，降级行为不变。
+- 新增断点棘轮守卫 `tests/test_ui_state_layer.py`：扫描 `@media` 硬编码像素值，
+  只允许减少、不许新增；同时钉死 `main.js` 的三文件 CSS 导入顺序。
+  ⚠️ 原生 CSS 变量不能用于 `@media` 条件，所以「统一刻度」是**约定 + 扫描守卫**，不是变量替换。
+
+### P2 · 章回贯通（消除「首页章回、点进去变经典」）
+
+- 新增 `vue-frontend/src/styles/look.css` 末尾的「章回全站语言层」：纸白 / 墨色 / 朱砂 /
+  衬线标题贯通到首页以外的视图；**每条选择器都以 `:root[data-layout="chapter"]` 开头**，
+  并用 `:not(.zh-chapter-dark)` 排除首页暗色分卷，避免最后加载的 look.css 盖掉横卡暗底。
+- 新增 `vue-frontend/src/lib/chapter.js` 作为章回判定单一入口；
+  `PostView.vue` / `CategoryView.vue` / `ArchiveView.vue` 补结构钩子（眉标 + 衬线大标题 + 朱砂计数），
+  经典分支 DOM 一行不变。**不做 DOM 重构**（ADR-001 已放弃需重构 DOM 的结构性版面）。
+- 分卷区不再硬砍前 4 类（`HomeView.vue` 去掉 `slice(0, 4)`），列数改 `repeat(auto-fit, …)`；
+  恰好 4 个分类时观感与原 `repeat(4)` 一致。
+- 新增 `tests/test_chapter_coverage_v560.py`：逐条扫描语言层选择器前缀、暗色分卷排除、
+  壁纸联动 18 处不减少、cover 标题白字守卫、`data-columns` 契约不变。
+- ⚠️ 列数仍是 `store.js` 注释里记录的四条 `repeat(N, …)` 规则：`repeat(var(--n), 1fr)`
+  的计数位在 Chrome 判为计算值期无效，会静默塌成单列，**这是刻意保留的兼容性写法**。
+
+### P3 · 设计系统收口
+
+- SSR 登录 / 错误页（`myblog/templates/base.html`）补引 `tokens.css`，与 SPA `global.css`
+  的 `@import`、后台 `admin.css` 的 `@import` 形成**三面共享同一份真相源**；
+  `tests/test_design_system_v560.py` 钉死加载顺序与两份 tokens 变量集合 / 取值一致。
+- `myblog/static/style.css` 8 处次级灰字（`#999` 压白卡 **2.85:1**）统一到
+  `var(--text-muted, …)` + `--type-meta`：实测 **4.9:1**，13px 小字过 4.5:1 门槛；
+  非兜底裸 hex 从 177 降到 **156**（棘轮只减不增）。
+- 新增「真实页面组合」对比度守卫：不再只校验 token 对，而是计算 `.post-meta` 前景压
+  `.post-card` 白底的实际比值，并用旧灰值作反证。
+- 字号尺度棘轮：SPA 四份 CSS 共 **18 种** px 字号，守卫只允许减少；新增语言层一律用 `--type-*`。
+  27 种字号 / 24 种行高的**全量收敛不做**（会牵动 `themes.py:_BASE_LIGHT` 双向绑定与视觉回归），
+  改为先用棘轮止住新增。
+- 确认 `look.css:43` 与天气组件按钮的圆角冲突已在既有版本收口，补守卫防回退。
+
+### P4 · 后台组件化（一期）
+
+- 新增 `myblog/templates/admin/_components.html`：`btn` / `card` / `empty_state` /
+  `field_hint` / `section_title` 五个宏，只复用 `admin.css` 已有类、参数自动转义、不输出脚本。
+- 在 3 个高频后台页小范围落地（不改表单 action / name / CSRF / `data-label`），
+  新增内联 `<style>` 棘轮守卫 `tests/test_admin_componentization.py`。
+- 明确**未做**：其余 52 个模板的批量迁移、后台暗色硬编码全量 token 化、
+  `test_css_token_ratchet.py` 里 admin.css 234 处裸 hex 的收敛 —— 这些都需要单独的设计决策，
+  本版用棘轮止住新增，不假装已经做完。
+
+### 发布与部署口径
+
+- **接口契约不变**：`API.md` 仅 bump 头部版本；无新增 / 修改接口、无环境变量变化、
+  主题包 schema（`theme_bundles.py`）一行未改、导入包仍禁 CSS。
+- **无数据库迁移、无新依赖、不改 `update.sh`**；`alembic_version` 仍 `b7c2e91a4d63`。
+- **前后端都改了**：`vue-frontend/src/**` 必须先 `vite build` 再打包（`package.py` 打 `_vite_build30/`）；
+  后端包仍约 29 MB（503 个字体分片），一键更新**必须带 `GH_MIRROR`**。
+
 ## v5.5.1（2026-11-07 · 主题说明整理与发布检查修复）
 
 - 精简「章回」主题元数据、更新日志与路线图；主题包版本为 1.0.1，配色、布局、字体和功能不变。

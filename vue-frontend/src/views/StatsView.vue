@@ -608,9 +608,10 @@ a.ov-cell:hover { transform: translateY(-2px); border-color: var(--accent, #196d
 }
 .dash-delta.up { color: var(--success); background: color-mix(in srgb, var(--success) 12%, transparent); }
 .dash-delta.down { color: var(--danger); background: color-mix(in srgb, var(--danger) 12%, transparent); }
-.dash-delta.new { color: #8a5a00; background: rgba(244, 180, 0, .14); }
-/* 暗色下 #8a5a00 压深底不可读，单独提亮；up/down 已用主题 token 自动翻转。 */
-[data-theme="dark"] .dash-delta.new { color: #f0c060; }
+.dash-delta.new { color: var(--text-muted); background: color-mix(in srgb, var(--warning) 14%, transparent); }
+/* 「新」徽章改用主题 token：明暗主题都自适应，不再需要额外的暗色补丁覆盖
+   （原先的深棕字在深底不可读，那条暗色规则就是给它打的裸色补丁）。
+   up/down 同样已用 --success / --danger token 自动翻转。 */
 .dash-delta em { font-style: normal; opacity: .65; font-weight: 500; }
 .dash-delta.wow { font-size: 11px; opacity: .9; }
 
@@ -638,14 +639,17 @@ a.ov-cell:hover { transform: translateY(-2px); border-color: var(--accent, #196d
 .card-head h3 { margin: 0; }
 .card-tools { display: flex; align-items: center; gap: 10px; }
 .range-switch { display: inline-flex; border: 1px solid var(--border, #e3e3e3); border-radius: 8px; overflow: hidden; }
+/* 按钮底色/文字统一用已定义的 --surface / --text：原先误用的卡片变量在
+   tokens.css 里没有定义，其回退白底在暗色主题下配浅色文字几乎不可读，
+   这是本次修掉的深色不可读根因。 */
 .range-switch button {
-  border: none; background: var(--card, #fff); color: var(--text, #333);
+  border: none; background: var(--surface); color: var(--text);
   padding: 4px 10px; cursor: pointer; font-size: 12px;
 }
 .range-switch button.active { background: var(--accent, #196ddd); color: var(--on-accent); }
 .export-btn {
-  border: 1px solid var(--border, #e3e3e3); background: var(--card, #fff);
-  color: var(--text, #333); border-radius: 8px; padding: 4px 10px;
+  border: 1px solid var(--border, #e3e3e3); background: var(--surface);
+  color: var(--text); border-radius: 8px; padding: 4px 10px;
   cursor: pointer; font-size: 12px;
 }
 .export-btn:disabled { opacity: .5; cursor: not-allowed; }
@@ -653,6 +657,11 @@ a.ov-cell:hover { transform: translateY(-2px); border-color: var(--accent, #196d
 .trend-wrap { position: relative; }
 .trend-svg { width: 100%; height: 240px; display: block; }
 .grid-line { stroke: var(--border-strong, #ececec); stroke-width: 1; vector-effect: non-scaling-stroke; }
+/* 图表系列色（下方 .ln-* / .hover-dot / .dot / .trend-legend、模板里 SVG 渐变 stop、
+   以及 .ar-bar 渐变起点、.trend-tip 浮层）刻意保留颜色字面量：
+   它们是数据系列的固定识别色 / 跨主题保持一致的浮层配色，换成主题变量会让
+   同一指标在明暗主题下颜色漂移、图例与曲线对不上。仅结构性的背景/文字/边框
+   裸色才替换成 CSS 变量，避免逐条机械全换丢掉图表语义。 */
 .ln-pv { stroke: #196ddd; stroke-width: 2.4; vector-effect: non-scaling-stroke; stroke-linejoin: round; stroke-linecap: round; }
 .ln-uv { stroke: #34a853; stroke-width: 2.4; vector-effect: non-scaling-stroke; stroke-linejoin: round; stroke-linecap: round; }
 .ln-cm { stroke: #f4b400; stroke-width: 2; stroke-dasharray: 5 4; vector-effect: non-scaling-stroke; }

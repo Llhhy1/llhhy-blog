@@ -839,3 +839,136 @@ input[type=tel]:focus, select:focus, textarea:focus {
   .post-album-card { flex-direction: column; }
   .post-album-cover { flex: 0 0 auto; width: 100%; height: 180px; }
 }
+
+/* ==== P2 CHAPTER LANGUAGE LAYER BEGIN (v5.6.0) ============================
+   目标：让「章回」的纸白 / 墨色 / 朱砂 / 衬线标题贯通到首页以外的视图，
+   消除「首页是章回、点进文章页立刻回到经典主题」的割裂。
+
+   硬约束（由 tests/test_chapter_coverage.py 逐行钉死）：
+   1. 每条选择器都以 :root[data-layout="chapter"] 开头 —— 未激活主题包时
+      data-layout 不存在，本段对经典主题**零影响**。
+   2. 首页暗色分卷是 .layout.zh-chapter-dark，用 :not(...) 排除：本文件最后
+      加载，若不排除会赢过 global.css 里 [data-card="row"] 的横卡暗底规则。
+   3. 不新增 CSS 文件（main.js 导入顺序被守卫钉死），不改任何视图 DOM 树；
+      .zh-page-* 只服务 PostView / CategoryView / ArchiveView 三个结构钩子。
+   4. 色值全部走 --zh-*（主题包 palette 下发），带兜底仅为包数据缺失时容错。
+   ========================================================================== */
+:root[data-layout="chapter"] body {
+  background: var(--zh-paper, #f3f0e8);
+  color: var(--zh-paper-fg, #232a28);
+}
+:root[data-layout="chapter"] .page-title {
+  color: var(--zh-paper-fg, #232a28);
+  font-weight: 500;
+  letter-spacing: .08em;
+}
+:root[data-layout="chapter"] .layout:not(.zh-chapter-dark) .post-card,
+:root[data-layout="chapter"] .layout:not(.zh-chapter-dark) .widget,
+:root[data-layout="chapter"] .layout:not(.zh-chapter-dark) .post-detail,
+:root[data-layout="chapter"] .container .timeline {
+  background: var(--zh-paper-card, #fff);
+  border: 1px solid var(--zh-paper-line, #ddd8cc);
+  border-radius: 10px;
+}
+:root[data-layout="chapter"] .layout:not(.zh-chapter-dark) .post-card h2 a,
+:root[data-layout="chapter"] .layout:not(.zh-chapter-dark) .post-detail h1,
+:root[data-layout="chapter"] .container .tl-year,
+:root[data-layout="chapter"] .container .tl-item a,
+:root[data-layout="chapter"] .container .tl-month {
+  color: var(--zh-paper-fg, #232a28);
+}
+:root[data-layout="chapter"] .post-meta,
+:root[data-layout="chapter"] .post-summary,
+:root[data-layout="chapter"] .container .tl-date {
+  color: var(--zh-paper-muted, #6b756f);
+}
+:root[data-layout="chapter"] .read-more,
+:root[data-layout="chapter"] .pagination a,
+:root[data-layout="chapter"] .post-body a,
+:root[data-layout="chapter"] .tag-cloud .tag {
+  color: var(--zh-seal, #a8442a);
+}
+:root[data-layout="chapter"] .widget h3,
+:root[data-layout="chapter"] .widget h2 {
+  color: var(--zh-paper-fg, #232a28);
+  letter-spacing: .06em;
+}
+
+/* 结构钩子：眉标 / 衬线大标题 / 朱砂计数胶囊 */
+:root[data-layout="chapter"] .zh-page-head {
+  position: relative;
+  max-width: var(--zh-content-max, 1100px);
+  margin: 0 auto 22px;
+  padding: 18px 0 14px;
+  border-bottom: 1px solid var(--zh-paper-line, #ddd8cc);
+  text-align: center;
+}
+:root[data-layout="chapter"] .zh-page-eyebrow {
+  display: block;
+  color: var(--zh-seal, #a8442a);
+  font-size: var(--type-xs, 11px);
+  letter-spacing: .22em;
+}
+:root[data-layout="chapter"] .zh-page-title {
+  margin: 8px 0 0;
+  color: var(--zh-paper-fg, #232a28);
+  font-family: var(--font-sans, serif);
+  font-size: var(--type-xl, 26px);
+  font-weight: 500;
+  letter-spacing: .08em;
+}
+:root[data-layout="chapter"] .zh-page-seal {
+  display: inline-block;
+  margin-top: 8px;
+  padding: 3px 12px;
+  border: 1px solid var(--zh-paper-line, #ddd8cc);
+  border-radius: 999px;
+  color: var(--zh-paper-muted, #6b756f);
+  font-size: var(--type-xs, 11px);
+}
+:root[data-layout="chapter"] .post-detail .zh-page-eyebrow {
+  text-align: center;
+}
+:root[data-layout="chapter"] .post-detail h1.zh-page-title {
+  text-align: center;
+  margin: 10px 0 24px;
+}
+
+/* 亮/暗两条链路：暗色模式下纸白换成墨底，避免「浅底浅字」看不清。
+   data-theme 由 App.vue 写在同一个 :root 上，选择器同前缀，零影响契约不变。 */
+:root[data-layout="chapter"][data-theme="dark"] body {
+  background: var(--zh-ink, #1c2422);
+  color: var(--zh-ink-fg, #e8e6df);
+}
+:root[data-layout="chapter"][data-theme="dark"] .layout:not(.zh-chapter-dark) .post-card,
+:root[data-layout="chapter"][data-theme="dark"] .layout:not(.zh-chapter-dark) .widget,
+:root[data-layout="chapter"][data-theme="dark"] .layout:not(.zh-chapter-dark) .post-detail,
+:root[data-layout="chapter"][data-theme="dark"] .container .timeline {
+  background: var(--zh-ink-card, #26302d);
+  border-color: var(--zh-ink-line, #3a4541);
+}
+:root[data-layout="chapter"][data-theme="dark"] .page-title,
+:root[data-layout="chapter"][data-theme="dark"] .layout:not(.zh-chapter-dark) .post-card h2 a,
+:root[data-layout="chapter"][data-theme="dark"] .layout:not(.zh-chapter-dark) .post-detail h1,
+:root[data-layout="chapter"][data-theme="dark"] .container .tl-year,
+:root[data-layout="chapter"][data-theme="dark"] .container .tl-item a,
+:root[data-layout="chapter"][data-theme="dark"] .widget h3,
+:root[data-layout="chapter"][data-theme="dark"] .widget h2 {
+  color: var(--zh-ink-fg, #e8e6df);
+}
+:root[data-layout="chapter"][data-theme="dark"] .post-meta,
+:root[data-layout="chapter"][data-theme="dark"] .post-summary,
+:root[data-layout="chapter"][data-theme="dark"] .container .tl-date {
+  color: var(--zh-ink-muted, #98a39e);
+}
+:root[data-layout="chapter"][data-theme="dark"] .zh-page-head {
+  border-bottom-color: var(--zh-ink-line, #3a4541);
+}
+:root[data-layout="chapter"][data-theme="dark"] .zh-page-title {
+  color: var(--zh-ink-fg, #e8e6df);
+}
+:root[data-layout="chapter"][data-theme="dark"] .zh-page-seal {
+  border-color: var(--zh-ink-line, #3a4541);
+  color: var(--zh-ink-muted, #98a39e);
+}
+/* ==== P2 CHAPTER LANGUAGE LAYER END (v5.6.0) ============================== */

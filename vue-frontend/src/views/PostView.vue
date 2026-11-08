@@ -7,9 +7,12 @@
         <p style="margin-top: 18px;"><router-link to="/">← 回到首页</router-link></p>
       </div>
 
-      <article v-else-if="post" class="post-detail">
+      <article v-else-if="post" class="post-detail" :class="{ 'zh-page': chapterOn() }">
+        <!-- v5.6.0 P2：章回结构钩子。只在激活主题包时多一个眉标 + 标题类名，
+             经典主题 DOM 一行不变；不复制首页的卷首/横卡 DOM（ADR-001）。 -->
+        <span v-if="chapterOn()" class="zh-page-eyebrow">{{ chapterLabels().volume_en || 'CHAPTER' }} / 正文</span>
         <img v-if="post.cover" class="post-cover-hero" :src="post.cover" :alt="post.title" />
-        <h1>{{ post.title }}</h1>
+        <h1 :class="{ 'zh-page-title': chapterOn() }">{{ post.title }}</h1>
         <p class="post-meta">
           <span>{{ (post.created_at || "").slice(0, 16) }}</span>
           <span v-if="post.author"> · ✍️ {{ post.author }}</span>
@@ -115,6 +118,7 @@ import { useRoute } from "vue-router";
 import { apiGet, apiPost } from "../lib/api.js";
 import { copyText } from "../lib/clipboard.js";
 import { state, setContentLang } from "../store.js";
+import { chapterOn, chapterLabels } from "../lib/chapter.js";
 import hljs from "highlight.js/lib/core";
 import "highlight.js/styles/github-dark.css";
 import bash from "highlight.js/lib/languages/bash";

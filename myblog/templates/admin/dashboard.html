@@ -1,4 +1,5 @@
 {% extends "admin/base.html" %}
+{% from "admin/_components.html" import btn, empty_state %}
 {% block title %}后台仪表盘{% endblock %}
 {% block content %}
   <!-- 渐变欢迎卡（外层大框） -->
@@ -8,7 +9,7 @@
       <p>站点共有 {{ total_posts }} 篇文章、{{ total_comments }} 条评论，累计访问 {{ summary.total_visits }} 次。今天也要元气满满地更新呀～</p>
       <div class="hero-actions">
         <a class="btn" href="{{ url_for('admin.new_post') }}">✏️ 写新文章</a>
-        <a class="btn ghost" href="{{ url_for('admin.stats') }}">📈 访问统计</a>
+        {{ btn('📈 访问统计', url_for('admin.stats')) }}
         <a class="btn ghost" href="{{ url_for('main.index') }}" target="_blank">🌐 查看前台</a>
       </div>
     </div>
@@ -178,7 +179,7 @@
           </ul>
           <a class="panel-more" href="{{ url_for('admin.stats') }}">查看完整统计 →</a>
         {% else %}
-          <p class="stats-empty">今日暂无访问，等访客来逛逛～</p>
+          {{ empty_state('今日暂无访问，等访客来逛逛～') }}
         {% endif %}
       </div>
 

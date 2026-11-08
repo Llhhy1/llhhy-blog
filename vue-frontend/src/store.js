@@ -1,6 +1,7 @@
 // 全局站点状态：站点设置 + 登录用户（简单响应式 store，不引额外依赖）
 import { reactive, readonly } from "vue";
 import { apiGet, apiPost, setCsrfToken, clearCsrfToken } from "./lib/api.js";
+import { toast } from "./lib/toast.js";
 
 export const state = reactive({
   site: { site_name: "我的博客", site_title: "我的博客", site_note: "",
@@ -395,12 +396,12 @@ export async function initSite() {
     }
     document.title = s.site_name || s.site_title || "我的博客";
     initLang(s.site_lang);  // v3.0.0 功能11：按本地/后台设置初始化语言
-  } catch (e) { console.warn("站点设置加载失败", e); }
+  } catch (e) { console.warn("站点设置加载失败", e); toast("站点设置加载失败，请稍后重试", "danger"); }
   try {
     const m = await apiGet("/api/auth/me");
     state.user = m.user || null;
     if (m.csrf_token) setCsrfToken(m.csrf_token);
-  } catch (e) { state.user = null; }
+  } catch (e) { state.user = null; console.warn("登录状态加载失败（多为未登录，属正常）", e); }
   await initReader();  // v3.21.0 gamification：拉取积分/勋章（发请求即创建/命中读者档案）
   state.loaded = true;
 }

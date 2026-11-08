@@ -1,10 +1,11 @@
 {% extends "admin/base.html" %}
+{% from "admin/_components.html" import btn %}
 {% block title %}文章管理{% endblock %}
 {% block content %}
   <h1 class="page-title">📄 {{ '文章管理' if is_admin_view else '我的文章' }}（{{ pagination.total }}）</h1>
 
   <div class="admin-actions">
-    <a class="btn" href="{{ url_for('admin.new_post') }}">✏️ 写新文章</a>
+    {{ btn('✏️ 写新文章', url_for('admin.new_post'), kind='') }}
     {% if is_admin_view %}
     <a class="btn ghost" href="{{ url_for('admin.recycle_bin') }}">🗑️ 回收站</a>
     {% endif %}

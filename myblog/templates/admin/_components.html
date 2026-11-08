@@ -1,0 +1,32 @@
+{# 后台通用组件宏（v5.6.0 组件化一期）。
+   只复用 admin.css 已有的类：按钮、卡片、空态、提示、标题，不新增样式、
+   不写死颜色、不输出脚本；所有文本参数一律自动转义。
+   新增后台页面请优先 import 本文件，用同一套结构减少各页漂移。 #}
+
+{% macro btn(label, href, kind="ghost") -%}
+<a class="btn{% if kind %} {{ kind }}{% endif %}" href="{{ href }}">{{ label }}</a>
+{%- endmacro %}
+
+{% macro card(title, more_url=None) -%}
+<div class="card">
+  <div class="card-head">
+    <h3 class="card-title">{{ title }}</h3>
+    {%- if more_url %}
+    <a class="panel-more" href="{{ more_url }}">更多 →</a>
+    {%- endif %}
+  </div>
+  <div class="card-body">{{ caller() }}</div>
+</div>
+{%- endmacro %}
+
+{% macro empty_state(message) -%}
+<p class="stats-empty">{{ message }}</p>
+{%- endmacro %}
+
+{% macro field_hint(text) -%}
+<p class="section-sub">{{ text }}</p>
+{%- endmacro %}
+
+{% macro section_title(text) -%}
+<h3>{{ text }}</h3>
+{%- endmacro %}

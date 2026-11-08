@@ -1029,6 +1029,12 @@ sha256sum /tmp/og.png /www/wwwroot/你的站点根/og-default.png
 >   自带 Bearer 鉴权、非会话）。若你的 MCP 客户端此前一直在报 403，升级后即恢复。
 > - 全量报告：`docs/audit/2026-10-07-full-audit-report.md`。
 
+> **v5.6.0 升级要点（UI 深度优化四阶段）**：**后端与前端都改了 → 两个包都要覆盖**。前端动了 `src/components/AsyncState.vue`（新增）、`src/lib/chapter.js`（新增）、`App.vue` / `store.js` / `styles/look.css` / `styles/global.css` / `HomeView.vue` / `PostView.vue` / `CategoryView.vue` / `ArchiveView.vue` / `StatsView.vue`，**必须先 `npm run build` 再打包**（`package.py` 打的是 `_vite_build30/`）；后端动了 `static/style.css`、`templates/base.html`、`templates/admin/_components.html`（新增）与 3 个后台模板。
+> - **无数据库迁移、无新依赖、无接口契约变化、不需改 `update.sh`**；`alembic_version` 仍 `b7c2e91a4d63`，`API.md` 只 bump 头部版本号。主题包 schema（`theme_bundles.py`）一行未改，已有自建 / 导入主题无需重建。
+> - **后端包仍约 29 MB**（v5.4.4 起内嵌 503 个京华老宋体分片）：一键更新**必须带 `GH_MIRROR=https://gh-proxy.com/`**，直连实测 21~28 KB/s 会顶爆 `curl --max-time 180`；用镜像时按惯例补做本地权威 sha256 逐个比对。
+> - **章回主题已激活的站点**：升级后首页外观不变，但文章页 / 分类页 / 归档页会一并呈现纸白 / 墨色 / 朱砂的章回语言；分卷区不再砍前 4 类。**经典主题零影响**（新增 CSS 全部以 `:root[data-layout="chapter"]` 开头）。
+> - **上线后三层核验**：①磁盘 `config.py` 版本 = 5.6.0、关键文件 sha256 与本地逐一比对；②库 `alembic_version` + 表数不变；③公网 `/api/docs` 头为 v5.6.0、`/api/health` 200。再用真实浏览器按 1440 / 390 两档、亮 / 暗、章回 ON / OFF 各看一遍首页与文章页，确认无白屏与错位。
+>
 > **v5.5.1 升级要点**：主题说明整理与发布检查修复，主题功能和外观不变。两个包均重新构建并签名；无迁移、无新依赖。升级后按三层核验：磁盘 `config.py` 版本、`alembic_version` 与表数、公网 `/api/health` 与 `/docs` 版本头应均为 v5.5.1。
 >
 > **v5.5.0（主题包「章回」+ 主题工坊 + 主题市场 + 外观回滚）升级要点**：**后端与前端都改了 → 两个包都要覆盖**。前端动了 `src/store.js` / `src/styles/global.css` / `src/views/HomeView.vue`，**必须先 `npm run build` 再打包**（`package.py` 打的是 `_vite_build30/`）；后端新增 `theme_bundles.py` / `theme_library.py` / `theme_packs/zhanghui.json`。

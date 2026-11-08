@@ -1029,7 +1029,7 @@ sha256sum /tmp/og.png /www/wwwroot/你的站点根/og-default.png
 >   自带 Bearer 鉴权、非会话）。若你的 MCP 客户端此前一直在报 403，升级后即恢复。
 > - 全量报告：`docs/audit/2026-10-07-full-audit-report.md`。
 
-> **v5.5.1 升级要点**：主题说明整理与发布检查修复，主题功能和外观不变。两个包均重新构建并签名；无迁移、无新依赖。升级后 `/api/health` 与 `/docs` 版本头应为 v5.5.1；本次发布不自动执行线上部署。
+> **v5.5.1 升级要点**：主题说明整理与发布检查修复，主题功能和外观不变。两个包均重新构建并签名；无迁移、无新依赖。升级后按三层核验：磁盘 `config.py` 版本、`alembic_version` 与表数、公网 `/api/health` 与 `/docs` 版本头应均为 v5.5.1。
 >
 > **v5.5.0（主题包「章回」+ 主题工坊 + 主题市场 + 外观回滚）升级要点**：**后端与前端都改了 → 两个包都要覆盖**。前端动了 `src/store.js` / `src/styles/global.css` / `src/views/HomeView.vue`，**必须先 `npm run build` 再打包**（`package.py` 打的是 `_vite_build30/`）；后端新增 `theme_bundles.py` / `theme_library.py` / `theme_packs/zhanghui.json`。
 > - **无数据库迁移、无新依赖、无需改 `update.sh`**：主题库存 `Setting.theme_library_v1`、快照存 `theme_look_prev_v1`，都是按需写入的 KV 行，不动表结构，也不走 Alembic。

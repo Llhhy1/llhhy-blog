@@ -92,6 +92,24 @@ def test_三个结构钩子落地且共享判定存在():
         assert "lib/chapter.js" in t, f"{rel} 没引共享判定"
 
 
+def test_侧栏隐藏时收掉空轨道_内容居中():
+    """v5.6.1 回归：侧栏 display:none 不会让 grid 的第二条轨道消失。
+
+    上线后真实浏览器实测 ``gridTemplateColumns = "698px 300px"``、
+    ``content x=204 w=698``、``frame x=170 w=1100`` —— 文章页/分类页
+    整体偏左、右侧 300px 空白。修法必须同时满足：收成单轨、正文限宽居中、
+    且**排除**首页 ``.zh-chapter-dark``（它是 display:block 且自带限宽）。
+    """
+    block = _block()
+    assert "grid-template-columns: minmax(0, 1fr)" in block, "空轨道没收掉"
+    assert "max-width: 760px" in block and "margin: 0 auto" in block, "正文没有居中"
+    for sel in _selectors(block):
+        if "data-sidebar" in sel and ".layout" in sel:
+            assert ":not(.zh-chapter-dark)" in sel, (
+                "这条规则会挤窄首页两列横卡：" + sel
+            )
+
+
 def test_v550老契约未被改坏():
     g = GLOBAL.read_text(encoding="utf-8")
     # v5.5.0 CHANGELOG 记的是 19 处「:root:has(.home-cover.has-wall) 联动」，

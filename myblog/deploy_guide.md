@@ -1029,6 +1029,8 @@ sha256sum /tmp/og.png /www/wwwroot/你的站点根/og-default.png
 >   自带 Bearer 鉴权、非会话）。若你的 MCP 客户端此前一直在报 403，升级后即恢复。
 > - 全量报告：`docs/audit/2026-10-07-full-audit-report.md`。
 
+> **v5.6.1 升级要点（章回内页网格回归修复）**：v5.6.0 上线后真实浏览器核验发现，章回 `sidebar=hide` 时 `.layout` 仍保留 `698px 300px` 两条网格轨道，文章页 / 分类页内容偏左、右侧空白。`look.css` 补两条规则收成单轨 + 正文 760px 居中（选择器带 `:not(.zh-chapter-dark)` 保护首页横卡）。**纯 CSS 补丁**：无迁移、无新依赖、接口契约不变、`update.sh` 不动；但**前端改了 `src/styles/look.css` → 必须重新 `vite build` 再打包**。上线后按三层核验，并用真实浏览器看文章页 / 分类页两侧留白是否均衡。
+>
 > **v5.6.0 升级要点（UI 深度优化四阶段）**：**后端与前端都改了 → 两个包都要覆盖**。前端动了 `src/components/AsyncState.vue`（新增）、`src/lib/chapter.js`（新增）、`App.vue` / `store.js` / `styles/look.css` / `styles/global.css` / `HomeView.vue` / `PostView.vue` / `CategoryView.vue` / `ArchiveView.vue` / `StatsView.vue`，**必须先 `npm run build` 再打包**（`package.py` 打的是 `_vite_build30/`）；后端动了 `static/style.css`、`templates/base.html`、`templates/admin/_components.html`（新增）与 3 个后台模板。
 > - **无数据库迁移、无新依赖、无接口契约变化、不需改 `update.sh`**；`alembic_version` 仍 `b7c2e91a4d63`，`API.md` 只 bump 头部版本号。主题包 schema（`theme_bundles.py`）一行未改，已有自建 / 导入主题无需重建。
 > - **后端包仍约 29 MB**（v5.4.4 起内嵌 503 个京华老宋体分片）：一键更新**必须带 `GH_MIRROR=https://gh-proxy.com/`**，直连实测 21~28 KB/s 会顶爆 `curl --max-time 180`；用镜像时按惯例补做本地权威 sha256 逐个比对。

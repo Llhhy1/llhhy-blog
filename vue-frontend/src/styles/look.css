@@ -934,6 +934,22 @@ input[type=tel]:focus, select:focus, textarea:focus {
   margin: 10px 0 24px;
 }
 
+/* v5.6.1 回归修复：章回把侧栏设成 hide，但 .layout 仍留着 698px + 300px
+   两条网格轨道 —— sidebar 只是 display:none，空出的 300px 轨道不会消失，
+   于是文章页 / 分类页内容整体偏左、右侧一大片空白（上线后真实浏览器实测：
+   gridTemplateColumns = "698px 300px"、content x=204 w=698、frame x=170 w=1100）。
+   收成单轨 + 正文限宽居中（760px，比原来 698px 略宽，行长仍适合阅读）。
+   ⚠️ 必须排除 .layout.zh-chapter-dark：首页明暗分章是 display:block 且靠
+   .zh-card-grid 自己限宽，若给它也套 760px 会把两列横卡挤窄。 */
+:root[data-layout="chapter"][data-sidebar="hide"] .layout:not(.zh-chapter-dark) {
+  grid-template-columns: minmax(0, 1fr);
+}
+:root[data-layout="chapter"][data-sidebar="hide"] .layout:not(.zh-chapter-dark) > .content {
+  width: 100%;
+  max-width: 760px;
+  margin: 0 auto;
+}
+
 /* 亮/暗两条链路：暗色模式下纸白换成墨底，避免「浅底浅字」看不清。
    data-theme 由 App.vue 写在同一个 :root 上，选择器同前缀，零影响契约不变。 */
 :root[data-layout="chapter"][data-theme="dark"] body {

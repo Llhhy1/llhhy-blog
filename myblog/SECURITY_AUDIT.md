@@ -1005,6 +1005,19 @@ MIME 混淆，缺少 CSP 不产生可利用的差异。
 - `_TOKEN_KIND` 白名单与 `_BASE_LIGHT` 的键集必须同步（已有 `test_base_light_matches_token_files` 钉住）；新增 token 忘记登记类别会被自家校验挡掉。
 - 档 2（主题商店 / 用户上传主题包）之前必须先有主题包来源限制，否则白名单只是把「注入」换成「任意值」。
 
+## R171 · v5.6.1（章回内页网格回归修复）安全审查
+
+**范围**：仅 `vue-frontend/src/styles/look.css` 增加两条 CSS 规则，
+`tests/test_chapter_coverage_v560.py` 增加一条静态守卫；版本号与四份文档同步。
+
+| 维度 | 结论 | 依据 |
+|---|---|---|
+| XSS / 注入 / 越权 / CSRF / SSRF / 密钥 / 限流 | 全部通过或不适用 | 改动只有 `grid-template-columns` / `max-width` / `margin` 三个布局属性，不含颜色、URL、`url()`、`@import`、表达式或任何用户可控内容；无新路由、无新写接口、无新依赖 |
+| 主题包 CSS 信任边界 | 通过 | 新增规则是仓库内静态 CSS，走既有构建链；未改 `theme_bundles.py`、`store.js` 的 CSS 注入逻辑，`origin=imported` 仍恒禁 CSS |
+| 回归防护 | 通过 | 选择器带 `:not(.zh-chapter-dark)` 与 `:root[data-layout="chapter"]` 前缀，首页横卡与经典主题零影响；守卫断言「收单轨 + 760px 居中 + 排除首页」三要件 |
+
+**结论**：纯展示层补丁，未引入新暴露面；R170 结论不变。无数据库迁移、无环境变量变化、无需改 `update.sh`。
+
 ## R170 · v5.6.0（UI 深度优化四阶段：章回贯通 / 四态 / 设计系统 / 后台组件化）安全审查
 
 **范围**：前端新增 `AsyncState.vue` / `lib/chapter.js`，改 `App.vue` / `store.js` /

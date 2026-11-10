@@ -33,7 +33,13 @@
   `theme_packs/zhanghui.json`，它的 `tokens.light.font_sans` **也写死了旧字体**，
   而 `/api/site` 的 `theme_tokens.font_sans` 来自该包而非 `themes.py` 预设 ——
   **只改 `themes.py` 对线上零效果**（本地预览反代线上 API 时抓到 `bodyFont`
-  仍是 `KingHwaOldSong` 才发现）。已同步改包内字体栈、desc，version `1.0.1 → 1.0.2`。**CSS 不写 `unicode-range`**：子集外的字按字体栈优雅回落
+  仍是 `KingHwaOldSong` 才发现）。已同步改包内字体栈、desc，version `1.0.1 → 1.0.2`。
+  🔴 **还有第三个真相源**：`themes.current_theme()` 优先读 `Setting.theme_tokens`
+  持久化快照（站主切主题时落库），`/api/site` 的 `theme_tokens` 来自它 ——
+  部署后实测公网仍返回旧字体名，导致「新字体上线了却没被使用」。
+  已以 www 身份一次性修正 `light`/`dark` 的 `font_sans`（先备份到服务器
+  `/tmp/theme_tokens_backup_v590.json`，`get_setting` 无缓存即时生效），
+  并在 `FONTS.md` 写清三处同步纪律与回滚快照 `theme_look_prev_v1` 的残留。**CSS 不写 `unicode-range`**：子集外的字按字体栈优雅回落
   系统宋体，不 404、不白屏；emoji / 韩文由系统字形渲染。
 - `package.py` 的 `EXCLUDE_DIRS` / `EXCLUDE_FILES` 显式排除旧 `kinghua/` 与
   `kinghua.css`（打包机残留也不会再进包）；`.gitignore` 保留旧两条 +

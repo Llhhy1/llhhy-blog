@@ -103,14 +103,31 @@ python tools/build_subset_font.py --check     # 校验汉字覆盖 / 体积 / �
 不会 404、不会白屏。emoji、韩文、变体选择符等源字体本就不含的字形，
 由系统字体渲染，属标准行为。
 
-### 🔴 字体栈有两个真相源
+### 🔴 字体栈有三个真相源（换字体时三处都要动）
 
-`themes.py` 的预设（`sage-sand` 等）与**内置主题包** `theme_packs/zhanghui.json`
-各自带一份 `font_sans`。站主当前激活的是「章回」包，`/api/site` 的
-`theme_tokens.font_sans` 来自包内 `tokens.light`，**不是** `themes.py` 预设。
-换字体时两处必须同步改，否则会出现「代码改了但线上字体没变」—— 本地预览
-反代线上 API 时会抓到 `getComputedStyle(document.body).fontFamily` 仍是旧值。
-`tests/test_font_subset_v590.py` 已钉住所有内置包不得残留旧字体名。
+1. `themes.py` 的预设（`sage-sand` 等）里的 `font_sans`；
+2. 内置主题包 `theme_packs/*.json` 的 `tokens.*.font_sans`
+   （站主激活的「章回」包就自带一份）；
+3. **`Setting.theme_tokens` 持久化快照** —— `themes.current_theme()`
+   （`themes.py:724`）**优先读它**；站主在后台切换主题时 `api/theme.py`
+   会把当时的 tokens 写进 Setting。
+
+`/api/site` 返回的 `theme_tokens` / `theme_dark_tokens` 来自第 3 项，
+所以**只改前两处对已激活的线上主题零效果**：v5.9.0 部署后实测公网
+`/api/site` 仍返回 `KingHwaOldSong`，而旧 CSS 已不再加载 → 新字体文件
+上线了却没被使用，页面回落系统宋体。
+
+前两处随代码发版；第 3 处需要一次性数据修正（二选一）：
+- 以 **www** 身份把 `theme_tokens` 的 `light` / `dark` 里 `font_sans`
+  的旧字体名替换成新名（**先备份**，`get_setting` 无缓存、改库即时生效）；
+  v5.9.0 上线走的是这条，备份在服务器 `/tmp/theme_tokens_backup_v590.json`。
+- 或让站主在后台**重新应用一次**当前主题包，用新包重新生成快照。
+
+⚠️ 五键回滚快照 `theme_look_prev_v1` 仍保留旧字体名；站主若执行
+「回滚外观」会回到旧字体栈，届时需一并处理。
+`tests/test_font_subset_v590.py` 只能钉住随代码的前两处（第 3 项在生产库，
+单测够不着），所以升级后**必须回线上验一次** `/api/site` 与
+`getComputedStyle(document.body).fontFamily`。
 
 ### 为什么不 hotlink
 

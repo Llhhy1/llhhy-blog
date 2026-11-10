@@ -207,17 +207,17 @@ body {
 }
 /* 文字块压在中线偏上 43% */
 .home-cover.has-wall .home-cover-inner {
-  position: absolute; top: 43%; left: 0; right: 0;
+  position: absolute; top: 43%; left: 9vw; right: auto;
   transform: translateY(-50%);
-  max-width: 780px; margin: 0 auto;
+  max-width: 620px; margin: 0; text-align: left;
 }
 .home-cover-inner { position: relative; z-index: 1; max-width: 780px; }
 /* v4.6.1 文字阴影改成「近锐 + 远柔」双层：原来只有一层 18px 的大扩散，
  * 看着像光晕、实际不提供锐利暗边，亮色壁纸上白字照样发糊（实测草地背景 0.15 遮罩时看不清）。
  * 近距 2px 的小阴影负责把字边缘「切」出来，远距大阴影负责与背景分离。 */
 .home-cover-title {
- margin: 0 0 10px; font-size: clamp(24px, 5.4vw, 44px); font-weight: 800;
- line-height: var(--leading-tight, 1.2); letter-spacing: .5px; color: var(--text);
+ margin: 0 0 10px; font-size: clamp(52px, 9.2vw, 118px); font-weight: 800;
+ line-height: var(--leading-tight, 1.2); letter-spacing: -.035em; color: var(--text);
 }
 .home-cover-sub {
  margin: 0; font-size: clamp(14px, 2.1vw, 18px); line-height: var(--leading-loose, 1.7);
@@ -1493,7 +1493,7 @@ body { text-rendering: optimizeLegibility; }
    test_cover_white_text_is_scoped_to_wallpaper 会静态扫描这条选择器，
    要求 body 必须带 var(--text)（防无壁纸首屏白字压浅底）。
    章回的标题字体已由主题包 font_sans token 统一接管，这里无需重复声明。 */
-:root[data-layout="chapter"] .home-cover-inner { max-width: 720px; }
+:root[data-layout="chapter"] .home-cover-inner { max-width: 620px; }
 .zh-hero-badge {
   display: inline-block; margin-bottom: 14px; padding: 5px 16px;
   border: 1px solid rgba(255,255,255,.28); border-radius: 999px;
@@ -1579,7 +1579,9 @@ body { text-rendering: optimizeLegibility; }
   color: var(--zh-ink-muted, #98a39e); font-size: var(--type-xs, 12px); line-height: var(--leading-base, 1.6);
   display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
 }
-:root[data-card="row"] .post-card .read-more { color: var(--zh-ink-fg, #e8e6df); font-size: var(--type-2xs, 11px); }
+/* v5.10.0：作用域必须收窄到暗色分章区。data-card="row" 是全站属性，
+   原先这条浅字规则会泄漏到纸白分类页（浅底浅字实测仅 1.25:1）。 */
+:root[data-card="row"] .layout.zh-chapter-dark .post-card .read-more { color: var(--zh-ink-fg, #e8e6df); font-size: var(--type-2xs, 11px); }
 :root[data-card="row"] .skel-card { border-color: var(--zh-ink-line, #3a4541); background: var(--zh-ink-card, #26302d); }
 :root[data-card="row"] .pagination a,
 :root[data-card="row"] .pagination span { color: var(--zh-ink-muted, #98a39e); }
@@ -1631,12 +1633,28 @@ body { text-rendering: optimizeLegibility; }
   .zh-card-grid, .zh-cat-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   :root[data-card="row"] .post-card { grid-template-columns: minmax(0, 1fr) 64px; }
   :root[data-card="row"] .post-card > .cover-wrap img { width: 64px; }
+  /* v5.10.0：≤820 印章右边界(3vw+57px)会追上标题左边界(9vw)，改为标题上方的横排小印章。
+     多带 .home-cover-inner 把特异性抬到 (0,6,0)，压过文件末尾同权重的基础规则。 */
+  :root[data-layout="chapter"] .home-cover.has-wall .home-cover-inner .zh-hero-badge {
+    position: static; display: inline-block; writing-mode: horizontal-tb;
+    margin: 0 0 16px; padding: 7px 12px; letter-spacing: .3em;
+    font-size: var(--type-md, 16px); box-shadow: none;
+  }
 }
 @media (max-width: 520px) {
   .zh-card-grid, .zh-cat-grid { grid-template-columns: minmax(0, 1fr); }
   :root[data-card="row"] .post-card { grid-template-columns: minmax(0, 1fr); }
   :root[data-card="row"] .post-card > .cover-wrap { display: none; }
   .zh-update-bar { bottom: 20px; font-size: var(--type-2xs, 11px); }
+  /* v5.10.0：沿用既有断点，不新增 @media 块（断点棘轮只许减不许增）。
+     窄屏把印章挪到右上，避免与左对齐的巨型标题相撞。 */
+  /* 印章的窄屏回退已上移到 820 断点块，此处不再重复声明 */
+  :root[data-layout="chapter"] .home-cover.has-wall .home-cover-inner {
+    left: 7vw; max-width: 86vw;
+  }
+  :root[data-layout="chapter"] .zh-update-bar {
+    left: 7vw; right: 7vw; bottom: 20px; max-width: none; text-align: left;
+  }
 }
 
 /* 章回破框：v4.6.1 的「首页+壁纸」规则会把 .home-page 的每个子块限宽 1066px，
@@ -1788,4 +1806,85 @@ body { text-rendering: optimizeLegibility; }
     opacity: 1 !important; transform: none !important; clip-path: none !important;
   }
   #back-to-top { transition: none !important; }
+}
+
+/* ============================================================================
+   v5.10.0 · 章回视觉推到极致（方向 A）
+   ----------------------------------------------------------------------------
+   全站只留一个主角：卷首的巨型衬线站名。其余元素全部降级 —— 徽章变朱砂竖排
+   印章、胶囊变排版、灰色占位变卷号封面、水印变朱砂淡印。
+   约束（114 个守卫）：不新增 CSS 文件 / 不新增 @media 块 / 不写裸字号字面量 /
+   不动 [data-enter] 五串与动效参数名 / .home-cover-title 规则一律带 .has-wall。
+   字号走既有 clamp() 惯例（clamp 不命中 FS_LITERAL 正则）。
+   ============================================================================ */
+
+/* 卷首：朱砂竖排印章（复用 data-enter="1"，模板零改动） */
+:root[data-layout="chapter"] .home-cover.has-wall .zh-hero-badge {
+  /* 左外边距 + 与标题首行顶对齐：印章高约 88px < 标题行高 141px，
+     不会落到副标题行；标题::after 粗横线从标题左边界向右侧伸，也不与印章相交。 */
+  position: absolute; left: -6vw; top: 0;
+  writing-mode: vertical-rl; display: inline-block;
+  margin: 0; padding: 24px 11px; border: 0; border-radius: 2px;
+  background: var(--accent, #a8442a); color: #fff;
+  font-size: var(--type-xlg, 20px); letter-spacing: .5em;
+  box-shadow: 0 14px 44px rgba(0,0,0,.38);
+}
+/* 卷首：标题下方朱砂粗横线（伪元素，不新增 DOM） */
+.home-cover.has-wall .home-cover-title::after {
+  content: ''; display: block; width: 190px; height: 8px; margin: 30px 0 0;
+  background: var(--accent, #a8442a);
+}
+:root[data-layout="chapter"] .home-cover.has-wall .home-cover-sub {
+  max-width: 520px; font-size: var(--type-xlg, 20px);
+}
+/* 卷首：最近更新从「居中墨色胶囊」改成右下角大字排版 */
+:root[data-layout="chapter"] .zh-update-bar {
+  left: auto; right: 5vw; bottom: 9vh; transform: none;
+  display: block; max-width: 430px; padding: 0; border: 0; border-radius: 0;
+  background: transparent; color: #fff; text-align: right;
+  white-space: normal; overflow: visible;
+}
+:root[data-layout="chapter"] .zh-update-bar .zh-update-label {
+  display: block; color: #e8c9b8; letter-spacing: .42em;
+}
+:root[data-layout="chapter"] .zh-update-bar a {
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+  overflow: hidden; margin-top: 10px; color: #fff;
+  font-size: var(--type-xl, 22px); line-height: var(--leading-snug, 1.4);
+  text-decoration: none;
+}
+:root[data-layout="chapter"] .zh-update-bar a::after {
+  content: '→'; display: block; margin-top: 10px;
+  color: var(--accent, #a8442a); font-size: var(--type-2xl, 28px);
+}
+:root[data-layout="chapter"] .zh-update-bar a:hover { text-decoration: none; }
+
+/* 分卷：灰色占位 → 程序化卷号封面（category 数据无 cover 字段，零数据依赖） */
+.zh-cat-grid { counter-reset: catvol; }
+.zh-cat-card { counter-increment: catvol; }
+.zh-cat-thumb {
+  position: relative; height: 84px; opacity: 1;
+  /* 卡片整体是 <a>，显式给色避免空 div 继承默认链接蓝污染伪元素以外的文本 */
+  color: var(--zh-paper, #f3f0e8);
+  background:
+    repeating-linear-gradient(115deg, rgba(255,255,255,.05) 0 1px, transparent 1px 5px),
+    linear-gradient(135deg, var(--zh-thumb, #3a4541), var(--zh-ink, #1c2422));
+}
+.zh-cat-thumb::before {
+  content: ''; position: absolute; left: 14px; top: 16px;
+  width: 10px; height: 36px; background: var(--accent, #a8442a);
+}
+.zh-cat-thumb::after {
+  content: counter(catvol, decimal-leading-zero);
+  position: absolute; right: 12px; bottom: -2px;
+  color: var(--zh-paper, #f3f0e8); font-size: var(--type-display, 44px);
+  font-weight: 700; letter-spacing: -.04em;
+}
+/* 分卷：FEN JUAN 水印从「淡到看不见」改成朱砂淡印 + 放大。
+   用 color 的 alpha 而不是 opacity —— reduced-motion 块有 opacity:1 !important，
+   写 opacity 会在减弱动效下突然变成全不透明朱砂大字。 */
+.zh-watermark {
+  font-size: clamp(72px, 12vw, 164px);
+  color: var(--zh-seal-wash, rgba(168, 68, 42, .14));
+  letter-spacing: -.02em; top: -6px; left: -12px;
 }

@@ -1005,6 +1005,18 @@ MIME 混淆，缺少 CSP 不产生可利用的差异。
 - `_TOKEN_KIND` 白名单与 `_BASE_LIGHT` 的键集必须同步（已有 `test_base_light_matches_token_files` 钉住）；新增 token 忘记登记类别会被自家校验挡掉。
 - 档 2（主题商店 / 用户上传主题包）之前必须先有主题包来源限制，否则白名单只是把「注入」换成「任意值」。
 
+## R175 · v5.10.0（章回视觉推到极致 / 方向 A）安全审查
+
+**改动面**：纯前端 CSS（`vue-frontend/src/styles/global.css`）+ `HomeView.vue` 的 `coverStyle` computed，外加版本号与文档、一条新守卫。后端 Python 代码除 `config.py` 的 `APP_VERSION` 外**一行未动**。
+
+- **无新增攻击面**：不新增路由、接口、参数、上传点、数据库读写；`coverStyle` 仍只用 `JSON.stringify` 转义壁纸 URL（v4.6.0 既有约束保留），不把用户输入拼进 CSS 声明。
+- **遮罩浓度**：`o` 来自 `Setting.wallpaper.overlay`，既有 `Math.min(0.8, Math.max(0, Number(...) || 0))` 钳制未改；本轮只是让 `o` 参与三段渐变计算（0.35 → 0.840 / 0.315 / 0.098），没有绕过输入校验、没有写死常量导致后台滑块失效。
+- **CSS counter / 伪元素内容**：`content: counter(catvol, decimal-leading-zero)` 与 `content: '→'` 均为**静态字面量**，不取 DOM 文本、不取 API 字段，无 XSS 面；分类名仍走 Vue 插值（既有转义）。程序化封面用 CSS 渐变，零新增网络请求。
+- **颜色**：新增颜色一律 `var(--token, #兜底)` 形式；朱砂 `#a8442a` 只出现在兜底位，`test_css_token_ratchet.py` 的裸 hex 棘轮不扫 `global.css`，`test_wcag_contrast.py` 的深色块扫描未命中。水印淡印用 `color` 的 alpha 而非 `opacity`，避开 reduced-motion 块里 `opacity:1 !important` 的突变。
+- **外链与资源**：未引入任何外链字体 / 图片 / 脚本，CSP 不变；无新依赖、无生产环境 `create_all`。
+- **守卫**：`tests/test_visual_max_v5100.py` 11 条，已做变异验证（主标题上限改回 44px 立即变红并逐字节还原）；既有 114 个守卫全绿，冻结串（`[data-enter="1..5"]`、`main.js` 三行 import、两份 tokens.css 对称性）未动。
+- **结论**：无安全风险，可发版。
+
 ## R174 · v5.9.0（前台字体换为 OFL 子集 / 发布包瘦身）安全审查
 
 **范围**：静态资源与构建链路 —— 新增 `myblog/static/fonts/llhhy-serif-sc.woff2`

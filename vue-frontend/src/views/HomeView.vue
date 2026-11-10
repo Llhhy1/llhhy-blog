@@ -155,7 +155,12 @@ const coverStyle = computed(() => {
   const wp = wallpaper.value;
   if (!wp || !wp.enabled || !wallpaperUrl.value) return {};
   const o = veilOpacity.value;
-  const veil = `linear-gradient(rgba(0,0,0,${o}), rgba(0,0,0,${o}))`;
+  // v5.10.0：卷首改「左深右浅」不对称遮罩 —— 超大标题压在暗侧、壁纸在右侧透出。
+  // o 仍参与每一段计算，后台「遮罩浓度」滑块必须继续有效，不能写死常量。
+  const deep = Math.min(0.92, o * 2.4).toFixed(3);
+  const mid = (o * 0.9).toFixed(3);
+  const tail = (o * 0.28).toFixed(3);
+  const veil = `linear-gradient(90deg, rgba(0,0,0,${deep}) 0%, rgba(0,0,0,${mid}) 45%, rgba(0,0,0,${tail}) 100%)`;
   // 用 JSON.stringify 生成 url() 里的引号转义：壁纸 URL 来自 Setting，
   // 即便后端已限定本站 uploads，也不该在模板绑定里裸拼进 CSS 声明。
   const light = wp.light ? `url(${JSON.stringify(wp.light)})` : "none";

@@ -8,6 +8,18 @@
 > v4.3.1 ~ v4.6.1 → `docs/archive/CHANGELOG_v4.3.1-v4.6.1.md`（v5.5.0 因体积守卫触发，搬走最老六个版本段）。
 > 本文件从 **v4.7.0** 起。**归档不是删除** —— 查旧版本变更细节时去上述文件。
 
+## v5.10.0（2026-11-10 · 章回视觉推到极致：一个主角 / 不对称 / 朱砂强调）
+
+资深评审取证后由站主选定方向 **A**，P1 卷首 + P2 分卷 + P3 对比度一次交付。
+**接口契约不变、无迁移、无新依赖、无表结构变更、主题包 schema 与 `update.sh` 未动。**
+
+- **诊断**：线上实测卷首主标题 44px / 副标题 16px（仅 2.75×）、文章 H1 22px / 正文 16px（**1.38×**）；主题包 `css` 字段 0 字节、章回语言硬编码在 `look.css` 的 47 条选择器；全仓 114 个守卫。结论是「每处都安全地好看，但没有一处推到极致」。
+- **P1 卷首**：主标题 `clamp(24px,5.4vw,44px)` → **`clamp(52px,9.2vw,118px)`**（跳跃约 7.4×）；`.home-cover-inner` 从居中改**左对齐 9vw**；`coverStyle` 遮罩改**左深右浅三段渐变**，但仍消费 `veilOpacity`，后台遮罩浓度滑块继续有效；`.zh-hero-badge` 从 12px 胶囊改**朱砂竖排印章**（复用 `data-enter="1"`，模板零改动）；新增 `.home-cover-title::after` 8px 朱砂粗横线；`.zh-update-bar` 从居中墨色胶囊改**右下角大字排版**。
+- **P2 分卷**：`/api/site` 的 categories 只有 `{count,name,slug}`、**无 cover 字段** → 用 CSS counter + 纸纹做**程序化卷号封面**（零数据依赖、不改表）；`FEN JUAN` 水印放大到 `clamp(72px,12vw,164px)` 并改朱砂淡印，刻意用 `color` 的 alpha 而非 `opacity`（避开 reduced-motion 块里 `opacity:1 !important` 的突变）。
+- **P3 对比度**：根因是 `global.css:1582` 的 `:root[data-card="row"] .post-card .read-more` 浅字规则权重高于 `look.css:885` 章回层朱砂规则，而 `data-card="row"` 是**全站**属性 → 暗色横卡区的浅字**泄漏到纸白分类页**（实测 1.25:1，AA 需 4.5:1）。已把作用域收窄到 `.layout.zh-chapter-dark`，亮色页回落朱砂（≥4.5:1）。
+- **守卫**：新增 `tests/test_visual_max_v5100.py`（11 条，已变异验证：把主标题改回 44px 立刻变红）。全程不新建 CSS 文件、不新增 `@media` 块（断点棘轮只许减不许增）、不动 `[data-enter]` 五串与动效参数名、不改两份 `tokens.css`；`look.css` 的 P2 章回块一行未动。
+- **工程约束**：字号沿用既有 `clamp()` 惯例（不命中 `FS_LITERAL` 正则），新增 `var(--type-*, Npx)` 兜底值全部落在 `FS_FALLBACKS` 收敛表内；朱砂一律走 `var(--accent, #a8442a)` 兜底形式。
+
 ## v5.9.0（2026-11-10 · 前台字体换为 OFL 子集：后端包 27.96 MB → 约 4 MB）
 
 **背景（只读实测）**：`myblog-backend.zip` 压缩后 27.96 MB / 728 条目，其中京华老宋体

@@ -461,14 +461,23 @@ async function doLogout() {
 }
 
 // 阅读进度条 + 回到顶部显示
+// v5.8.0：旧实现每次 scroll 都写 bar.style.width（改 width 触发 layout）且
+// 没有合帧；现改为 rAF 内只写 transform: scaleX（合成层，不触发 layout），
+// 回顶按钮也从 display:none/block 硬切改成 .is-visible 的 opacity 过渡。
+let _scrollRaf = 0;
 function onScroll() {
-  const h = document.documentElement;
-  const scrolled = h.scrollTop || document.body.scrollTop;
-  const total = (h.scrollHeight || document.body.scrollHeight) - h.clientHeight;
-  const bar = document.getElementById("reading-progress");
-  const top = document.getElementById("back-to-top");
-  if (bar) bar.style.width = (total > 0 ? Math.min(100, (scrolled / total) * 100) : 0) + "%";
-  if (top) top.style.display = scrolled > 320 ? "block" : "none";
+  if (_scrollRaf) return;
+  _scrollRaf = window.requestAnimationFrame(() => {
+    _scrollRaf = 0;
+    const h = document.documentElement;
+    const scrolled = h.scrollTop || document.body.scrollTop;
+    const total = (h.scrollHeight || document.body.scrollHeight) - h.clientHeight;
+    const bar = document.getElementById("reading-progress");
+    const top = document.getElementById("back-to-top");
+    const ratio = total > 0 ? Math.min(1, Math.max(0, scrolled / total)) : 0;
+    if (bar) bar.style.transform = "scaleX(" + ratio.toFixed(4) + ")";
+    if (top) top.classList.toggle("is-visible", scrolled > 320);
+  });
 }
 
 onMounted(async () => {

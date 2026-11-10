@@ -1656,3 +1656,136 @@ body { text-rendering: optimizeLegibility; }
 }
 .zh-card-grid > .zh-chapter-head { grid-column: 1 / -1; }
 .zh-card-grid > .skel-card { margin-bottom: 0; }
+
+/* ============================================================================
+   v5.8.0 动效层（补齐主题包 motion 三档 + 卷首/分章质感）
+   ----------------------------------------------------------------------------
+   为什么全写在这里：main.js 的三行 CSS import 被守卫冻结，不能新建样式文件；
+   look.css 的 P2 章回语言层块内禁 @media / 禁 !important / 每条选择器必须以
+   :root[data-layout="chapter"] 开头 —— 所以动效规则集中在 global.css 末尾，
+   只在「已激活章回 + 对应档位」时生效，经典主题与未激活主题包零影响。
+   只用 opacity / transform / clip-path（合成层），不碰 width / top / left。
+   ============================================================================ */
+
+/* 三档参数。默认（未注入 data-motion 或 value 异常）走 var() 兜底 = subtle，
+   因此旧缓存、经典主题、主题包损坏时观感与 v5.7.0 完全一致。 */
+:root[data-motion="subtle"] {
+  --motion-reveal-dur: 420ms;
+  --motion-enter-dur: 520ms;
+  --motion-stagger: 90ms;
+  --motion-reveal-y: 10px;
+  --motion-enter-y: 16px;
+  --motion-wm-shift: 20px;
+}
+:root[data-motion="full"] {
+  --motion-reveal-dur: 640ms;
+  --motion-enter-dur: 760ms;
+  --motion-stagger: 130ms;
+  --motion-reveal-y: 22px;
+  --motion-enter-y: 28px;
+  --motion-wm-shift: 52px;
+}
+:root[data-motion="off"] {
+  --motion-reveal-dur: 1ms;
+  --motion-enter-dur: 1ms;
+  --motion-stagger: 0ms;
+  --motion-reveal-y: 0px;
+  --motion-enter-y: 0px;
+  --motion-wm-shift: 0px;
+}
+
+/* 滚动渐入：v-reveal 指令把列表序号写成 --reveal-delay（55ms 递增、封顶 7 档），
+   这里只负责消费它。同特异性靠后覆盖 v3.17.0 的 .reveal 简写 transition。 */
+.reveal {
+  opacity: 0;
+  transform: translateY(var(--motion-reveal-y, 10px));
+  transition: opacity var(--motion-reveal-dur, 350ms) var(--ui-ease-out, ease) var(--reveal-delay, 0ms),
+              transform var(--motion-reveal-dur, 350ms) var(--ui-ease-out, ease) var(--reveal-delay, 0ms);
+}
+.reveal.revealed { opacity: 1; transform: none; }
+
+/* 卷首阶梯入场：data-enter 是序号钩子，不新增 class、不碰 .home-cover-title
+   选择器（白字守卫静态扫它）。fill-mode 用 backwards 而非 both —— 动画结束后
+   回到原有可见样式，不把 opacity 锁在动画末态，避免影响 LCP 与主题切换。 */
+:root[data-layout="chapter"] .home-cover [data-enter] {
+  animation: cover-enter var(--motion-enter-dur, 520ms) var(--ui-ease-out, ease) backwards;
+  animation-delay: calc(var(--motion-stagger, 90ms) * var(--enter-i, 0));
+}
+:root[data-layout="chapter"] .home-cover [data-enter="1"] { --enter-i: 0; }
+:root[data-layout="chapter"] .home-cover [data-enter="2"] { --enter-i: 1; }
+:root[data-layout="chapter"] .home-cover [data-enter="3"] { --enter-i: 2; }
+:root[data-layout="chapter"] .home-cover [data-enter="4"] { --enter-i: 3; }
+:root[data-layout="chapter"] .home-cover [data-enter="5"] { --enter-i: 4; }
+@keyframes cover-enter {
+  from { opacity: 0; transform: translateY(var(--motion-enter-y, 16px)); }
+  to   { opacity: 1; transform: none; }
+}
+
+/* 明暗分章「揭幕」：默认完全可见（不依赖 JS），IO 命中后追加一次性 class 才播。
+   不改硬切语义 —— 只是色块出现的过程多一次自上而下的展开。 */
+:root[data-layout="chapter"] .zh-chapter-light.is-revealed {
+  animation: chapter-uncover var(--motion-enter-dur, 520ms) var(--ui-ease-out, ease);
+}
+@keyframes chapter-uncover {
+  from { clip-path: inset(0 0 16% 0); opacity: .78; }
+  to   { clip-path: inset(0 0 0 0);   opacity: 1; }
+}
+
+/* FEN JUAN 水印视差：仅 full 档 + 浏览器支持 scroll-driven animation 时启用。
+   @supports 保证 Safari / 老浏览器完全静态，不需要 JS 兜底。 */
+@supports (animation-timeline: view()) {
+  :root[data-layout="chapter"][data-motion="full"] .zh-watermark {
+    animation: wm-drift linear both;
+    animation-timeline: view();
+    animation-range: entry 0% exit 100%;
+  }
+}
+@keyframes wm-drift {
+  from { transform: translateX(calc(var(--motion-wm-shift, 20px) * -1)); }
+  to   { transform: translateX(var(--motion-wm-shift, 20px)); }
+}
+
+/* 顶栏浮在壁纸上 → 滚过首屏变实心：JS 早已用 _coverIO 切 .is-solid，
+   这里只给这个既有切换补上颜色/毛玻璃过渡，不重造逻辑。 */
+:root:has(.home-cover.has-wall) .site-header {
+  transition: background-color var(--ui-dur, 280ms) var(--ui-ease, ease),
+              border-color var(--ui-dur, 280ms) var(--ui-ease, ease),
+              backdrop-filter var(--ui-dur, 280ms) var(--ui-ease, ease);
+}
+:root:has(.home-cover.has-wall) .site-header::before {
+  transition: opacity var(--ui-dur, 280ms) var(--ui-ease, ease);
+}
+
+/* 阅读进度条：JS 改写成 transform: scaleX（合成层，不触发 layout）。
+   回顶按钮从 display 硬切改成 opacity + pointer-events 过渡。 */
+.reading-progress {
+  width: 100%; transform: scaleX(0); transform-origin: 0 50%;
+  will-change: transform; transition: none;
+}
+#back-to-top {
+  display: block; opacity: 0; pointer-events: none; transform: translateY(8px);
+  transition: opacity var(--ui-dur-fast, 180ms) var(--ui-ease, ease),
+              transform var(--ui-dur-fast, 180ms) var(--ui-ease, ease);
+}
+#back-to-top.is-visible { opacity: 1; pointer-events: auto; transform: none; }
+
+/* off 档与系统「减少动态效果」：彻底静态且强制可见。
+   全局兜底只压 duration，不压 animation-delay —— 阶梯入场的延迟若不在这里
+   清掉，reduced-motion 用户仍会看到元素先隐藏一小会儿。 */
+:root[data-motion="off"] .reveal,
+:root[data-motion="off"] .home-cover [data-enter],
+:root[data-motion="off"] .zh-chapter-light.is-revealed,
+:root[data-motion="off"] .zh-watermark {
+  animation: none !important; transition: none !important;
+  opacity: 1 !important; transform: none !important; clip-path: none !important;
+}
+@media (prefers-reduced-motion: reduce) {
+  .reveal,
+  .home-cover [data-enter],
+  .zh-chapter-light.is-revealed,
+  .zh-watermark {
+    animation: none !important; transition: none !important;
+    opacity: 1 !important; transform: none !important; clip-path: none !important;
+  }
+  #back-to-top { transition: none !important; }
+}

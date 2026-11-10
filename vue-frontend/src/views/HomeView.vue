@@ -9,10 +9,13 @@
          出现「切了主题壁纸还是亮色」。 -->
     <section ref="coverRef" class="home-cover" :class="{ 'has-wall': !!wallpaperUrl }" :style="coverStyle">
       <div class="home-cover-inner">
-        <span v-if="isChapter" class="zh-hero-badge">{{ zhLabels.hero_badge || '卷首' }}</span>
-        <h2 class="home-cover-title">{{ state.site.site_name || state.site.site_title || '我的博客' }}</h2>
-        <p class="home-cover-sub">{{ state.site.site_description || '记录思考，分享知识' }}</p>
-        <div v-if="socials.length" class="home-cover-social" aria-label="联系方式">
+        <!-- v5.8.0：data-enter 只作阶梯入场的序号钩子，样式全在 CSS 里按
+             [data-enter="N"] 取 animation-delay；不新增 class、不碰 .home-cover-title
+             选择器（白字守卫会静态扫它），reduced-motion 下 CSS 会整体关掉。 -->
+        <span v-if="isChapter" class="zh-hero-badge" data-enter="1">{{ zhLabels.hero_badge || '卷首' }}</span>
+        <h2 class="home-cover-title" data-enter="2">{{ state.site.site_name || state.site.site_title || '我的博客' }}</h2>
+        <p class="home-cover-sub" data-enter="3">{{ state.site.site_description || '记录思考，分享知识' }}</p>
+        <div v-if="socials.length" class="home-cover-social" aria-label="联系方式" data-enter="4">
           <component
             :is="s.href ? 'a' : 'button'"
             v-for="s in socials.slice(0, 8)"
@@ -33,7 +36,7 @@
       </div>
       <!-- v5.5.0 章回：首屏底部「最近更新」胶囊。数据来自首页文章列表本身，
            不发额外请求；没有文章时不渲染。 -->
-      <div v-if="isChapter && items.length" class="zh-update-bar">
+      <div v-if="isChapter && items.length" class="zh-update-bar" data-enter="5">
         <span class="zh-update-label">最近更新</span>
         <router-link :to="`/post/${items[0].slug}`">{{ items[0].title }}</router-link>
       </div>
@@ -64,7 +67,7 @@
         </template>
         <template v-else>
           <p v-if="!items.length" class="empty">还没有文章。</p>
-          <PostCard v-for="p in items" :key="p.slug" :post="p" v-reveal />
+          <PostCard v-for="(p, i) in items" :key="p.slug" :post="p" v-reveal="i" />
         </template>
 
       <nav v-if="!loading && totalPages > 1" class="pagination">
@@ -84,15 +87,15 @@
 
     <!-- v5.5.0 章回：分卷区（纸白）。分类数据直接复用 /api/site 下发的
          categories，不新增接口；水印/栏目标题全部来自主题包 labels。 -->
-    <section v-if="isChapter" class="zh-chapter-light">
+    <section v-if="isChapter" class="zh-chapter-light" ref="lightRef" :class="{ 'is-revealed': lightRevealed }">
       <div class="zh-watermark" aria-hidden="true">{{ zhLabels.watermark || 'FEN JUAN' }}</div>
       <div class="zh-section-head">
         <span class="zh-eyebrow">{{ zhLabels.categories_en || 'CATEGORIES' }}</span>
         <h2>{{ zhLabels.categories_title || '分卷' }}<span class="zh-seal-dot">.</span></h2>
       </div>
       <div class="zh-cat-grid">
-        <router-link v-for="c in chapterCategories" :key="c.slug"
-                     :to="`/category/${c.slug}`" class="zh-cat-card">
+        <router-link v-for="(c, i) in chapterCategories" :key="c.slug"
+                     :to="`/category/${c.slug}`" class="zh-cat-card" v-reveal="i">
           <div class="zh-cat-thumb"></div>
           <div class="zh-cat-meta">
             <strong>{{ c.name }}</strong><span>{{ c.count }} 篇</span>
@@ -207,7 +210,30 @@ onMounted(() => {
   }, { threshold: 0 });
   _coverIO.observe(coverRef.value);
 });
+// v5.8.0：分卷区「揭幕」。默认状态完全可见（不依赖 JS），IO 命中后只追加
+// 一次性 class 触发一段 reveal 动画 —— 即使 IO 不可用 / JS 出错，纸白区也
+// 不会白屏。reduced-motion 与 data-motion=off 由 CSS 关掉整段动画。
+// 🔴 不能用 onMounted 直接取 lightRef：theme_bundle 来自 /api/site 异步回填，
+// 子组件挂载时 isChapter 多半还是 false、v-if 的 section 尚未渲染，ref 为 null，
+// IO 会直接 return 且再不重试。改 watch template ref + flush:'post'，等真实
+// DOM 出现（含主题包晚到、路由复用组件）再观察；卸载时一并断开。
+const lightRef = ref(null);
+const lightRevealed = ref(false);
+let _lightIO = null;
+watch(lightRef, (el) => {
+  if (_lightIO) { _lightIO.disconnect(); _lightIO = null; }
+  if (!el || !("IntersectionObserver" in window)) return;
+  _lightIO = new IntersectionObserver((entries) => {
+    if (entries.some((en) => en.isIntersecting)) {
+      lightRevealed.value = true;
+      _lightIO.disconnect();
+      _lightIO = null;
+    }
+  }, { rootMargin: "0px 0px -12% 0px", threshold: 0.08 });
+  _lightIO.observe(el);
+}, { flush: "post" });
 onBeforeUnmount(() => {
+  if (_lightIO) { _lightIO.disconnect(); _lightIO = null; }
   if (_coverIO) { _coverIO.disconnect(); _coverIO = null; }
   _setHeaderSolid(false);
   _applyVeilTop("");   // 别把首页专用的渐变留在 :root 上污染其他页面

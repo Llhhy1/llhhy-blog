@@ -1005,6 +1005,24 @@ MIME 混淆，缺少 CSP 不产生可利用的差异。
 - `_TOKEN_KIND` 白名单与 `_BASE_LIGHT` 的键集必须同步（已有 `test_base_light_matches_token_files` 钉住）；新增 token 忘记登记类别会被自家校验挡掉。
 - 档 2（主题商店 / 用户上传主题包）之前必须先有主题包来源限制，否则白名单只是把「注入」换成「任意值」。
 
+## R173 · v5.8.0（动效层补齐与章回质感）安全审查
+
+**范围**：纯前端展示层 —— `vue-frontend/src/styles/global.css`（末尾新增动效段）、
+`main.js`（`v-reveal` 指令）、`App.vue`（滚动回调）、`HomeView.vue` / `CategoryView.vue`
+（模板属性与一个 IO），新增 `tests/test_motion_layer_v580.py`，版本号与六份文档同步。
+后端逻辑代码**无一行改动**（仅 `config.py` 的 `APP_VERSION` 版本号 bump；`theme_bundles.py` / `store.js` 的注入逻辑只被守卫读取）。
+
+| 维度 | 结论 | 依据 |
+|---|---|---|
+| XSS / 注入 / 越权 / CSRF / SSRF / 密钥 / 限流 | 全部不适用 | 无新路由、无新接口、无网络请求、无 DOM 字符串拼接；新增的只有 `data-enter="1..5"` 静态序号属性与 `classList.toggle` / `style.setProperty("--reveal-delay", ...)`，值全部来自内部序号或固定常量，不接受外部输入 |
+| 主题包 CSS 信任边界 | 通过 | 未改 `theme_bundles.py` / `theme_library.py` / `store.js` 的 CSS 注入与白名单校验；`origin=imported` 恒禁 CSS 不变；新增 CSS 全是静态规则，无 `url()` / `@import` / `</`；后台仍零 `setProperty` |
+| 数据与凭据 | 通过 | 无迁移、无表结构变化、无环境变量变化、无新文件写入口；`update.sh` 与 Ed25519 签名链未动 |
+| 资源与可用性 | 通过 | 未引入任何动效库或新依赖；`v-reveal` 由每元素一个 IO 改为模块级单例并在 `unmounted` 解绑，减少观察者泄漏；滚动回调加 rAF 合帧、只写 `transform`；卷首动画 `fill-mode: backwards` 且分卷区默认完全可见，JS/IO 失败不会白屏 |
+| 无障碍 / 回归防护 | 通过 | `off` 档与 `prefers-reduced-motion` 强制静态并显式清 `animation-delay`；新增 11 条守卫钉住三档强度、错峰、单例 IO、进度条不写 width、揭幕默认可见、`watch` 异步 ref、动效不污染 P2 章回层、不新建 CSS 文件 |
+
+**结论**：纯展示层动效，未引入新暴露面；R170 / R171 / R172 结论不变。
+无数据库迁移、无环境变量变化、无需改 `update.sh`。
+
 ## R172 · v5.7.0（设计系统收口二期：后台去内联 / 暗色 token 化 / 排版尺度统一）安全审查
 
 **范围**：CSS 与 Jinja2 模板的展示层重构；新增 `myblog/static/admin-pages.css` 与

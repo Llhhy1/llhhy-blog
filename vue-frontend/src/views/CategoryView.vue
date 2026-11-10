@@ -16,7 +16,7 @@
         :message="viewState === 'error' ? '分类加载失败，请重试' : '该分类下还没有文章。'"
         :retry="load"
       >
-        <PostCard v-for="p in items" :key="p.slug" :post="p" />
+        <PostCard v-for="(p, i) in items" :key="p.slug" :post="p" v-reveal="i" />
       </AsyncState>
     </div>
     <Sidebar />

@@ -8,6 +8,22 @@
 > v4.3.1 ~ v4.6.1 → `docs/archive/CHANGELOG_v4.3.1-v4.6.1.md`（v5.5.0 因体积守卫触发，搬走最老六个版本段）。
 > 本文件从 **v4.7.0** 起。**归档不是删除** —— 查旧版本变更细节时去上述文件。
 
+## v5.8.0（2026-11-10 · 动效层补齐与章回质感：三档 motion 落地 / 错峰渐入 / 卷首入场与分章揭幕）
+
+按「资深开发评审」的取证结论动手：主题包 schema 早有 `MOTION_LEVELS = (off, subtle, full)`、后台主题中心有对应下拉、`store.js` 也确实注入 `data-motion`，但 `global.css` 只实现了 `off` 一档（3 条 `transition:none`），`subtle`（当前激活档）与 `full` **零规则** —— 站主在后台选「明显」不会有任何变化。本轮先补欠账，再做质感，未引入任何动效库。
+
+- **P0 · 三档真正生效**：`global.css` 末尾新增独立动效层，用 6 个 `--motion-*` 参数把时长 / 阶梯延迟 / 位移幅度做成档位变量；`full` 明显强于 `subtle`，`off` 归零并彻底关掉动画。`look.css` 的 P2 章回语言层**一行未动**（该块禁 `@media` / 禁 `!important` / 每条选择器必须带 `:root[data-layout="chapter"]` 前缀），`tokens.css` 与 `main.js` 的三行 CSS import 也未动（守卫冻结，不能新建样式文件）。
+- **P0 · 渐入错峰与扩面**：`v-reveal` 从「每个元素各 new 一个 IntersectionObserver、无卸载解绑」改成**模块级单例 + `unmounted` 解绑**；`binding.value` 传列表序号，写入 `--reveal-delay`（55ms 递增、封顶 7 档，防长列表末卡久等）。覆盖从首页 8 张卡扩到**首页卡 + 分卷卡 + 分类页卡**。经典主题与无主题包时 `var()` 兜底值等于旧行为，观感不变。
+- **P0 · 滚动性能**：`App.vue` 的 `onScroll` 旧实现每次滚动写 `bar.style.width`（触发 layout）且不合帧；改成 **rAF 合帧 + `transform: scaleX()`（合成层）**，回顶按钮从 `display:none/block` 硬切改为 `.is-visible` 的 opacity/pointer-events 过渡。
+- **P1 · 卷首阶梯入场**：`HomeView.vue` 给徽章 / 标题 / 副标题 / 社交图标 / 最近更新胶囊加 `data-enter="1..5"` 序号钩子（不新增 class、不碰被白字守卫静态扫描的 `.home-cover-title` 选择器），CSS 按 `--motion-stagger` 递延。`fill-mode` 用 `backwards` 而非 `both` —— 动画结束回到原有可见样式，不锁末态、不影响 LCP 与主题切换。
+- **P1 · 明暗分章揭幕**：分卷区默认**完全可见**（不依赖 JS），IO 命中后才追加一次性 `.is-revealed` 播一段 `clip-path` 自上而下展开 —— 即使 IO 不可用或 JS 出错也不会白屏。只加过渡，**不改「突然切到纸白」的硬切语义**。🔴 这里踩了一个真坑：`theme_bundle` 由 `/api/site` 异步回填，子组件 `onMounted` 时 `isChapter` 多半还是 false、`v-if` 的 section 尚未渲染，直接取 `lightRef` 会拿到 null 且再不重试 —— 改成 `watch(lightRef, ..., {flush:"post"})` 等真实 DOM 出现再观察。
+- **P1 · 其余质感**：顶栏「浮在壁纸上 → 滚过首屏变实心」**复用** `HomeView.vue` 已有的 `_coverIO` / `.is-solid`，只给这个切换补颜色与毛玻璃过渡，不重造逻辑；`FEN JUAN` 水印视差只在 `full` 档 + `@supports (animation-timeline: view())` 成立时启用，Safari / 老浏览器完全静态，无需 JS 兜底。全部动效只用 `opacity` / `transform` / `clip-path`，不碰 `width` / `top` / `left`。
+- **无障碍**：`off` 档与 `prefers-reduced-motion` 都彻底静态并强制可见。既有全局兜底只压 `animation-duration`、**不压 `animation-delay`**，阶梯入场的延迟若不显式清掉，开了「减少动态效果」的用户仍会看到元素先隐藏一小会儿 —— 本轮补上。
+- **守卫**：新增 `tests/test_motion_layer_v580.py`（11 条），钉住三档参数强度递增、错峰延迟被消费、单例 IO 与卸载解绑、进度条不再写 width、五个入场序号齐全、`backwards`、揭幕默认可见且用 `watch`、水印视差仅 full 档、动效不污染章回层、不新建 CSS 文件、主题包档位契约未变。
+- **验证口径**：vite build、全量 pytest、ruff、compileall；真实浏览器按 1280 / 390 两档 × 亮 / 暗 × 开启 reduced-motion 复核，比对首页三段式、文章页、分类页与控制台 0 error。
+
+**接口契约不变**（`API.md` 只 bump 头部版本）、无迁移、无新依赖、主题包 schema 未改、`update.sh` 未动、无表结构变化。**前端 CSS/JS 与模板都改了 → 必须重新 `vite build` 再打包**；后端包仍约 29 MB，一键更新必须带 `GH_MIRROR=https://gh-proxy.com/`。
+
 ## v5.7.0（2026-11-08 · 设计系统收口二期：后台去内联 / 暗色 token 化 / 排版尺度统一）
 
 承接 v5.6.0 明确延后的四项，本轮全部落地。

@@ -913,7 +913,14 @@ input[type=tel]:focus, select:focus, textarea:focus {
   margin: 8px 0 0;
   color: var(--zh-paper-fg, #232a28);
   font-family: var(--font-sans, serif);
-  font-size: var(--type-xl, 22px);
+  /* v5.11.0 设计北极星指标 1：文章页标题对正文要 ≥ 2.2×（以桌面 ≥1024px 计）。
+     正文是 var(--type-md) = 16px，原 22px 只有 1.38×，标题与正文同级 = 没有主角。
+     桌面 44/16 = 2.75×、1024px 约 38.7/16 = 2.42×；窄屏落到 30px（1.88×），
+     这是为可读性主动让步——36px 在 390 宽会把长标题折成 5 行且断行难看。
+     text-wrap:balance 让长标题的行长分配均匀，避免末行只剩两字。
+     字体子集只有 400 字重，故只放大不改 weight，避免合成粗体。 */
+  font-size: clamp(30px, 3vw + 8px, 44px);
+  text-wrap: balance;
   font-weight: 500;
   letter-spacing: .08em;
 }

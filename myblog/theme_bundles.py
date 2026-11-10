@@ -44,6 +44,13 @@ HERO_MODES = ("required", "optional", "none")
 BACKGROUND_MODES = ("flat", "chapter")
 MOTION_LEVELS = ("off", "subtle", "full")
 
+# v5.11.0 设计北极星：主题包除了「长什么样」，还要能声明「要让人记住什么」。
+# 这组字段不参与渲染，只作为可校验的设计契约 —— 让「平淡」从主观感受变成
+# 可断言的红线（见 DESIGN.md 与 tests/test_design_north_star_v5110.py）。
+DESIGN_TONES = ("minimal", "maximalist", "retro_futuristic", "organic", "luxury",
+                "editorial", "brutalist", "art_deco", "pastel", "industrial")
+_MAX_SIGNATURE = 60
+
 # 章节配色：明暗分章需要在**同一页面**同时出现两套底色，现有亮/暗 token
 # 是随 data-theme 二选一的，装不下这个语义，所以单独开一组受校验的变量。
 PALETTE_KEYS = ("ink", "ink_card", "ink_line", "ink_fg", "ink_muted",
@@ -84,6 +91,15 @@ def _enum(v, choices, default=None):
 def _int_clamp(v, lo, hi, default):
     try:
         n = int(v)
+    except (TypeError, ValueError):
+        return default
+    return max(lo, min(hi, n))
+
+
+def _f_clamp(v, lo, hi, default):
+    """浮点夹取：字号跳跃这类比例值允许小数，但仍要有上下界防离谱声明。"""
+    try:
+        n = float(v)
     except (TypeError, ValueError):
         return default
     return max(lo, min(hi, n))
@@ -205,6 +221,26 @@ def validate_bundle(raw):
     }
     motion = {"level": _enum(mot.get("level"), MOTION_LEVELS, "subtle")}
 
+    # design：设计契约（不参与渲染）。显式写了不支持的 tone ⇒ 拒绝整包，
+    # 与 layout/background/motion 的既有策略一致；缺字段才走默认值。
+    des = raw.get("design") if isinstance(raw.get("design"), dict) else {}
+    if "tone" in des and des["tone"] not in DESIGN_TONES:
+        errors.append("design.tone 取值不支持：%r" % des["tone"])
+    sig_raw = des.get("signature", "")
+    signature = sig_raw if isinstance(sig_raw, str) else ""
+    if "<" in signature or ">" in signature:
+        errors.append("design.signature 非法（禁尖括号）")
+    elif len(signature) > _MAX_SIGNATURE:
+        errors.append("design.signature 超出 %d 字" % _MAX_SIGNATURE)
+    asym = des.get("asymmetry", True)
+    design = {
+        "tone": _enum(des.get("tone"), DESIGN_TONES, "editorial"),
+        "signature": signature.strip(),
+        "type_jump_min": _f_clamp(des.get("type_jump_min"), 2.0, 6.0, 3.0),
+        "accent_share": _int_clamp(des.get("accent_share"), 5, 20, 10),
+        "asymmetry": asym if isinstance(asym, bool) else True,
+    }
+
     css, css_errors = _css_clean(raw.get("css", ""))
     errors.extend(css_errors)
 
@@ -217,7 +253,7 @@ def validate_bundle(raw):
         "tokens": {"light": light, "dark": dark},
         "palette": palette, "labels": labels,
         "layout": layout, "background": background,
-        "motion": motion, "css": css,
+        "motion": motion, "design": design, "css": css,
     }
     return clean, []
 
@@ -305,6 +341,7 @@ def public_bundle(bundle):
         "layout": bundle["layout"],
         "background": bundle["background"],
         "motion": bundle["motion"],
+        "design": bundle.get("design") or {},
         "palette": bundle["palette"],
         "labels": bundle["labels"],
         "css": bundle["css"],

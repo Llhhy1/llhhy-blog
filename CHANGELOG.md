@@ -8,6 +8,18 @@
 > v4.3.1 ~ v4.6.1 → `docs/archive/CHANGELOG_v4.3.1-v4.6.1.md`（v5.5.0 因体积守卫触发，搬走最老六个版本段）。
 > 本文件从 **v4.7.0** 起。**归档不是删除** —— 查旧版本变更细节时去上述文件。
 
+## v5.11.0（2026-11-11 · 设计北极星：调性可声明 / 可校验 + 文章页层级修复）
+
+把「设计意图散在 5703 行 CSS 里」收成一份**可断言的规格**，并修掉 v5.10.0 诊断里最后一处「主角缺失」。
+**接口向后兼容（展示层新增 `design` 键）、无迁移、无新依赖、无表结构变更、`update.sh` 未动。**
+
+- **`DESIGN.md`（新）**：调性承诺 / 唯一难忘元素 / 6 条可判定硬指标 / 实测表 / 架构判定 / 新增主题包 checklist，成为视觉决策的单一真相源。
+- **主题包 `design` 契约**：`theme_bundles.py` 新增 10 种调性枚举与 `_f_clamp`，`design` 块（`tone` / `signature` / `type_jump_min` / `accent_share` / `asymmetry`）经校验并入 `clean` 与 `public_bundle`；显式写错 `tone` 拒绝整包（与 layout 同策略）。章回包 1.0.2 → 1.1.0。
+- **推翻旧判断**：内置主题包 `css: ""` **不是缺陷** —— `#site-bundle-css` 在 `myblog/templates/`、`vue-frontend/index.html` 与构建产物中均不存在，是 `/api/site` 之后由 `applyThemeBundle()` `createElement` 的运行时注入点；首屏视觉写进 `css` 必然 FOUC。取证与结论写进 `DESIGN.md §5` 并由守卫钉住。
+- **文章页层级修复**：`.zh-page-title` 由 `var(--type-xl, 22px)` 改为 `clamp(30px, 3vw + 8px, 44px)` + `text-wrap: balance`。桌面 **44/16 = 2.75×**（原 1.38×），390 为 30px（1.88×，为可读性主动让步）。`font-weight` 保持 500：OFL 子集只有 400 字重，≥600 会触发合成粗体。
+- **守卫**：新增 `tests/test_design_north_star_v5110.py`（8 条，5 种变异验证）；`test_theme_bundles.py` 的前台契约键集显式扩一项 `design` 并钉死 5 个子键。
+- **验证**：全量 **1526 passed**、ruff 0；真实浏览器 1280/390 文章页 console 0 error、无横向溢出。
+
 ## v5.10.0（2026-11-10 · 章回视觉推到极致：一个主角 / 不对称 / 朱砂强调）
 
 资深评审取证后由站主选定方向 **A**，P1 卷首 + P2 分卷 + P3 对比度一次交付。

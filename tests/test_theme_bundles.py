@@ -274,9 +274,13 @@ def test_下发结构与前台契约字段对齐():
     with open(_PACK, encoding="utf-8") as f:
         c, _ = bundles.validate_bundle(json.load(f))
     pub = bundles.public_bundle(c)
-    assert set(pub) == {"id", "layout", "background", "motion", "palette", "labels", "css"}
+    assert set(pub) == {"id", "layout", "background", "motion", "design",
+                        "palette", "labels", "css"}
     assert set(pub["layout"]) == {"mode", "card", "frame", "sidebar", "hero",
                                   "columns", "content_max", "gap"}
+    # v5.11.0：design 是「可校验的设计契约」，键集同样冻结，防止随手加字段
+    assert set(pub["design"]) == {"tone", "signature", "type_jump_min",
+                                 "accent_share", "asymmetry"}
 
 
 def test_前台确实消费展示层且经典路径零影响():

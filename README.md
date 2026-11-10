@@ -2,7 +2,7 @@
 
 前后端分离的个人博客：**Flask** 后端（JSON API + 管理后台）+ **Vue3** 前台（SPA）。单仓库托管前后端代码、部署文档与安全报告。
 
-- 当前版本：**v5.10.0**
+- 当前版本：**v5.11.0**
 - **版本历史一律记在 [CHANGELOG.md](CHANGELOG.md)，README 不重复记录。**
 
 ## 功能一览
@@ -126,6 +126,12 @@ npm run dev              # http://localhost:5173
 - 评论头像由第三方 CDN（cn.cravatar.com）提供：仅发送邮箱的 MD5 哈希（Gravatar 协议标准，明文不落库），拉取失败自动回退默认头像；用户邮箱不会对外暴露
 
 完整审计见 [myblog/SECURITY_AUDIT.md](myblog/SECURITY_AUDIT.md)。
+
+## 设计
+
+视觉决策的单一真相源是 [DESIGN.md](DESIGN.md)：调性承诺、唯一难忘元素、字号跳跃 ≥3×、
+60-30-10、以及主题包 `design` 契约。硬指标由 `tests/test_design_north_star_v5110.py` 断言，
+「主题包 `css` 必须为空」的架构理由（客户端注入会 FOUC）也记在那份文件里。
 
 ## License
 

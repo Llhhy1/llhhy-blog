@@ -1005,6 +1005,19 @@ MIME 混淆，缺少 CSP 不产生可利用的差异。
 - `_TOKEN_KIND` 白名单与 `_BASE_LIGHT` 的键集必须同步（已有 `test_base_light_matches_token_files` 钉住）；新增 token 忘记登记类别会被自家校验挡掉。
 - 档 2（主题商店 / 用户上传主题包）之前必须先有主题包来源限制，否则白名单只是把「注入」换成「任意值」。
 
+## R176 · v5.11.0（设计北极星：主题包 `design` 契约 + 文章页层级）安全审查
+
+**改动面**：`myblog/theme_bundles.py`（新增 `design` 解析与 `_f_clamp`）、`myblog/theme_packs/zhanghui.json`（新增 `design` 块、版本 1.1.0）、`vue-frontend/src/styles/look.css`（一条字号）、`DESIGN.md` 与新守卫，外加版本号与文档。
+
+- **新增攻击面：主题包 `design` 字段（第三方包不可信）**
+  - `tone` 走十项枚举白名单，显式写错值**拒绝整包**；`signature` 限 60 字并禁 `<` / `>`（与 labels 同一套防模板注入口径）；`type_jump_min` 经 `_f_clamp(2.0, 6.0)`、`accent_share` 经 `_int_clamp(5, 20)`、`asymmetry` 非 bool 一律回落 `True` —— **不接受任意类型/任意数值**。
+  - `design` 仅作为展示层元数据下发，前端**不做 `v-html`、不拼 DOM、不参与选择器**，无注入路径；后台列表仍走 `summary()`，未把新字段塞进列表响应。
+- **不新增路由 / 接口 / 参数 / 上传点 / 数据库读写**；`public_bundle` 只多一个键，既有字段与响应结构向后兼容。
+- **无新依赖**；未引入外链字体/图片/脚本，CSP 不变；无生产 `create_all`。
+- **CSS 变更**为单条 `font-size: clamp(...)` + `text-wrap`，颜色全部走既有 token，未新增裸 hex。
+- **测试**：`tests/test_theme_bundles.py` 的前台契约键集显式扩一项 `design` 并钉死 5 个子键（防止随手加字段）；新增 `tests/test_design_north_star_v5110.py` 8 条，含「内置包 `css` 必须为空、模板不得出现 `site-bundle-css`」的结构性断言。
+- **结论**：无新增可利用面；主题包信任边界与 v5.5.0 保持一致（同一条 `validate_bundle`，坏包只不出现在列表，不 500）。
+
 ## R175 · v5.10.0（章回视觉推到极致 / 方向 A）安全审查
 
 **改动面**：纯前端 CSS（`vue-frontend/src/styles/global.css`）+ `HomeView.vue` 的 `coverStyle` computed，外加版本号与文档、一条新守卫。后端 Python 代码除 `config.py` 的 `APP_VERSION` 外**一行未动**。

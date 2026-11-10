@@ -1029,6 +1029,8 @@ sha256sum /tmp/og.png /www/wwwroot/你的站点根/og-default.png
 >   自带 Bearer 鉴权、非会话）。若你的 MCP 客户端此前一直在报 403，升级后即恢复。
 > - 全量报告：`docs/audit/2026-10-07-full-audit-report.md`。
 
+> **v5.11.0 升级要点（设计北极星 + 文章页层级）**：**前端改了 → 必须先 `vite build` 再打包，两个包都要覆盖**。后端动了 `myblog/theme_bundles.py`（新增 `design` 解析）与 `myblog/theme_packs/zhanghui.json`（新增 `design` 块、包版本 1.1.0），**无迁移、无新依赖、无表结构变更**，`update.sh` 未动。升级后请检查：① 首页卷首仍是大字左对齐 + 朱砂印章（v5.10.0 观感应无变化）；② **文章页标题应明显变大**（桌面 44px，对正文 16px 约 2.75×）、长标题在手机上折行均匀；③ 后台「主题 → 主题市场」的章回卡不报错（展示层多了一个 `design` 键，前端不使用）。若升级后文章页标题仍是 22px，说明拿到的是旧前端包，请确认 `vite build` 与前端 zip 都更新了。
+
 > **v5.10.0 升级要点（章回视觉推到极致）**：**前端改了 → 必须先 `vite build` 再打包，两个包都要覆盖**。前端动了 `vue-frontend/src/styles/global.css`（末尾新增独立视觉段 + 卷首既有规则微调）与 `views/HomeView.vue` 的 `coverStyle`；后端只改 `config.py` 版本号与文档，**无迁移、无新依赖、无表结构变更**，`update.sh` 与主题包 schema 未动。升级后请在亮/暗 × 桌面/移动各看一眼首页首屏：主标题应显著变大并左对齐、左侧有朱砂竖排印章、右下角「最近更新」是大字排版、分卷卡顶部是卷号封面；后台「遮罩浓度」滑块仍应能改变首屏明暗；开启 `prefers-reduced-motion` 时所有入场动画应静态可见。分类页「阅读全文」应为清晰朱砂色（此前浅底浅字仅 1.25:1）。
 >
 > **v5.9.0 升级要点（前台字体换为 OFL 子集 / 后端包瘦身）**：**后端与前端都改了 → 两个包都要覆盖，且必须先 `vite build` 再打包**（`package.py` 打的是 `_vite_build30/`）。前端改了 `index.html`（字体 CSS 链接）；后端改了 `myblog/themes.py`（`font_sans` 首选 → `LLHhy Serif SC`）、

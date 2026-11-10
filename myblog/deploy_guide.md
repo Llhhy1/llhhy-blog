@@ -1029,6 +1029,18 @@ sha256sum /tmp/og.png /www/wwwroot/你的站点根/og-default.png
 >   自带 Bearer 鉴权、非会话）。若你的 MCP 客户端此前一直在报 403，升级后即恢复。
 > - 全量报告：`docs/audit/2026-10-07-full-audit-report.md`。
 
+> **v5.9.0 升级要点（前台字体换为 OFL 子集 / 后端包瘦身）**：**后端与前端都改了 → 两个包都要覆盖，且必须先 `vite build` 再打包**（`package.py` 打的是 `_vite_build30/`）。前端改了 `index.html`（字体 CSS 链接）；后端改了 `myblog/themes.py`（`font_sans` 首选 → `LLHhy Serif SC`）、
+**`myblog/theme_packs/zhanghui.json`**（站主激活的章回包也写死了旧字体栈，
+`/api/site` 的 `theme_tokens.font_sans` 来自这里，version `1.0.1→1.0.2`）、
+`package.py`（排除旧资产）、新增 `static/fonts/llhhy-serif-sc.woff2` + `.css` + `OFL-NotoSerifSC.txt`。
+> - **后端包从约 28 MB 降到约 4 MB**（京华老宋体 503 分片 24.63 MB 不再进包，换成 0.61 MB 子集 woff2）。`update.sh` 未改，但沿用既有纪律**仍建议带 `GH_MIRROR=https://gh-proxy.com/`**。
+> - **字体生效的判据**（部署后必查）：`curl -sI https://<域名>/static/fonts/llhhy-serif-sc.css` 与 `/static/fonts/llhhy-serif-sc.woff2` 都应为 **200**（后者 `content-type: font/woff2`）；浏览器控制台 `document.fonts.check('16px "LLHhy Serif SC"')` 应为 `true`，且 Network 里只有一个 woff2 请求、无 404。⚠️ 旧版 `index.html` 若被浏览器缓存，会继续请求 `kinghua.css` → 硬刷新（本项目已给 `index.html` 配 `expires -1`）。
+> - **不要在服务器上跑 `tools/build_subset_font.py --check`**：该脚本只在仓库 `tools/` 下、未随包分发，且服务器没有 `fonttools`。服务端自检用上面两条 curl 即可。
+> - **观感变化（预期内，站主已确认）**：京华老宋体（60 年代老铅印宋）→ 思源宋体（现代规整宋）。若某几个字看着像系统宋体，是子集外字符按字体栈回落，属设计行为，不是故障；要补齐就按 `FONTS.md` 跑一次 `--refresh` 重新生成字体并重新发版。
+> - **线上旧资产**：`/www/wwwroot/myblog/static/fonts/kinghua/` 的 503 个分片**不会自动删除**（`update.sh` 用 `rsync -a`，无 `--delete`），已无人引用、仅占约 25 MB 磁盘。确认前台不再引用 `kinghua.css` 后，可由站主手动回收；Agent 不代劳删生产文件。
+> - 下方 **v5.4.4 段关于「~29 MB / 503 分片 / `fetch_kinghua_font.py --check`」的说明已过时**，以本段与 `static/fonts/FONTS.md` 为准（历史段保留仅为追溯）。
+> - 无数据库迁移、无新增生产依赖、无环境变量变化、`update.sh` 未动；上线后照常三层核验（磁盘 `APP_VERSION` / 库 `alembic_version` / 公网 `/api/docs`），并用真实浏览器按 1280 / 390 × 亮 / 暗复核正文排版。
+>
 > **v5.8.0 升级要点（动效层补齐与章回质感）**：**后端逻辑零改动，只有前端改了 → 依然两个包都要覆盖，且必须先 `vite build` 再打包**（`package.py` 打的是 `_vite_build30/`）。前端动了 `src/styles/global.css`（末尾新增独立动效段）、`src/main.js`（`v-reveal` 单例 IO + 错峰）、`src/App.vue`（滚动回调 rAF + `transform:scaleX`）、`src/views/HomeView.vue` / `CategoryView.vue`（`data-enter` 序号、分卷区 IO、`v-reveal="i"`）；新增 `tests/test_motion_layer_v580.py`。后端只有 `config.py` 的 `APP_VERSION` 与文档同步。**主题包三档动效（off / subtle / full）现在真正生效**，站主在「主题中心 → 版面与动效 → 动效档」切换即可看到差别；当前线上激活的是 `subtle`（与升级前观感一致 + 新增错峰与卷首入场）。无迁移、无新依赖、接口契约不变、`update.sh` 不动；`look.css` 的章回语言层与 `tokens.css` 一行未改，旧缓存命中时不会掉色。上线后按三层核验：磁盘 `APP_VERSION`、库 `alembic_version` 与表数、公网 `/api/docs` 版本头；再用真实浏览器按 1280 / 390 两档 × 亮 / 暗看首页三段式（卷首入场 → 暗色分章 → 纸白分卷揭幕）、文章页、分类页，并开启系统「减少动态效果」复核一遍应完全静态。后端包仍约 29 MB → 部署必须带 `GH_MIRROR=https://gh-proxy.com/`。
 >
 > **v5.7.0 升级要点（设计系统收口二期）**：**后端与前端都改了 → 两个包都要覆盖，且必须先 `vite build` 再打包**（`package.py` 打的是 `_vite_build30/`）。新增 `static/admin-pages.css`（后台共享样式，由 `admin/base.html` 在 `admin.css` 之后引入）；`static/tokens.css` / `static/style.css` / `static/admin.css`、`templates/admin/*.html` 多处、前台 `src/styles/*.css` 与部分 Vue SFC 的 `<style>` 段都有改动。所有新增变量都带 `var(--token, 原值)` 兜底，旧缓存命中时不会掉色。无迁移、无新依赖、接口契约不变、`update.sh` 不动。上线后按三层核验：磁盘 `APP_VERSION`、库 `alembic_version` 与表数、公网 `/api/docs` 版本头；再用真实浏览器看首页 / 文章页 / 分类页 / 登录页的亮暗两套表现。后端包仍约 29 MB → 部署必须带 `GH_MIRROR=https://gh-proxy.com/`。
@@ -1058,7 +1070,7 @@ sha256sum /tmp/og.png /www/wwwroot/你的站点根/og-default.png
 >   但 Flask 渲染的页面（登录/注册/后台/爬虫壳页）受 `script-src 'self' 'unsafe-inline' 'unsafe-eval'` 约束，**站外脚本会被拦** —— 这不是 bug，别把统计代码的验证放到登录页上做。
 > - 访客侧的可见变化：顶栏与手机抽屉**不再有**「🎨 选择主题」按钮。若某个访客反馈「按钮还在」，是他浏览器里的旧前端产物，硬刷新即可。
 >
-> **v5.4.4（主题「青野」+ 京华老宋体自托管）升级要点**：**后端与前端都改了 → 两个包都要覆盖**。前端动了 `src/styles/global.css`、`look.css`、`index.html`、`vite.config.js`，**必须先 `npm run build`**；后端 `themes.py` 多一套 `sage-sand` 预设。
+> **v5.4.4（主题「青野」+ 京华老宋体自托管）升级要点**〔历史段，字体部分已被 v5.9.0 取代〕：**后端与前端都改了 → 两个包都要覆盖**。前端动了 `src/styles/global.css`、`look.css`、`index.html`、`vite.config.js`，**必须先 `npm run build`**；后端 `themes.py` 多一套 `sage-sand` 预设。
 > - **后端包体积从 ~5 MB 涨到 ~29 MB**（+503 个 woff2 分片 / 24.8 MB）。这是「京华老宋体」自托管的代价：本站 CSP 是 `font-src 'self' data:`，hotlink 会被浏览器直接拦掉；分片不进 git（`.gitignore` 两条路径），但**随包分发**。
 > - 不想带字体：删掉 `myblog/static/fonts/kinghua/` 与 `kinghua.css` 再 `python package.py`。前台会自动回落 `Noto Serif SC / Songti SC / SimSun / serif`，只是「青野」少了宋体质感，功能与排版都不坏。
 > - **字体生效的判据**（部署后必查）：`curl -sI https://<域名>/static/fonts/kinghua.css` 应为 **200 + `content-type: text/css`**；浏览器 Network 里 `kinghua/*.woff2` 有实际请求（不是 0 条）。若是 404，先看包里有没有 —— `unzip -l myblog-backend.zip | grep -c 'fonts/kinghua/'` 应为 504（503 分片 + css）。

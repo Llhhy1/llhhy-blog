@@ -1,6 +1,6 @@
 # llhhy-blog API 文档
 
-> 版本：**v5.8.0**（2026-11-10 同步：动效层补齐与章回质感，接口契约不变，与 `APP_VERSION` 一致）
+> 版本：**v5.9.0**（2026-11-10 同步：前台字体换为 OFL 子集，接口契约不变，与 `APP_VERSION` 一致）
 >
 > 本文档描述 llhhy-blog 的全部 JSON 接口（`/api/*`，共 **176 条**）与后台页面调用的
 > JSON 接口（`/admin/*`，共 **17 条**）。前端（`vue-frontend/src/lib/api.js`）与本站页面

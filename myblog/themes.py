@@ -697,7 +697,7 @@ THEME_PRESETS = [
                shadow_sm="0 0 10px rgba(0,0,0,.05)",
                shadow_md="0 0 20px 1px rgba(0,0,0,.05)",
                shadow_lg="0 5px 20px 1px rgba(0,0,0,.08)",
-               font_sans="'KingHwaOldSong','Noto Serif SC','Source Han Serif SC','Songti SC','SimSun',serif",
+               font_sans="'LLHhy Serif SC','Noto Serif SC','Source Han Serif SC','Songti SC','SimSun',serif",
                line_height_base="1.62"),
 ]
 PRESET_MAP = {p["id"]: p for p in THEME_PRESETS}

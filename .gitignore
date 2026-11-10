@@ -76,3 +76,7 @@ htmlcov/
 # （手工编辑会在下次重跑时被无声覆盖）。
 myblog/static/fonts/kinghua/
 myblog/static/fonts/kinghua.css
+
+# v5.9.0 子集字体的源 OTF（11.6 MB）：构建时由 tools/build_subset_font.py
+# 自动下载到此处，只作一次性输入，产物 woff2 才入版。
+tools/.font-source/

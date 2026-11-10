@@ -58,7 +58,7 @@ def test_sage_preset_exists_and_is_readable():
 def test_sage_preset_switches_the_font_family():
     lt = PRESET_MAP[SAGE]["light"]
     assert lt["font_sans"] != _BASE_LIGHT["font_sans"], "衬线包没换字体栈"
-    assert "KingHwaOldSong" in lt["font_sans"]
+    assert "LLHhy Serif SC" in lt["font_sans"], "v5.9.0 站点专用宋体子集没进字体栈"
     # 回落链要真能回落：缺字体时不能掉成无衬线（那样整站观感突变）
     tail = lt["font_sans"].rsplit(",", 1)[-1].strip()
     assert tail == "serif", "字体栈末尾不是 serif，回落会变成无衬线"
@@ -86,7 +86,8 @@ def test_font_link_and_csp_agree():
     """前台挂了自托管字体的 `<link>`，而 CSP 必须允许 `'self'` —— 两边任缺其一，
     字体都不会生效（而且不报错，只是悄悄回落）。"""
     html = _read("vue-frontend/index.html")
-    assert "/static/fonts/kinghua.css" in html, "index.html 没挂自托管字体 CSS"
+    assert "/static/fonts/llhhy-serif-sc.css" in html, "index.html 没挂 v5.9.0 自托管字体 CSS"
+    assert "/static/fonts/kinghua.css" not in html, "旧京华老宋体 CSS 还挂在首屏"
     sec = _read("myblog/security.py")
     m = re.search(r"font-src([^;\"]*)", sec)
     assert m and "'self'" in m.group(1), "CSP font-src 不放 'self'，本地字体加载不了"

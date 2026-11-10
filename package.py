@@ -44,8 +44,13 @@ BACKEND_SRC = os.path.join(ROOT, "myblog")
 FRONT_BASE = os.path.join(ROOT, "vue-frontend")
 
 # 后端打包排除项
-EXCLUDE_DIRS = {"data", "__pycache__", ".git", "node_modules", "instance", ".pytest_cache"}
+# v5.9.0：旧「京华老宋体」503 个 woff2 分片（24.8 MB）已下线，这里显式排除，
+# 防止打包机上残留的 .gitignore 生成物又被 add_tree() 扫进后端 zip
+# （曾占后端包 88%，逼得每次部署都必须挂 GH_MIRROR）。
+EXCLUDE_DIRS = {"data", "__pycache__", ".git", "node_modules", "instance",
+                ".pytest_cache", "kinghua"}
 EXCLUDE_SUFFIXES = (".pyc",)
+EXCLUDE_FILES = {"kinghua.css"}
 
 
 def expected_version():
@@ -56,13 +61,13 @@ def expected_version():
     return m.group(1) if m else None
 
 
-def add_tree(zf, base_dir, arc_root, exclude_dirs, exclude_suffixes):
+def add_tree(zf, base_dir, arc_root, exclude_dirs, exclude_suffixes, exclude_files=()):
     """递归把 base_dir 加入 zf，arcname 以 arc_root 开头。"""
     for dirpath, dirnames, filenames in os.walk(base_dir):
         # 过滤目录
         dirnames[:] = [d for d in dirnames if d not in exclude_dirs]
         for fn in filenames:
-            if fn.endswith(exclude_suffixes):
+            if fn.endswith(exclude_suffixes) or fn in exclude_files:
                 continue
             full = os.path.join(dirpath, fn)
             rel = os.path.relpath(full, base_dir)
@@ -100,7 +105,7 @@ def find_front_dir(explicit=None):
 def package_backend(version):
     out = os.path.join(ROOT, "myblog-backend.zip")
     with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as zf:
-        add_tree(zf, BACKEND_SRC, "myblog", EXCLUDE_DIRS, EXCLUDE_SUFFIXES)
+        add_tree(zf, BACKEND_SRC, "myblog", EXCLUDE_DIRS, EXCLUDE_SUFFIXES, EXCLUDE_FILES)
         # v3.22.0：把 FTS 重建脚本随包分发，使一键更新后站点目录 tools/ 下即可用
         # （R94.3 修复后，历史库里已存在的隐私/回收站文章正文行必须显式重建一次才会消失）。
         # 只挑这一个运维脚本——绝不把仓库根 tools/ 里的开发/CI 工具

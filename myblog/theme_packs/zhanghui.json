@@ -3,8 +3,8 @@
   "id": "zhanghui",
   "name": "章回",
   "en": "Chapters",
-  "version": "1.0.1",
-  "desc": "以「一册书」为叙事的版面：满屏卷首、暗色新章横卡流、突然切到纸白的分卷区。明暗分章 + 京华老宋体 + 朱砂印记。",
+  "version": "1.0.2",
+  "desc": "以「一册书」为叙事的版面：满屏卷首、暗色新章横卡流、突然切到纸白的分卷区。明暗分章 + 站点宋体 + 朱砂印记。",
   "tags": ["分章", "衬线"],
   "tokens": {
     "light": {
@@ -23,7 +23,7 @@
       "radius_md": "10px",
       "radius_lg": "14px",
       "radius_pill": "999px",
-      "font_sans": "'KingHwaOldSong','Noto Serif SC','Source Han Serif SC','Songti SC','SimSun',serif",
+      "font_sans": "'LLHhy Serif SC','Noto Serif SC','Source Han Serif SC','Songti SC','SimSun',serif",
       "line_height_base": "1.72",
       "shadow_sm": "0 1px 3px rgba(35,42,40,.05)",
       "shadow_md": "0 6px 18px rgba(35,42,40,.09)",

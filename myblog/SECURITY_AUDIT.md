@@ -1005,6 +1005,32 @@ MIME 混淆，缺少 CSP 不产生可利用的差异。
 - `_TOKEN_KIND` 白名单与 `_BASE_LIGHT` 的键集必须同步（已有 `test_base_light_matches_token_files` 钉住）；新增 token 忘记登记类别会被自家校验挡掉。
 - 档 2（主题商店 / 用户上传主题包）之前必须先有主题包来源限制，否则白名单只是把「注入」换成「任意值」。
 
+## R174 · v5.9.0（前台字体换为 OFL 子集 / 发布包瘦身）安全审查
+
+**范围**：静态资源与构建链路 —— 新增 `myblog/static/fonts/llhhy-serif-sc.woff2`
+（0.61 MB）/ `.css` / `OFL-NotoSerifSC.txt`、`tools/build_subset_font.py`、
+`tools/font_charset.txt`、`tests/test_font_subset_v590.py`；改 `vue-frontend/index.html`、
+`myblog/themes.py`、**`myblog/theme_packs/zhanghui.json`**（内置章回包的
+`tokens.light.font_sans` 也写死了旧字体，是 `/api/site` 的真实来源）、`package.py`、
+`.gitignore`、`FONTS.md`、两份既有守卫的断言，版本号与六份文档同步。**无新路由、无新接口、无后端业务逻辑改动**（仅 `config.py`
+的 `APP_VERSION` bump）。
+
+| 维度 | 结论 | 依据 |
+|---|---|---|
+| 供应链（本轮重点） | 通过 | 源字体 `NotoSerifSC-Regular.otf`（11.6 MB）与 OFL 全文从 GitHub raw 下载后**逐一校验固定 sha256**（`SOURCE_SHA256` / `LICENSE_SHA256`），不匹配即 `SystemExit` 拒绝生成；`--no-verify` 仅供自定义源显式启用。产物 woff2 由本地 fontTools 生成并入库，线上不执行下载逻辑 |
+| 许可合规 | 通过 | Noto Serif SC 为 SIL OFL 1.1：允许修改、子集化、嵌入网页与再分发。全文 + 版权声明随字体入版（`OFL-NotoSerifSC.txt`）；子集化保留 `name_IDs=["*"]`（含版权/许可记录），内部 family 改名 `LLHhy Serif SC` 避免与完整版混淆；不单独售卖字体文件 |
+| CSP / 外链 / 隐私 | 通过 | `security.py` 的 `font-src 'self' data:` 一字未改；CSS 只有 `url("./llhhy-serif-sc.woff2")` 相对路径，无 `@import`、无第三方域名；访客 IP/UA 不外流 |
+| 字体文件本身 | 通过 | woff2 为纯字形/轮廓数据，不含脚本、不含 `</`、不作为 HTML/SVG 解析；CSP `font-src 'self'` 下同源加载 |
+| 依赖 | 通过 | `fonttools[woff]` / `brotli` **仅构建机**安装，未写入任何生产 requirements；`update.sh` 的 ④b（`www` 跑 pip）不会触发新依赖 → 不复发 v5.4.0 的 `Errno 13` |
+| 数据与凭据 | 通过 | 无迁移、无表结构变化、无环境变量变化、无新文件写入口；Ed25519 签名链与 `update.sh` 未动；`tools/.font-source/`（源 OTF）已加 `.gitignore`，不进仓库不进包 |
+| 打包边界 | 通过 | `package.py` 显式排除 `kinghua/` 目录与 `kinghua.css` 文件；`.gitignore` 保留旧两条且未忽略整个 `fonts/`；新增的 0.61 MB woff2 属预期入包资产 |
+| 可用性 / 回归防护 | 通过 | CSS 不写 `unicode-range`，子集外字符按字体栈优雅回落 `serif`，不 404、不白屏；`font-display: swap` 不阻塞渲染；新增守卫钉住 woff2 magic / 1.5 MB 上限 / CSS 与字体栈一致 / 旧 CSS 不再被引用 / 许可全文存在；`--check` 断言汉字零缺字 |
+| 旧资产处置 | 说明项 | 线上 503 个历史分片因 `rsync -a`（无 `--delete`）**不会自动删除**，已无人引用、仅占磁盘；**本轮不擅自删生产文件**，回收由站主手动确认 |
+
+**结论**：静态资源替换 + 构建链路加固，未引入新的对外暴露面；供应链与许可两条
+均为本轮新增的显式防护。R170 / R171 / R172 / R173 结论不变。
+无数据库迁移、无环境变量变化、无需改 `update.sh`。
+
 ## R173 · v5.8.0（动效层补齐与章回质感）安全审查
 
 **范围**：纯前端展示层 —— `vue-frontend/src/styles/global.css`（末尾新增动效段）、

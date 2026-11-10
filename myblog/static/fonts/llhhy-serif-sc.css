@@ -1,0 +1,10 @@
+/* v5.9.0：站点专用宋体子集，基于 Noto Serif SC (SIL OFL 1.1)。
+   生成：python tools/build_subset_font.py --refresh && python tools/build_subset_font.py
+   许可全文见同目录 OFL-NotoSerifSC.txt；缺字由字体栈优雅回落到系统宋体。 */
+@font-face {
+  font-family: "LLHhy Serif SC";
+  src: url("./llhhy-serif-sc.woff2") format("woff2");
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+}

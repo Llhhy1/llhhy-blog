@@ -59,7 +59,11 @@ PALETTE_KEYS = ("ink", "ink_card", "ink_line", "ink_fg", "ink_muted",
 
 # 文案标签：主题自带的栏目文字。键白名单，值纯文本（禁尖括号，防模板注入）。
 LABEL_KEYS = ("eyebrow", "volume", "volume_en", "categories_en",
-              "categories_title", "watermark", "hero_badge", "seal")
+              "categories_title", "watermark", "hero_badge", "seal",
+              # v5.11.1：列表页页首眉标。章回页首结构从首页/文章页扩到列表页后，
+              # 每个页面的眉标都要能被主题包声明，而不是死写在模板里。
+              # 缺项给空串、前台回退英文默认，不因缺键判整包非法。
+              "tags_en", "search_en", "series_en", "annual_en", "stats_en")
 
 _MAX_TEXT = 120
 _MAX_LABEL = 40

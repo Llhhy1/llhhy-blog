@@ -53,7 +53,12 @@
     "categories_title": "分卷",
     "watermark": "FEN JUAN",
     "hero_badge": "卷首",
-    "seal": "章回"
+    "seal": "章回",
+    "tags_en": "TAGS",
+    "search_en": "SEARCH",
+    "series_en": "SERIES",
+    "annual_en": "ANNUAL",
+    "stats_en": "STATS"
   },
   "layout": {
     "mode": "chapter",

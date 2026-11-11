@@ -1,7 +1,13 @@
 <template>
   <div class="layout">
     <div class="content">
-      <h1 class="page-title">文章系列</h1>
+      <!-- v5.11.1：章回页首结构补齐（原为裸 page-title）。 -->
+      <div v-if="chapterOn()" class="zh-page-head">
+        <span class="zh-page-eyebrow">{{ chapterLabels().series_en || 'SERIES' }}</span>
+        <h1 class="zh-page-title">文章系列</h1>
+        <span class="zh-page-seal">{{ series.length }} 个系列</span>
+      </div>
+      <h1 v-else class="page-title">文章系列</h1>
       <p class="empty" v-if="!series.length">还没有系列，去后台「系列管理」添加吧。</p>
       <div class="series-grid">
         <router-link v-for="s in series" :key="s.slug" class="series-card" :to="`/series/${s.slug}`">
@@ -18,6 +24,7 @@
 <script setup>
 import { ref, onMounted } from "vue";
 import { apiGet } from "../lib/api.js";
+import { chapterOn, chapterLabels } from "../lib/chapter.js";
 import Sidebar from "../components/Sidebar.vue";
 
 const series = ref([]);

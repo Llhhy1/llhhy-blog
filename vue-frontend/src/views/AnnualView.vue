@@ -1,7 +1,13 @@
 <template>
   <div>
     <div class="page-head">
-      <h1 class="page-title">📅 {{ year }} 年度回顾</h1>
+      <!-- v5.11.1：章回页首结构补齐（原为裸 page-title）。年度页没有「篇数」语义的
+           计数胶囊 —— 发文数在下面的 ar-stats 里已经是大字，这里不重复。 -->
+      <div v-if="chapterOn()" class="zh-page-head zh-page-head--bare">
+        <span class="zh-page-eyebrow">{{ chapterLabels().annual_en || 'ANNUAL' }}</span>
+        <h1 class="zh-page-title">{{ year }} 年度回顾</h1>
+      </div>
+      <h1 v-else class="page-title">📅 {{ year }} 年度回顾</h1>
       <select v-if="years.length > 1" v-model.number="year" @change="load" class="year-select" aria-label="选择年份">
         <option v-for="y in years" :key="y" :value="y">{{ y }}</option>
       </select>
@@ -97,6 +103,7 @@
 <script setup>
 import { onMounted, ref } from "vue";
 import { apiGet } from "../lib/api.js";
+import { chapterOn, chapterLabels } from "../lib/chapter.js";
 
 const year = ref(new Date().getFullYear());
 const years = ref([]);

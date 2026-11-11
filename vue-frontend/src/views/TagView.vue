@@ -1,7 +1,14 @@
 <template>
   <div class="layout">
     <div class="content">
-      <h1 class="page-title">标签：{{ name }}</h1>
+      <!-- v5.11.1：章回页首结构补齐。原来只有裸 page-title，和分类页的
+           「眉标 + 衬线大标题 + 朱砂计数」是两套语言，切主题时像两个网站。 -->
+      <div v-if="chapterOn()" class="zh-page-head">
+        <span class="zh-page-eyebrow">{{ chapterLabels().tags_en || 'TAGS' }}</span>
+        <h1 class="zh-page-title">{{ name }}</h1>
+        <span class="zh-page-seal">{{ items.length }} 篇</span>
+      </div>
+      <h1 v-else class="page-title">标签：{{ name }}</h1>
       <p v-if="!items.length" class="empty">该标签下还没有文章。</p>
       <PostCard v-for="p in items" :key="p.slug" :post="p" />
     </div>
@@ -14,6 +21,7 @@ import { onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { apiGet } from "../lib/api.js";
 import { state } from "../store.js";
+import { chapterOn, chapterLabels } from "../lib/chapter.js";
 import PostCard from "../components/PostCard.vue";
 import Sidebar from "../components/Sidebar.vue";
 

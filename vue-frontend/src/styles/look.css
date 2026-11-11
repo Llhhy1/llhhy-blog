@@ -894,14 +894,17 @@ input[type=tel]:focus, select:focus, textarea:focus {
   letter-spacing: .06em;
 }
 
-/* 结构钩子：眉标 / 衬线大标题 / 朱砂计数胶囊 */
+/* 结构钩子：眉标 / 衬线大标题 / 朱砂计数胶囊。
+   v5.11.1：整块由居中改**左对齐** —— 首页卷首已立了「左对齐破格」的调性，
+   列表页再居中就断了。文章页不受影响：`.post-detail h1.zh-page-title` 有
+   自己的 text-align:center，阅读页居中更稳，刻意保留。 */
 :root[data-layout="chapter"] .zh-page-head {
   position: relative;
   max-width: var(--zh-content-max, 1100px);
-  margin: 0 auto 22px;
+  margin: 0 0 22px;
   padding: 18px 0 14px;
   border-bottom: 1px solid var(--zh-paper-line, #ddd8cc);
-  text-align: center;
+  text-align: left;
 }
 :root[data-layout="chapter"] .zh-page-eyebrow {
   display: block;
@@ -924,15 +927,65 @@ input[type=tel]:focus, select:focus, textarea:focus {
   font-weight: 500;
   letter-spacing: .08em;
 }
+/* v5.11.1：由灰描边胶囊改**实底朱砂 + 纸白字** —— 原色是 --zh-paper-muted（灰），
+   与「朱砂计数」的声明不符，也和首页朱砂印章不是一套语言。
+   用实底而非描边：不依赖底色，明暗两套对比度都 ≥ 6:1（纸白 #f3f0e8 on #a8442a）。
+   刻意用具体计数（4 篇 / 56 个），不用「篇」这类虚字——数字本身就是编排信息。 */
 :root[data-layout="chapter"] .zh-page-seal {
   display: inline-block;
   margin-top: 8px;
   padding: 3px 12px;
-  border: 1px solid var(--zh-paper-line, #ddd8cc);
+  border: 1px solid var(--zh-seal, #a8442a);
   border-radius: 999px;
-  color: var(--zh-paper-muted, #6b756f);
+  background: var(--zh-seal, #a8442a);
+  color: var(--zh-paper, #f3f0e8);
   font-size: var(--type-xs, 12px);
+  letter-spacing: .08em;
 }
+/* 卷内序号（v5.11.1）：纸白列表页的卡片编号 01/02/03…，与首页分卷的
+   `.zh-cat-thumb` 卷号是同一套数字语言。
+   用 CSS counter 而不是给 PostCard 加 prop —— PostCard 被首页暗色横卡区共用，
+   加 prop 会波及那边；:not(.zh-chapter-dark) 把它锁死在纸白区。
+   淡朱砂 14% 当页码看，不与标题抢注意力；绝对定位 + pointer-events:none，
+   零布局影响（float 在 data-card="row" 的 grid 容器里会失效，所以不用 float）。 */
+:root[data-layout="chapter"] .layout:not(.zh-chapter-dark) .content {
+  counter-reset: cardno;
+}
+:root[data-layout="chapter"] .layout:not(.zh-chapter-dark) .post-card {
+  position: relative;
+  counter-increment: cardno;
+}
+:root[data-layout="chapter"] .layout:not(.zh-chapter-dark) .post-card::before {
+  content: counter(cardno, decimal-leading-zero);
+  position: absolute;
+  top: 8px;
+  right: 14px;
+  color: var(--zh-seal-wash, rgba(168, 68, 42, .14));
+  font-size: var(--type-display, 44px);
+  font-weight: 500;
+  line-height: var(--leading-flat, 1);
+  letter-spacing: -.02em;
+  pointer-events: none;
+}
+
+/* AnnualView 的 .page-head 是既有 flex 行（标题 + 年份选择器，两端对齐）。
+   章回页首嵌进去后不能再带底边线 —— 选择器在右侧，线会断在半空。 */
+:root[data-layout="chapter"] .zh-page-head--bare {
+  margin-bottom: 0;
+  padding-bottom: 0;
+  border-bottom: 0;
+}
+
+/* 系列详情：简介跟在朱砂胶囊下面，随页首一起左对齐。 */
+:root[data-layout="chapter"] .zh-series-desc {
+  margin: 10px 0 0;
+  color: var(--zh-paper-muted, #6b756f);
+  font-size: var(--type-base, 15px);
+}
+:root[data-layout="chapter"][data-theme="dark"] .zh-series-desc {
+  color: var(--zh-ink-muted, #98a39e);
+}
+
 :root[data-layout="chapter"] .post-detail .zh-page-eyebrow {
   text-align: center;
 }
@@ -990,8 +1043,11 @@ input[type=tel]:focus, select:focus, textarea:focus {
 :root[data-layout="chapter"][data-theme="dark"] .zh-page-title {
   color: var(--zh-ink-fg, #e8e6df);
 }
+/* 暗色下仍是实底朱砂（原为灰描边灰字）：实底不依赖底色，明暗两套都由基础规则
+   保证 ≥ 6:1，这里显式声明是为了让「暗色确实被考虑过」留在代码里。 */
 :root[data-layout="chapter"][data-theme="dark"] .zh-page-seal {
-  border-color: var(--zh-ink-line, #3a4541);
-  color: var(--zh-ink-muted, #98a39e);
+  border-color: var(--zh-seal, #a8442a);
+  background: var(--zh-seal, #a8442a);
+  color: var(--zh-paper, #f3f0e8);
 }
 /* ==== P2 CHAPTER LANGUAGE LAYER END (v5.6.0) ============================== */

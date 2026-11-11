@@ -1005,6 +1005,27 @@ MIME 混淆，缺少 CSP 不产生可利用的差异。
 - `_TOKEN_KIND` 白名单与 `_BASE_LIGHT` 的键集必须同步（已有 `test_base_light_matches_token_files` 钉住）；新增 token 忘记登记类别会被自家校验挡掉。
 - 档 2（主题商店 / 用户上传主题包）之前必须先有主题包来源限制，否则白名单只是把「注入」换成「任意值」。
 
+## R177 · v5.11.1（列表页调性统一：页首覆盖面 + 卷内序号）安全审查
+
+**改动面**：7 个 `vue-frontend/src/views/*.vue` 模板、`vue-frontend/src/styles/look.css`、`myblog/theme_bundles.py`（`LABEL_KEYS` 扩 5 键）、`myblog/theme_packs/zhanghui.json`（labels 增 5 项）、`DESIGN.md`、新增 `tests/test_list_pages_v5111.py`。
+**审计维度**：XSS / SQL 注入 / 越权 / SSRF / CSRF / 密钥泄露 / 资源泄漏 / 限流。
+
+| # | 维度 | 结论 | 依据 |
+|---|---|---|---|
+| 1 | XSS | 通过 | 7 处新增眉标全用 Vue `{{ }}` 插值（自动转义），**无新增 `v-html`**；`SearchView.vue:42` 的 `v-html="p.highlight"` 是既有代码、本轮 diff 未触及。后端 `validate_bundle` 对 labels 既有 `<`/`>` 拒绝 + 长度 ≤40 清洗，新增 5 键走同一循环。 |
+| 2 | SQL 注入 | 通过 | 零 SQL / ORM 改动。 |
+| 3 | 越权 | 通过 | 零新增路由与鉴权逻辑；`/api/site` 是既有公开只读接口，新增 labels 为展示层、无敏感数据。 |
+| 4 | SSRF | 通过 | 零外部 URL / 网络请求；`look.css` 新增规则 grep 无 `url(` / `@import` / `expression(` / `javascript:`。 |
+| 5 | CSRF | 通过 | 零 POST / 写接口改动，全局 `_csrf_protect` 不变。 |
+| 6 | 密钥泄露 | 通过 | 零凭据、零环境变量改动。 |
+| 7 | 资源泄漏 | 通过 | 零文件句柄 / 连接 / 子进程操作。 |
+| 8 | 限流 | 不适用 | 本轮无写接口。 |
+
+- **新增攻击面：主题包 `labels` 白名单扩键** —— 只增加 5 个常量字符串键名，值仍走既有 `for k in LABEL_KEYS` 清洗（非字符串置空、含 `<`/`>` 拒绝整项、截断 40 字）。第三方包即使写坏值，最坏结果是该眉标为空串 → 前台 `|| 'TAGS'` 回退，**不进 DOM 拼接、不参与选择器**。
+- **CSS 新增 `counter()` / `::before` / 颜色变量**：`content: counter(cardno, decimal-leading-zero)` 由浏览器求值，不接受用户输入；颜色全走既有 token（`--zh-seal` / `--zh-seal-wash` / `--zh-paper`），未新增裸 hex；`pointer-events: none` 确保序号不拦截点击。
+- **不新增数据库读写 / 表结构 / 依赖**；生产仍走 Alembic，未引入 `create_all`。
+- **结论**：无新增可利用面；主题包信任边界与 v5.11.0 / v5.5.0 保持一致（同一条 `validate_bundle`，坏包只不出现在列表，不 500）。
+
 ## R176 · v5.11.0（设计北极星：主题包 `design` 契约 + 文章页层级）安全审查
 
 **改动面**：`myblog/theme_bundles.py`（新增 `design` 解析与 `_f_clamp`）、`myblog/theme_packs/zhanghui.json`（新增 `design` 块、版本 1.1.0）、`vue-frontend/src/styles/look.css`（一条字号）、`DESIGN.md` 与新守卫，外加版本号与文档。

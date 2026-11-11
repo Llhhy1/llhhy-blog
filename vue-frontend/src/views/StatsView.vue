@@ -1,6 +1,13 @@
 <template>
   <div class="stats-page">
-    <h1 class="page-title">📊 运营驾驶舱</h1>
+    <!-- v5.11.1：章回页首结构补齐（原为裸 page-title）。计数用时间范围而非文章数
+         —— 驾驶舱的每张卡都带自己的数字，页首重复一遍文章数没有信息量。 -->
+    <div v-if="chapterOn()" class="zh-page-head">
+      <span class="zh-page-eyebrow">{{ chapterLabels().stats_en || 'STATS' }}</span>
+      <h1 class="zh-page-title">运营驾驶舱</h1>
+      <span class="zh-page-seal">近 {{ range }} 天</span>
+    </div>
+    <h1 v-else class="page-title">📊 运营驾驶舱</h1>
 
     <!-- v4.7.0 站点概览：原首页 bento 六卡的接盘处。
          刻意放在 `v-if="!loaded"` **之外** —— 它读的是 /api/site（App.vue 已并入 store），
@@ -264,6 +271,7 @@
 <script setup>
 import { computed, onMounted, ref } from "vue";
 import { apiGet } from "../lib/api.js";
+import { chapterOn, chapterLabels } from "../lib/chapter.js";
 import { state } from "../store.js";
 
 const loaded = ref(false);

@@ -3,7 +3,15 @@
     <div class="content">
       <div v-if="notFound" class="series-detail-head"><h1>找不到该系列</h1></div>
       <template v-else-if="series">
-        <div class="series-detail-head">
+        <!-- v5.11.1：由自定义 .series-detail-head 换成章回页首三件套，
+             与分类/标签/归档同一套语言。简介保留在标题下方，篇数收进朱砂胶囊。 -->
+        <div v-if="chapterOn()" class="zh-page-head">
+          <span class="zh-page-eyebrow">{{ chapterLabels().series_en || 'SERIES' }}</span>
+          <h1 class="zh-page-title">{{ series.name }}</h1>
+          <span class="zh-page-seal">{{ series.posts.length }} 篇</span>
+          <p v-if="series.description" class="zh-series-desc">{{ series.description }}</p>
+        </div>
+        <div v-else class="series-detail-head">
           <h1>📚 {{ series.name }}</h1>
           <p class="desc">{{ series.description || "" }}</p>
           <p class="series-count">共 {{ series.posts.length }} 篇</p>
@@ -43,6 +51,7 @@
 import { ref, computed, onMounted, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { apiGet } from "../lib/api.js";
+import { chapterOn, chapterLabels } from "../lib/chapter.js";
 import PostCard from "../components/PostCard.vue";
 import Sidebar from "../components/Sidebar.vue";
 

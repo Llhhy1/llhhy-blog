@@ -1,7 +1,14 @@
 <template>
   <div class="layout">
     <div class="content">
-      <h1 class="page-title">🔥 热门标签</h1>
+      <!-- v5.11.1：章回页首结构补齐（原为裸 page-title）。计数用真实标签数，
+           不用「个」这类虚字——数字本身就是编排信息。 -->
+      <div v-if="chapterOn()" class="zh-page-head">
+        <span class="zh-page-eyebrow">{{ chapterLabels().tags_en || 'TAGS' }}</span>
+        <h1 class="zh-page-title">热门标签</h1>
+        <span class="zh-page-seal">{{ tags.length }} 个标签</span>
+      </div>
+      <h1 v-else class="page-title">🔥 热门标签</h1>
       <p class="empty" v-if="!tags.length">还没有标签数据</p>
       <div class="hot-tag-cloud">
         <router-link
@@ -22,6 +29,7 @@
 <script setup>
 import { onMounted, ref } from "vue";
 import { apiGet } from "../lib/api.js";
+import { chapterOn, chapterLabels } from "../lib/chapter.js";
 import Sidebar from "../components/Sidebar.vue";
 
 const tags = ref([]);

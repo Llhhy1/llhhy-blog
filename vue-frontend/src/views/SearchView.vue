@@ -1,7 +1,14 @@
 <template>
   <div class="layout">
     <div class="content">
-      <h1 class="page-title">搜索{{ q ? `：${q}` : "" }}</h1>
+      <!-- v5.11.1：章回页首结构补齐（原为裸 page-title）。
+           没搜索词时不挂计数——「0 条」会让人以为站里没内容。 -->
+      <div v-if="chapterOn()" class="zh-page-head">
+        <span class="zh-page-eyebrow">{{ chapterLabels().search_en || 'SEARCH' }}</span>
+        <h1 class="zh-page-title">搜索{{ q ? `：${q}` : "" }}</h1>
+        <span v-if="q" class="zh-page-seal">{{ items.length }} 条</span>
+      </div>
+      <h1 v-else class="page-title">搜索{{ q ? `：${q}` : "" }}</h1>
 
       <!-- 搜索历史（v4.9.0）：纯前端 localStorage，最近 10 条，可点可删 -->
       <div v-if="history.length" class="search-history">
@@ -50,6 +57,7 @@
 import { onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { apiGet, apiPost } from "../lib/api.js";
+import { chapterOn, chapterLabels } from "../lib/chapter.js";
 import Sidebar from "../components/Sidebar.vue";
 import { getHistory, addHistory, removeHistory, clearHistory } from "../lib/searchHistory.js";
 

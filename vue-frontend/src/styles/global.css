@@ -127,7 +127,7 @@ body {
 /* 框内内容区：负责实际左右留白（避免与外框 padding 叠加） */.site-frame-inner {
  padding: 22px 18px 8px; }
 /* v3.8.8：文档页（/docs）内容极宽（三栏 + 右侧「本页目录」），打破 1100px 限宽并放开裁剪，
-   否则三栏被压窄、TOC 被 @media(max-width:1100px) 隐藏、且 overflow:hidden 破坏 sticky 侧栏 */.site-frame--wide {
+   否则三栏被压窄、TOC 被旧中宽媒体块隐藏、且 overflow:hidden 破坏 sticky 侧栏 */.site-frame--wide {
  max-width: 1500px; overflow: visible; }
 .site-frame--wide .site-frame-inner {
  padding: 22px 24px 8px; }
@@ -1849,27 +1849,27 @@ body { text-rendering: optimizeLegibility; }
 :root[data-layout="chapter"] .home-cover.has-wall .home-cover-sub {
   max-width: 520px; font-size: var(--type-xlg, 20px);
 }
-/* 卷首：最近更新从「居中墨色胶囊」改成右下角大字排版 */
+/* 卷首：最近更新并回主角左轴（v5.12.0 精修）——不再右下角大字争视线 */
 :root[data-layout="chapter"] .zh-update-bar {
-  left: auto; right: 5vw; bottom: 9vh; transform: none;
-  display: block; max-width: 430px; padding: 0; border: 0; border-radius: 0;
-  background: transparent; color: #fff; text-align: right;
+  left: 9vw; right: auto; bottom: 8vh; transform: none;
+  display: flex; gap: 16px; align-items: baseline; max-width: 560px;
+  padding: 0; border: 0; border-radius: 0;
+  background: transparent; color: var(--zh-paper-fg, #232a28); text-align: left;
   white-space: normal; overflow: visible;
 }
 :root[data-layout="chapter"] .zh-update-bar .zh-update-label {
-  display: block; color: #e8c9b8; letter-spacing: .42em;
+  display: block; color: var(--zh-seal, #a8442a); letter-spacing: .22em; flex-shrink: 0;
 }
 :root[data-layout="chapter"] .zh-update-bar a {
-  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
-  overflow: hidden; margin-top: 10px; color: #fff;
-  font-size: var(--type-xl, 22px); line-height: var(--leading-snug, 1.4);
+  display: -webkit-box; -webkit-line-clamp: 1; -webkit-box-orient: vertical;
+  overflow: hidden; color: var(--zh-paper-muted, #6b756f);
+  font-size: var(--type-meta, 14px); line-height: var(--leading-base, 1.6);
   text-decoration: none;
 }
 :root[data-layout="chapter"] .zh-update-bar a::after {
-  content: '→'; display: block; margin-top: 10px;
-  color: var(--accent, #a8442a); font-size: var(--type-2xl, 28px);
+  content: ''; display: none;
 }
-:root[data-layout="chapter"] .zh-update-bar a:hover { text-decoration: none; }
+:root[data-layout="chapter"] .zh-update-bar a:hover { color: var(--accent, #a8442a); }
 
 /* 分卷：灰色占位 → 程序化卷号封面（category 数据无 cover 字段，零数据依赖） */
 .zh-cat-grid { counter-reset: catvol; }
@@ -1900,3 +1900,136 @@ body { text-rendering: optimizeLegibility; }
   color: var(--zh-seal-wash, rgba(168, 68, 42, .14));
   letter-spacing: -.02em; top: -6px; left: -12px;
 }
+
+/* ============================================================================
+   v5.12.0 · 章回卷首精修：按主题分流（章回 = 纸墨，其余 14 套保留满屏壁纸）
+   ----------------------------------------------------------------------------
+   取证：refine-sample.html 用真实 llhhy-serif-sc.woff2 + zhanghui.json 色值。
+   刻意**保留 .has-wall class** —— 左对齐 9vw、破框、顶栏 _coverIO、hint 都依赖它，
+   只用 :root[data-layout="chapter"] 覆盖视觉层；零 JS 改动，其他主题逐字不变。
+   全局 .home-cover-title 的 800 / -.035em 保留给 14 套无衬线主题（那是真实字重），
+   章回宋体子集只有 400 字重，故在此单独覆盖，避免合成假粗体。
+   不新建 CSS 文件、不写裸字号字面量、断点复用 640（已在 ALLOWED_BREAKPOINTS）。
+   ============================================================================ */
+:root[data-layout="chapter"] .home-cover.has-wall {
+  background-color: var(--zh-paper, #f3f0e8);
+  background-image:
+    repeating-linear-gradient(0deg, rgba(35,42,40,.018) 0 1px, transparent 1px 6px),
+    linear-gradient(100deg, rgba(227,221,208,.5), transparent 58%);
+  background-attachment: scroll;
+}
+:root[data-layout="chapter"] .home-cover.has-wall .home-cover-title {
+  font-weight: 400;
+  letter-spacing: -.012em;
+  color: var(--zh-paper-fg, #232a28);
+  text-shadow: none;
+}
+:root[data-layout="chapter"] .home-cover.has-wall .home-cover-sub {
+  color: var(--zh-paper-muted, #6b756f);
+  text-shadow: none;
+  max-width: 24em;
+  line-height: var(--line-height-base, 1.72);
+}
+:root[data-layout="chapter"] .home-cover.has-wall .home-cover-title::after {
+  height: 1px; width: 88px; margin-top: clamp(24px, 3.6vh, 40px);
+}
+:root[data-layout="chapter"] .home-cover.has-wall .zh-hero-badge {
+  padding: 15px 9px; font-size: var(--type-meta, 14px);
+  letter-spacing: .42em; box-shadow: none;
+  animation: seal-drop .62s var(--ui-ease-out, ease) .12s backwards;
+}
+@keyframes seal-drop {
+  from { opacity: 0; transform: scale(.94) translateY(-6px); }
+  to   { opacity: 1; transform: none; }
+}
+/* 纸底上把「图上白字」那一组逐条翻回墨色；:has() 限定条件与原规则一致，
+   章回规则多一个属性选择器，特异性更高，无需 !important。 */
+:root[data-layout="chapter"]:has(.home-cover.has-wall) .site-header::before {
+  background: transparent;
+}
+:root[data-layout="chapter"]:has(.home-cover.has-wall) .site-header .logo,
+:root[data-layout="chapter"]:has(.home-cover.has-wall) .site-header > .container > nav > a,
+:root[data-layout="chapter"]:has(.home-cover.has-wall) .site-header .site-toolbox-toggle {
+  color: var(--zh-paper-fg, #232a28); text-shadow: none;
+}
+:root[data-layout="chapter"]:has(.home-cover.has-wall) .site-header > .container > nav > a:hover,
+:root[data-layout="chapter"]:has(.home-cover.has-wall) .site-header .site-toolbox-toggle:hover {
+  color: var(--zh-seal, #a8442a); opacity: 1;
+}
+:root[data-layout="chapter"] .home-cover.has-wall .hcs-item {
+  background: var(--zh-paper-card, #fff);
+  border: 1px solid var(--zh-paper-line, #ddd8cc);
+  color: var(--zh-paper-muted, #6b756f);
+  -webkit-backdrop-filter: none; backdrop-filter: none;
+}
+:root[data-layout="chapter"] .home-cover.has-wall .hcs-item:hover {
+  background: var(--zh-paper-card, #fff);
+  border-color: var(--zh-seal, #a8442a);
+  color: var(--zh-seal, #a8442a);
+}
+:root[data-layout="chapter"] .home-cover-hint {
+  color: var(--zh-paper-muted, #6b756f); text-shadow: none;
+}
+/* 手机端：印章改横排独立一行（原 absolute 竖排会压住眉标小字），
+   书眉与底部信息收窄，细线缩短，避开 iPhone 底部安全区。 */
+@media (max-width: 640px) {
+  :root[data-layout="chapter"] .home-cover.has-wall .home-cover-inner {
+    left: 8vw; max-width: 84vw;
+  }
+  :root[data-layout="chapter"] .home-cover.has-wall .zh-hero-badge {
+    position: static; writing-mode: horizontal-tb; display: inline-block;
+    margin: 0 0 18px; padding: 7px 11px;
+    font-size: var(--type-xs, 12px); letter-spacing: .24em;
+    animation: none;
+  }
+  :root[data-layout="chapter"] .home-cover.has-wall .home-cover-title::after {
+    width: 64px; margin: 22px 0 20px;
+  }
+  :root[data-layout="chapter"] .home-cover.has-wall .home-cover-sub {
+    line-height: var(--leading-loose, 1.75);
+  }
+  :root[data-layout="chapter"] .zh-update-bar {
+    left: 8vw; bottom: calc(6vh + env(safe-area-inset-bottom, 0px));
+    flex-direction: column; gap: 6px; align-items: flex-start; max-width: 76vw;
+  }
+  :root[data-layout="chapter"] .zh-update-bar a {
+    -webkit-line-clamp: 2; line-height: var(--leading-base, 1.6);
+  }
+  /* 列表页 / 长文页手机端：把卷首那套字距、行宽、留白节奏推广到 ≤640。
+     html:root 前缀是必需的 —— main.js 导入顺序 global → responsive → look，
+     后两者里同权重的章回规则会盖掉这里；多带一个类型选择器才赢得了。 */
+  html:root[data-layout="chapter"] .zh-page-head {
+    padding: 18px 0 16px; margin-bottom: 18px;
+  }
+  html:root[data-layout="chapter"] .zh-page-seal {
+    padding: 5px 10px; letter-spacing: .12em;
+  }
+  html:root[data-layout="chapter"] .post-card {
+    padding: 16px 14px; margin-bottom: 12px;
+  }
+  html:root[data-layout="chapter"] .post-card h2 {
+    letter-spacing: -.006em; line-height: var(--leading-snug, 1.4);
+  }
+  html:root[data-layout="chapter"] .post-summary {
+    line-height: var(--line-height-base, 1.72); letter-spacing: .01em;
+  }
+  html:root[data-layout="chapter"] .post-body {
+    letter-spacing: .012em; line-height: var(--line-height-base, 1.72);
+  }
+  html:root[data-layout="chapter"] .post-body p { margin-bottom: 18px; }
+  html:root[data-layout="chapter"] .post-body blockquote {
+    padding-left: 14px; margin: 24px 0;
+  }
+  html:root[data-layout="chapter"] .post-body pre {
+    padding: 14px; overflow-x: auto;
+  }
+}
+:root[data-layout="chapter"][data-motion="off"] .home-cover.has-wall .zh-hero-badge {
+  animation: none !important;
+}
+@media (prefers-reduced-motion: reduce) {
+  :root[data-layout="chapter"] .home-cover.has-wall .zh-hero-badge {
+    animation: none !important; opacity: 1 !important; transform: none !important;
+  }
+}
+/* ==== v5.12.0 CHAPTER PAPER LAYER END ====================================== */

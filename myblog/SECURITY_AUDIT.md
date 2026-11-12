@@ -1005,6 +1005,27 @@ MIME 混淆，缺少 CSP 不产生可利用的差异。
 - `_TOKEN_KIND` 白名单与 `_BASE_LIGHT` 的键集必须同步（已有 `test_base_light_matches_token_files` 钉住）；新增 token 忘记登记类别会被自家校验挡掉。
 - 档 2（主题商店 / 用户上传主题包）之前必须先有主题包来源限制，否则白名单只是把「注入」换成「任意值」。
 
+## R179 · v5.12.0（章回纸墨精修 + 手机端排印 + 导航不迷路）安全审查
+
+**改动面**：`vue-frontend/src/styles/global.css`（章回纸墨层 + 顶栏分流 + 手机端排印）、`vue-frontend/src/App.vue`（面包屑 + 可见当前态 + 抽屉焦点）、`tests/` 3 个守卫文件、`DESIGN.md`。**后端业务代码零改动。**
+**审计维度**：XSS / SQL 注入 / 越权 / SSRF / CSRF / 密钥泄露 / 资源泄漏 / 限流。
+
+| # | 维度 | 结论 | 依据 |
+|---|---|---|---|
+| 1 | XSS | 通过 | 面包屑文本来自路由路径段（`decodeURIComponent`），经 Vue `{{ }}` 插值（自动转义），零 `v-html`；抽屉 `role=dialog` / `aria-modal` 为静态属性。 |
+| 2 | SQL 注入 | 通过 | 零 SQL / ORM 改动。 |
+| 3 | 越权 | 通过 | 零新增路由与鉴权逻辑。 |
+| 4 | SSRF | 通过 | CSS 无 `url(` / `@import`；面包屑纯客户端路由解析，零出网请求。 |
+| 5 | CSRF | 通过 | 零 POST / 写接口改动。 |
+| 6 | 密钥泄露 | 通过 | 零凭据、零环境变量改动。 |
+| 7 | 资源泄漏 | 通过 | 抽屉焦点管理用 `watch` + `nextTick`，Esc 监听绑在 `document` 上且抽屉关闭时移除；无定时器、无常驻监听。 |
+| 8 | 限流 | 不适用 | 本轮无写接口。 |
+
+- **CSS 分流不引入注入面**：`:root[data-layout="chapter"]` 前缀是编译期静态选择器，非用户可控。
+- **面包屑纯展示**：只读 `route.path`，无数据请求、无 innerHTML 拼接。
+- **不新增数据库读写 / 表结构 / 依赖**。
+- **结论**：无新增可利用面。
+
 ## R178 · v5.11.2（PWA 整套移除 + 交互可达性修复）安全审查
 
 **改动面**：`vue-frontend/src/` 下 `App.vue` / `main.js` / `store.js` / `styles/global.css` / `styles/look.css` / `views/AlbumView.vue` / `views/SearchView.vue`、`vue-frontend/index.html`、删除 7 个 `vue-frontend/public/` PWA 静态文件、新增 `tests/test_pwa_removal_and_a11y_v5112.py`，外加版本号与文档。**后端业务代码零改动。**

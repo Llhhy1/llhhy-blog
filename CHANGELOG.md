@@ -8,6 +8,16 @@
 > v4.3.1 ~ v4.6.1 → `docs/archive/CHANGELOG_v4.3.1-v4.6.1.md`（v5.5.0 因体积守卫触发，搬走最老六个版本段）。
 > 本文件从 **v4.7.0** 起。**归档不是删除** —— 查旧版本变更细节时去上述文件。
 
+## v5.12.0（2026-11-12 · 章回纸墨精修 + 手机端排印 + 导航不迷路）
+
+卷首主角 `font-weight:800` 在只有 400 字重的 OFL 子集上被浏览器合成假粗体（横竖等粗、字面发闷），再叠负字距/双层阴影/8px 粗线，装饰全上齐反而没了主角。**无接口 / 迁移 / 依赖 / 表结构变化，`update.sh` 未动。**
+
+- **纸墨精修**：章回专属段（`:root[data-layout="chapter"]`）：400 字重、字距 `-.012em`、墨字 `#232a28`、去双层阴影、细线 8px→1px、印章去阴影缩小、最近更新并回左轴；顶栏白字翻墨。**按主题分流**：其余 14 套壁纸/白字/8px 粗线逐字保留，实测 classic 未被误伤。
+- **手机端**：印章横排独立行 + safe-area、书眉简化、列表/长文页 ≤640 行宽与字号节奏；三宽度 `scrollWidth == innerWidth`。
+- **导航**：面包屑（两级栏目级）、主导航可见当前态（Vue Router `aria-current` 已有，补视觉线）、抽屉 `role=dialog` + 焦点进入 / Tab 循环 / Esc / 归还汉堡。
+- **守卫**：新增 `test_chapter_paper_v5120.py`（10 条）+ `test_nav_breadcrumb_v5120.py`（6 条），15 个变异点全红；`test_visual_max_v5100` / `test_design_north_star` 加段边界防误扫新层；卷首纳入字重 <600 判据。
+- **验证**：全量 **1562 passed**、ruff 0、断点棘轮 27/27；真实 Chrome 分流两路 + 面包屑 + 抽屉键盘 + console 0。
+
 ## v5.11.2（2026-11-12 · PWA 整套移除 + 交互可达性修复）
 
 `sw.js` 自 v3.21.0 起缓存名未 bump、缓存了 `/api/posts` 列表，是「发版看不到新内容」的一类真因。**无接口 / 迁移 / 依赖 / 表结构变化。**
@@ -55,53 +65,7 @@
 
 ## v5.9.0（2026-11-10 · 前台字体换为 OFL 子集：后端包 27.96 MB → 约 4 MB）
 
-**背景（只读实测）**：`myblog-backend.zip` 压缩后 27.96 MB / 728 条目，其中京华老宋体
-503 个 woff2 分片占 **24.63 MB（88%）**、文泉驿微米黑 2.24 MB、代码/静态仅 1.01 MB。
-每次发版都要重传 29 MB，服务器直连 GitHub 仅 21~28 KB/s，`GH_MIRROR` 从可选变必需。
-浏览器侧其实不重（分片按 `unicode-range` 按需加载，v5.8.0 实测首屏仅 27 请求 / 76 KB）
-—— 真正的问题在**发布包**，不是访客加载。线上 13 篇文章 + 前端文案实测只用
-**2089 个汉字**，命中 77/503 分片（4.88 MB）；京华老宋体授权「不可修改字体本身」，
-无法子集化。
-
-**决策**：改用 **Noto Serif SC / 思源宋体（SIL OFL 1.1）**，允许修改与再分发，
-按站点真实用字生成单个 woff2。站主已确认接受观感变化（老铅印宋 → 现代规整宋）。
-- 新增 `myblog/static/fonts/llhhy-serif-sc.woff2`（**0.61 MB / 2563 字形**，
-  较 24.80 MB 缩小 **40.8 倍**）、`llhhy-serif-sc.css`、`OFL-NotoSerifSC.txt`
-  （许可全文 + 版权声明）、`tools/build_subset_font.py`（可重复构建 +
-  `--refresh` 从公开 API 刷新用字 + `--check` 自检）、`tools/font_charset.txt`
-  （离线基线清单）。内部 family 改名 `LLHhy Serif SC`，避免与访客本机完整版混淆。
-- **供应链**：源 OTF / OFL 全文从 GitHub raw 下载后逐一校验 sha256，不匹配即拒绝生成；
-  `fonttools[woff]` + brotli **仅构建机依赖**，不进生产 requirements。
-- 切换：`vue-frontend/index.html` 改挂新 CSS、`themes.py` 的 `font_sans` 首选改
-  `LLHhy Serif SC`（回落链仍以 `serif` 收尾）；CSP `font-src 'self' data:` 一字未改，
-  仍是自托管、无外链。🔴 **关键接线**：站主激活的是内置「章回」主题包
-  `theme_packs/zhanghui.json`，它的 `tokens.light.font_sans` **也写死了旧字体**，
-  而 `/api/site` 的 `theme_tokens.font_sans` 来自该包而非 `themes.py` 预设 ——
-  **只改 `themes.py` 对线上零效果**（本地预览反代线上 API 时抓到 `bodyFont`
-  仍是 `KingHwaOldSong` 才发现）。已同步改包内字体栈、desc，version `1.0.1 → 1.0.2`。
-  🔴 **还有第三个真相源**：`themes.current_theme()` 优先读 `Setting.theme_tokens`
-  持久化快照（站主切主题时落库），`/api/site` 的 `theme_tokens` 来自它 ——
-  部署后实测公网仍返回旧字体名，导致「新字体上线了却没被使用」。
-  已以 www 身份一次性修正 `light`/`dark` 的 `font_sans`（先备份到服务器
-  `/tmp/theme_tokens_backup_v590.json`，`get_setting` 无缓存即时生效），
-  并在 `FONTS.md` 写清三处同步纪律与回滚快照 `theme_look_prev_v1` 的残留。**CSS 不写 `unicode-range`**：子集外的字按字体栈优雅回落
-  系统宋体，不 404、不白屏；emoji / 韩文由系统字形渲染。
-- `package.py` 的 `EXCLUDE_DIRS` / `EXCLUDE_FILES` 显式排除旧 `kinghua/` 与
-  `kinghua.css`（打包机残留也不会再进包）；`.gitignore` 保留旧两条 +
-  新增 `tools/.font-source/`（11.6 MB 源 OTF 不入库）。
-- 旧资产：`tools/fetch_kinghua_font.py` 保留作历史工具（守卫仍引用其幂等性），
-  不再被部署流程调用；线上历史分片因 `rsync -a`（无 `--delete`）**不会自动删除**，
-  已无人引用，仅占约 25 MB 磁盘，回收需站主手动确认。
-- 守卫：同步 `test_audit_v543_sage_theme.py` 两处钉死 kinghua 的断言，
-  新增 `tests/test_font_subset_v590.py`（字体三件套 / woff2 magic / 体积上限 /
-  CSS 与字体栈一致 / 打包排除 / 许可全文 / 清单下限 / 旧 CSS 不再被引用）。
-
-**验证**：vite build + 全量 pytest（基线 1493 只增不减）+ ruff 0；本地预览
-真实构建产物 + 反代线上 API，按亮/暗 × 1280/390 真实浏览器验字体生效
-（`document.fonts.check` / computed family / 无 404），console 0 error；上线后
-三层核验 + 线上浏览器复核。**接口契约不变**、无迁移、无表结构变更、
-无新增生产依赖、`update.sh` 未动。后端包预计降至约 4 MB；部署仍建议带
-`GH_MIRROR`（沿用既有纪律）。
+京华老宋体 503 分片占发布包 88%，无法子集化 → 改用 **Noto Serif SC（SIL OFL 1.1）** 按站点真实用字生成单 woff2（0.61 MB / 2563 字形，缩小 40.8×）。🔴 三处真相源需同步：`themes.py` / `theme_packs/zhanghui.json` / `Setting.theme_tokens` 快照，只改前两者线上零效果。`package.py` 排除旧字体；守卫 `test_font_subset_v590.py`。**接口不变、无迁移、无新增生产依赖。**
 
 ## v5.8.0（2026-11-10 · 动效层补齐与章回质感：三档 motion 落地 / 错峰渐入 / 卷首入场与分章揭幕）
 

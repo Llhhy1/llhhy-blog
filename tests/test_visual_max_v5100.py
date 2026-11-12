@@ -12,6 +12,7 @@ CSS = ROOT / "vue-frontend" / "src" / "styles" / "global.css"
 HOME = ROOT / "vue-frontend" / "src" / "views" / "HomeView.vue"
 MAIN = ROOT / "vue-frontend" / "src" / "main.js"
 SEG_MARK = "v5.10.0 · 章回视觉推到极致"
+SEG_END = "v5.12.0 · 章回卷首精修"
 
 
 def _read(p):
@@ -19,8 +20,10 @@ def _read(p):
 
 
 def _seg():
-    """只取新增视觉段：前面有同名的旧规则，全文 re.search 会命中错的那条。"""
-    return _read(CSS).split(SEG_MARK, 1)[-1]
+    """只取 v5.10.0 新增视觉段；v5.12.0 起的纸墨层是独立层，由
+    test_chapter_paper_v5120.py 单独守卫，不并入本段统计（否则新层的
+    @media 会被「不新增断点」误判、朱砂选择器会被重复计数）。"""
+    return _read(CSS).split(SEG_MARK, 1)[-1].split(SEG_END, 1)[0]
 
 
 def _lum(c):
@@ -71,15 +74,20 @@ def test_朱砂竖排印章与粗横线():
     assert "var(--accent" in rule.group(1)
 
 
-def test_最近更新从胶囊改成大字排版():
+def test_最近更新并回主角左轴且降为配角():
+    """v5.12.0 精修：右下角 22px 大字会与 118px 主角争视线，改为左轴 14px 配角。"""
     seg = _seg()
     m = re.search(r':root\[data-layout="chapter"\] \.zh-update-bar\s*\{([^}]*)\}', seg, re.S)
     assert m
     body = m.group(1)
     assert "border-radius: 0" in body and "background: transparent" in body
-    assert "right: 5vw" in body
+    assert "left: 9vw" in body and "right: auto" in body, "最近更新没并回主角左轴"
+    assert "right: 5vw" not in body, "右下角大字排版回归"
     link = re.search(r"\.zh-update-bar a\s*\{([^}]*)\}", seg, re.S)
-    assert link and "var(--type-xl, 22px)" in link.group(1)
+    assert link, "找不到最近更新链接规则"
+    linkbody = link.group(1)
+    assert "var(--type-meta, 14px)" in linkbody, "链接没降为配角字号"
+    assert "var(--type-xl, 22px)" not in linkbody, "大字排版回归，会抢主角"
 
 
 def test_分卷封面用程序化卷号不依赖数据():

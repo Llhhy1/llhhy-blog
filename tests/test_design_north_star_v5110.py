@@ -22,6 +22,7 @@ TOKENS = ROOT / "vue-frontend" / "src" / "styles" / "tokens.css"
 PACK = ROOT / "myblog" / "theme_packs" / "zhanghui.json"
 SPEC = ROOT / "DESIGN.md"
 SEG_MARK = "v5.10.0 · 章回视觉推到极致"
+SEG_END = "v5.12.0 · 章回卷首精修"
 
 
 def _read(p):
@@ -29,8 +30,10 @@ def _read(p):
 
 
 def _seg():
-    """只取章回视觉段：前面有同名旧规则，全文搜索会命中错的那条。"""
-    return _read(CSS).split(SEG_MARK, 1)[-1].split("*/", 1)[-1]
+    """只取 v5.10.0 章回视觉段；v5.12.0 纸墨层由专属守卫统计，避免
+    把新层的朱砂规则重复计入指标 3（去重选择器数）。"""
+    return (_read(CSS).split(SEG_MARK, 1)[-1]
+            .split(SEG_END, 1)[0].split("*/", 1)[-1])
 
 
 def _pack():
@@ -136,6 +139,27 @@ def test_文章页标题对正文达到阅读级跳跃():
     )
     w = re.search(r"font-weight:\s*(\d+)", body)
     assert w and int(w.group(1)) < 600, "字体子集只有 400 字重，weight ≥600 会触发合成粗体"
+
+
+def test_卷首字重同样不得触发合成粗体():
+    """v5.12.0 补漏：原 :138 判据只扫文章页 .zh-page-title，
+    卷首 .home-cover-title 的 800 长期漏网 —— 宋体子集只有 400 字重。
+    章回专属覆盖必须是 400；全局 800 保留给其余 14 套无衬线主题（真实字重）。
+    """
+    css = _read(CSS)
+    paper = css.split(SEG_END, 1)[-1]
+    m = re.search(
+        re.escape(':root[data-layout="chapter"] .home-cover.has-wall .home-cover-title')
+        + r"\s*\{([^}]*)\}", paper, re.S)
+    assert m, "找不到章回卷首的纸墨层字重覆盖规则"
+    w = re.search(r"font-weight:\s*(\d+)", m.group(1))
+    assert w and int(w.group(1)) < 600, (
+        "章回卷首回到 800 合成假粗体：宋体笔画会被机械加粗，主角反而发闷"
+    )
+    base = re.search(r"(?m)^\s*\.home-cover-title\s*\{([^}]*)\}", css, re.S)
+    assert base and "font-weight: 800" in base.group(1), (
+        "全局 800 被连坐删除：其余主题的无衬线栈需要真实粗体"
+    )
 
 
 def test_内置包css必须为空避免首屏闪烁():

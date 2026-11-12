@@ -6,7 +6,7 @@
   <div class="reading-progress" id="reading-progress"></div>
   <!-- v2.6.0 mobile 抽屉式导航 -->
   <div class="drawer-mask" :class="{show: drawerOpen}" @click="drawerOpen = false"></div>
-  <aside class="drawer" :class="{open: drawerOpen}" :aria-label="t('nav_menu')">
+  <aside ref="drawerRef" class="drawer" :class="{open: drawerOpen}" :aria-label="t('nav_menu')" :aria-modal="drawerOpen ? 'true' : undefined" :role="drawerOpen ? 'dialog' : undefined">
     <div class="drawer-head">
       <router-link class="drawer-logo" to="/" @click="drawerOpen = false">{{ state.site.site_name || state.site.site_title || t('blog') }}</router-link>
       <button class="drawer-close" type="button" :aria-label="t('close_menu')" @click="drawerOpen = false">×</button>
@@ -56,7 +56,7 @@
 
   <header class="site-header">
     <div class="container header-inner">
-      <button class="hamburger" type="button" :aria-label="t('open_menu')" @click="drawerOpen = true">☰</button>
+      <button ref="hamburgerRef" class="hamburger" type="button" :aria-label="t('open_menu')" @click="drawerOpen = true">☰</button>
       <router-link class="logo" to="/" @click="drawerOpen = false">{{ state.site.site_name || state.site.site_title }}</router-link>
       <nav>
         <router-link to="/"><span class="nav-emoji">🏠</span>{{ t('home') }}</router-link>
@@ -157,6 +157,16 @@
       <!-- v3.20.0 a11y：skip-link 的落点。tabindex="-1" 让它可被脚本聚焦
            （但仍不进入 Tab 顺序，避免多一个停留点）。 -->
       <main class="site-frame-inner" id="main-content" tabindex="-1">
+        <!-- v5.12.0 N2：面包屑。最后一级不可点并带 aria-current，前级可点回退。 -->
+        <nav v-if="crumbItems.length" class="breadcrumb" aria-label="面包屑">
+          <router-link to="/">{{ t('home') }}</router-link>
+          <span class="bc-sep" aria-hidden="true">/</span>
+          <template v-for="(c, i) in crumbItems" :key="c.label + i">
+            <router-link v-if="c.to" :to="c.to">{{ c.label }}</router-link>
+            <span v-else class="bc-current" aria-current="page">{{ c.label }}</span>
+            <span v-if="i < crumbItems.length - 1" class="bc-sep" aria-hidden="true">/</span>
+          </template>
+        </nav>
         <router-view v-slot="{ Component }">
           <!-- v3.17.0：路由过渡（淡入上移；prefers-reduced-motion 下自动降级为瞬时） -->
           <Transition name="page" mode="out-in">
@@ -217,8 +227,8 @@
 </template>
 
 <script setup>
-import { onMounted, onBeforeUnmount, ref, h, reactive, computed } from "vue";
-import { useRouter } from "vue-router";
+import { onMounted, onBeforeUnmount, ref, h, reactive, computed, watch, nextTick } from "vue";
+import { useRouter, useRoute } from "vue-router";
 import { state, initSite, logout, t, setLang, applyActiveTheme } from "./store.js";
 import { toast } from "./lib/toast.js";
 import { apiPost, apiGet } from "./lib/api.js";
@@ -226,6 +236,61 @@ import { sanitizeHtml } from "./lib/sanitize.js";
 const themeIcon = ref("🌙");
 const noteClosed = ref(false);
 const drawerOpen = ref(false);  // v2.6.0 mobile 抽屉开关
+
+// ---------- v5.12.0 导航不迷路 ----------
+// 线上实测：Vue Router 4 已自动给 exact-active 的 RouterLink 注入 aria-current="page"
+// （首页 4 个），抽屉也有 14 个入口 —— 真缺口是「我在哪」的可见层级与键盘可达。
+const route = useRoute();
+const drawerRef = ref(null);
+const hamburgerRef = ref(null);
+const CRUMB_LABELS = {
+  archive: "归档", stats: "统计", annual: "年度", about: "关于",
+  ecosystem: "生态", gallery: "相册", links: "友链", square: "广场",
+  social: "社交", series: "系列", tags: "标签", docs: "文档",
+  guestbook: "留言", search: "搜索", post: "文章", login: "登录",
+  register: "注册", hot: "热门", album: "相册",
+};
+// 只取栏目级路径：/post/<slug> 与 /series/<slug> 停在「文章 / 系列」，
+// 不把长 slug 塞进面包屑，也不依赖文章标题数据、不发额外请求。
+const crumbItems = computed(() => {
+  const segs = route.path.split("/").filter(Boolean);
+  if (!segs.length) return [];
+  const keep = (segs[0] === "post" || segs[0] === "series") ? segs.slice(0, 1) : segs.slice(0, 2);
+  let acc = "";
+  return keep.map((raw, i) => {
+    acc += "/" + raw;
+    return {
+      label: CRUMB_LABELS[raw] || decodeURIComponent(raw),
+      to: i === keep.length - 1 ? "" : acc,
+    };
+  });
+});
+function onDrawerKey(e) {
+  if (!drawerOpen.value) return;
+  if (e.key === "Escape") { drawerOpen.value = false; return; }
+  if (e.key !== "Tab") return;
+  const root = drawerRef.value;
+  if (!root) return;
+  const items = Array.from(root.querySelectorAll(
+    'a[href], button:not([disabled]), [tabindex]:not([tabindex="-1"])'
+  )).filter(el => el.offsetParent !== null);
+  if (!items.length) return;
+  const first = items[0], last = items[items.length - 1];
+  if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+  else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+}
+watch(drawerOpen, async (open) => {
+  if (open) {
+    await nextTick();
+    const el = (drawerRef.value && drawerRef.value.querySelector(".drawer-close")) || drawerRef.value;
+    if (el && el.focus) el.focus();
+    document.addEventListener("keydown", onDrawerKey);
+  } else {
+    document.removeEventListener("keydown", onDrawerKey);
+    if (hamburgerRef.value && hamburgerRef.value.focus) hamburgerRef.value.focus();
+  }
+});
+onBeforeUnmount(() => document.removeEventListener("keydown", onDrawerKey));
 const announcements = ref([]);
 const pluginFooter = ref([]);  // v3.9.0 插件页脚卡片
 const pluginNav = ref([]);     // v3.9.0 M2 插件导航入口
@@ -637,5 +702,25 @@ router.afterEach(() => { loadNotifs(); });
 @media (max-width: 900px) {
   .site-frame-body.has-sidebar { flex-direction: column; }
   .plugin-sidebar { width: 100%; flex-basis: auto; }
+}
+
+/* v5.12.0 导航不迷路：可见当前态（不能只靠颜色，用下划线 / 左侧竖条）。
+   刻意不新增 @media —— 断点棘轮 27 已用满，窄屏间距交给 clamp()。 */
+.breadcrumb {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
+  padding: clamp(8px, 1.2vw, 10px) 0 clamp(10px, 1.4vw, 14px);
+  font-size: var(--type-xs, 12px); color: var(--text-muted);
+}
+.breadcrumb a { color: inherit; text-decoration: none; }
+.breadcrumb a:hover { color: var(--accent); text-decoration: underline; }
+.breadcrumb .bc-sep { opacity: .45; }
+.breadcrumb .bc-current { color: var(--text); }
+.site-header > .container > nav > a.router-link-exact-active {
+  border-bottom: 2px solid var(--accent);
+  color: var(--text);
+}
+.drawer-nav > a.router-link-exact-active {
+  border-left: 3px solid var(--accent);
+  color: var(--accent);
 }
 </style>

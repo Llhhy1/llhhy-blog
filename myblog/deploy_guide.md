@@ -1029,6 +1029,8 @@ sha256sum /tmp/og.png /www/wwwroot/你的站点根/og-default.png
 >   自带 Bearer 鉴权、非会话）。若你的 MCP 客户端此前一直在报 403，升级后即恢复。
 > - 全量报告：`docs/audit/2026-10-07-full-audit-report.md`。
 
+> **v5.12.0 升级要点（章回纸墨精修 + 手机端排印 + 导航不迷路）**：**前端改了 → 必须先 `vite build` 再打包，两个包都要覆盖**（后端仅 `myblog/config.py` 版本号与文档）。**无接口 / 迁移 / 依赖 / 表结构变化，`update.sh` 未动。** 升级后请检查：① 首页卷首站名不再发闷（字重 400 而非合成假粗体 800），纸色底 + 墨字 + 1px 朱砂细线；② 其他主题（如 classic）壁纸/白字/粗线不受影响（按 `data-layout` 分流）；③ 手机端朱砂印章为横排独立行，不压标题；④ 归档等页面出现面包屑「首页 / 归档」，当前栏目有可见下划线；⑤ 移动端抽屉打开后焦点在关闭按钮，Esc 可关、焦点回到汉堡按钮。Nginx 无需改动。
+
 > **v5.11.2 升级要点（PWA 整套移除 + 交互可达性）**：**前端改了 → 必须先 `vite build` 再打包，两个包都要覆盖**（本版只动 `vue-frontend/` 与文档，后端仅 `myblog/config.py` 版本号）。**无迁移、无新依赖、无表结构变更、`update.sh` 未动。** 升级后请检查：① 右下角不再有「安装应用」按钮，`index.html` 不再有 `rel="manifest"`；② 老访客首次打开页面时前端入口会注销残留的 Service Worker 并清掉 `llhhy-pwa*` 缓存，此后「发新文章第一次刷新仍是旧列表」的现象消失；③ 键盘 Tab 能聚焦通知铃铛 / 相册大图 / 搜索历史删除键，Enter 可打开通知面板、可删除历史，焦点有实色蓝环。⚠️ **部署脚本用 `rsync -a`（无 `--delete`）覆盖，线上 `/www/wwwroot/vue-frontend/` 里 7 个旧 PWA 文件（`sw.js` / `manifest.webmanifest` / `offline.html` / `icon-192.png` / `icon-512.png` / `icon-maskable-192.png` / `icon-maskable-512.png`）不会被自动删除，需手动 `rm -f` 逐个列名清理**（宝塔安全层会拦带通配的 `rm -rf`）；它们已不被引用，但别留脏文件。Nginx 无需任何改动。
 
 > **v5.11.1 升级要点（列表页调性统一）**：**前端改了 → 必须先 `vite build` 再打包，两个包都要覆盖**。后端只动 `myblog/theme_bundles.py`（`LABEL_KEYS` 扩 5 键）与 `myblog/theme_packs/zhanghui.json`（labels 增 5 项），**无迁移、无新依赖、无表结构变更**，`update.sh` 未动。升级后请检查：① 分类/标签/归档等列表页页首应为**左对齐**（ANNUAL / TAGS / SEARCH 等英文眉标 + 衬线大标题 + **实底朱砂**计数胶囊），不再是居中灰度胶囊；② 纸白列表的文章卡右上角有淡朱砂卷内序号 01/02/03，而**首页暗色横卡区不应出现序号**（`:not(.zh-chapter-dark)` 隔离）；③ 文章页标题仍居中且 44px（本轮没动）。若列表页仍是居中标题，说明拿到的是旧前端包，请确认 `vite build` 与前端 zip 都更新了。

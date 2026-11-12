@@ -56,8 +56,11 @@ button:active, .btn:active {
   opacity: 0.86;
 }
 button:focus-visible, .btn:focus-visible {
-  outline: none;
-  box-shadow: 0 0 0 3px var(--accent-soft, rgba(25, 109, 221, .10));
+  /* v5.11.2 a11y：原 outline:none + 10% 透明光晕约 1.1:1，键盘焦点几乎不可见。
+     实色 2px outline 提供 >=3:1 对比；光晕保留作柔和外圈，静态观感不变。 */
+  outline: 2px solid var(--accent, #196ddd);
+  outline-offset: 2px;
+  box-shadow: 0 0 0 4px var(--accent-soft, rgba(25, 109, 221, .10));
 }
 /* 次级按钮：「灰填充按钮」—— 半透明底而不是描边 */
 .btn.ghost, button.ghost {
@@ -90,6 +93,8 @@ input[type=search], input[type=url], input[type=tel], select, textarea {
 input[type=text]:focus, input[type=password]:focus, input[type=email]:focus,
 input[type=number]:focus, input[type=search]:focus, input[type=url]:focus,
 input[type=tel]:focus, select:focus, textarea:focus {
+  outline: 2px solid var(--accent, #196ddd);
+  outline-offset: 1px;
   border-color: var(--accent, #196ddd);
   box-shadow: 0 0 0 3px var(--accent-soft, rgba(25, 109, 221, .10));
 }
@@ -565,7 +570,8 @@ input[type=tel]:focus, select:focus, textarea:focus {
   font-size: var(--type-meta, 14px);
 }
 .search-box input:focus {
-  outline: none;
+  outline: 2px solid var(--accent, #196ddd);
+  outline-offset: 1px;
   border-color: var(--accent, #196ddd);
   box-shadow: 0 0 0 3px var(--accent-soft, rgba(25, 109, 221, .10));
 }

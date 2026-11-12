@@ -57,7 +57,16 @@ body {
 .drawer-mask {
  display: none; }
 /* 站内通知铃铛 */.nav-bell {
- position: relative; margin-left: 16px; cursor: pointer; font-size: var(--type-md, 17px); user-select: none; }
+ position: relative; margin-left: 16px; font-size: var(--type-md, 17px); user-select: none; }
+/* v5.11.2 a11y：铃铛触发改真 button，覆盖全局 button 的 accent 底 / 白字 / hover 变色，
+   保持原 emoji + 红点的裸图标观感，同时继承全局 :focus-visible 实色焦点环。 */
+.nav-bell-trigger {
+ position: relative; display: inline-flex; align-items: center;
+ background: none; border: 0; padding: 0; color: inherit;
+ font-size: var(--type-md, 17px); line-height: var(--leading-flat, 1);
+ cursor: pointer; }
+.nav-bell-trigger:hover { background: none; filter: none; }
+.nav-bell-trigger:active { transform: none; opacity: 1; }
 .nav-bell .bell-badge {
  position: absolute; top: -6px; right: -10px; background: var(--danger); color: var(--on-accent); font-size: var(--type-3xs, 10px); min-width: 16px; height: 16px; line-height: 16px; border-radius: 8px; padding: 0 4px; text-align: center; }
 .notif-panel {
@@ -536,7 +545,10 @@ body {
 .search-box input:focus, .sub-box input[type=email]:focus, .comment-form input:focus, .comment-form textarea:focus,
 input[type=text]:focus, input[type=password]:focus, input[type=email]:focus, input[type=number]:focus, select:focus, textarea:focus {
 
-  outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft);
+  /* v5.11.2 a11y：原 10% 透明光晕约 1.1:1，Tab 落点几乎不可见。
+     改实色 2px outline（>=3:1），光晕只作柔和外圈保留。 */
+  outline: 2px solid var(--accent, #196ddd); outline-offset: 1px;
+  border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft);
 }
 .search-box button, .widget button {
  padding: 8px 12px; border: none; background: var(--accent); color: var(--on-accent); border-radius: 6px; cursor: pointer; transition: filter .15s; }
@@ -605,7 +617,7 @@ input[type=text]:focus, input[type=password]:focus, input[type=email]:focus, inp
 .comment {
  border-bottom: 1px solid #f0f0f0; padding: 12px 0; }
 .comment-meta {
- font-size: var(--type-sm, 13px); color: #999; margin-bottom: 4px; }
+ font-size: var(--type-sm, 13px); color: var(--text-muted); margin-bottom: 4px; }
 .comment-content {
  color: #444; font-size: var(--type-base, 15px); }
 /* v3.25.1：同 .widget h3 —— 写死 #444 且深色无覆盖（1.84:1）。
@@ -613,7 +625,7 @@ input[type=text]:focus, input[type=password]:focus, input[type=email]:focus, inp
 [data-theme="dark"] .comment-content {
  color: var(--text, #d7d9dc); }
 .comment-empty {
- color: #aaa; font-size: var(--type-meta, 14px); text-align: center; padding: 18px 0; }
+ color: var(--text-muted); font-size: var(--type-meta, 14px); text-align: center; padding: 18px 0; }
 .comment-form {
  margin-top: 16px; display: flex; flex-direction: column; gap: 10px; }
 .comment-form input, .comment-form textarea {
@@ -653,7 +665,7 @@ button:hover, .btn:hover {
 .friend-links a {
  color: var(--accent); text-decoration: none; font-weight: 600; }
 .friend-links .desc {
- color: #888; font-size: var(--type-sm, 13px); }
+ color: var(--text-muted); font-size: var(--type-sm, 13px); }
 .about-content {
  background: var(--surface); border: 1px solid #eee; border-radius: var(--theme-radius, 12px); padding: 24px 28px; }
 .empty {
@@ -1257,11 +1269,11 @@ button:hover, .btn:hover {
 .guestbook-item:hover {
  box-shadow: 0 4px 14px rgba(0,0,0,0.07); }
 .guestbook-item .gb-meta {
- font-size: var(--type-sm, 13px); color: #999; margin-bottom: 4px; }
+ font-size: var(--type-sm, 13px); color: var(--text-muted); margin-bottom: 4px; }
 .guestbook-item .gb-content {
  font-size: var(--type-base, 15px); }
 .gb-like-btn {
- background: none; border: 1px solid #ddd; color: #888; border-radius: 18px; padding: 4px 12px; font-size: var(--type-sm, 13px); cursor: pointer; margin-top: 8px; }
+ background: none; border: 1px solid #ddd; color: var(--text-muted); border-radius: 18px; padding: 4px 12px; font-size: var(--type-sm, 13px); cursor: pointer; margin-top: 8px; }
 .gb-like-btn:hover {
  border-color: var(--accent); color: var(--accent); }
 /* 搜索结果（v3.0.0 功能3；v3.4.1 加 hover 上浮） */.search-item {
@@ -1285,7 +1297,7 @@ button:hover, .btn:hover {
 [data-theme="dark"] .search-snippet mark {
  background: #4a431f; color: #ffe08a; }
 /* 系列目录页（v3.0.0 功能1） */.series-count {
- color: #999; font-size: var(--type-sm, 13px); margin-top: 4px; }
+ color: var(--text-muted); font-size: var(--type-sm, 13px); margin-top: 4px; }
 .series-toc {
  list-style: none; counter-reset: ch; background: #fafbfc; border: 1px solid #eee; border-radius: var(--theme-radius, 12px); padding: 14px 18px; margin: 14px 0 22px; }
 .series-toc li {
@@ -1299,7 +1311,7 @@ button:hover, .btn:hover {
 .series-toc a:hover {
  color: var(--accent); }
 .series-toc .chapter-meta {
- color: #aaa; font-size: var(--type-xs, 12px); }
+ color: var(--text-muted); font-size: var(--type-xs, 12px); }
 /* v3.25.1：与上面的 `.toc` 是同一个缺陷的姐妹实例 —— `.series-toc` 容器背景
    写死 #fafbfc 且深色无覆盖，而 `.series-toc a` 已被改成浅灰 #e3e6e9，
    实测「浅字压白底」只有 1.21:1（比 .toc 的 1.56 更糟）。

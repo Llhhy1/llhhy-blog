@@ -1029,6 +1029,8 @@ sha256sum /tmp/og.png /www/wwwroot/你的站点根/og-default.png
 >   自带 Bearer 鉴权、非会话）。若你的 MCP 客户端此前一直在报 403，升级后即恢复。
 > - 全量报告：`docs/audit/2026-10-07-full-audit-report.md`。
 
+> **v5.11.2 升级要点（PWA 整套移除 + 交互可达性）**：**前端改了 → 必须先 `vite build` 再打包，两个包都要覆盖**（本版只动 `vue-frontend/` 与文档，后端仅 `myblog/config.py` 版本号）。**无迁移、无新依赖、无表结构变更、`update.sh` 未动。** 升级后请检查：① 右下角不再有「安装应用」按钮，`index.html` 不再有 `rel="manifest"`；② 老访客首次打开页面时前端入口会注销残留的 Service Worker 并清掉 `llhhy-pwa*` 缓存，此后「发新文章第一次刷新仍是旧列表」的现象消失；③ 键盘 Tab 能聚焦通知铃铛 / 相册大图 / 搜索历史删除键，Enter 可打开通知面板、可删除历史，焦点有实色蓝环。⚠️ **部署脚本用 `rsync -a`（无 `--delete`）覆盖，线上 `/www/wwwroot/vue-frontend/` 里 7 个旧 PWA 文件（`sw.js` / `manifest.webmanifest` / `offline.html` / `icon-192.png` / `icon-512.png` / `icon-maskable-192.png` / `icon-maskable-512.png`）不会被自动删除，需手动 `rm -f` 逐个列名清理**（宝塔安全层会拦带通配的 `rm -rf`）；它们已不被引用，但别留脏文件。Nginx 无需任何改动。
+
 > **v5.11.1 升级要点（列表页调性统一）**：**前端改了 → 必须先 `vite build` 再打包，两个包都要覆盖**。后端只动 `myblog/theme_bundles.py`（`LABEL_KEYS` 扩 5 键）与 `myblog/theme_packs/zhanghui.json`（labels 增 5 项），**无迁移、无新依赖、无表结构变更**，`update.sh` 未动。升级后请检查：① 分类/标签/归档等列表页页首应为**左对齐**（ANNUAL / TAGS / SEARCH 等英文眉标 + 衬线大标题 + **实底朱砂**计数胶囊），不再是居中灰度胶囊；② 纸白列表的文章卡右上角有淡朱砂卷内序号 01/02/03，而**首页暗色横卡区不应出现序号**（`:not(.zh-chapter-dark)` 隔离）；③ 文章页标题仍居中且 44px（本轮没动）。若列表页仍是居中标题，说明拿到的是旧前端包，请确认 `vite build` 与前端 zip 都更新了。
 
 > **v5.11.0 升级要点（设计北极星 + 文章页层级）**：**前端改了 → 必须先 `vite build` 再打包，两个包都要覆盖**。后端动了 `myblog/theme_bundles.py`（新增 `design` 解析）与 `myblog/theme_packs/zhanghui.json`（新增 `design` 块、包版本 1.1.0），**无迁移、无新依赖、无表结构变更**，`update.sh` 未动。升级后请检查：① 首页卷首仍是大字左对齐 + 朱砂印章（v5.10.0 观感应无变化）；② **文章页标题应明显变大**（桌面 44px，对正文 16px 约 2.75×）、长标题在手机上折行均匀；③ 后台「主题 → 主题市场」的章回卡不报错（展示层多了一个 `design` 键，前端不使用）。若升级后文章页标题仍是 22px，说明拿到的是旧前端包，请确认 `vite build` 与前端 zip 都更新了。
@@ -1417,7 +1419,7 @@ sha256sum /tmp/og.png /www/wwwroot/你的站点根/og-default.png
 >   - `OAUTH_GITHUB_CLIENT_ID` + `OAUTH_GITHUB_CLIENT_SECRET` → 配置后登录页出现「用 GitHub 登录」；回调地址需在 GitHub OAuth App 登记为 `https://<本站>/api/auth/oauth/github/callback`。
 >   - `OAUTH_GOOGLE_CLIENT_ID` + `OAUTH_GOOGLE_CLIENT_SECRET` → 同上，回调 `https://<本站>/api/auth/oauth/google/callback`。
 >   - `BLOG_TWOFA_ENABLED=true` → 开放后台「🔐 两步验证」绑定入口（默认 `false` 关闭）。
-> - **无需改 Nginx**：PWA 的 `/sw.js` 与 `/manifest.webmanifest` 落在站点根目录，nginx 现有 `location /` 的 `try_files` 已能正确返回，scope 自动为 `/`。
+> - **无需改 Nginx**（历史记录；**v5.11.2 起本条已作废**）：v3.21.0 时 PWA 的 `/sw.js` 与 `/manifest.webmanifest` 落在站点根目录，nginx 现有 `location /` 的 `try_files` 已能正确返回，scope 自动为 `/`。**v5.11.2 已整套移除 PWA**（`sw.js` / `manifest.webmanifest` / `offline.html` / 4 个图标），Nginx 仍无需任何改动；老访客浏览器里残留的 Service Worker 由前端入口的一次性注销逻辑清理。
 > - **2FA 密钥依赖 `SECRET_KEY`**：密钥用 `SECRET_KEY` 派生的 Fernet 加密后落库。**若更换 `SECRET_KEY`，已绑定的 2FA 密钥将无法解密**（表现为动态码始终错误），需用户重新绑定 —— 请勿在启用 2FA 后随意更换该变量。
 > - ⚠️ **公开积分排行榜会显示登录读者的用户名**（匿名读者显示「读者N」）。如不希望对外展示，可先不启用该入口或改 `myblog/gamify.py::leaderboard()`。
 > - **回滚**：无破坏性变更；回退到 v3.20.0 仅失去本版新功能（已建的新表会保留，不影响旧版本运行）。

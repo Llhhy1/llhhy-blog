@@ -2,24 +2,33 @@
 import { createApp } from "vue";
 import App from "./App.vue";
 import router from "./router.js";
-import { setInstallPrompt } from "./store.js";
 import "./styles/global.css";
 import "./styles/responsive.css"; // v3.15.1 响应式基座（结构级防溢出/流式排版）
 // v5.0.0 统一观感层：**必须在 responsive.css 之后** —— 它要覆盖
 // responsive.css:75 的 .page-title 字号，顺序反了大标题就不会生效。
 import "./styles/look.css";
 
-// v3.21.0 PWA：仅生产构建注册 Service Worker（dev 不注册，避免缓存干扰 HMR）
-if (import.meta.env.PROD && "serviceWorker" in navigator) {
+// v5.11.2：PWA 整套移除（ROADMAP 判定「维护成本 > 收益」；且缓存名
+// llhhy-pwa-v1 自引入后从未 bump，会长期把新文章列表 / manifest 返回旧缓存）。
+// 存量清理不可省：老访客浏览器里已注册的 Service Worker 不会因为仓库删掉
+// sw.js 就立刻消失，它会继续吞新内容，表现就是「发版后看到的还是旧的」。
+// 下面是幂等的一次性迁移：注销全部 SW 注册 + 清掉 llhhy-pwa* 缓存。
+// 至少保留两个线上版本，等存量访客都刷新过之后才可移除。
+if (import.meta.env.PROD && ("serviceWorker" in navigator || "caches" in window)) {
   window.addEventListener("load", () => {
-    navigator.serviceWorker.register("/sw.js").catch(() => {});
+    if ("serviceWorker" in navigator) {
+      navigator.serviceWorker.getRegistrations()
+        .then((regs) => regs.forEach((reg) => reg.unregister()))
+        .catch(() => {});
+    }
+    if ("caches" in window) {
+      caches.keys()
+        .then((keys) => Promise.all(
+          keys.filter((k) => k.startsWith("llhhy-pwa")).map((k) => caches.delete(k))
+        ))
+        .catch(() => {});
+    }
   });
-  // 捕获浏览器「可安装」提示，交给 UI 在合适时机触发（避免默认一次性弹窗流失）
-  window.addEventListener("beforeinstallprompt", (e) => {
-    e.preventDefault();
-    setInstallPrompt(e);
-  });
-  window.addEventListener("appinstalled", () => setInstallPrompt(null));
 }
 
 const app = createApp(App);

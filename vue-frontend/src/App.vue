@@ -43,7 +43,7 @@
         <span class="drawer-user">👤 {{ state.user.username }}</span>
         <a v-if="state.user.is_admin" class="drawer-link" href="/admin" @click="drawerOpen = false">🛠️ {{ t('admin') }}</a>
         <a v-else class="drawer-link" href="/admin/post/new" @click="drawerOpen = false">✏️ {{ t('write') }}</a>
-        <a class="drawer-link" href="#" @click.prevent="doLogout(); drawerOpen = false">{{ t('logout') }}</a>
+        <a class="drawer-link" href="#" @click.prevent="doLogout">{{ t('logout') }}</a>
       </template>
       <template v-else>
         <router-link class="drawer-link" to="/login" @click="drawerOpen = false">{{ t('login') }}</router-link>
@@ -100,8 +100,16 @@
             <span v-if="state.user.is_admin"><a href="/admin">{{ t('admin') }}</a></span>
             <span v-else><a href="/admin/post/new">✏️ {{ t('write') }}</a></span>
           </span>
-          <div class="nav-bell" @click="toggleNotifPanel">
-            🔔<span v-if="notifUnread" class="bell-badge">{{ notifUnread > 99 ? '99+' : notifUnread }}</span>
+          <div class="nav-bell">
+            <!-- v5.11.2 a11y：原实现是裸 div @click，键盘/读屏完全打不开通知面板。
+                 触发改用真 button（继承全局实色 focus 环），面板留作兄弟节点，
+                 保证交互元素不再嵌套在 role=button 容器里。 -->
+            <button type="button" class="nav-bell-trigger"
+                    :aria-label="t('notifications') + (notifUnread ? '（' + notifUnread + ' ' + t('unread') + '）' : '')"
+                    :aria-expanded="showNotifPanel" aria-haspopup="true"
+                    @click="toggleNotifPanel">
+              🔔<span v-if="notifUnread" class="bell-badge">{{ notifUnread > 99 ? '99+' : notifUnread }}</span>
+            </button>
             <div v-if="showNotifPanel" class="notif-panel">
               <div class="notif-head">
                 <span>{{ t('notifications') }}（{{ notifUnread }} {{ t('unread') }}）</span>
@@ -206,15 +214,12 @@
   </div>
 
   <button id="back-to-top" :title="t('back_to_top')" :aria-label="t('back_to_top')" @click="scrollTop">↑</button>
-
-  <!-- v3.21.0 PWA：浏览器判定可安装时显示（beforeinstallprompt 事件已缓存到 store） -->
-  <button v-if="state.installPrompt" id="install-app" type="button" @click="doInstall">{{ t('install_app') }}</button>
 </template>
 
 <script setup>
 import { onMounted, onBeforeUnmount, ref, h, reactive, computed } from "vue";
 import { useRouter } from "vue-router";
-import { state, initSite, logout, t, setLang, applyActiveTheme, installApp } from "./store.js";
+import { state, initSite, logout, t, setLang, applyActiveTheme } from "./store.js";
 import { toast } from "./lib/toast.js";
 import { apiPost, apiGet } from "./lib/api.js";
 import { sanitizeHtml } from "./lib/sanitize.js";
@@ -326,7 +331,10 @@ async function openNotif(n) {
   if (n.link) { location.href = n.link; }
 }
 async function markAllNotifRead() {
-  try { await apiPost("/api/notifications/read-all", {}); notifList.value.forEach(n => n.is_read = true); notifUnread.value = 0; } catch (e) {}
+  // v5.11.2：原实现空 catch，请求失败时红点不消失、列表不变且零提示，
+  // 用户会以为没点中而反复点击。与单条标记已读 / 加载失败保持同一反馈口径。
+  try { await apiPost("/api/notifications/read-all", {}); notifList.value.forEach(n => n.is_read = true); notifUnread.value = 0; }
+  catch (e) { toast("标记全部已读失败，请稍后重试", "danger"); }
 }
 
 function dismissAnn(id) {
@@ -449,14 +457,11 @@ function toggleLang() {
 
 function scrollTop() { window.scrollTo({ top: 0, behavior: "smooth" }); }
 
-// v3.21.0 PWA：点击「安装应用」触发浏览器安装流程（已缓存的 beforeinstallprompt 事件）
-async function doInstall() {
-  const ok = await installApp();
-  if (!ok) toast("当前环境暂不支持安装", "error");
-}
-
 async function doLogout() {
-  await logout();
+  // v5.11.2：logout() 失败时会自行 toast 并返回 false；此时不跳首页、不清抽屉，
+  // 避免「界面显示已退出、刷新后仍是登录态」。
+  if (!(await logout())) return;
+  drawerOpen.value = false;
   router.push("/");
 }
 
@@ -629,23 +634,6 @@ router.afterEach(() => { loadNotifs(); });
   background: none; border: none; border-radius: 0; box-shadow: none;
 }
 .nav-toolbox--drawer .site-toolbox-toggle { padding: 13px 18px; width: 100%; justify-content: flex-start; }
-/* v3.21.0 PWA：可安装提示按钮（与回到顶部同处右下角，置于其上方） */
-#install-app {
-  position: fixed;
-  right: 18px;
-  bottom: 70px;
-  z-index: 900;
-  padding: 9px 14px;
-  border: 0;
-  border-radius: 22px;
-  background: var(--accent, #4c6ef5);
-  color: #fff;
-  font-size: var(--type-meta, 14px);
-  cursor: pointer;
-  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.18);
-}
-#install-app:hover { filter: brightness(1.05); }
-#install-app:active { transform: translateY(1px); }
 @media (max-width: 900px) {
   .site-frame-body.has-sidebar { flex-direction: column; }
   .plugin-sidebar { width: 100%; flex-basis: auto; }

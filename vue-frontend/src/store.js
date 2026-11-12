@@ -15,7 +15,6 @@ export const state = reactive({
   loaded: false,
   lang: "zh",           // v3.0.0 功能11：界面语言（zh / en）
   contentLang: "zh",    // v3.21.0 内容多语言：当前阅读的内容语言（译文切换驱动，独立于 UI i18n）
-  installPrompt: null,  // v3.21.0 PWA：浏览器 beforeinstallprompt 事件（可安装时非 null）
   oauthProviders: [],   // v3.21.0 OAuth：后端已配置的第三方登录 provider（空=未配置，按钮不显）
 });
 
@@ -41,7 +40,6 @@ const I18N = {
     "open_menu": "打开菜单", "close_menu": "关闭菜单", "nav_menu": "导航菜单",
     "toolbox": "工具箱",
     "toggle_theme": "切换亮暗主题", "switch_lang": "切换语言",
-    "install_app": "安装应用",
     "login_github": "用 GitHub 登录", "login_google": "用 Google 登录",
     "oauth_being_redirected": "正在跳转到授权页…",
     /* v4.8.1 全局组件（侧栏 / 天气 / App 壳）—— 这些每页都可见，英文界面必须跟着切 */
@@ -113,7 +111,6 @@ const I18N = {
     "open_menu": "Open menu", "close_menu": "Close menu", "nav_menu": "Navigation",
     "toolbox": "Toolbox",
     "toggle_theme": "Toggle dark mode", "switch_lang": "Switch language",
-    "install_app": "Install app",
     "login_github": "Sign in with GitHub", "login_google": "Sign in with Google",
     "oauth_being_redirected": "Redirecting to authorization…",
     /* v4.8.1 全局组件（与 zh 键一一对应；缺键时 t() 会退回中文，所以这里必须齐平） */
@@ -434,10 +431,19 @@ export async function register(username, email, password, captcha = "") {
   return data.user;
 }
 
+// v5.11.2：后端退出失败时不再假装已退出。原实现空 catch 后照样清 state.user
+// 并跳首页，用户刷新才发现仍是登录态。现在返回布尔由调用方决定是否跳转；
+// 失败只提示、不动本地态，避免 UI 与真实会话不一致。
 export async function logout() {
-  try { await apiPost("/api/auth/logout", {}); } catch (e) {}
+  try {
+    await apiPost("/api/auth/logout", {});
+  } catch (e) {
+    toast("退出失败，请稍后重试", "danger");
+    return false;
+  }
   state.user = null;
   clearCsrfToken();
+  return true;
 }
 
 // v3.21.0 gamification：拉取当前读者积分与勋章（服务器用 cookie 标识匿名读者）。
@@ -466,23 +472,4 @@ export async function startOAuth(provider) {
   } else {
     throw new Error("oauth_start_failed");
   }
-}
-
-// v3.21.0 PWA：缓存浏览器安装提示事件；用户在 UI 点击「安装」时再触发（一次性）
-export function setInstallPrompt(e) {
-  state.installPrompt = e || null;
-}
-
-export async function installApp() {
-  const e = state.installPrompt;
-  if (!e) return false;
-  try {
-    e.prompt();
-    await e.userChoice;
-  } catch (err) {
-    return false;
-  } finally {
-    state.installPrompt = null;
-  }
-  return true;
 }

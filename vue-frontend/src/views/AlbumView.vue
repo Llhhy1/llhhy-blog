@@ -65,7 +65,12 @@
                 <span class="album-video-play-icon">▶</span>
               </button>
             </div>
-            <div v-else class="album-media-box is-image" @click="openLightboxByItem(it)">
+            <div v-else class="album-media-box is-image"
+                 role="button" tabindex="0"
+                 :aria-label="`查看大图：${capOf(it) || '相册图片'}`"
+                 @click="openLightboxByItem(it)"
+                 @keydown.enter="openLightboxByItem(it)"
+                 @keydown.space.prevent="openLightboxByItem(it)">
               <img :src="it.media.url" :alt="capOf(it)" loading="lazy">
             </div>
             <figcaption v-if="capOf(it)" class="album-caption">{{ capOf(it) }}</figcaption>
@@ -91,7 +96,12 @@
                 <span class="album-video-play-icon">▶</span>
               </button>
             </div>
-            <div v-else class="album-media-box is-image" @click="openLightboxByItem(it)">
+            <div v-else class="album-media-box is-image"
+                 role="button" tabindex="0"
+                 :aria-label="`查看大图：${capOf(it) || '相册图片'}`"
+                 @click="openLightboxByItem(it)"
+                 @keydown.enter="openLightboxByItem(it)"
+                 @keydown.space.prevent="openLightboxByItem(it)">
               <img :src="it.media.url" :alt="capOf(it)" loading="lazy">
             </div>
             <figcaption v-if="capOf(it)" class="album-caption">{{ capOf(it) }}</figcaption>
@@ -416,6 +426,11 @@ onUnmounted(() => window.removeEventListener("keydown", onKey));
   justify-content: center;
 }
 .album-media-box.is-image { cursor: zoom-in; }
+/* v5.11.2 a11y：role=button 的 div 不吃全局 button:focus-visible，补同款实色焦点环 */
+.album-media-box.is-image:focus-visible {
+  outline: 2px solid var(--accent, #196ddd);
+  outline-offset: 2px;
+}
 .album-media-box img,
 .album-media-box video { width: 100%; height: 100%; object-fit: cover; display: block; }
 /* 视频：手机拍的竖屏片（1080×1920）放进 4:3 的横格里，左右必然留边。

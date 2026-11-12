@@ -13,16 +13,12 @@
       <!-- 搜索历史（v4.9.0）：纯前端 localStorage，最近 10 条，可点可删 -->
       <div v-if="history.length" class="search-history">
         <span class="sh-label">最近搜索</span>
-        <button
-          v-for="h in history"
-          :key="h"
-          class="sh-chip"
-          :title="`搜索「${h}」`"
-          @click="useHistory(h)"
-        >
-          {{ h }}
-          <span class="sh-del" role="button" :aria-label="`删除历史 ${h}`" @click.stop="remove(h)">×</span>
-        </button>
+        <!-- v5.11.2 a11y：原「删除 ×」是嵌在外层 button 内的 span，键盘聚焦外层
+             按 Enter 只会触发搜索、永远删不掉历史。拆成两个并列的真 button。 -->
+        <div v-for="h in history" :key="h" class="sh-chip">
+          <button type="button" class="sh-chip-go" :title="`搜索「${h}」`" @click="useHistory(h)">{{ h }}</button>
+          <button type="button" class="sh-del" :aria-label="`删除历史 ${h}`" @click.stop="remove(h)">×</button>
+        </div>
         <button class="sh-clear" @click="clearAll">清空</button>
       </div>
 
@@ -141,14 +137,23 @@ watch(() => route.query.q + (route.query.page || ""), load);
 }
 /* v5.0.0 观感层：按压回弹 —— 胶囊类控件统一带触觉反馈 */
 .sh-chip:active { transform: scale(.94); }
+/* v5.11.2：父级改 div、内部两个 button，覆盖全局 button 底 / 边 / hover 变色 */
+.sh-chip-go {
+  background: none; border: 0; padding: 0; color: inherit;
+  font-size: inherit; line-height: inherit; cursor: pointer;
+}
+.sh-chip-go:hover { background: none; filter: none; }
+.sh-chip-go:active { transform: none; opacity: 1; }
 .sh-del {
+  background: none; border: 0; padding: 0; cursor: pointer;
   color: var(--text-faint);
   font-size: var(--type-sm, 13px);
   line-height: var(--leading-flat, 1);
 }
 .sh-del:hover {
-  color: var(--danger);
+  color: var(--danger); background: none; filter: none;
 }
+.sh-del:active { transform: none; opacity: 1; }
 .sh-clear {
   padding: 2px 10px;
   font-size: var(--type-xs, 12px);

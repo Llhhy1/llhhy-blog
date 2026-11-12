@@ -1005,6 +1005,28 @@ MIME 混淆，缺少 CSP 不产生可利用的差异。
 - `_TOKEN_KIND` 白名单与 `_BASE_LIGHT` 的键集必须同步（已有 `test_base_light_matches_token_files` 钉住）；新增 token 忘记登记类别会被自家校验挡掉。
 - 档 2（主题商店 / 用户上传主题包）之前必须先有主题包来源限制，否则白名单只是把「注入」换成「任意值」。
 
+## R178 · v5.11.2（PWA 整套移除 + 交互可达性修复）安全审查
+
+**改动面**：`vue-frontend/src/` 下 `App.vue` / `main.js` / `store.js` / `styles/global.css` / `styles/look.css` / `views/AlbumView.vue` / `views/SearchView.vue`、`vue-frontend/index.html`、删除 7 个 `vue-frontend/public/` PWA 静态文件、新增 `tests/test_pwa_removal_and_a11y_v5112.py`，外加版本号与文档。**后端业务代码零改动。**
+**审计维度**：XSS / SQL 注入 / 越权 / SSRF / CSRF / 密钥泄露 / 资源泄漏 / 限流。
+
+| # | 维度 | 结论 | 依据 |
+|---|---|---|---|
+| 1 | XSS | 通过 | 新增的 `aria-label` / `title` 全是 Vue `:绑定` 表达式（属性值走 DOM 属性、不进 innerHTML），内容来自 `t()` 词典常量与数字 `notifUnread` / 相册条目标题；**零新增 `v-html`**；`SearchView.vue` 既有的 `v-html="p.highlight"` 本轮 diff 未触及。 |
+| 2 | SQL 注入 | 通过 | 零 SQL / ORM 改动。 |
+| 3 | 越权 | 通过 | 零新增路由与鉴权逻辑；`logout()` 失败分支只补提示与返回值，不改变既有会话语义。 |
+| 4 | SSRF | 通过 | 新增的 `navigator.serviceWorker.getRegistrations()` / `caches.keys()` 均为**同源浏览器 API**，零出网请求；删掉 `sw.js` 反而移除了一层对外缓存面。新增 CSS 规则无 `url(` / `@import` / `expression(` / `javascript:`。 |
+| 5 | CSRF | 通过 | 零 POST / 写接口改动，全局 `_csrf_protect` 不变；`markAllNotifRead` / `logout` 的失败分支不新增请求。 |
+| 6 | 密钥泄露 | 通过 | 零凭据、零环境变量改动；`index.html` 保留的 `theme-color` 是纯展示 meta。 |
+| 7 | 资源泄漏 | 通过 | SW 注销与 CacheStorage 清理都在 `load` 事件的一次性异步链里，`.catch(() => {})` 兜底，不持有句柄、不建定时器、不注册常驻监听；删除 SW 反而释放了长期缓存占用。 |
+| 8 | 限流 | 不适用 | 本轮无写接口。 |
+
+- **存量 SW 是客户端清理、不是服务端信任边界变更**：老访客浏览器里已注册的 `sw.js` 不会因为仓库删文件立刻消失，故 `main.js` 保留幂等注销逻辑（至少两个线上版本后再移除）。这段只碰同源 CacheStorage，不读凭据、不发网络请求。
+- **删除 `manifest` / `apple-touch-icon` 是收缩暴露面**：站点不再声明可安装、不再有离线壳页；`favicon.svg` / `og-default.png` 保留。
+- **a11y 改动不引入用户可控 DOM 拼接**：铃铛改真 `<button>`（面板留作兄弟节点）、相册大图加 `role` / `tabindex` / keydown、搜索历史 chip 拆成 `div + 两个并列 button`，都是静态结构；焦点环与 7 处颜色令牌化只改 CSS。
+- **不新增数据库读写 / 表结构 / 依赖**；生产仍走 Alembic，未引入 `create_all`。
+- **结论**：无新增可利用面；本轮整体是**减少**运行时组件（少一个 SW、少 7 个静态文件、少一条安装链路）。
+
 ## R177 · v5.11.1（列表页调性统一：页首覆盖面 + 卷内序号）安全审查
 
 **改动面**：7 个 `vue-frontend/src/views/*.vue` 模板、`vue-frontend/src/styles/look.css`、`myblog/theme_bundles.py`（`LABEL_KEYS` 扩 5 键）、`myblog/theme_packs/zhanghui.json`（labels 增 5 项）、`DESIGN.md`、新增 `tests/test_list_pages_v5111.py`。

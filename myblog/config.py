@@ -12,7 +12,7 @@ os.makedirs(DATA_DIR, exist_ok=True)
 
 # 应用版本号：与 GitHub Release 标签保持一致（vX.Y.Z）。
 # 后台侧边栏左下角会显示该版本，用于确认服务器安装的代码是否为最新。
-APP_VERSION = "5.12.0"
+APP_VERSION = "5.14.0"
 
 
 class Config:
@@ -212,6 +212,24 @@ class Config:
     # Redis 全局限流（高优）：REDIS_URL 配置后（如 redis://127.0.0.1:6379/0），
     # rate_limit 改用 Redis 计数（多 worker 全局一致）；未配置自动回退内存计数（单进程）。
     REDIS_URL = os.environ.get("REDIS_URL", "")
+
+    # ===== SSE 实时推送（v5.14.0）=====
+    # 为什么需要「每进程连接上限」：gunicorn gthread 下，一条 SSE 连接会**独占一个线程**
+    # 直到断开。workers=2 × threads=16 = 32 线程，若不设限，32 个开着的标签页就能把
+    # 整站线程吃干净 —— 表现为「网站打不开」，比没有实时推送严重得多。
+    # 超限时 /api/realtime/stream 立即返回 503 + Retry-After，前端据此**降级为轮询**，
+    # 不是报错、不是白屏。
+    SSE_ENABLED = os.environ.get("SSE_ENABLED", "true").lower() != "false"
+    # 每进程上限 4：与 gunicorn_conf.py 的 threads=8 配对（一半给长连接、一半给普通请求）。
+    # 4 workers × 4 = 16 条 SSE 总容量，4 workers × 8 = 32 个线程槽。
+    # ⚠️ 改这个值必须同步改 gunicorn 的 threads —— 二者是同一份线程预算。
+    SSE_MAX_CONNECTIONS = int(os.environ.get("SSE_MAX_CONNECTIONS", "4"))
+    # 每连接的库游标轮询间隔（秒）。事件源就是数据库行本身，`id > 游标` 即新事件，
+    # 所以「实时性」= 这个间隔，代价是每连接每轮一次轻量 SELECT。2 秒是延迟与开销的折中。
+    SSE_TICK_SECONDS = float(os.environ.get("SSE_TICK_SECONDS", "2"))
+    # 在线人数重算间隔（秒）。compute_online() 是近 10 分钟独立 IP 的聚合查询，
+    # 不该每 2 秒算一次 —— 与前端原来的 60 秒轮询相比已是 3 倍提升。
+    SSE_ONLINE_INTERVAL = float(os.environ.get("SSE_ONLINE_INTERVAL", "20"))
 
     # ===== 只读诊断 MCP（v3.10.0）=====
     # 端点 /mcp：把「应用层健康状态」暴露给 AI 助手做远程诊断（全站体检/日志/数据库/统计）。

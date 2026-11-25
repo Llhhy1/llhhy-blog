@@ -233,6 +233,7 @@ import { state, initSite, logout, t, setLang, applyActiveTheme } from "./store.j
 import { toast } from "./lib/toast.js";
 import { apiPost, apiGet } from "./lib/api.js";
 import { sanitizeHtml } from "./lib/sanitize.js";
+import { subscribeRealtime } from "./lib/realtime.js";
 const themeIcon = ref("🌙");
 const noteClosed = ref(false);
 const drawerOpen = ref(false);  // v2.6.0 mobile 抽屉开关
@@ -317,6 +318,63 @@ function startOnlineTimer() {
 }
 function stopOnlineTimer() {
   if (_onlineTimer) { clearInterval(_onlineTimer); _onlineTimer = null; }
+}
+
+// ---------- v5.14.0 实时推送（SSE，不可用时降级轮询） ----------
+// 一条 SSE 连接同时带来三件事：在线人数、站内通知、后台待审数（管理员）。
+// 前端只有这一个订阅点 —— 浏览器同源并发连接有限，后端每条连接又独占一个线程，
+// 所以不按组件拆订阅，统一在这里收口。
+let unsubRealtime = null;
+let _notifPollTimer = null;
+
+// 降级模式的通知轮询：SSE 正常时完全不需要，故只在 mode === "polling" 时开。
+// 间隔 60 秒而不是更短：这是「退而求其次」的路径，宁可慢一点也不给没线程的服务器加压。
+function startNotifPollTimer() {
+  if (_notifPollTimer) return;
+  _notifPollTimer = setInterval(() => {
+    if (typeof document !== "undefined" && document.hidden) return;
+    loadNotifs();
+  }, 60000);
+}
+function stopNotifPollTimer() {
+  if (_notifPollTimer) { clearInterval(_notifPollTimer); _notifPollTimer = null; }
+}
+
+function onRealtimeMode(mode) {
+  if (mode === "sse") {
+    // 实时通道已建立：停掉两个轮询，避免同一份数据两路拉取
+    stopOnlineTimer();
+    stopNotifPollTimer();
+    return;
+  }
+  // off：标签页在后台，什么都不用做（可见时会重连）
+  // polling：连接超限 / 浏览器不支持 / 站主关闭了开关 → 回到原来的轮询节奏
+  if (mode === "polling") {
+    startOnlineTimer();
+    startNotifPollTimer();
+  }
+}
+
+function onRealtimeOnline(d) {
+  const n = Number(d && d.online);
+  if (Number.isFinite(n)) onlineCount.value = n;
+}
+
+function onRealtimeNotification(n) {
+  if (!state.user || !n) return;
+  if (typeof n.unread === "number") notifUnread.value = n.unread;
+  else notifUnread.value = Math.min(99, notifUnread.value + 1);
+  // 面板开着就顺手插到最前面（用户正在看这个列表，不该等下次手动刷新）
+  if (showNotifPanel.value && Array.isArray(notifList.value)) {
+    notifList.value = [{
+      id: n.id,
+      content: n.content,
+      link: n.link || "",
+      is_read: false,
+      created_at: n.created_at || "",
+    }, ...notifList.value].slice(0, 20);
+  }
+  toast("收到一条新通知", "success");
 }
 const pluginHtml = ref([]);    // v3.9.0 M3 插件富文本（已消毒渲染）
 // v4.1.0：多条自定义外链入口，**统一收进「🧰 工具箱」下拉**。
@@ -423,6 +481,8 @@ router.afterEach((to) => trackVisit(to));
 // 顺手收口更不容易被后人误认为「遗漏」。
 onBeforeUnmount(() => {
   stopOnlineTimer();
+  stopNotifPollTimer();
+  if (unsubRealtime) { unsubRealtime(); unsubRealtime = null; }
   uninstallGestures();
   uninstallEasterEgg();
   window.removeEventListener("scroll", onScroll);
@@ -570,6 +630,13 @@ onMounted(async () => {
     announcements.value = an.items || [];
   } catch (e) { toast("公告加载失败，请稍后重试", "danger"); }
   loadNotifs();  // 加载站内通知未读数
+  // v5.14.0 实时推送：先保留上方的轮询兜底，SSE 一旦 ready 会自动停掉轮询；
+  // 若后端回 503（连接名额满 / 开关关闭）或浏览器无 EventSource，则停留在轮询模式。
+  unsubRealtime = subscribeRealtime({
+    onOnline: onRealtimeOnline,
+    onNotification: onRealtimeNotification,
+    onModeChange: onRealtimeMode,
+  });
   // v3.9.0：插件系统（M0/M2/M3）— 拉取页脚/导航/侧栏/html/远程组件渲染数据
   try {
     const pd = await apiGet("/api/plugins");

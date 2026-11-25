@@ -1,8 +1,8 @@
 # llhhy-blog API 文档
 
-> 版本：**v5.12.0**（2026-11-12 同步：本版无接口 / 响应结构变化，仅 bump 与 `APP_VERSION` 一致；176 条接口及既有字段向后兼容）
+> 版本：**v5.14.0**（2026-11-24 同步：**新增 1 条** `GET /api/realtime/stream`（SSE 实时推送），接口总数 176 → 177；既有字段与响应结构零变化，向后兼容）
 >
-> 本文档描述 llhhy-blog 的全部 JSON 接口（`/api/*`，共 **176 条**）与后台页面调用的
+> 本文档描述 llhhy-blog 的全部 JSON 接口（`/api/*`，共 **177 条**）与后台页面调用的
 > JSON 接口（`/admin/*`，共 **17 条**）。前端（`vue-frontend/src/lib/api.js`）与本站页面
 > 共用这些接口；你也可以用它们定制自己的客户端、App 或第三方应用。
 >
@@ -23,6 +23,7 @@
 - [留言墙 /guestbook](#留言墙-guestbook)（3 条）
 - [邮件订阅 /subscribe](#邮件订阅-subscribe)（2 条）
 - [站内通知 /notifications](#站内通知-notifications)（3 条）
+- [实时推送 /realtime](#实时推送-realtime)（1 条）
 - [移动端管理 /mobile](#移动端管理-mobile)（74 条）
 - [相册 /album](#相册-album)（2 条）
 - [公开媒体 /media](#公开媒体-media)（3 条）
@@ -510,6 +511,38 @@ myblog/
 - 失败：`401 {"error": "请先登录"}`
 
 该模块源码位置：`myblog/api/notifications.py`
+
+## 实时推送 /realtime
+
+本模块共 1 条接口（SSE 事件流）。**这是本项目唯一的非 JSON 响应端点** ——
+`Content-Type: text/event-stream`，连接保持打开，服务端按事件推送。
+
+### `GET /api/realtime/stream` — SSE 事件流
+
+- 鉴权：公开（未登录只收 `online`；登录后额外收自己的通知；管理员再额外收待审计数）
+- 说明：一条长连接同时承载三类事件，替代「在线人数 60 秒轮询 + 通知手动刷新」
+- 请求：无参数。**不要带 CSRF Token**（`EventSource` 无法自定义请求头，靠同源会话 Cookie）
+- 事件：
+
+  | event | 接收者 | data |
+  |---|---|---|
+  | `ready` | 全部 | `{"tick": 2.0, "interval": 20.0}`（首帧，含 `retry: 5000` 重连提示） |
+  | `online` | 全部 | `{"online": 12, "approx": true}` —— 近 10 分钟独立 IP 数，与 `/api/stats/online` 同口径，**近似值** |
+  | `notification` | 已登录 | `{"id", "content", "link", "created_at", "unread"}` —— 仅推送**连接之后**新产生的通知 |
+  | `pending` | 管理员 | `{"comments": 3, "guestbook": 1}` —— 未读评论 / 未读留言，与后台导航角标同口径 |
+
+  另有 `: hb` 注释行（15 秒一次心跳，不触发前端事件）。
+- 成功：`200`，响应头含 `Content-Type: text/event-stream`、`Cache-Control: no-cache, no-transform`、
+  `X-Accel-Buffering: no`（让 Nginx 关闭缓冲，**无需改 Nginx 配置**）
+- 失败：`503 {"error": "...", "fallback": "polling", "retry_after": 30}` ——
+  本进程 SSE 连接数已达 `SSE_MAX_CONNECTIONS`（默认 4/进程），或 `SSE_ENABLED=false`。
+  **前端收到 503 必须降级为轮询**，不是报错。
+- 注意：
+  - 每进程限 4 条（4 worker = 16 条全局），超出即 503；上限与 `gunicorn_conf.py` 的 `threads=8` 配对
+  - 会话在长连接期间被踢下线不会即时断开，重连时重新判定
+  - 关闭标签页/隐藏超过 60 秒，前端会主动断开以释放线程
+
+该模块源码位置：`myblog/api/realtime.py`（路由）+ `myblog/realtime.py`（SSE 内核）
 
 ---
 

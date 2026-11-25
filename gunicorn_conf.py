@@ -7,16 +7,16 @@
 # 而它决定了并发能力与稳定性，且**重建后静默退化**（没人会注意到）。
 # 入库后「重建站点」有据可依。
 #
-# ## 关键事实：这里写 `worker_class = 'sync'` 但线上实际跑的是 gthread
+# ## 关键事实：这份配置一直是 gthread（v5.14.0 起改为显式声明）
 #
 # 宝塔生成的原始配置是 `workers = 4, threads = 2, worker_class = 'sync'`。
-# 而 **gunicorn 22 只要看到 `threads > 1`，就会自动把 worker 升级为 `gthread`**
+# 而 **gunicorn 只要看到 `threads > 1`，就会自动把 worker 升级为 `gthread`**
 # （config.py 的线程设置文档明说：*"If you try to use the sync worker type and
 # set the threads setting to more than 1, the gthread worker type will be used
-# instead."*）。启动日志可见 `[INFO] Using worker: gthread`，
-# 每个 worker 进程内 4 个线程（2 个工作线程 + 主线程 + 日志线程）。
+# instead."*）。启动日志可见 `[INFO] Using worker: gthread`。
 #
-# → **实际并发槽 = workers × threads = 4 × 2 = 8**，不是 4。
+# → **实际并发槽 = workers × threads**。v5.14.0 之前是 4 × 2 = 8；
+#   v5.14.0 起是 4 × 8 = 32（SSE 需要线程，见下方 `threads` 注释）。
 # 排查「慢请求/自请求占满 worker」类问题时，请按 gthread 判断；
 # 曾有一份第三方审计报告据此误判为「2~3 个 sync worker、两个并发点击即可打挂全站」。
 # 详见 `myblog/SECURITY_AUDIT.md` R91。
@@ -48,16 +48,23 @@ chdir = '/www/wwwroot/myblog'
 # 进程数：2 核机器按 (2 × nproc) + 1 = 5 的官方建议偏保守取 4
 workers = 4
 
-# 每个进程的工作线程数。
-# ⚠️ >1 会让 gunicorn 自动把 worker_class 升级为 gthread（见上文）
-threads = 2
+# 每个进程的工作线程数（v5.14.0：2 → 8）。
+# ⚠️ >1 会让 gunicorn 自动把 worker_class 升级为 gthread（见上文）。
+# v5.14.0 起显式声明 gthread 并抬到 8 线程：SSE 实时推送的每条长连接要独占一个线程，
+# 2 线程的进程里只要开 2 条连接就再没有线程接普通请求了。
+# 线程预算：4 workers × 8 threads = 32 槽；其中每进程最多 4 条 SSE（SSE_MAX_CONNECTIONS
+# 默认 4），合计 16 条长连接，另 16 槽留给普通请求。
+# ⚠️ 调大 SSE_MAX_CONNECTIONS 必须同步调大 threads —— 二者是同一份预算的两半。
+threads = 8
 
 # 启动用户（宝塔 Python 项目默认 www）
 user = 'www'
 
-# 启动模式。保留上游宝塔生成的 'sync' 字面值（实际会被自动升级为 gthread），
-# 见上文「调参建议」——这里不改是为了与线上逐字一致。
-worker_class = 'sync'
+# 启动模式。v5.14.0 起显式写 'gthread'（此前写 'sync' 靠 gunicorn 看到 threads>1
+# 自动升级，语义隐晦；SSE 依赖「心跳由 worker 主循环发出」这一 gthread 特性，
+# 继续依赖隐式升级等于把长连接的可用性押在一条未写明的规则上）。
+# sync 模型下一条 SSE 会独占整个 worker，4 个 worker 被占满即整站无响应。
+worker_class = 'gthread'
 
 # 绑定的 ip 与端口
 bind = '0.0.0.0:8686'
@@ -72,3 +79,12 @@ errorlog = '/www/wwwlogs/python/myblog/gunicorn_error.log'
 # 日志级别（错误日志级别；访问日志级别无法在此设置）
 # debug / info / warning / error / critical
 loglevel = 'info'
+
+# 长连接超时（v5.14.0）。gthread 的心跳由 worker 主循环发出、不由请求线程代劳，
+# 故 SSE 长连接本不会被 timeout 杀掉；这条是纵深防御 —— 万一有人把 worker_class
+# 改回 sync，没有它 SSE 会在 30 秒（默认值）被砍断成「每 30 秒重连一次」。
+timeout = 120
+
+# 优雅停机：SSE 连接是长期挂着的，太短的 grace 会让每次发布都强杀连接。
+# 进程收到 TERM 后先停止接受新连接，给 30 秒让在途请求收尾。
+graceful_timeout = 30

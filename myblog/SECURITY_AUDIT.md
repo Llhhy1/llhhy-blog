@@ -1005,6 +1005,48 @@ MIME 混淆，缺少 CSP 不产生可利用的差异。
 - `_TOKEN_KIND` 白名单与 `_BASE_LIGHT` 的键集必须同步（已有 `test_base_light_matches_token_files` 钉住）；新增 token 忘记登记类别会被自家校验挡掉。
 - 档 2（主题商店 / 用户上传主题包）之前必须先有主题包来源限制，否则白名单只是把「注入」换成「任意值」。
 
+## R181 · v5.14.0（SSE 实时推送）安全审查
+
+**改动面**：新增 `myblog/realtime.py`（SSE 内核）、`myblog/api/realtime.py`（1 条路由）、`vue-frontend/src/lib/realtime.js`、`vue-frontend/src/App.vue`（订阅与降级）、`myblog/templates/admin/base.html`（待审角标脚本）、`gunicorn_conf.py`（线程预算）、`config.py`（4 个开关）。**数据库结构零改动、无新依赖、无写接口。**
+**审计维度**：越权 / 资源耗尽（本版最需要看的）/ SSRF / XSS / CSRF / 认证 / 密钥 / 审计留痕。
+
+| # | 维度 | 结论 | 依据 |
+|---|---|---|---|
+| 1 | **资源耗尽（核心风险）** | 已设上限 | 一条 SSE 独占一个 gthread 线程。每进程限 `SSE_MAX_CONNECTIONS=4`（全局 16），超限**立即** 503，不阻塞等待（等待会连普通请求一起堵死）。线程预算从 4×2 提到 4×8=32，长连接最多占一半 |
+| 2 | 名额泄漏 | 三条归还路径 | 生成器 finally / `Response.call_on_close` / 未消费即废弃的兜底（`call_on_close` 仍会执行）。`release` 幂等（内部布尔 + 锁），重复调用只减一次；单测覆盖「异常中断」「重复 release」「连续三次建连断连」 |
+| 3 | **越权读通知** | 不可行 | `notification` 事件查询强制 `WHERE user_id = 当前会话 uid`；单测 `test_通知只推给自己的用户` 断言 B 的游标查询结果为空。未登录时**完全不查用户表**（只发 online） |
+| 4 | 管理员事件外泄 | 不可行 | `pending` 仅在握手期 `user.is_admin_role` 为真时进入事件分支；单测断言普通用户流里没有 `pending` |
+| 5 | 长连接占用数据库连接 | 已处理 | 每轮 `db.session.remove()` 归还连接；否则一条只读推送就能耗尽连接池（比线程耗尽更隐蔽） |
+| 6 | CSRF | 不适用 | 纯 GET、零副作用；`EventSource` 无法带自定义头，依赖同源会话 Cookie（SameSite=Lax）。若日后要加写操作，必须另行设计 token 通道，**不能**复用本端点 |
+| 7 | XSS | 未变 | 帧内 `json.dumps(ensure_ascii=True)`；前端 `JSON.parse` 后仅用于文本插值，通知内容仍走既有 `{{ }}` 转义，无 `v-html` |
+| 8 | SSRF / 出网 | 无 | 服务端零出网请求；事件源仅本地数据库 |
+| 9 | 信息泄露 | 收敛 | `online` 是早已公开的近似值（`/api/stats/online` 同口径）；`notification` 只含用户自己的数据；`pending` 只有两个整数 |
+| 10 | 会话失效处理 | 明确降级 | 长连接期间被踢下线/改密码不会即时断流；流内不含敏感正文，重连时重新判定。已在 API.md 与代码注释中写明 |
+| 11 | 审计留痕 | 不适用 | 只读端点，不产生状态变更（与 `/api/stats/online` 同类） |
+
+- **对既有 R91（worker 模型误判）的更正**：`gunicorn_conf.py` 原写 `worker_class='sync'`、`threads=2`，靠 gunicorn「threads>1 自动升级 gthread」的隐式规则运行。本版改为**显式** `'gthread'` —— SSE 的可用性依赖「心跳由 worker 主循环发出」这一 gthread 特性，继续押在未写明的规则上一旦上游改行为就会退化成「每 30 秒断一次」。
+- **结论**：新增面集中在「长连接」，主要风险是线程/连接池耗尽，已用「硬上限 + 快速失败 + 前端有界降级 + 三条归还路径」收口；无新增越权或注入面。
+
+## R180 · v5.13.0（依赖升级：gunicorn 22→27 / Vite 6→8 / Vue Router 4→5）安全审查
+
+**改动面**：`myblog/requirements.txt`（gunicorn、markdown）、`vue-frontend/package.json` + `package-lock.json`（vue / vue-router / dompurify / vite / @vitejs/plugin-vue）、`config.py` 版本号与文档。**业务代码零改动、SQL / 路由 / 鉴权零改动、表结构与迁移零改动。**
+**审计维度**：供应链 / CVE / 攻击面变化 / 构建产物可信度。
+
+| # | 维度 | 结论 | 依据 |
+|---|---|---|---|
+| 1 | 供应链（后端） | 改善 | gunicorn 22.0.0 → 27.0.1 跨 5 个大版本，消化 23.0.0 起的 HTTP 解析加固与 chunked 死锁修复；markdown 仅补丁版。均来自 PyPI 官方包，无新增第三方源 |
+| 2 | 供应链（前端） | 改善 | dompurify 3.4.17 → 3.5.0（XSS 净化器，站内唯一 `v-html` 防线）；vue/vue-router/vite 均为官方包。lockfile 重新生成后 `npm ci` 可复现 |
+| 3 | 攻击面变化 | 收窄 | gunicorn 23.0.0 起：拒绝空 URI、拒绝头部值含 CR/LF/NUL、移除 `--tolerate-dangerous-framing`（本项目从未使用该开关）。请求走私面减小，非扩大 |
+| 4 | 行为破坏（可用性风险） | 已评估 | 空 URI / 异常头请求由「勉强处理」变为 **400**。这是**期望行为**；仅当 Nginx 侧存在产生空 URI 的非常规重写时才可能误伤，已写入 `deploy_guide` 升级要点 |
+| 5 | 前端 XSS | 未变 | `sanitize.js` 的 DOMPurify 调用方式未改，仅版本上移；净化策略（白名单标签/属性）由同一配置驱动 |
+| 6 | 路由安全 | 未变 | vue-router 5 为 v4 的兼容升级（官方：不用 `unplugin-vue-router` 即零破坏）。本项目手写路由、无 `next()` 守卫，**未引入文件式路由**，路由表仍是显式常量 |
+| 7 | 构建产物可信度 | 需注意 | Vite 8 换 Rolldown + Lightning CSS：chunk 命名与 hash 全变。**旧 `_vite_build*` 不可复用**，否则源码与产物不一致 —— 已在 CHANGELOG 与 `deploy_guide` 双处标注 |
+| 8 | 密钥 / 越权 / CSRF / SQLi / SSRF | 不适用 | 零业务代码改动，零新增路由与出网请求 |
+
+- **依赖上限策略未被破坏**：区间锁（`cryptography>=50,<51`、`Pillow>=13,<14`、`redis>=8.1,<9`）原样保留，本次未抬任何上限；实测三个区间均覆盖当前最新版（50.0.2 / 13.0.0 / 8.2.0），不存在「上限定死漏洞」。
+- **验证**：全量 pytest **1561 passed / 1 skipped**、ruff 0、lint_debt 256=基线、i18n 通过、Vite 8 构建成功。
+- **结论**：**安全面净改善**，无新增可利用面；唯一需人工留意的是「前端必须重新构建」这条部署纪律。
+
 ## R179 · v5.12.0（章回纸墨精修 + 手机端排印 + 导航不迷路）安全审查
 
 **改动面**：`vue-frontend/src/styles/global.css`（章回纸墨层 + 顶栏分流 + 手机端排印）、`vue-frontend/src/App.vue`（面包屑 + 可见当前态 + 抽屉焦点）、`tests/` 3 个守卫文件、`DESIGN.md`。**后端业务代码零改动。**

@@ -344,5 +344,60 @@
     });
   })();
   </script>
+  <script>
+  /* v5.14.0 待审角标实时化（SSE）。
+     后台是服务端渲染的整页应用：原先「新评论来了」只能靠用户手动刷新页面才看得到。
+     这里订阅 /api/realtime/stream 的 pending 事件（只有管理员能收到），把侧栏角标
+     就地更新 —— 不重载页面，不打断正在编辑的表单。
+     连不上（EventSource 不存在 / 名额已满回 503）就静默放弃：下次刷新页面照旧有角标，
+     后台不该为了「锦上添花的实时性」制造任何报错。 */
+  (function () {
+    if (!window.EventSource) return;
+    var TARGETS = [
+      { href: '{{ url_for("admin.comments") }}', key: 'comments' },
+      { href: '{{ url_for("admin.manage_guestbook") }}', key: 'guestbook' }
+    ];
+
+    function setBadge(href, n) {
+      var links = document.querySelectorAll('.side-nav a[href="' + href + '"], .side-nav a[href="' + href + '/"]');
+      if (!links.length) return;
+      var a = links[0];
+      var badge = a.querySelector('.nav-badge');
+      if (n > 0) {
+        if (!badge) {
+          badge = document.createElement('span');
+          badge.className = 'nav-badge';
+          a.appendChild(badge);
+        }
+        badge.textContent = String(n);
+      } else if (badge) {
+        badge.parentNode.removeChild(badge);
+      }
+    }
+
+    var es;
+    try {
+      es = new EventSource('/api/realtime/stream', { withCredentials: true });
+    } catch (e) {
+      return;
+    }
+    es.addEventListener('pending', function (ev) {
+      var d;
+      try { d = JSON.parse(ev.data); } catch (e) { return; }
+      TARGETS.forEach(function (t) {
+        if (typeof d[t.key] === 'number') setBadge(t.href, d[t.key]);
+      });
+    });
+    /* 连不上就**彻底放弃**，而不是让浏览器每 3 秒无限重连：
+       后台常年开着标签页，站主若关了 SSE（或连接名额已满），那就是一条永不停止的
+       重试流。三次失败即 close —— 角标退回「刷新页面才更新」的老行为，不打扰任何人。 */
+    var fails = 0;
+    es.onerror = function () {
+      fails += 1;
+      if (fails >= 3) { try { es.close(); } catch (e) { /* ignore */ } }
+    };
+    window.addEventListener('pagehide', function () { try { es.close(); } catch (e) { /* ignore */ } });
+  })();
+  </script>
 </body>
 </html>

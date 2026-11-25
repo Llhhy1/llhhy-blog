@@ -1,8 +1,13 @@
 Flask==3.1.3
 Flask-SQLAlchemy==3.1.1
-markdown==3.11.2
+markdown==3.11.3
 bleach==6.4.0
-gunicorn==22.0.0
+# v5.13.0 依赖升级：gunicorn 22.0.0 → 27.0.1（落后 5 个大版本）。
+#   23.0.0 起 HTTP/1.1 解析大幅收紧：拒绝空 uri、拒绝头部值含 CR/LF/NUL、移除 --tolerate-dangerous-framing
+#   —— 对「Nginx 反代 + 请求走私加固」是刚需；另含 chunked 解析中途断连的死锁修复。
+#   24.0.0 起 gevent>=24.10.1 / tornado>=6.5.0 的 CVE 下限要求（本项目 sync worker，不受影响）。
+#   本项目 gunicorn_conf.py 全为标准配置（sync / bind / pidfile / log），无配置迁移负担。
+gunicorn==27.0.1
 feedparser==6.0.14
 # v3.1.6 可选：配置 REDIS_URL 后用于多 worker 全局限流（未配置不安装也不报错，自动回退内存限流）
 redis>=8.1.0,<9.0.0
